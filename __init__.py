@@ -10,7 +10,7 @@ bl_info = {
     "name": "GeoTools",
     "description": "Import and analyse geospatial data: GeoJSON, OGC 3D Tiles, and more.",
     "author": "blender_geotools contributors",
-    "version": (0, 1, 0),
+    "version": (0, 2, 0),
     "blender": (5, 1, 0),
     "location": "File > Import  /  View3D > Sidebar > GeoTools",
     "license": "GPL-3.0-or-later",
@@ -19,6 +19,7 @@ bl_info = {
     "tracker_url": "",
 }
 
+import importlib
 import logging
 
 import bpy
@@ -26,21 +27,10 @@ import bpy
 from . import geoscene as _geoscene
 from . import prefs as _prefs
 from . import ui as _ui
+from .api.registry import iter_addons
 from .core import operators as _core_ops
 
 log = logging.getLogger(__name__)
-
-# Submodule registry — add entries here as submodules are implemented.
-# Each entry: (pref_flag, module_path)
-_SUBMODULES = [
-    ("mod_geojson",   ".geojson"),
-    ("mod_gpkg",      ".gpkg"),
-    ("mod_tiles3d",   ".tiles3d"),
-    ("mod_dem",       ".dem"),
-    ("mod_analysis",  ".analysis"),
-    # ("mod_shapefile", ".shapefile"),  # not planned
-    # ("mod_raster",    ".raster"),     # not planned
-]
 
 _loaded_submodules = []
 
@@ -60,19 +50,22 @@ def register():
     _ui.register()
 
     addon_prefs = _get_prefs()
+    loaded_paths = set()
 
-    for flag, mod_path in _SUBMODULES:
-        enabled = getattr(addon_prefs, flag, True) if addon_prefs else True
-        if not enabled:
+    for addon in iter_addons():
+        enabled = getattr(addon_prefs, addon.pref_flag, True) if addon_prefs else True
+        if not enabled or addon.module_path in loaded_paths:
             continue
         try:
-            import importlib
-            mod = importlib.import_module(mod_path, package=__package__)
+            mod = importlib.import_module(addon.module_path)
             mod.register()
             _loaded_submodules.append(mod)
-            log.debug("Registered submodule: %s", mod_path)
+            loaded_paths.add(addon.module_path)
+            log.debug("Registered addon module: %s", addon.module_path)
         except Exception:
-            log.error("Failed to register submodule %s", mod_path, exc_info=True)
+            log.error(
+                "Failed to register addon module %s", addon.module_path, exc_info=True
+            )
 
 
 def unregister():

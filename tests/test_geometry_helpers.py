@@ -8,7 +8,13 @@ def _load_geometry_module():
     sys.modules.setdefault("bpy", MagicMock())
     sys.modules.setdefault("bmesh", MagicMock())
 
-    path = pathlib.Path(__file__).resolve().parents[1] / "geojson" / "geometry.py"
+    path = (
+        pathlib.Path(__file__).resolve().parents[1]
+        / "addons"
+        / "data"
+        / "geojson"
+        / "geometry.py"
+    )
     spec = importlib.util.spec_from_file_location("test_geometry_module", path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -33,4 +39,8 @@ def test_sanitize_ring_preserves_valid_triangle():
 
     ring = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [0.0, 0.0]]
 
-    assert geometry._sanitize_ring(ring, ccw=True) == [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]]
+    assert geometry._sanitize_ring(ring, ccw=True) == [
+        [0.0, 0.0],
+        [1.0, 0.0],
+        [0.0, 1.0],
+    ]

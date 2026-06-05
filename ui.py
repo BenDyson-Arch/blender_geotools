@@ -9,18 +9,21 @@ import os
 import bpy
 from bpy.types import Panel, PropertyGroup
 
-from .geoscene import georef_manager_layout
-from .core.checkdeps import HAS_PYPROJ, HAS_GDAL, HAS_NUMPY
+from .api import get_addon, get_addon_for_format, iter_addons, resolve_path
 from .core import provenance as _prov
+from .core.checkdeps import HAS_GDAL, HAS_NUMPY, HAS_PYPROJ
+from .geoscene import georef_manager_layout
 
 
 def _read_mesh_attributes(mesh):
-    """Lazy wrapper to avoid importing geojson.attributes at module load."""
-    from .geojson.attributes import read_mesh_attributes
+    """Lazy wrapper to avoid importing GeoJSON attribute helpers at module load."""
+    from .addons.data.geojson.attributes import read_mesh_attributes
+
     return read_mesh_attributes(mesh)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
+
 
 def _prefs():
     try:
@@ -45,27 +48,33 @@ def _linked_layer_items(self, context):
     for col in bpy.data.collections:
         if _prov.GEO_SOURCE not in col:
             continue
-        fmt    = col.get(_prov.GEO_FORMAT, "?").upper()
-        layer  = col.get(_prov.GEO_LAYER, "")
+        fmt = col.get(_prov.GEO_FORMAT, "?").upper()
+        layer = col.get(_prov.GEO_LAYER, "")
         source = os.path.basename(col.get(_prov.GEO_SOURCE, ""))
-        label  = f"{col.name}"
-        desc   = f"{fmt} · {layer} · {source}" if layer else f"{fmt} · {source}"
+        label = f"{col.name}"
+        desc = f"{fmt} · {layer} · {source}" if layer else f"{fmt} · {source}"
         items.append((col.name, label, desc))
     return items or _LAYER_NONE
 
 
 # ── Scene-level UI settings ─────────────────────────────────────────────────
 
+
+def _import_format_items(_self, _context):
+    specs = iter_addons(kind="source")
+    if not specs:
+        return [("__none__", "— no source addons —", "")]
+    return [
+        (spec.id, spec.label, spec.description, "IMPORT", index)
+        for index, spec in enumerate(specs)
+    ]
+
+
 class GeoToolsUISettings(PropertyGroup):
     import_format: bpy.props.EnumProperty(
         name="Format",
-        items=[
-            ("GEOJSON",  "GeoJSON",    "Import a GeoJSON file"),
-            ("GPKG",     "GeoPackage", "Import a GeoPackage layer"),
-            ("TILES3D",  "3D Tiles",   "Import an OGC 3D Tileset"),
-            ("DEM",      "DEM",        "Import a Digital Elevation Model"),
-        ],
-        default="GPKG",
+        items=_import_format_items,
+        default=0,
     )
 
     active_layer: bpy.props.EnumProperty(
@@ -77,12 +86,13 @@ class GeoToolsUISettings(PropertyGroup):
 
 # ── Scene / CRS panel ────────────────────────────────────────────────────────
 
+
 class GEOTOOLS_PT_scene(Panel):
-    bl_label       = "Scene / CRS"
-    bl_space_type  = "VIEW_3D"
+    bl_label = "Scene / CRS"
+    bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category    = "GeoTools"
-    bl_order       = 0
+    bl_category = "GeoTools"
+    bl_order = 0
 
     def draw(self, context):
         georef_manager_layout(self, context)
@@ -90,12 +100,13 @@ class GEOTOOLS_PT_scene(Panel):
 
 # ── Import panel ─────────────────────────────────────────────────────────────
 
+
 class GEOTOOLS_PT_import(Panel):
-    bl_label       = "Import"
-    bl_space_type  = "VIEW_3D"
+    bl_label = "Import"
+    bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category    = "GeoTools"
-    bl_order       = 10
+    bl_category = "GeoTools"
+    bl_order = 10
 
     def draw(self, context):
         layout = self.layout
@@ -103,91 +114,23 @@ class GEOTOOLS_PT_import(Panel):
 
         layout.prop(ui, "import_format", text="")
 
-        fmt = ui.import_format
+        spec = get_addon(ui.import_format)
+        if spec is None:
+            layout.label(text="No source add-ons registered.", icon="INFO")
+            return
+        if not _mod_enabled(spec.pref_flag):
+            layout.label(text="Module not enabled in preferences.", icon="INFO")
+            return
+        if not spec.import_panel_draw:
+            layout.label(text="Addon does not expose an import panel.", icon="INFO")
+            return
 
-        # ── GeoJSON ───────────────────────────────────────────────────
-        if fmt == "GEOJSON" and _mod_enabled("mod_geojson"):
-            layout.operator("geotools.import_geojson",
-                            text="Import GeoJSON…", icon="IMPORT")
-
-        # ── GeoPackage ────────────────────────────────────────────────
-        elif fmt == "GPKG" and _mod_enabled("mod_gpkg"):
-            s = (context.scene.gpkg_import
-                 if hasattr(context.scene, "gpkg_import") else None)
-            if s is not None:
-                col = layout.column(align=True)
-                col.prop(s, "filepath", text="File")
-                col.prop(s, "layer_name", text="Layer")
-                layout.separator(factor=0.5)
-                layer_ready = (s.filepath
-                               and s.layer_name not in ("", "__none__"))
-                row = layout.row()
-                row.enabled = bool(layer_ready)
-                op = row.operator("geotools.import_gpkg",
-                                  text="Import GPKG", icon="IMPORT")
-                if layer_ready:
-                    op.filepath           = s.filepath
-                    op.layer_name         = s.layer_name
-                    op.mode               = s.mode
-                    op.offset_origin      = s.offset_origin
-                    op.store_custom_props = s.store_custom_props
-                    op.import_holes       = s.import_holes
-            else:
-                layout.operator("geotools.import_gpkg",
-                                text="Import GPKG…", icon="IMPORT")
-
-        # ── 3D Tiles ──────────────────────────────────────────────────
-        elif fmt == "TILES3D" and _mod_enabled("mod_tiles3d"):
-            props = context.scene.tiles3d
-            layout.prop(props, "last_filepath", text="Tileset")
-
-            if props.total_content_nodes > 0:
-                info = layout.column(align=True)
-                info.label(
-                    text=f"Tree nodes: {props.total_content_nodes}",
-                    icon="MESH_DATA",
-                )
-                info.label(
-                    text=(f"\u03b5  {props.error_min:.4f}"
-                          f" \u2013 {props.error_max:.4f}"),
-                    icon="MOD_SMOOTH",
-                )
-
-                layout.separator(factor=0.5)
-                col = layout.column(align=True)
-                col.label(text="LOD Threshold (geometricError \u2264):")
-                col.prop(props, "error_threshold", text="", slider=False)
-
-                layout.separator(factor=0.5)
-                col = layout.column(align=True)
-                col.prop(props, "apply_transforms")
-                col.prop(props, "join_mesh")
-
-                layout.separator(factor=0.5)
-                op = layout.operator(
-                    "geotools.import_tileset",
-                    text="Import Tiles", icon="IMPORT",
-                )
-                op.filepath                  = props.last_filepath
-                op.geometric_error_threshold = props.error_threshold
-                op.apply_transforms          = props.apply_transforms
-                op.join_mesh                 = props.join_mesh
-            else:
-                layout.label(text="Select a tileset.json to begin.",
-                             icon="INFO")
-
-        # ── DEM ───────────────────────────────────────────────────────
-        elif fmt == "DEM" and _mod_enabled("mod_dem"):
-            layout.operator("geotools.import_dem",
-                            text="Import DEM…", icon="IMPORT")
-
-        # ── Module not enabled ────────────────────────────────────────
-        else:
-            layout.label(text="Module not enabled in preferences.",
-                         icon="INFO")
+        drawer = resolve_path(spec.import_panel_draw)
+        drawer(layout, context)
 
 
 # ── Layers panel ─────────────────────────────────────────────────────────────
+
 
 def _get_active_layer_col(context):
     """Return the Blender collection for the active layer enum, or None."""
@@ -201,11 +144,11 @@ def _get_active_layer_col(context):
 
 
 class GEOTOOLS_PT_layers(Panel):
-    bl_label       = "Layers"
-    bl_space_type  = "VIEW_3D"
+    bl_label = "Layers"
+    bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category    = "GeoTools"
-    bl_order       = 15
+    bl_category = "GeoTools"
+    bl_order = 15
 
     def draw(self, context):
         layout = self.layout
@@ -218,59 +161,66 @@ class GEOTOOLS_PT_layers(Panel):
             layout.label(text="Import data to create a layer.", icon="INFO")
             return
 
-        fmt    = col_obj.get(_prov.GEO_FORMAT, "")
+        fmt = col_obj.get(_prov.GEO_FORMAT, "")
         source = col_obj.get(_prov.GEO_SOURCE, "")
-        layer  = col_obj.get(_prov.GEO_LAYER, "")
+        layer = col_obj.get(_prov.GEO_LAYER, "")
 
         # ── Layer info ────────────────────────────────────────────────
         info = layout.column(align=True)
         info.label(text=f"Format: {fmt.upper()}", icon="FILE_BLANK")
         info.label(text=f"Source: {os.path.basename(source)}")
         if layer:
-            info.label(text=f"Table: {layer}")
+            info.label(text=f"Layer: {layer}")
         info.label(text=f"Objects: {len(col_obj.objects)}")
 
         layout.separator()
 
-        # ── GPKG operations (reload / write-back) ────────────────────
-        if fmt == "gpkg":
-            col = layout.column(align=True)
-            col.operator("geotools.reload_gpkg",
-                         text="Reload from File", icon="FILE_REFRESH")
-            col.operator("geotools.write_gpkg",
-                         text="Write to File",    icon="EXPORT")
+        source_addon = get_addon_for_format(fmt)
+
+        if source_addon and source_addon.layer_panel_draw:
+            drawer = resolve_path(source_addon.layer_panel_draw)
+            drawer(layout, context, col_obj)
             layout.separator()
 
-        # ── Add / Remove Feature ──────────────────────────────────────
-        row = layout.row(align=True)
-        row.operator("geotools.add_feature",
-                     text="Add Feature",    icon="ADD")
-        row.operator("geotools.remove_feature",
-                     text="Remove Feature", icon="REMOVE")
+        if source_addon and source_addon.capabilities.supports_feature_editing:
+            row = layout.row(align=True)
+            row.operator("geotools.add_feature", text="Add Feature", icon="ADD")
+            row.operator(
+                "geotools.remove_feature", text="Remove Feature", icon="REMOVE"
+            )
 
 
 # ── Attribute skip list ──────────────────────────────────────────────────────
 
-_BUILTIN_MESH_ATTRS = frozenset({
-    "position", "shade_smooth", "sharp_face", "sharp_edge",
-    "crease_edge", "crease_vert", "material_index",
-})
+_BUILTIN_MESH_ATTRS = frozenset(
+    {
+        "position",
+        "shade_smooth",
+        "sharp_face",
+        "sharp_edge",
+        "crease_edge",
+        "crease_vert",
+        "material_index",
+    }
+)
 
 
 # ── Edit Attribute operator ──────────────────────────────────────────────────
 
+
 class GEOTOOLS_OT_edit_attribute(bpy.types.Operator):
     """Edit the value of a single mesh attribute on the active object."""
-    bl_idname  = "geotools.edit_attribute"
-    bl_label   = "Edit Attribute"
+
+    bl_idname = "geotools.edit_attribute"
+    bl_label = "Edit Attribute"
     bl_options = {"REGISTER", "UNDO", "INTERNAL"}
 
     attr_name: bpy.props.StringProperty(name="Attribute", options={"HIDDEN"})
     attr_type: bpy.props.StringProperty(name="Type", options={"HIDDEN"})
 
-    val_float:  bpy.props.FloatProperty(name="Value")
-    val_int:    bpy.props.IntProperty(name="Value")
-    val_bool:   bpy.props.BoolProperty(name="Value")
+    val_float: bpy.props.FloatProperty(name="Value")
+    val_int: bpy.props.IntProperty(name="Value")
+    val_bool: bpy.props.BoolProperty(name="Value")
     val_string: bpy.props.StringProperty(name="Value")
     val_vector: bpy.props.FloatVectorProperty(name="Value", size=3)
 
@@ -340,13 +290,15 @@ class GEOTOOLS_OT_edit_attribute(bpy.types.Operator):
 
 # ── Edit Custom Property operator ────────────────────────────────────────────
 
+
 class GEOTOOLS_OT_edit_custom_prop(bpy.types.Operator):
     """Edit the value of a custom property on the active object."""
-    bl_idname  = "geotools.edit_custom_prop"
-    bl_label   = "Edit Property"
+
+    bl_idname = "geotools.edit_custom_prop"
+    bl_label = "Edit Property"
     bl_options = {"REGISTER", "UNDO", "INTERNAL"}
 
-    prop_name:  bpy.props.StringProperty(name="Property", options={"HIDDEN"})
+    prop_name: bpy.props.StringProperty(name="Property", options={"HIDDEN"})
     val_string: bpy.props.StringProperty(name="Value")
 
     def invoke(self, context, event):
@@ -397,11 +349,11 @@ _TYPE_ICONS = {
 
 
 class GEOTOOLS_PT_attributes(Panel):
-    bl_label       = "Attributes"
-    bl_space_type  = "VIEW_3D"
+    bl_label = "Attributes"
+    bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category    = "GeoTools"
-    bl_order       = 20
+    bl_category = "GeoTools"
+    bl_order = 20
 
     @classmethod
     def poll(cls, context):
@@ -433,7 +385,9 @@ class GEOTOOLS_PT_attributes(Panel):
                     val_str = "True" if attr.data[0].value else "False"
                 elif attr.data_type == "STRING":
                     raw = attr.data[0].value
-                    val_str = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+                    val_str = (
+                        raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+                    )
                 elif attr.data_type == "FLOAT_VECTOR":
                     v = attr.data[0].vector
                     val_str = f"({v[0]:.4g}, {v[1]:.4g}, {v[2]:.4g})"
@@ -443,8 +397,9 @@ class GEOTOOLS_PT_attributes(Panel):
                 row = layout.row(align=True)
                 row.label(text=name, icon=icon)
                 row.label(text=val_str)
-                op = row.operator("geotools.edit_attribute",
-                                  text="", icon="GREASEPENCIL")
+                op = row.operator(
+                    "geotools.edit_attribute", text="", icon="GREASEPENCIL"
+                )
                 op.attr_name = name
 
         # ── Non-mesh custom properties (strings not on mesh) ──────────
@@ -463,25 +418,26 @@ class GEOTOOLS_PT_attributes(Panel):
             row = layout.row(align=True)
             row.label(text=k, icon="FILE_TEXT")
             row.label(text=str(v))
-            op = row.operator("geotools.edit_custom_prop",
-                              text="", icon="GREASEPENCIL")
+            op = row.operator("geotools.edit_custom_prop", text="", icon="GREASEPENCIL")
             op.prop_name = k
 
 
 # ── Dependencies panel ────────────────────────────────────────────────────────
 
+
 class GEOTOOLS_PT_dependencies(Panel):
-    bl_label       = "Dependencies"
-    bl_space_type  = "VIEW_3D"
+    bl_label = "Dependencies"
+    bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category    = "GeoTools"
-    bl_order       = 90
-    bl_options     = {"DEFAULT_CLOSED"}
+    bl_category = "GeoTools"
+    bl_order = 90
+    bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
         layout = self.layout
         from .core.checkdeps import dep_versions
         from .core.settings import settings as core_settings
+
         prefs = _prefs()
 
         versions = dep_versions()
@@ -489,21 +445,28 @@ class GEOTOOLS_PT_dependencies(Panel):
         def row_for(pkg, has, label):
             row = layout.row(align=True)
             icon = "CHECKMARK" if has else "CANCEL"
-            ver  = versions.get(pkg)
+            ver = versions.get(pkg)
             text = f"{label}  {ver}" if ver else label
             row.label(text=text, icon=icon)
 
         row_for("pyproj", HAS_PYPROJ, "PyProj")
-        row_for("gdal",   HAS_GDAL,   "GDAL")
-        row_for("numpy",  HAS_NUMPY,  "NumPy")
+        row_for("gdal", HAS_GDAL, "GDAL")
+        row_for("numpy", HAS_NUMPY, "NumPy")
 
         row = layout.row(align=True)
-        has_maptiler = bool(getattr(prefs, "maptiler_api_key", "").strip()) if prefs else False
-        row.label(text="MapTiler" + (" configured" if has_maptiler else " not configured"), icon="CHECKMARK" if has_maptiler else "CANCEL")
+        has_maptiler = (
+            bool(getattr(prefs, "maptiler_api_key", "").strip()) if prefs else False
+        )
+        row.label(
+            text="MapTiler" + (" configured" if has_maptiler else " not configured"),
+            icon="CHECKMARK" if has_maptiler else "CANCEL",
+        )
 
         if core_settings.last_reproj_engine:
             layout.separator()
-            layout.label(text=f"Last engine: {core_settings.last_reproj_engine}", icon="INFO")
+            layout.label(
+                text=f"Last engine: {core_settings.last_reproj_engine}", icon="INFO"
+            )
             if core_settings.last_reproj_summary:
                 layout.label(text=core_settings.last_reproj_summary)
 
@@ -511,7 +474,9 @@ class GEOTOOLS_PT_dependencies(Panel):
             layout.separator()
             layout.label(text="No local reprojection backend.", icon="INFO")
             if has_maptiler:
-                layout.label(text="AUTO will fall back to MapTiler when built-in transforms do not apply.")
+                layout.label(
+                    text="AUTO will fall back to MapTiler when built-in transforms do not apply."
+                )
             else:
                 layout.label(text="Install pyproj or configure MapTiler fallback.")
 

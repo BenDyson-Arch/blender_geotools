@@ -28,45 +28,73 @@ import json
 # Key constants
 # ---------------------------------------------------------------------------
 
-GEO_SOURCE      = "geo_source"        # str — absolute filepath
-GEO_LAYER       = "geo_layer"         # str — layer / table name
-GEO_FORMAT      = "geo_format"        # str — "gpkg", "geojson", …
-GEO_FID         = "geo_fid"           # int — feature primary key
-GEO_GEOM_TYPE   = "geo_geom_type"     # str — "Point", "Polygon", …
-GEO_SCENE_SRID  = "geo_scene_srid"    # str — CRS string at import time
-GEO_TRACKED_FIDS = "geo_tracked_fids" # str (JSON list) — on collection
-GEO_SCHEMA      = "geo_schema"        # str (JSON dict) — on collection
+GEO_SOURCE = "geo_source"  # str — absolute filepath
+GEO_LAYER = "geo_layer"  # str — layer / table name
+GEO_FORMAT = "geo_format"  # str — "gpkg", "geojson", …
+GEO_FID = "geo_fid"  # int — feature primary key
+GEO_GEOM_TYPE = "geo_geom_type"  # str — "Point", "Polygon", …
+GEO_SCENE_SRID = "geo_scene_srid"  # str — CRS string at import time
+GEO_TRACKED_FIDS = "geo_tracked_fids"  # str (JSON list) — on collection
+GEO_SCHEMA = "geo_schema"  # str (JSON dict) — on collection
+GEO_IMPORT_SETTINGS = "geo_import_settings"  # str (JSON dict) — import config snapshot
 
 # Internal keys that should be excluded from attribute write-back
-ALL_PROVENANCE_KEYS = frozenset({
-    GEO_SOURCE, GEO_LAYER, GEO_FORMAT, GEO_FID, GEO_GEOM_TYPE,
-    GEO_SCENE_SRID, GEO_TRACKED_FIDS, GEO_SCHEMA,
-    "geo_orphan",
-    # Legacy gpkg_* keys (kept for one-version migration tolerance)
-    "gpkg_source", "gpkg_layer", "gpkg_fid", "gpkg_geom_type",
-    "gpkg_scene_srid", "gpkg_tracked_fids_json", "gpkg_orphan",
-    "gpkg_import_holes",
-    # Blender internals
-    "cycles", "_RNA_UI",
-})
+ALL_PROVENANCE_KEYS = frozenset(
+    {
+        GEO_SOURCE,
+        GEO_LAYER,
+        GEO_FORMAT,
+        GEO_FID,
+        GEO_GEOM_TYPE,
+        GEO_SCENE_SRID,
+        GEO_TRACKED_FIDS,
+        GEO_SCHEMA,
+        GEO_IMPORT_SETTINGS,
+        "geo_orphan",
+        # Legacy gpkg_* keys (kept for one-version migration tolerance)
+        "gpkg_source",
+        "gpkg_layer",
+        "gpkg_fid",
+        "gpkg_geom_type",
+        "gpkg_scene_srid",
+        "gpkg_tracked_fids_json",
+        "gpkg_orphan",
+        "gpkg_import_holes",
+        # Blender internals
+        "cycles",
+        "_RNA_UI",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
 # Object helpers
 # ---------------------------------------------------------------------------
 
-def stamp(obj, *, source: str, layer: str, fmt: str, fid: int | None = None,
-          geom_type: str = "", scene_srid: str = ""):
+
+def stamp(
+    obj,
+    *,
+    source: str,
+    layer: str,
+    fmt: str,
+    fid: int | None = None,
+    geom_type: str = "",
+    scene_srid: str = "",
+    settings: dict | None = None,
+):
     """Write provenance custom properties onto a Blender object."""
-    obj[GEO_SOURCE]     = source
-    obj[GEO_LAYER]      = layer
-    obj[GEO_FORMAT]     = fmt
+    obj[GEO_SOURCE] = source
+    obj[GEO_LAYER] = layer
+    obj[GEO_FORMAT] = fmt
     if fid is not None:
-        obj[GEO_FID]    = fid
+        obj[GEO_FID] = fid
     if geom_type:
-        obj[GEO_GEOM_TYPE]  = geom_type
+        obj[GEO_GEOM_TYPE] = geom_type
     if scene_srid:
         obj[GEO_SCENE_SRID] = scene_srid
+    if settings is not None:
+        obj[GEO_IMPORT_SETTINGS] = json.dumps(settings)
 
 
 def read_source(obj) -> tuple[str, str, str] | None:
@@ -91,17 +119,27 @@ def is_new_feature(obj) -> bool:
 # Collection helpers
 # ---------------------------------------------------------------------------
 
-def stamp_collection(col, *, source: str, layer: str, fmt: str,
-                     fids: list[int] | None = None,
-                     schema: dict | None = None):
+
+def stamp_collection(
+    col,
+    *,
+    source: str,
+    layer: str,
+    fmt: str,
+    fids: list[int] | None = None,
+    schema: dict | None = None,
+    settings: dict | None = None,
+):
     """Write provenance + tracked fids + schema on a Blender collection."""
     col[GEO_SOURCE] = source
-    col[GEO_LAYER]  = layer
+    col[GEO_LAYER] = layer
     col[GEO_FORMAT] = fmt
     if fids is not None:
         col[GEO_TRACKED_FIDS] = json.dumps(fids)
     if schema is not None:
         col[GEO_SCHEMA] = json.dumps(schema)
+    if settings is not None:
+        col[GEO_IMPORT_SETTINGS] = json.dumps(settings)
 
 
 def get_tracked_fids(col) -> set[int]:
@@ -138,6 +176,17 @@ def get_schema(col) -> dict | None:
         return None
 
 
+def get_import_settings(owner) -> dict | None:
+    """Return the stored import-settings snapshot from an object or collection."""
+    raw = owner.get(GEO_IMPORT_SETTINGS)
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
 def collect_attribute_props(obj) -> dict:
     """Return ``{col: value}`` for feature attributes on *obj*.
 
@@ -150,7 +199,8 @@ def collect_attribute_props(obj) -> dict:
     # 1) Mesh attributes — authoritative for numeric/bool/vector values
     mesh = getattr(obj, "data", None)
     if mesh is not None and hasattr(mesh, "attributes"):
-        from ..geojson.attributes import read_mesh_attributes
+        from ..addons.data.geojson.attributes import read_mesh_attributes
+
         result.update(read_mesh_attributes(mesh))
 
     # 2) Custom properties — strings and other non-mesh types

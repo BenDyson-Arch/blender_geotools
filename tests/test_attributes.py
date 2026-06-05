@@ -1,6 +1,6 @@
 import json
 
-from geojson.attributes import (
+from addons.data.geojson.attributes import (
     read_mesh_attributes,
     write_feature_properties,
     write_mesh_attributes,
@@ -74,9 +74,7 @@ def test_write_mesh_attributes_round_trips_json_like_values():
     stored = mesh.attributes["meta"].data[0].value
     assert isinstance(stored, bytes)
     assert json.loads(stored.decode("utf-8")) == properties["meta"]
-    assert read_mesh_attributes(mesh) == {
-        "meta": json.dumps(properties["meta"])
-    }
+    assert read_mesh_attributes(mesh) == {"meta": json.dumps(properties["meta"])}
 
 
 def test_write_feature_properties_can_skip_mesh_attributes():

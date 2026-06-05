@@ -9,10 +9,10 @@ import bpy
 
 from . import provenance as _prov
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _active_geo_collection(context):
     """Return the geo-linked collection for the current context.
@@ -48,9 +48,12 @@ def _default_geom_type(col) -> str:
         # Multi* variants map to the single form because new empty
         # features are always created as single geometries.
         _MAP = {
-            "POINT": "Point", "MULTIPOINT": "Point",
-            "LINESTRING": "LineString", "MULTILINESTRING": "LineString",
-            "POLYGON": "Polygon", "MULTIPOLYGON": "Polygon",
+            "POINT": "Point",
+            "MULTIPOINT": "Point",
+            "LINESTRING": "LineString",
+            "MULTILINESTRING": "LineString",
+            "POLYGON": "Polygon",
+            "MULTIPOLYGON": "Polygon",
             "GEOMETRY": "",  # mixed — let user decide
         }
         return _MAP.get(raw, raw.title())
@@ -70,14 +73,22 @@ def _default_attributes(col) -> dict:
         # Fall back: grab keys from the first object that has provenance
         for obj in col.objects:
             if _prov.has_provenance(obj):
-                return {k: _default_for_value(v)
-                        for k, v in _prov.collect_attribute_props(obj).items()}
+                return {
+                    k: _default_for_value(v)
+                    for k, v in _prov.collect_attribute_props(obj).items()
+                }
         return {}
 
     _TYPE_DEFAULTS = {
-        "TEXT": "", "INTEGER": 0, "REAL": 0.0, "FLOAT": 0.0,
-        "DOUBLE": 0.0, "BOOLEAN": False, "BLOB": b"",
-        "DATE": "", "DATETIME": "",
+        "TEXT": "",
+        "INTEGER": 0,
+        "REAL": 0.0,
+        "FLOAT": 0.0,
+        "DOUBLE": 0.0,
+        "BOOLEAN": False,
+        "BLOB": b"",
+        "DATE": "",
+        "DATETIME": "",
     }
     return {
         name: _TYPE_DEFAULTS.get(sql_type.upper(), "")
@@ -100,6 +111,7 @@ def _default_for_value(v):
 # Add Feature operator
 # ---------------------------------------------------------------------------
 
+
 class GEOTOOLS_OT_add_feature(bpy.types.Operator):
     """Add a new empty feature to the active geo-linked collection.
 
@@ -108,16 +120,16 @@ class GEOTOOLS_OT_add_feature(bpy.types.Operator):
     custom properties with default/null values from the stored schema.
     """
 
-    bl_idname  = "geotools.add_feature"
-    bl_label   = "Add Feature"
+    bl_idname = "geotools.add_feature"
+    bl_label = "Add Feature"
     bl_options = {"REGISTER", "UNDO"}
 
     geom_type: bpy.props.EnumProperty(
         name="Geometry Type",
         items=[
-            ("Point",      "Point",      "Single point"),
+            ("Point", "Point", "Single point"),
             ("LineString", "LineString", "Two-vertex line segment"),
-            ("Polygon",    "Polygon",    "Triangular placeholder polygon"),
+            ("Polygon", "Polygon", "Triangular placeholder polygon"),
         ],
         default="Point",
     )
@@ -141,12 +153,13 @@ class GEOTOOLS_OT_add_feature(bpy.types.Operator):
             self.report({"ERROR"}, "No geo-linked collection active.")
             return {"CANCELLED"}
 
-        source  = col.get(_prov.GEO_SOURCE, "")
-        layer   = col.get(_prov.GEO_LAYER, "")
-        fmt     = col.get(_prov.GEO_FORMAT, "")
+        source = col.get(_prov.GEO_SOURCE, "")
+        layer = col.get(_prov.GEO_LAYER, "")
+        fmt = col.get(_prov.GEO_FORMAT, "")
 
         # Create an empty mesh of the right type
         import bmesh
+
         mesh = bpy.data.meshes.new("NewFeature")
         bm = bmesh.new()
 
@@ -171,12 +184,15 @@ class GEOTOOLS_OT_add_feature(bpy.types.Operator):
         obj = bpy.data.objects.new(name, mesh)
 
         # Provenance — no fid (signals "new / pending insert")
-        _prov.stamp(obj, source=source, layer=layer, fmt=fmt,
-                    geom_type=self.geom_type)
+        _prov.stamp(obj, source=source, layer=layer, fmt=fmt, geom_type=self.geom_type)
 
         # Pre-populate feature attributes as mesh attributes + custom props
         defaults = _default_attributes(col)
-        from ..geojson.attributes import write_mesh_attributes, write_non_mesh_properties
+        from ..addons.data.geojson.attributes import (
+            write_mesh_attributes,
+            write_non_mesh_properties,
+        )
+
         mesh_keys = write_mesh_attributes(mesh, defaults)
         write_non_mesh_properties(obj, defaults, skip=mesh_keys)
 
@@ -198,6 +214,7 @@ class GEOTOOLS_OT_add_feature(bpy.types.Operator):
 # Remove Feature operator
 # ---------------------------------------------------------------------------
 
+
 class GEOTOOLS_OT_remove_feature(bpy.types.Operator):
     """Remove the selected geo-linked object(s) from the collection.
 
@@ -207,8 +224,8 @@ class GEOTOOLS_OT_remove_feature(bpy.types.Operator):
     Objects without a fid (not yet saved) are simply discarded.
     """
 
-    bl_idname  = "geotools.remove_feature"
-    bl_label   = "Remove Feature"
+    bl_idname = "geotools.remove_feature"
+    bl_label = "Remove Feature"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod

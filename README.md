@@ -3,8 +3,16 @@
 GeoJSON, GeoPackage, DEM, and OGC 3D Tiles tools for Blender 5.1, with shared
 CRS infrastructure and geospatial analysis utilities.
 
-This repository is structured so it can be used directly as a Blender add-on
-source tree and packaged as a `.zip` for a GitHub release.
+This repository is structured as a shared internal API with source and analysis
+addons layered on top of it. The goal is to make it easier to add new importers,
+linked-layer workflows, and analysis tools without wiring each feature directly
+into the addon root.
+
+This repository can still be used directly as a Blender add-on source tree and
+packaged as a `.zip` for a GitHub release.
+
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the extension model and registry
+contracts.
 
 ---
 
@@ -156,6 +164,21 @@ A ✗ in red means the package was not found in Blender's Python.
 
 ---
 
+## Architecture overview
+
+The repo now has four main layers:
+
+- `api/` — addon contracts, discovery, common vector settings, and tool registries
+- `addons/` — all addon code, split into:
+  - `addons/data/` for data-module manifests and implementations
+  - `addons/analysis/` for per-tool analysis manifests plus shared analysis core
+- `core/` — CRS, provenance, import utilities, and raycasting
+
+Data import modules now live entirely under `addons/data/`. Each analysis tool is
+its own addon under `addons/analysis/`, while shared analysis implementation lives
+under `addons/analysis/shared/`. That keeps discovery, preferences, and UI
+composition separate from the lower-level core infrastructure.
+
 ## Reprojection backend
 
 The active backend can be forced in addon preferences. The default is **Auto**, which
@@ -181,7 +204,7 @@ add-on files directly under the `blender_geotools/` folder.
 Example PowerShell command from the parent directory:
 
 ```powershell
-Compress-Archive -Path .\blender_geotools\* -DestinationPath .\blender_geotools-0.1.0.zip -Force
+Compress-Archive -Path .\blender_geotools\* -DestinationPath .\blender_geotools-0.2.0.zip -Force
 ```
 
 ---

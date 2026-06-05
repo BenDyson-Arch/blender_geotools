@@ -12,23 +12,31 @@ import bpy
 from bpy.props import BoolProperty, EnumProperty, StringProperty
 from bpy.types import AddonPreferences, Operator
 
-from .core.checkdeps import HAS_GDAL, HAS_NUMPY, HAS_PYPROJ, dep_versions
+from .api.registry import discover_addons, iter_addons
 from .core import settings as _core_settings
+from .core.checkdeps import dep_versions
 
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Default CRS presets  [(srid, label, description), ...]
-_DEFAULT_PRESETS_JSON = json.dumps([
-    ["EPSG:4326", "WGS84 Geographic", "World Geodetic System 1984 (lon/lat)"],
-    ["EPSG:3857", "Web Mercator", "Pseudo-Mercator — used by web maps"],
-    ["EPSG:32634", "UTM 34N", "WGS84 / UTM zone 34N (central Europe, Greece)"],
-    ["EPSG:2100", "Greek Grid (GGRS87)", "Official Greek national grid (EPSG:2100)"],
-])
+_DEFAULT_PRESETS_JSON = json.dumps(
+    [
+        ["EPSG:4326", "WGS84 Geographic", "World Geodetic System 1984 (lon/lat)"],
+        ["EPSG:3857", "Web Mercator", "Pseudo-Mercator — used by web maps"],
+        ["EPSG:32634", "UTM 34N", "WGS84 / UTM zone 34N (central Europe, Greece)"],
+        [
+            "EPSG:2100",
+            "Greek Grid (GGRS87)",
+            "Official Greek national grid (EPSG:2100)",
+        ],
+    ]
+)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
+
 
 def _list_crs_presets(self, context):
     try:
@@ -53,6 +61,7 @@ def _crs_search_update(self, context):
         return
     try:
         from .core.proj.srv import MapTilerCoordinates
+
         results = MapTilerCoordinates(api_key).search(self.query)
         self.results_json = json.dumps(results)
         if results:
@@ -92,6 +101,7 @@ def _crs_result_choice_update(self, context):
 # ---------------------------------------------------------------------------
 # Operators: add / remove CRS presets
 
+
 class GEOTOOLS_OT_add_crs_preset(Operator):
     """Search for a CRS by name or EPSG code and add it to your presets."""
 
@@ -122,7 +132,9 @@ class GEOTOOLS_OT_add_crs_preset(Operator):
         layout = self.layout
         prefs = context.preferences.addons[__package__].preferences
         if not prefs.maptiler_api_key:
-            layout.label(text="No MapTiler API key set — manual entry only.", icon="ERROR")
+            layout.label(
+                text="No MapTiler API key set — manual entry only.", icon="ERROR"
+            )
         else:
             layout.prop(self, "query", icon="VIEWZOOM")
             layout.prop(self, "result_choice")
@@ -139,6 +151,7 @@ class GEOTOOLS_OT_add_crs_preset(Operator):
 
         # Validate
         from .core.proj.srs import SRS
+
         if not SRS.validate(srid):
             self.report({"ERROR"}, f"Invalid CRS: {srid}")
             return {"CANCELLED"}
@@ -209,6 +222,7 @@ class GEOTOOLS_OT_test_maptiler_api(Operator):
 
         try:
             from .core.proj.srv import MapTilerCoordinates
+
             result = MapTilerCoordinates(api_key).test()
         except Exception as exc:
             self.report({"ERROR"}, f"MapTiler test failed: {exc}")
@@ -217,13 +231,38 @@ class GEOTOOLS_OT_test_maptiler_api(Operator):
         x, y = result["reproj_result"]
         self.report(
             {"INFO"},
-            f"MapTiler OK: {result['search_count']} search result(s), 0,0 -> {x:.3f},{y:.3f} in EPSG:3857"
+            f"MapTiler OK: {result['search_count']} search result(s), 0,0 -> {x:.3f},{y:.3f} in EPSG:3857",
         )
         return {"FINISHED"}
 
 
 # ---------------------------------------------------------------------------
 # AddonPreferences
+
+
+def _apply_addon_flags(cls) -> None:
+    discover_addons()
+    annotations = dict(getattr(cls, "__annotations__", {}))
+    for spec in iter_addons():
+        if spec.pref_flag in annotations:
+            continue
+        prop = BoolProperty(name=spec.label, default=True)
+        annotations[spec.pref_flag] = prop
+        setattr(cls, spec.pref_flag, prop)
+    cls.__annotations__ = annotations
+
+
+def _draw_addon_group(layout, prefs, *, title: str, icon: str, group: str) -> None:
+    box = layout.box()
+    box.label(text=title, icon=icon)
+    specs = iter_addons(group=group)
+    if not specs:
+        box.label(text="No addons discovered.", icon="INFO")
+        return
+    for spec in specs:
+        row = box.row()
+        row.prop(prefs, spec.pref_flag, toggle=True)
+
 
 class GeoToolsPrefs(AddonPreferences):
     bl_idname = __package__
@@ -233,11 +272,23 @@ class GeoToolsPrefs(AddonPreferences):
         name="Reprojection Backend",
         description="Engine used to reproject coordinates between CRS",
         items=[
-            ("AUTO", "Auto", "Use the best available backend (PyProj → GDAL → Built-in → MapTiler)"),
+            (
+                "AUTO",
+                "Auto",
+                "Use the best available backend (PyProj → GDAL → Built-in → MapTiler)",
+            ),
             ("PYPROJ", "PyProj", "Use PyProj library (recommended)"),
             ("GDAL", "GDAL", "Use GDAL/OGR library"),
-            ("BUILTIN", "Built-in", "No external dependency; supports UTM and Web Mercator only"),
-            ("MAPTILER", "MapTiler API", "Reproject via MapTiler web API (requires key + internet)"),
+            (
+                "BUILTIN",
+                "Built-in",
+                "No external dependency; supports UTM and Web Mercator only",
+            ),
+            (
+                "MAPTILER",
+                "MapTiler API",
+                "Reproject via MapTiler web API (requires key + internet)",
+            ),
         ],
         default="AUTO",
         update=_sync_core_settings,
@@ -253,13 +304,6 @@ class GeoToolsPrefs(AddonPreferences):
         subtype="PASSWORD",
         update=_sync_core_settings,
     )
-
-    # -- Enabled modules -------------------------------------------------------
-    mod_geojson: BoolProperty(name="GeoJSON", default=True)
-    mod_gpkg: BoolProperty(name="GeoPackage", default=True)
-    mod_tiles3d: BoolProperty(name="3D Tiles", default=True)
-    mod_dem: BoolProperty(name="DEM", default=True)
-    mod_analysis: BoolProperty(name="Analysis Tools", default=True)
 
     # -- CRS presets -----------------------------------------------------------
     crs_presets_json: StringProperty(
@@ -284,9 +328,9 @@ class GeoToolsPrefs(AddonPreferences):
         row = box.row()
         row.prop(self, "maptiler_api_key")
         row.operator("geotools.test_maptiler_api", text="Test", icon="CHECKMARK")
-        row.operator("wm.url_open", text="Get free key", icon="URL").url = (
-            "https://cloud.maptiler.com/account/keys/"
-        )
+        row.operator(
+            "wm.url_open", text="Get free key", icon="URL"
+        ).url = "https://cloud.maptiler.com/account/keys/"
 
         # -- Dependencies status -----------------------------------------------
         box = layout.box()
@@ -300,14 +344,16 @@ class GeoToolsPrefs(AddonPreferences):
                 row.label(text=f"{pkg}  not found", icon="X")
 
         # -- Enabled modules ---------------------------------------------------
-        box = layout.box()
-        box.label(text="Enabled Modules", icon="MODIFIER")
-        row = box.row()
-        row.prop(self, "mod_geojson", toggle=True)
-        row.prop(self, "mod_gpkg", toggle=True)
-        row.prop(self, "mod_tiles3d", toggle=True)
-        row.prop(self, "mod_dem", toggle=True)
-        row.prop(self, "mod_analysis", toggle=True)
+        _draw_addon_group(
+            layout, self, title="Data Modules", icon="IMPORT", group="data"
+        )
+        _draw_addon_group(
+            layout,
+            self,
+            title="Analysis Modules",
+            icon="TOOL_SETTINGS",
+            group="analysis",
+        )
 
         # -- CRS presets -------------------------------------------------------
         box = layout.box()
@@ -329,6 +375,9 @@ class GeoToolsPrefs(AddonPreferences):
 
 
 # ---------------------------------------------------------------------------
+
+_apply_addon_flags(GeoToolsPrefs)
+
 
 _classes = (
     GEOTOOLS_OT_add_crs_preset,

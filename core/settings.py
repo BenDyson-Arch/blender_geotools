@@ -6,7 +6,7 @@ after the addon preferences are loaded to push user choices into this object.
 All core/ modules import from here rather than from bpy.
 """
 
-USER_AGENT = "blender_geotools/0.1.0"
+USER_AGENT = "blender_geotools/0.2.0"
 
 
 class _CoreSettings:
