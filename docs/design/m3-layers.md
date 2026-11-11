@@ -211,6 +211,52 @@ attribute on the original mesh.
 - Report how many faces were filled by each path, and how many were left as
   no-data (written as the layer's `nodata`, or NaN for FLOAT when none is set).
 
+Settled while building stream 2 (all compatible with the above):
+
+- Operator properties: `layer` (empty for the selected one), `modifier`,
+  `attribute`, `domain` (`LAYER` keeps the layer's domain; `FACE` or `CORNER`
+  changes it, which also lets a TEXTURE entry become an attribute layer),
+  `method` (`NEAREST`, `RAYCAST`, `AREA_MEAN`), `max_distance` (raycast, each
+  way, default 1) and `disable_modifier` (default off). Every source object
+  with a Geometry Nodes modifier of that name is baked; objects without it are
+  skipped and reported, and a mesh shared by several objects is baked once.
+- The mesh is evaluated up to and including the modifier: later modifiers are
+  turned off in the viewport for the evaluation, and the modifier itself on
+  (so a modifier turned off by an earlier bake can be baked again). Their
+  visibility is restored afterwards.
+- The attribute may be on the POINT, EDGE, FACE or CORNER domain, with type
+  FLOAT, INT, INT8 or BOOLEAN. Vectors and colours are refused.
+- Transfers use one temporary object that shares the original mesh and reads
+  the evaluated mesh with an Object Info node (original space). NEAREST uses
+  Sample Nearest (FACE) for the evaluated face and Sample Nearest Surface for
+  the interpolated value. A CORNER layer samples each corner moved 1%
+  (`CORNER_INSET`) towards its face centre, so a corner takes its own face's
+  side of a value boundary. RAYCAST casts two rays (normal and reverse) from
+  the same points; the nearer hit wins. AREA_MEAN gives a CORNER layer each
+  face's value on all its corners.
+- `core.transfer.reduction_kind`: BOOLEAN, CATEGORY and INT layers aggregated
+  by MODE never interpolate. They take the value of the evaluated face found
+  (the mode of its corners), and AREA_MEAN takes the value with the largest
+  total area (`segment_mode`). Other INT layers are averaged and rounded.
+- No-data and NaN never mix into a mean: reductions skip them, and the
+  sampling tree maps the layer's `nodata` to NaN before Sample Nearest Surface
+  and Raycast interpolate. Where the interpolated value is NaN, the evaluated
+  face's own value (the mean of its valid corners) is used. An element whose
+  value is still no-data is counted as no-data, not under its path.
+- Every object's values are computed before anything is written, so a failure
+  leaves the source and the registry unchanged. The layer then becomes
+  `origin=GEONODES` with provenance `make_provenance("bake_geonodes", {...})`.
+  The parameters are `modifier`, `node_group`, `attribute`, `method`,
+  `domain`, `source_domains`, `same_topology`, `objects`, `counts` (per path:
+  `copied`, `area_mean`, `raycast`, `nearest`, `fallback`, plus `nodata`),
+  `modifier_disabled` and, for RAYCAST, `max_distance`.
+- The panel's settings are kept per layer in `GeoToolsLayer.vertex_bake`
+  (`GeoToolsVertexBake`: the operator's settings plus `last_report`).
+  `bake_vertex.register()` adds this pointer to the registered class, so
+  `properties.py` is unchanged. The UI is the **Bake from Geometry Nodes**
+  sub-panel of Layers (`GEOTOOLS_PT_layers_bake_vertex`), shown for FACE and
+  CORNER layers.
+
 ## 3. Texture-space bake: `geotools/blender/bake_texture.py`
 
 Operator `geotools.bake_texture_layer`: bake a layer, or a named attribute of

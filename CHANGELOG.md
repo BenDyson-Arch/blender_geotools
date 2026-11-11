@@ -61,6 +61,16 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   `//geotools_layers/`. A Layers panel after Source adds, renames and removes
   layers (optionally with their attributes and images), creates their
   attributes, works out their value range and shows what is missing.
+- Vertex-space bake (M3): Bake from Geometry Nodes, a sub-panel of Layers,
+  freezes a named attribute that a Geometry Nodes modifier outputs into a face
+  or corner layer on the source meshes. If the modifier keeps the topology,
+  the values are copied. Otherwise they are transferred by Nearest, Raycast
+  (both ways along the face normal, within a maximum distance, falling back to
+  Nearest) or Area Mean (falling back to Nearest), with Geometry Nodes
+  evaluations and numpy. Boolean and category layers take the most common
+  value instead of a mean. No-data stays no-data. The report says how many
+  faces each path filled. The bake records its provenance, updates the value
+  range, and can turn the modifier off afterwards.
 - `build.json` schema 2: the layers, the SHA-256 of `source.glb` and of the
   saved `.blend` (null if unsaved or modified), and the placement's EPSG code
   when the CRS is a preset or an EPSG code.

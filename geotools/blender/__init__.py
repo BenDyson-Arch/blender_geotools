@@ -11,6 +11,7 @@ from types import ModuleType
 
 from ..core import deps
 from . import (
+    bake_vertex,
     checks,
     layers,
     operators,
@@ -38,6 +39,7 @@ MODULES: tuple[ModuleType, ...] = (
     presentation,
     publish,
     panels,
+    bake_vertex,  # after panels: its sub-panel needs GEOTOOLS_PT_layers
 )
 
 
