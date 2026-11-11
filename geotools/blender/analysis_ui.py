@@ -6,6 +6,8 @@
   - Coordinates: points A and B (from the 3D cursor or a pick), their E, N, RL
     and latitude and longitude, the distance between them, and the area of
     the selected faces. Each result has a copy button.
+  - Presets: the Add Analysis menu of Geometry Nodes presets
+    (``analysis_presets``) and the presets on the active object.
 
 Panels draw stored results only; the operators compute. ``panels`` registers
 these classes before About.
@@ -17,7 +19,7 @@ import bpy
 
 from ..analysis import site, sun
 from ..core.placement import PlacementMode
-from . import analysis
+from . import analysis, analysis_presets
 from .properties import ANCHOR_FIELDS, number_is_valid
 from .ui import big_button, info_row, split_column, wrapped
 
@@ -262,8 +264,20 @@ def _draw_area(layout, area: site.AreaReading, name: str) -> None:
     info_row(col, "Grid Surf.", f"{area.grid_surface:,.3f} m²")
 
 
+class GEOTOOLS_PT_analysis_presets(_AnalysisPanel, bpy.types.Panel):
+    """Geometry Nodes analysis presets: a modifier and a layer each."""
+
+    bl_idname = "GEOTOOLS_PT_analysis_presets"
+    bl_label = "Presets"
+    bl_parent_id = "GEOTOOLS_PT_analysis"
+
+    def draw(self, context: bpy.types.Context) -> None:
+        analysis_presets.draw_panel(self.layout, context)
+
+
 classes = (
     GEOTOOLS_PT_analysis,
     GEOTOOLS_PT_analysis_sun,
     GEOTOOLS_PT_analysis_coordinates,
+    GEOTOOLS_PT_analysis_presets,
 )

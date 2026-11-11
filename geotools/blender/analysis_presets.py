@@ -1,0 +1,474 @@
+"""Add Analysis: the bundled Geometry Nodes presets as modifiers and layers (M5).
+
+The presets are ordinary node groups of stock nodes in
+``geotools/assets/analysis_presets.blend`` (``scripts/make_analysis_presets.py``
+builds it; ``geotools.analysis.presets`` is the catalog). Blender 5.2 has no
+API for an extension to register an asset library without writing the user's
+preferences, so ``geotools.analysis_add`` appends the group from the bundled
+file directly. The file's groups are also marked as assets in two catalogs, so
+a user can add its folder as an asset library by hand.
+
+``geotools.analysis_add``:
+
+1. appends the preset's node group, unless the file already has it (found by
+   its ``geotools_preset`` and ``geotools_preset_version`` custom properties,
+   so a renamed or edited group is reused). Helper groups appended with it
+   that the file already has are merged into the existing ones, so re-adding
+   never duplicates a node group;
+2. adds it as a Geometry Nodes modifier on each selected mesh, with its
+   ``Attribute`` input set to the layer's ``gt_<name>`` (an object that already
+   has that modifier keeps it) and, for aspect with true north, the
+   ``Convergence`` input set from ``analysis.site`` at the object's centre;
+3. creates or updates the FACE or CORNER layer: label, units, aggregation,
+   description, a provenance naming the preset, its version and the inputs,
+   and, for a new layer, the display palette and range.
+
+The layer reads the evaluated mesh (M3), and the export applies modifiers, so
+the result publishes like any Geometry Nodes layer. The user edits the inputs
+on the modifier, or opens the group and edits it.
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+import bpy
+import numpy as np
+from bpy.props import EnumProperty, StringProperty
+
+from ..analysis import presets as catalog
+from ..analysis import site
+from ..core.issues import Severity
+from ..core.layers import attribute_name, display_name, format_number, validate
+from ..core.placement import PlacementMode
+from .common import extension_version, redraw_ui
+from .layers import ensure_layer, find_layer, refresh_layer, source_objects, spec_from_props
+from .properties import FieldError, placement_from_props
+
+log = logging.getLogger(__name__)
+
+LIBRARY_PATH = Path(__file__).resolve().parents[1] / "assets" / catalog.LIBRARY_FILE
+
+PRESET_ITEMS = tuple((p.id, p.label, p.description) for p in catalog.PRESETS)
+
+NORTH_ITEMS = (
+    ("GRID", "Grid North (+Y)", "Measure from the scene's +Y axis"),
+    ("TRUE", "True North", "Add the grid convergence at each object's centre (analysis.site)"),
+)
+
+
+class PresetError(RuntimeError):
+    """The preset could not be added; the message says why."""
+
+
+# --- node groups -------------------------------------------------------------------------
+
+
+def _identity(group: bpy.types.NodeTree) -> tuple[object, object]:
+    return group.get(catalog.PRESET_KEY), group.get(catalog.VERSION_KEY)
+
+
+def find_group(ident: str, version: int) -> bpy.types.NodeTree | None:
+    """The file's local node group of this preset (or helper) and version, if any."""
+    for group in bpy.data.node_groups:
+        if group.library is None and _identity(group) == (ident, version):
+            return group
+    return None
+
+
+def ensure_group(preset: catalog.Preset, library: Path = LIBRARY_PATH) -> bpy.types.NodeTree:
+    """The preset's node group in this file, appended from ``library`` if needed.
+
+    Groups appended alongside it (its helpers) that the file already has are
+    remapped onto the existing ones and removed, so nothing is duplicated.
+    """
+    existing = find_group(preset.id, preset.version)
+    if existing is not None:
+        return existing
+    if not library.is_file():
+        raise PresetError(f"The preset library is missing: {library}")
+    before = {group.as_pointer() for group in bpy.data.node_groups}
+    with bpy.data.libraries.load(str(library), link=False) as (source, target):
+        if preset.group not in source.node_groups:
+            raise PresetError(f"{library.name} has no node group {preset.group!r}")
+        target.node_groups = [preset.group]
+    appended = target.node_groups[0]
+    if appended is None or _identity(appended) != (preset.id, preset.version):
+        raise PresetError(f"{preset.group!r} in {library.name} is not version {preset.version}")
+    for group in [g for g in bpy.data.node_groups if g.as_pointer() not in before]:
+        ident, version = _identity(group)
+        if ident is None or group == appended:
+            continue
+        old = next(
+            (
+                g
+                for g in bpy.data.node_groups
+                if g.as_pointer() in before
+                and g.library is None
+                and _identity(g) == (ident, version)
+            ),
+            None,
+        )
+        if old is not None:
+            group.user_remap(old)
+            bpy.data.node_groups.remove(group)
+    _forget_library(library)
+    return appended
+
+
+def _forget_library(library: Path) -> None:
+    """Remove the Library entries an append leaves behind (nothing is linked from them)."""
+    for entry in list(bpy.data.libraries):
+        try:
+            same = Path(bpy.path.abspath(entry.filepath)).resolve() == library.resolve()
+        except (OSError, ValueError):
+            continue
+        if same and not any(getattr(i, "library", None) == entry for i in bpy.data.node_groups):
+            bpy.data.libraries.remove(entry)
+
+
+# --- modifiers ---------------------------------------------------------------------------------
+
+
+def _input_item(group: bpy.types.NodeTree, name: str):
+    for item in group.interface.items_tree:
+        if item.item_type == "SOCKET" and item.in_out == "INPUT" and item.name == name:
+            return item
+    return None
+
+
+def get_input(modifier: bpy.types.Modifier, name: str) -> object:
+    """A Geometry Nodes modifier's input value by socket name (Blender 5.2 API)."""
+    item = _input_item(modifier.node_group, name)
+    if item is None:
+        raise KeyError(name)
+    return getattr(modifier.properties.inputs, item.identifier).value
+
+
+def set_input(modifier: bpy.types.Modifier, name: str, value: object) -> None:
+    item = _input_item(modifier.node_group, name)
+    if item is None:
+        raise KeyError(name)
+    getattr(modifier.properties.inputs, item.identifier).value = value
+
+
+def preset_modifiers(obj: bpy.types.Object) -> list[tuple[bpy.types.Modifier, catalog.Preset]]:
+    """The object's Geometry Nodes modifiers whose group is a GeoTools preset."""
+    found = []
+    for modifier in obj.modifiers:
+        group = getattr(modifier, "node_group", None)
+        if modifier.type != "NODES" or group is None:
+            continue
+        ident, version = _identity(group)
+        try:
+            preset = catalog.get(str(ident))
+        except KeyError:
+            continue
+        if version == preset.version:
+            found.append((modifier, preset))
+    return found
+
+
+def find_modifier(
+    obj: bpy.types.Object, group: bpy.types.NodeTree, attribute: str
+) -> bpy.types.Modifier | None:
+    """The object's modifier of ``group`` that stores ``attribute``, if any."""
+    for modifier in obj.modifiers:
+        if modifier.type != "NODES" or modifier.node_group != group:
+            continue
+        try:
+            if get_input(modifier, catalog.ATTRIBUTE_INPUT) == attribute:
+                return modifier
+        except KeyError:
+            continue
+    return None
+
+
+def _inputs(modifier: bpy.types.Modifier, preset: catalog.Preset) -> dict[str, object]:
+    values = {}
+    for spec in preset.inputs:
+        try:
+            value = get_input(modifier, spec.name)
+        except KeyError:
+            continue
+        values[spec.name] = float(value) if isinstance(value, float) else value
+    return values
+
+
+# --- north ---------------------------------------------------------------------------------------
+
+
+def _centre(obj: bpy.types.Object) -> tuple[float, float, float]:
+    """World-space centre of the object's bounding box (8 corners, not its vertices)."""
+    corners = np.array(obj.bound_box, dtype=np.float64)
+    matrix = np.array(obj.matrix_world, dtype=np.float64)
+    world = corners @ matrix[:3, :3].T + matrix[:3, 3]
+    return tuple(float(v) for v in world.mean(axis=0))
+
+
+def convergence(scene: bpy.types.Scene, obj: bpy.types.Object) -> tuple[float, str]:
+    """Degrees from true north to the scene's +Y at the object's centre, and what +Y is.
+
+    LOCAL projects take +Y as true north (0). Raises ``PresetError`` when the
+    project does not parse or a CRS project has no pyproj.
+    """
+    try:
+        placement = placement_from_props(scene.geotools)
+    except FieldError as exc:
+        raise PresetError(f"The project placement is not valid: {exc}") from None
+    mode = PlacementMode(placement.mode)
+    if mode is PlacementMode.LOCAL:
+        return 0.0, "true north"
+    if mode is PlacementMode.SOURCE_CRS and not site.available():
+        raise PresetError(
+            "True north needs pyproj, which is not available (see About); use grid north."
+        )
+    try:
+        where = site.sun_site(placement, _centre(obj))
+    except (site.SiteError, site.GeodesyUnavailable, ValueError) as exc:
+        raise PresetError(f"Could not find the convergence at {obj.name}: {exc}") from None
+    return float(where.convergence), where.north
+
+
+# --- the operation ------------------------------------------------------------------------------
+
+
+def target_objects(context: bpy.types.Context) -> list[bpy.types.Object]:
+    """The selected mesh objects, or the active one when it is a mesh and none is selected."""
+    objects = [o for o in context.selected_objects if o.type == "MESH"]
+    if not objects and context.active_object is not None and context.active_object.type == "MESH":
+        objects = [context.active_object]
+    return sorted(objects, key=lambda o: o.name)
+
+
+def _recorded_objects(provenance) -> list[str]:
+    """The object names a preset layer's provenance lists (empty if it lists none)."""
+    objects = (provenance or {}).get("parameters", {}).get("objects")
+    return [str(o) for o in objects] if isinstance(objects, list) else []
+
+
+def add_preset(
+    context: bpy.types.Context,
+    preset: catalog.Preset,
+    objects: list[bpy.types.Object],
+    *,
+    name: str = "",
+    north: str = "GRID",
+    library: Path = LIBRARY_PATH,
+) -> tuple[str, list[str]]:
+    """Add ``preset`` to ``objects`` and create its layer; returns (layer name, notes).
+
+    Raises ``PresetError`` (nothing changed) when the layer name belongs to a
+    layer of something else, the name is invalid, or north cannot be found.
+    """
+    scene = context.scene
+    if not objects:
+        raise PresetError("Select one or more mesh objects first.")
+    name = name.strip() or preset.layer
+    item = find_layer(scene, name)
+    if item is not None and catalog.preset_of(spec_from_props(item).provenance) != preset.id:
+        raise PresetError(
+            f"Layer {name!r} already exists and is not a {preset.label} layer; "
+            "give the analysis another name."
+        )
+    others = [layer.name for layer in scene.geotools.layers if layer.name != name]
+    errors = [
+        i
+        for i in validate(catalog.layer_spec(preset, name), others)
+        if i.severity is Severity.ERROR
+    ]
+    if errors:
+        raise PresetError(errors[0].message)
+
+    true_north = preset.north and north == "TRUE"
+    angles: dict[str, float] = {}
+    north_label = "grid"
+    if true_north:
+        for obj in objects:
+            angles[obj.name], north_label = convergence(scene, obj)
+
+    group = ensure_group(preset, library)
+    attribute = attribute_name(name)
+    modifier_inputs: dict[str, dict[str, object]] = {}
+    added = 0
+    for obj in objects:
+        modifier = find_modifier(obj, group, attribute)
+        if modifier is None:
+            modifier = obj.modifiers.new(f"GeoTools {preset.label} ({name})", "NODES")
+            modifier.node_group = group
+            set_input(modifier, catalog.ATTRIBUTE_INPUT, attribute)
+            added += 1
+        if preset.north:
+            set_input(modifier, catalog.CONVERGENCE_INPUT, angles.get(obj.name, 0.0))
+        modifier_inputs[obj.name] = _inputs(modifier, preset)
+
+    is_new = item is None
+    previous = [] if is_new else _recorded_objects(spec_from_props(item).provenance)
+    names = sorted(set(previous) | {o.name for o in objects})
+    first = modifier_inputs[objects[0].name]
+    spec = catalog.layer_spec(
+        preset,
+        name,
+        inputs=first if len({repr(v) for v in modifier_inputs.values()}) == 1 else modifier_inputs,
+        objects=tuple(names),
+        north=None if not preset.north else ("true" if true_north else "grid"),
+        geotools_version=extension_version(),
+    )
+    ensure_layer(scene, spec)
+    item = find_layer(scene, name)
+    if is_new:
+        item.presentation.palette = preset.palette
+        if preset.display_range is not None:
+            item.presentation.range_min = format_number(preset.display_range[0])
+            item.presentation.range_max = format_number(preset.display_range[1])
+    layers = scene.geotools.layers
+    scene.geotools.layers_index = next(i for i, layer in enumerate(layers) if layer.name == name)
+
+    notes = []
+    if true_north:
+        spread = ", ".join(f"{angles[o.name]:+.4f}°" for o in objects[:3])
+        notes.append(f"Convergence {spread} ({north_label})")
+    sources = {o.as_pointer() for o in source_objects(scene)}
+    outside = [o.name for o in objects if o.as_pointer() not in sources]
+    if outside:
+        notes.append("Not in the source collection, so not published: " + ", ".join(outside[:3]))
+    if added == 0:
+        notes.append("Every object already had it")
+    try:
+        refresh_layer(scene, item)
+    except (RuntimeError, ValueError, KeyError):
+        log.exception("could not refresh layer %s", name)
+    return name, notes
+
+
+# --- operator and menu -----------------------------------------------------------------------
+
+
+class GEOTOOLS_OT_analysis_add(bpy.types.Operator):
+    """Add a Geometry Nodes analysis preset to the selected meshes and create its layer"""
+
+    bl_idname = "geotools.analysis_add"
+    bl_label = "Add Analysis"
+    bl_options = {"REGISTER", "UNDO"}
+
+    preset: EnumProperty(name="Preset", items=PRESET_ITEMS)
+    name: StringProperty(
+        name="Layer",
+        description="Layer name (lowercase letters, digits and underscores); empty for the "
+        "preset's own",
+        options={"SKIP_SAVE"},
+    )
+    north: EnumProperty(
+        name="North",
+        items=NORTH_ITEMS,
+        default="GRID",
+        description="What aspect is measured from (other presets ignore it)",
+        options={"SKIP_SAVE"},
+    )
+
+    @classmethod
+    def description(cls, _context, properties) -> str:
+        try:
+            preset = catalog.get(properties.preset)
+        except KeyError:
+            return cls.__doc__
+        cost = {"heavy": " Slow on large meshes: see the docs."}.get(preset.cost, "")
+        return f"{preset.description}.{cost}"
+
+    @classmethod
+    def poll(cls, context: bpy.types.Context) -> bool:
+        if context.scene is None:
+            return False
+        if context.mode != "OBJECT":
+            cls.poll_message_set("Switch to Object Mode first")
+            return False
+        if not target_objects(context):
+            cls.poll_message_set("Select a mesh object")
+            return False
+        return True
+
+    def draw(self, _context: bpy.types.Context) -> None:
+        layout = self.layout
+        layout.use_property_split = True
+        layout.prop(self, "preset")
+        layout.prop(self, "name")
+        if catalog.get(self.preset).north:
+            layout.prop(self, "north")
+
+    def execute(self, context: bpy.types.Context) -> set[str]:
+        preset = catalog.get(self.preset)
+        objects = target_objects(context)
+        try:
+            name, notes = add_preset(context, preset, objects, name=self.name, north=self.north)
+        except PresetError as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        count = len(objects)
+        message = f"{preset.label} on {count} object{'s' * (count != 1)}, layer {name}"
+        self.report({"INFO"}, "; ".join([message, *notes]))
+        redraw_ui(context)
+        return {"FINISHED"}
+
+
+class GEOTOOLS_MT_analysis_presets(bpy.types.Menu):
+    """The bundled Geometry Nodes analysis presets"""
+
+    bl_idname = "GEOTOOLS_MT_analysis_presets"
+    bl_label = "Add Analysis"
+
+    def draw(self, _context: bpy.types.Context) -> None:
+        layout = self.layout
+        layout.operator_context = "EXEC_DEFAULT"
+        for index, category in enumerate(catalog.Category):
+            if index:
+                layout.separator()
+            layout.label(text=catalog.CATEGORY_LABELS[category])
+            for preset in catalog.by_category(category):
+                icon = "TIME" if preset.cost == "heavy" else "NONE"
+                layout.operator(
+                    GEOTOOLS_OT_analysis_add.bl_idname, text=preset.label, icon=icon
+                ).preset = preset.id
+                if preset.north:
+                    op = layout.operator(
+                        GEOTOOLS_OT_analysis_add.bl_idname, text=f"{preset.label} (True North)"
+                    )
+                    op.preset = preset.id
+                    op.north = "TRUE"
+
+
+def draw_panel(layout: bpy.types.UILayout, context: bpy.types.Context) -> None:
+    """The Presets sub-panel: the Add Analysis menu and the active object's presets."""
+    row = layout.row()
+    row.scale_y = 1.4
+    row.menu(GEOTOOLS_MT_analysis_presets.bl_idname, text="Add Analysis", icon="ADD")
+    obj = context.active_object
+    found = preset_modifiers(obj) if obj is not None and obj.type == "MESH" else []
+    if not found:
+        layout.label(text="Adds a Geometry Nodes modifier and a layer", icon="INFO")
+        return
+    col = layout.column(align=True)
+    for modifier, preset in found:
+        try:
+            attribute = str(get_input(modifier, catalog.ATTRIBUTE_INPUT))
+        except KeyError:
+            attribute = "?"
+        layer_name = attribute.removeprefix("gt_")
+        item = find_layer(context.scene, layer_name)
+        label = display_name(spec_from_props(item)) if item is not None else preset.label
+        icon = "MODIFIER_ON" if modifier.show_viewport else "MODIFIER_OFF"
+        col.label(text=f"{label}: {attribute}", icon=icon)
+    layout.label(text="Edit inputs on the modifier", icon="MODIFIER")
+
+
+classes = (GEOTOOLS_OT_analysis_add, GEOTOOLS_MT_analysis_presets)
+
+_register_classes, _unregister_classes = bpy.utils.register_classes_factory(classes)
+
+
+def register() -> None:
+    _register_classes()
+
+
+def unregister() -> None:
+    _unregister_classes()

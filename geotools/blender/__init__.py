@@ -12,6 +12,7 @@ from types import ModuleType
 from ..core import deps
 from . import (
     analysis,
+    analysis_presets,
     bake_texture,
     checks,
     crs_picker,
@@ -53,6 +54,7 @@ MODULES: tuple[ModuleType, ...] = (
     publish,
     bake_texture,
     analysis,
+    analysis_presets,
     panels,  # last: the sidebar draws what the modules above register
 )
 
