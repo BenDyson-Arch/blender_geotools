@@ -191,8 +191,16 @@ rusty-tiles tiles, because rusty-tiles 0.4 refuses input with extensions.
 - **TEXTURE layers:** property textures, with float32 values packed into
   lossless PNG channels.
 - **Placement:** vertex positions always stay in the local frame (float32
-  near the origin). Whether the file also carries the Earth placement, as a
-  root node transform or as a georeference record, is still open.
+  near the origin), so the file opens correctly in any glTF tool.
+  - Default: the georeference is recorded in `KHR_xmp_json_ld` (CRS as EPSG
+    code and definition, E/N/A offset, height offset, origin longitude,
+    latitude and height, heading). Nothing is lost, and nothing moves the
+    model away from the origin.
+  - Option "Earth-placed": the root node also carries the local-to-ECEF
+    transform (the same matrix as the tileset root transform, from the
+    placement probe), so geospatial viewers such as CesiumJS place it with no
+    extra input. General tools apply it in float32 and put the model about
+    6,400 km from their origin, so it is off by default.
 - **Output:** a build profile output type of `.3tz` or `.glb`, through the
   same checks and staging.
 - **Exit:** the 3d-tiles-validator accepts the GLB; CesiumJS shows it, picks
