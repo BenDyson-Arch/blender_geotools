@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import importlib.util
+
+import numpy as np
 import pytest
 
 from geotools.core import crs_match as cm
-from geotools.core import crs_presets
+from geotools.core import crs_presets, reproject
 from geotools.core.placement import Placement, PlacementMode
 
 MGA56_WKT1 = (
@@ -115,8 +118,85 @@ def test_text_round_trip() -> None:
     assert cm.from_text("not json") is None
 
 
-def test_reproject_is_not_available() -> None:
-    a = cm.DataCrs("EPSG:4326", None, cm.SOURCE_RFC7946)
-    b = cm.DataCrs("EPSG:7856", None, cm.SOURCE_PROJECT)
-    with pytest.raises(cm.ReprojectionUnavailable, match="QGIS"):
-        cm.reproject([[153.0, -27.5, 0.0]], a, b)
+# --- reprojection (the hook into core.reproject) --------------------------------------
+
+HAS_PYPROJ = importlib.util.find_spec("pyproj") is not None
+needs_pyproj = pytest.mark.skipif(not HAS_PYPROJ, reason="pyproj is not installed")
+MGA56 = crs_presets.get("MGA2020_56")
+WGS84 = cm.DataCrs("EPSG:4326", None, cm.SOURCE_RFC7946)
+GDA94_MGA56 = cm.DataCrs("EPSG:28356", None, cm.SOURCE_GPKG)
+PRESET_PROJECT = cm.DataCrs(MGA56.epsg, MGA56.definition, cm.SOURCE_PROJECT)
+
+
+def test_reprojection_target_is_the_presets_epsg_code() -> None:
+    assert cm.reprojection_target(PRESET_PROJECT) == "EPSG:7856"
+    other = cm.DataCrs(None, "+proj=tmerc +lon_0=151 +ellps=GRS80", cm.SOURCE_PROJECT)
+    assert cm.reprojection_target(other) == other.definition
+    assert cm.reprojection_target(cm.DataCrs("EPSG:32756", "EPSG:32756", "project")) == (
+        "EPSG:32756"
+    )
+
+
+def test_reproject_without_pyproj_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(reproject, "available", lambda: False)
+    with pytest.raises(cm.ReprojectionUnavailable, match="not available"):
+        cm.reproject([[153.0, -27.5, 0.0]], WGS84, PRESET_PROJECT)
+    assert cm.ReprojectionUnavailable is reproject.ReprojectionUnavailable
+
+
+@needs_pyproj
+def test_reproject_wgs84_into_a_preset_project_uses_epsg() -> None:
+    import pyproj
+
+    points = np.array([[153.0251, -27.4698]])
+    out, report = cm.reproject(points, WGS84, PRESET_PROJECT)
+    e, n = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:7856", always_xy=True).transform(
+        153.0251, -27.4698
+    )
+    np.testing.assert_allclose(out[0], (e, n), atol=1e-6)
+    assert report.source == "EPSG:4326" and report.target == "EPSG:7856"
+    assert any("preset" in note and "EPSG:7856" in note for note in report.notes), report.notes
+    assert points[0, 0] == 153.0251  # input untouched
+
+
+@needs_pyproj
+def test_reproject_gda94_into_a_preset_project_moves_about_1_5_m() -> None:
+    points = np.array([[502_000.0, 6_961_000.0, 12.0]])
+    out, report = cm.reproject(points, GDA94_MGA56, PRESET_PROJECT)
+    shift = float(np.hypot(*(out[0, :2] - points[0, :2])))
+    assert 1.4 < shift < 1.6, shift
+    assert out[0, 2] == 12.0  # 2D CRSs: Z passed through
+    assert "GDA2020" in report.operation and report.accuracy_m == 0.01
+
+
+def test_report_round_trip() -> None:
+    report = reproject.ReprojectionReport("EPSG:4326", "EPSG:7856", "op", 1.0, False, ("a",))
+    assert cm.report_from_dict(cm.report_to_dict(report)) == report
+    unknown = reproject.ReprojectionReport("a", "b", "op", None, True, ())
+    assert cm.report_from_dict(cm.report_to_dict(unknown)) == unknown
+    assert cm.report_from_dict(None) is None and cm.report_from_dict({"source": 1}) is None
+    assert "accuracy 1 m" in cm.report_text(report)
+    assert "accuracy unknown" in cm.report_text(unknown)
+
+
+def test_label_and_preset_lookup() -> None:
+    assert cm.DataCrs("EPSG:7856", None, "x").label() == "EPSG:7856"
+    assert cm.DataCrs(None, "+proj=tmerc", "x").label() == "+proj=tmerc"
+    assert cm.DataCrs(None, None, "x").label() == "an unknown CRS"
+    assert cm.preset_for_epsg("epsg:7856") is MGA56
+    assert cm.preset_for_epsg("EPSG:4326") is None and cm.preset_for_epsg(None) is None
+
+
+def test_is_geographic_without_pyproj(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(reproject, "available", lambda: False)
+    assert cm.is_geographic(WGS84) is True
+    assert cm.is_geographic(cm.DataCrs("EPSG:7856", None, "x")) is False
+    assert cm.is_geographic(cm.DataCrs("EPSG:28356", None, "x")) is None
+    assert cm.is_geographic(cm.DataCrs(None, None, "x")) is None
+
+
+@needs_pyproj
+def test_is_geographic_with_pyproj() -> None:
+    assert cm.is_geographic(WGS84) is True
+    assert cm.is_geographic(GDA94_MGA56) is False
+    assert cm.is_geographic(cm.DataCrs(None, MGA56.definition, "x")) is False

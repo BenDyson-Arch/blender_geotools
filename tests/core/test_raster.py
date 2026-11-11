@@ -16,6 +16,7 @@ import _geotiff as gw
 from geotools.core import crs_match, crs_presets, fingerprint, raster
 from geotools.core import geotiff as gt
 from geotools.core.crs_match import DataCrs
+from geotools.core.data_origin import NeedsProjectOrigin
 from geotools.core.placement import Placement, PlacementMode
 
 ORIGIN = (512_345.0, 6_961_789.0)
@@ -197,10 +198,12 @@ def test_matches() -> None:
     assert crs_match.matches(custom, DataCrs("EPSG:7856", None, "user")) is None
 
 
-def test_reproject_is_not_available() -> None:
-    data = DataCrs("EPSG:4326", None, "rfc7946-default")
-    with pytest.raises(crs_match.ReprojectionUnavailable, match="QGIS"):
-        crs_match.reproject(np.zeros((1, 3)), data, data)
+def test_rasters_are_never_reprojected_even_with_pyproj(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(crs_match._reproject, "available", lambda: True)
+    with pytest.raises(raster.RasterError, match=r"does not reproject rasters.*QGIS"):
+        raster.check_crs(
+            _project(MGA56.definition), DataCrs("EPSG:28356", None, "geotiff-geokeys"), "d.tif"
+        )
 
 
 def test_check_crs_match_returns_the_offset() -> None:
@@ -242,6 +245,34 @@ def test_check_crs_local_and_anchor_warn_and_do_not_shift(mode: PlacementMode) -
     )
     assert check.offset == (0.0, 0.0, 0.0)
     assert len(check.warnings) == 1 and "local metres" in check.warnings[0]
+    # Small local coordinates in a known CRS: still a warning.
+    check = raster.check_crs(
+        Placement(mode=mode),
+        DataCrs("EPSG:7856", None, "geotiff-geokeys"),
+        "d.tif",
+        bounds=(-50.0, -50.0, 120.0, 80.0),
+    )
+    assert "local metres" in check.warnings[0]
+
+
+@pytest.mark.parametrize("mode", [PlacementMode.LOCAL, PlacementMode.ANCHOR])
+def test_check_crs_local_and_anchor_refuse_projected_data(mode: PlacementMode) -> None:
+    with pytest.raises(NeedsProjectOrigin, match="project origin") as caught:
+        raster.check_crs(
+            Placement(mode=mode),
+            DataCrs("EPSG:7856", None, "geotiff-geokeys"),
+            "d.tif",
+            bounds=(512_345.0, 6_961_765.0, 512_379.0, 6_961_789.0),
+        )
+    origin = caught.value.origin
+    assert origin.source_crs == MGA56.definition and origin.epsg == "EPSG:7856"
+    assert origin.offset == (512_362.0, 6_961_777.0, 0.0)
+    assert isinstance(caught.value, ValueError)  # the importers' ValueError handling holds
+    # An unknown CRS keeps the warning, however large the coordinates.
+    check = raster.check_crs(
+        Placement(mode=mode), None, "d.tif", bounds=(512_345.0, 6_961_765.0, 512_379.0, 6e6)
+    )
+    assert "local metres" in check.warnings[0]
 
 
 def test_check_crs_needs_a_project_crs() -> None:

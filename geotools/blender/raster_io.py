@@ -32,9 +32,10 @@ from ..core import crs_match, fingerprint
 from ..core import geotiff as core_geotiff
 from ..core import raster as core_raster
 from ..core.crs_match import DataCrs
+from ..core.data_origin import NeedsProjectOrigin
 from ..core.geotiff import GeoTiffError, GeoTiffInfo
 from ..core.raster import RasterError
-from . import links
+from . import data_origin, links
 from .common import redraw_ui
 from .links import RefreshError, RefreshResult
 from .properties import FieldError, placement_from_scene
@@ -111,12 +112,14 @@ def read_dem_band(info: GeoTiffInfo) -> np.ndarray:
 def _placement_offset(
     scene: bpy.types.Scene, info: GeoTiffInfo, confirmed: bool
 ) -> core_raster.CrsCheck:
-    """The offset for ``info``; raises RasterError."""
+    """The offset for ``info``; raises RasterError or ``NeedsProjectOrigin``."""
     try:
         placement = placement_from_scene(scene)
     except FieldError as ex:
         raise RasterError(f"Fix the project placement first: {ex}") from ex
-    return core_raster.check_crs(placement, info.crs, info.name, confirmed=confirmed)
+    return core_raster.check_crs(
+        placement, info.crs, info.name, confirmed=confirmed, bounds=info.bounds()
+    )
 
 
 def _crs_text(info: GeoTiffInfo) -> str:
@@ -296,7 +299,8 @@ def import_geotiff(
 ) -> tuple[bpy.types.Object, RefreshReport]:
     """Import ``path`` into the active collection and link it.
 
-    Raises ValueError (``RasterError`` or ``GeoTiffError``); nothing is made then.
+    Raises ValueError: ``RasterError``, ``GeoTiffError``, or ``NeedsProjectOrigin``
+    for projected data in a LOCAL or ANCHOR project. Nothing is made then.
     """
     started = time.perf_counter()
     # Before reading: a write during the import then shows as a change on disk.
@@ -364,7 +368,7 @@ def refresh(obj: bpy.types.Object) -> RefreshResult:
                 links.replace_mesh(obj, build_plane_mesh(obj.data.name, quad))
             if not any(slot.material for slot in obj.material_slots):
                 obj.data.materials.append(ortho_material(obj.name, image, info.has_alpha))
-    except ValueError as ex:  # RasterError, GeoTiffError
+    except ValueError as ex:  # RasterError, GeoTiffError, NeedsProjectOrigin
         raise RefreshError(str(ex)) from None
     link.crs = _crs_text(info)
     seconds = time.perf_counter() - started
@@ -470,6 +474,11 @@ plane. Linked to the file, so it can be refreshed"""
             obj, report = import_geotiff(
                 context, path, self.mode, self.step, self.assume_project_crs
             )
+        except NeedsProjectOrigin as ex:
+            request = {"kind": "GEOTIFF", "filepath": path, "mode": self.mode, "step": self.step}
+            data_origin.offer(context, request, ex)
+            self.report({"ERROR"}, str(ex))
+            return {"CANCELLED"}
         except ValueError as ex:
             self.report({"ERROR"}, str(ex))
             return {"CANCELLED"}

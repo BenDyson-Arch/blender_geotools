@@ -13,6 +13,7 @@ from ..core import deps
 from . import (
     bake_texture,
     checks,
+    data_origin,
     layers,
     links,
     operators,
@@ -36,6 +37,7 @@ MODULES: tuple[ModuleType, ...] = (
     operators,
     source,
     links,
+    data_origin,
     vectors,
     raster_io,
     checks,

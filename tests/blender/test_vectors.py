@@ -271,7 +271,13 @@ def test_import_crs_mismatch_is_refused() -> None:
             [vf.feature({"type": "Point", "coordinates": [153.0, -27.5]}, {}, 1)],
             crs=None,
         )
-        result, error = h.call_op(bpy.ops.geotools.import_geojson, filepath=str(wgs84))
+        # Without pyproj (reprojection itself is in test_vector_crs).
+        module = h.submodule("core.reproject")
+        available, module.available = module.available, lambda: False
+        try:
+            result, error = h.call_op(bpy.ops.geotools.import_geojson, filepath=str(wgs84))
+        finally:
+            module.available = available
         assert result == {"ERROR_REPORTED"}
         assert "EPSG:4326" in error and "EPSG:7856" in error and "QGIS" in error, error
         assert not bpy.data.objects and not bpy.data.meshes

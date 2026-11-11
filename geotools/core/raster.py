@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .crs_match import DataCrs, matches, project_crs
+from .data_origin import Bounds, check_local_project
 from .geotiff import GeoTiffInfo
 from .placement import Placement, PlacementMode, Vec3
 
@@ -34,22 +35,28 @@ class CrsCheck:
 
 
 def check_crs(
-    placement: Placement, data: DataCrs | None, name: str, *, confirmed: bool = False
+    placement: Placement,
+    data: DataCrs | None,
+    name: str,
+    *,
+    confirmed: bool = False,
+    bounds: Bounds | None = None,
 ) -> CrsCheck:
     """The offset to apply, or :class:`RasterError` if the CRS does not match.
 
     Rasters are never reprojected. ``confirmed`` is the user's "data is in the
     project CRS", used only when the CRS cannot be determined.
+
+    In a LOCAL or ANCHOR project the coordinates are used as local metres, with
+    a warning, unless the raster is in a known projected CRS and ``bounds`` (its
+    extent) reach far from the origin: then
+    :class:`~geotools.core.data_origin.NeedsProjectOrigin` (a ValueError) is
+    raised, carrying the raster's CRS and centre as a project origin.
     """
     mode = PlacementMode(placement.mode)
     data_label = data.label() if data is not None else "no CRS"
     if mode is not PlacementMode.SOURCE_CRS:
-        kind = "Local" if mode is PlacementMode.LOCAL else "Anchor"
-        warning = (
-            f"{kind} project: {name}'s coordinates ({data_label}) are used as local "
-            "metres, unshifted. Set the project to a Source CRS with an offset to "
-            "place it precisely."
-        )
+        warning = check_local_project(mode, data, bounds, name)
         return CrsCheck((0.0, 0.0, 0.0), (warning,))
     project = project_crs(placement)
     if project is None:

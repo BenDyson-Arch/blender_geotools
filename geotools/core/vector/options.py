@@ -5,11 +5,16 @@ They are stored so Refresh re-reads the file exactly as it was imported:
 - ``kind``: which geometry kind this object holds (``points``, ``lines``,
   ``polygons``);
 - ``where``: the GeoPackage attribute filter, an SQL ``WHERE`` clause;
-- ``site_bbox``: ``[min_e, min_n, max_e, max_n]`` in the data's coordinates
-  for "within the site extent", or None;
+- ``site_bbox``: ``[min_e, min_n, max_e, max_n]`` in the project CRS (the
+  data's coordinates after any reprojection) for "within the site extent", or
+  None;
 - ``columns``: Blender attribute name -> source column name, for the columns
   imported or written back (they differ only when a source name is reserved
-  in Blender, e.g. ``position`` becomes ``position_src``).
+  in Blender, e.g. ``position`` becomes ``position_src``);
+- ``allow_grid_downloads``: whether PROJ may download a transformation grid
+  when the data is reprojected (off by default, so imports stay offline);
+- ``reprojection``: the last reprojection report
+  (``crs_match.report_to_dict``), or None when the data is in the project CRS.
 """
 
 from __future__ import annotations
@@ -28,6 +33,8 @@ class VectorOptions:
     where: str = ""
     site_bbox: tuple[float, float, float, float] | None = None
     columns: dict[str, str] = field(default_factory=dict)
+    allow_grid_downloads: bool = False
+    reprojection: dict[str, object] | None = None
 
     def to_text(self) -> str:
         return json.dumps(
@@ -36,6 +43,8 @@ class VectorOptions:
                 "where": self.where,
                 "site_bbox": list(self.site_bbox) if self.site_bbox else None,
                 "columns": self.columns,
+                "allow_grid_downloads": self.allow_grid_downloads,
+                "reprojection": self.reprojection,
             },
             sort_keys=True,
         )
@@ -61,6 +70,7 @@ class VectorOptions:
             except (TypeError, ValueError):
                 site_bbox = None
         columns = raw.get("columns")
+        reprojection = raw.get("reprojection")
         return cls(
             kind=kind,
             where=str(raw.get("where") or ""),
@@ -68,6 +78,8 @@ class VectorOptions:
             columns={str(k): str(v) for k, v in columns.items()}
             if isinstance(columns, dict)
             else {},
+            allow_grid_downloads=bool(raw.get("allow_grid_downloads", False)),
+            reprojection=reprojection if isinstance(reprojection, dict) else None,
         )
 
 

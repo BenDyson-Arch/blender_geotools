@@ -6,11 +6,15 @@ link state (status, options), never reads files.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import bpy
 
+from ..core import crs_match
+from ..core.reproject import format_accuracy
 from ..core.vector.options import VectorOptions
+from . import data_origin
 from .links import KIND_ICONS, STATUS_ICONS, active_link, linked_objects, links_state
 from .ui import DONE, ERROR, WARNING, header_status, wrapped
 
@@ -32,6 +36,26 @@ def _filters_text(link) -> str:
     if options.site_bbox is not None:
         parts.append("within site")
     return ", ".join(parts) or "None"
+
+
+def _reprojection_text(link) -> str | None:
+    report = crs_match.report_from_dict(VectorOptions.from_text(link.options).reprojection)
+    if report is None:
+        return None
+    return f"From {report.source}, accuracy {format_accuracy(report.accuracy_m)}"
+
+
+def _raster_text(link) -> str:
+    try:
+        options = json.loads(link.options) if link.options else {}
+    except ValueError:
+        options = {}
+    if not isinstance(options, dict):
+        options = {}
+    if options.get("mode") == "ORTHO":
+        return "Orthophoto"
+    step = int(options.get("step", 1) or 1)
+    return "DEM, every pixel" if step == 1 else f"DEM, every {step} pixels"
 
 
 class GEOTOOLS_PT_linked_data(bpy.types.Panel):
@@ -65,6 +89,10 @@ class GEOTOOLS_PT_linked_data(bpy.types.Panel):
         if geotiff_available():
             row.operator("geotools.import_geotiff", text="GeoTIFF")
 
+        pending = data_origin.pending_offer(context)
+        if pending is not None:
+            data_origin.draw_offer(layout, context, pending)
+
         obj = active_link(context)
         if obj is None:
             if not linked_objects():
@@ -95,6 +123,11 @@ class GEOTOOLS_PT_linked_data(bpy.types.Panel):
             op = row.operator("geotools.export_vector", text="Export", icon="FILE_NEW")
             op.object_name = obj.name
             op.file_format = "GEOJSON" if link.kind == "GEOJSON" else "GPKG"
+            reprojected = _reprojection_text(link)
+            if reprojected:
+                box.label(text=reprojected, icon="ORIENTATION_GLOBAL")
+        elif link.kind == "GEOTIFF":
+            box.label(text=_raster_text(link), icon="MESH_GRID")
         if link.last_sync:
             box.label(text=f"Synced {link.last_sync.replace('T', ' ')}", icon="BLANK1")
 

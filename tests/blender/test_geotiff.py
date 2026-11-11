@@ -424,6 +424,83 @@ def test_geotiff_stale_detection_and_auto_refresh() -> None:
         assert links.check_link(obj) == "MISSING"
 
 
+# --- LOCAL and ANCHOR projects -------------------------------------------------------------
+
+
+def test_projected_raster_in_a_local_or_anchor_project_offers_its_centre() -> None:
+    data_origin = h.submodule("blender.data_origin")
+    preset = h.submodule("core.crs_presets").get("MGA2020_56")
+    for mode in ("LOCAL", "ANCHOR"):
+        _project(mode=mode)
+        z = gw.dem(12, 17)
+        with _tmpdir() as tmp:
+            path = _write(tmp / "far.tif", z)
+            result, error, obj = _import(path, step=2)
+            assert result == {"ERROR_REPORTED"} and obj is None, mode
+            assert "project origin" in error and "EPSG:7856" in error, error
+            pending = data_origin.pending_offer(bpy.context)
+            assert pending["request"] == {
+                "kind": "GEOTIFF",
+                "filepath": str(path),
+                "mode": "AUTO",
+                "step": 2,
+            }, pending
+            assert not data_origin.needs_confirmation(bpy.context.scene)
+
+            result, error = h.call_op(bpy.ops.geotools.use_data_origin, **pending["request"])
+            assert result == {"FINISHED"}, error
+            props = h.project()
+            assert props.placement_mode == "SOURCE_CRS"
+            assert props.source_crs == preset.definition  # the preset for EPSG:7856
+            # Pixel edges: 512345 to 512379 E, 6961765 to 6961789 N.
+            centre = (512_362.0, 6_961_777.0, 0.0)
+            read = h.submodule("blender.properties").read_number
+            offset = tuple(read(props, f"source_offset_{k}") for k in "ena")
+            assert offset == centre, offset
+            assert data_origin.pending_offer(bpy.context) is None
+            obj = bpy.data.objects["far"]
+            assert obj.geotools_link.kind == "GEOTIFF"
+            rows, cols = np.arange(0, 12, 2), np.arange(0, 17, 2)
+            xx, yy = np.meshgrid(ORIGIN[0] + (cols + 0.5) * 2.0, ORIGIN[1] - (rows + 0.5) * 2.0)
+            zz = z[::2, ::2].astype(np.float64)
+            expected = np.stack([xx - centre[0], yy - centre[1], zz], axis=-1).reshape(-1, 3)
+            np.testing.assert_array_equal(_positions(obj), expected.astype(np.float32))
+
+
+def test_use_data_origin_asks_first_when_there_is_a_source() -> None:
+    data_origin = h.submodule("blender.data_origin")
+    _project(mode="LOCAL")
+    collection = bpy.data.collections.new("Site")
+    bpy.context.scene.collection.children.link(collection)
+    collection.objects.link(bpy.data.objects.new("Ground", bpy.data.meshes.new("Ground")))
+    h.project().source_collection = collection
+    with _tmpdir() as tmp:
+        path = _write(tmp / "far.tif", gw.dem(4, 4))
+        result, _error, _obj = _import(path)
+        assert result == {"ERROR_REPORTED"}
+        assert data_origin.needs_confirmation(bpy.context.scene)
+        calls = h.draw(data_origin.GEOTOOLS_OT_use_data_origin)
+        text = h.label_text(calls)
+        assert "changes how the existing scene is placed on Earth" in text, text
+        assert "'Site' (1 object)" in text and "from Local" in text, text
+        assert "EPSG:7856 (GDA2020 / MGA zone 56)" in text, text
+        # Confirmed (EXEC, as the dialog's OK button runs it): the import goes ahead.
+        result, error = h.call_op(
+            bpy.ops.geotools.use_data_origin, **data_origin.pending_offer(bpy.context)["request"]
+        )
+        assert result == {"FINISHED"}, error
+        assert h.project().placement_mode == "SOURCE_CRS" and "far" in bpy.data.objects
+
+
+def test_small_local_raster_in_a_local_project_still_imports() -> None:
+    _project(mode="ANCHOR")
+    with _tmpdir() as tmp:
+        path = _write(tmp / "near.tif", gw.dem(3, 3), origin=(-20.0, 30.0))
+        result, error, _obj = _import(path)
+    assert result == {"FINISHED"}, error
+    assert h.project().placement_mode == "ANCHOR"
+
+
 # --- File > Import ---------------------------------------------------------------------------
 
 

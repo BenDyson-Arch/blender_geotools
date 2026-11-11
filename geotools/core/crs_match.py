@@ -1,13 +1,11 @@
 """Which CRS geo data is in, and whether it is the project's.
 
-GeoTools never reprojects geometry itself (see the roadmap's CRS decision).
-Data in the project CRS is placed exactly; data in another CRS is refused with
-a message naming both. When the data's CRS cannot be determined, the user may
-confirm that it is in the project CRS.
-
-:func:`reproject` is the single hook for rusty-tiles' planned
-``transform_points``. It raises :class:`ReprojectionUnavailable` until that
-function ships.
+Data in the project CRS is placed exactly. Vector points in another CRS are
+reprojected into the project CRS with the bundled pyproj (:func:`reproject`,
+which calls :func:`geotools.core.reproject.reproject_points`); without pyproj
+they are refused with a message naming both CRSs. Rasters are never
+reprojected. When the data's CRS cannot be determined, the user may confirm
+that it is in the project CRS.
 
 The design is in ``docs/design/m8-geo-formats.md`` ("CRS matching").
 """
@@ -19,7 +17,9 @@ import re
 from dataclasses import dataclass
 
 from . import crs_presets
+from . import reproject as _reproject
 from .placement import Placement, PlacementMode
+from .reproject import ReprojectionReport, ReprojectionUnavailable
 
 # Where a DataCrs came from.
 SOURCE_GEOJSON_MEMBER = "geojson-crs-member"
@@ -61,20 +61,105 @@ class DataCrs:
         return "an unknown CRS"
 
 
-class ReprojectionUnavailable(RuntimeError):
-    """Reprojection is not available yet (rusty-tiles has no transform_points)."""
+def reprojection_target(project: DataCrs) -> str:
+    """The CRS text vector points are reprojected into, for the project CRS ``project``.
 
-
-def reproject(points: object, data_crs: DataCrs, project_crs: DataCrs) -> object:
-    """Reproject ``points`` (n, 3) from ``data_crs`` to ``project_crs``.
-
-    Not available: rusty-tiles' ``transform_points`` has not shipped. When it
-    does, this calls it and returns the points with its accuracy report.
+    A project whose CRS is a GeoTools preset holds coordinates in the preset's
+    datum (GDA2020 for the MGA presets), and its mesh is placed with the
+    preset's ``+towgs84`` null shift at publish time. Points are therefore
+    reprojected into the preset's EPSG code, so PROJ applies the real datum
+    shift (GDA94 to GDA2020 moves about 1.5 m in Brisbane), not into the
+    preset's PROJ string, which would treat both datums as WGS84 and not move
+    GDA94 data at all. Any other project CRS is used as written.
     """
-    raise ReprojectionUnavailable(
-        f"GeoTools cannot reproject from {data_crs.describe()} to {project_crs.describe()} "
-        "yet. Reproject the data to the project CRS in QGIS first."
+    preset = crs_presets.for_definition(project.definition or "")
+    if preset is not None:
+        return preset.epsg
+    return project.definition or project.epsg or ""
+
+
+def _source_text(data_crs: DataCrs) -> str:
+    return data_crs.epsg or (data_crs.definition or "").strip()
+
+
+def reproject(
+    points: object,
+    data_crs: DataCrs,
+    project_crs: DataCrs,
+    *,
+    allow_network: bool = False,
+) -> tuple[object, ReprojectionReport]:
+    """Reproject ``points`` (n, 2 or 3, binary64) from ``data_crs`` into the project CRS.
+
+    Returns the new points and pyproj's :class:`ReprojectionReport`. The
+    target is :func:`reprojection_target`. Raises
+    :class:`ReprojectionUnavailable` when pyproj is not available, and
+    ``reproject.ReprojectionError`` (a ValueError) for a CRS PROJ does not
+    know or a failed transform.
+    """
+    if not _reproject.available():
+        raise ReprojectionUnavailable(
+            f"Reprojection from {data_crs.describe()} to {project_crs.describe()} is not "
+            "available: pyproj did not load (see Check Dependencies)."
+        )
+    target = reprojection_target(project_crs)
+    out, report = _reproject.reproject_points(
+        points, _source_text(data_crs), target, allow_network=allow_network
     )
+    preset = crs_presets.for_definition(project_crs.definition or "")
+    if preset is not None:
+        note = (
+            f"The project CRS is the preset {preset.label}: the points were reprojected into "
+            f"{preset.epsg}, the datum the scene's coordinates are in, not through the "
+            "preset's +towgs84 null shift."
+        )
+        report = ReprojectionReport(
+            source=report.source,
+            target=report.target,
+            operation=report.operation,
+            accuracy_m=report.accuracy_m,
+            network=report.network,
+            notes=(*report.notes, note),
+        )
+    return out, report
+
+
+def report_text(report: ReprojectionReport) -> str:
+    """One line for the import report: from, to, the operation and its accuracy."""
+    return (
+        f"Reprojected from {report.source} to {report.target} with {report.operation} "
+        f"(accuracy {_reproject.format_accuracy(report.accuracy_m)})"
+    )
+
+
+def report_to_dict(report: ReprojectionReport) -> dict[str, object]:
+    """The report as JSON-ready values, for a link's options."""
+    return {
+        "source": report.source,
+        "target": report.target,
+        "operation": report.operation,
+        "accuracy_m": report.accuracy_m,
+        "network": report.network,
+        "notes": list(report.notes),
+    }
+
+
+def report_from_dict(raw: object) -> ReprojectionReport | None:
+    """Read :func:`report_to_dict` output back; None for anything else."""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        accuracy = raw.get("accuracy_m")
+        return ReprojectionReport(
+            source=str(raw["source"]),
+            target=str(raw["target"]),
+            operation=str(raw["operation"]),
+            accuracy_m=None if accuracy is None else float(accuracy),
+            network=bool(raw.get("network", False)),
+            notes=tuple(str(n) for n in raw.get("notes") or ()),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 # --- the project's CRS ----------------------------------------------------------
@@ -114,12 +199,16 @@ def matches(project: DataCrs | None, data: DataCrs) -> bool | None:
     return None
 
 
-def mismatch_message(project: DataCrs, data: DataCrs, what: str) -> str:
-    """The refusal for data in another CRS than the project's."""
+def mismatch_message(project: DataCrs, data: DataCrs, what: str, reason: str = "") -> str:
+    """The refusal for data in another CRS than the project's.
+
+    ``reason`` says why GeoTools could not reproject it (pyproj missing, for one).
+    """
+    because = f" {reason.rstrip('.')}." if reason else ""
     return (
-        f"{what} is in {data.describe()}, but the project CRS is {project.describe()}. "
-        "Reproject it to the project CRS in QGIS (Export > Save Features As, with the "
-        "project CRS) and import that file."
+        f"{what} is in {data.describe()}, but the project CRS is {project.describe()}."
+        f"{because} Reproject it to the project CRS in QGIS (Export > Save Features As, "
+        "with the project CRS) and import that file."
     )
 
 
@@ -256,3 +345,36 @@ def preset_for_epsg(epsg: str | None) -> crs_presets.CrsPreset | None:
     """The GeoTools CRS preset that stands in for ``epsg``, if there is one."""
     code = normalise_epsg(epsg) if epsg else None
     return next((p for p in crs_presets.PRESETS if p.epsg == code), None) if code else None
+
+
+# EPSG codes of common geographic (degree) CRSs, for when pyproj cannot be asked.
+_GEOGRAPHIC = frozenset(
+    f"EPSG:{code}" for code in (4326, 4979, 4283, 4939, 7844, 7843, 4167, 4258, 4269, 4617, 4019)
+)
+
+
+def is_geographic(crs: DataCrs) -> bool | None:
+    """True for a geographic CRS (degrees), False for a projected one, None if unknown.
+
+    Asks pyproj when it is available; otherwise GeoTools' presets are
+    projected, a few common geographic codes are known, and the rest is None.
+    """
+    if not crs.known:
+        return None
+    if _reproject.available():
+        try:
+            import pyproj
+
+            parsed = pyproj.CRS.from_user_input(crs.epsg or (crs.definition or "").strip())
+        except (pyproj.exceptions.CRSError, TypeError, ValueError):
+            parsed = None
+        if parsed is not None:
+            if parsed.is_geographic:
+                return True
+            if parsed.is_projected:
+                return False
+    if crs.epsg in _GEOGRAPHIC:
+        return True
+    if preset_for_epsg(crs.epsg) is not None or crs_presets.for_definition(crs.definition or ""):
+        return False
+    return None

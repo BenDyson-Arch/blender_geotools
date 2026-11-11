@@ -6,6 +6,13 @@ in the project frame, with the feature attributes on the matching domain
 (FACE, EDGE, POINT) and a ``fid`` INT attribute. Each object is linked to its
 file (``links.GeoToolsLink``) and can be refreshed, filtered and written back.
 
+Data in another CRS than the project's is reprojected into it with the bundled
+pyproj (``crs_match.reproject``) before the project offset is subtracted, all
+in binary64; the report (operation, accuracy, notes) goes into the import
+report and the link, and Refresh reprojects the same way. Projected data in a
+LOCAL or ANCHOR project is refused with the data's centre offered as the
+project origin (``data_origin``).
+
 Export: the evaluated mesh (modifiers applied, so a draped result keeps its
 heights) to GeoJSON or GeoPackage with Z, in the project CRS.
 
@@ -28,7 +35,9 @@ from bpy.props import BoolProperty, CollectionProperty, EnumProperty, StringProp
 from mathutils.geometry import tessellate_polygon
 
 from ..core import crs_match, fingerprint
+from ..core import reproject as core_reproject
 from ..core.crs_match import DataCrs
+from ..core.data_origin import NeedsProjectOrigin, check_local_project
 from ..core.fingerprint import FileState, Fingerprint
 from ..core.placement import Placement, PlacementMode
 from ..core.vector import geojson, gpkg
@@ -36,7 +45,9 @@ from ..core.vector import mesh as vmesh
 from ..core.vector.digest import diff, feature_digests
 from ..core.vector.model import Column, ColumnType, Kind, VectorData, concat
 from ..core.vector.options import VectorOptions, within_bbox
-from . import links
+from ..core.vector.transform import bounds as data_bounds
+from ..core.vector.transform import reproject_data
+from . import data_origin, links
 from .common import redraw_ui
 from .links import RefreshError, RefreshResult
 from .properties import FieldError, placement_from_props
@@ -99,24 +110,69 @@ def project_frame(scene: bpy.types.Scene) -> Frame:
     return Frame((0.0, 0.0, 0.0), None, placement)
 
 
-def accept_crs(frame: Frame, data_crs: DataCrs, what: str, assume_project_crs: bool) -> DataCrs:
-    """The CRS to record for the link, or raise :class:`ImportRefused`."""
+@dataclass(frozen=True, slots=True)
+class CrsDecision:
+    crs: DataCrs
+    """The CRS recorded in the link: the data's, or the project's when the user confirmed it."""
+    reproject: bool
+    """True when the data is in another CRS and is reprojected into the project's."""
+
+
+def accept_crs(frame: Frame, data_crs: DataCrs, what: str, assume_project_crs: bool) -> CrsDecision:
+    """How data in ``data_crs`` goes into the project, or raise :class:`ImportRefused`.
+
+    LOCAL and ANCHOR projects (``frame.project`` None) take the data as it is;
+    :func:`check_local` then decides from its extent.
+    """
     if frame.project is None:
-        frame.warnings.append(
-            f"The project is not in a CRS: {what}'s coordinates are taken as local metres."
-        )
-        return data_crs
+        return CrsDecision(data_crs, False)
     verdict = crs_match.matches(frame.project, data_crs)
     if verdict is True:
-        return data_crs
+        return CrsDecision(data_crs, False)
     if verdict is False:
-        try:
-            crs_match.reproject(None, data_crs, frame.project)
-        except crs_match.ReprojectionUnavailable:
-            raise ImportRefused(crs_match.mismatch_message(frame.project, data_crs, what)) from None
+        if not core_reproject.available():
+            reason = "Reprojection is not available: pyproj did not load (see Check Dependencies)"
+            raise ImportRefused(crs_match.mismatch_message(frame.project, data_crs, what, reason))
+        return CrsDecision(data_crs, True)
     if not assume_project_crs:
         raise ImportRefused(crs_match.unknown_message(data_crs, what))
-    return DataCrs(frame.project.epsg, frame.project.definition, crs_match.SOURCE_USER)
+    return CrsDecision(
+        DataCrs(frame.project.epsg, frame.project.definition, crs_match.SOURCE_USER), False
+    )
+
+
+def reproject_into(
+    frame: Frame, data: VectorData, what: str, allow_network: bool
+) -> tuple[VectorData, crs_match.ReprojectionReport | None]:
+    """``data`` reprojected into the project CRS, or raise :class:`ImportRefused`."""
+    assert frame.project is not None
+    try:
+        return reproject_data(data, frame.project, allow_network=allow_network)
+    except crs_match.ReprojectionUnavailable as ex:
+        raise ImportRefused(
+            crs_match.mismatch_message(frame.project, data.crs, what, str(ex))
+        ) from None
+    except core_reproject.ReprojectionError as ex:
+        raise ImportRefused(
+            f"Cannot reproject {what} from {data.crs.describe()} to "
+            f"{frame.project.describe()}: {ex}"
+        ) from None
+
+
+def check_local(frame: Frame, loaded: list[tuple[str, VectorData]]) -> None:
+    """The LOCAL/ANCHOR rule for ``(what, data)`` pairs: warn, or raise ``NeedsProjectOrigin``.
+
+    Layers in the same CRS are checked together, so a GeoPackage of several
+    layers gets one suggested origin: the centre of all of them.
+    """
+    mode = PlacementMode(frame.placement.mode)
+    groups: dict[str, list[tuple[str, VectorData]]] = {}
+    for what, data in loaded:
+        groups.setdefault(crs_match.to_text(data.crs), []).append((what, data))
+    for group in groups.values():
+        what = ", ".join(w for w, _d in group)
+        extent = data_bounds([d for _w, d in group])
+        frame.warnings.append(check_local_project(mode, group[0][1].crs, extent, what))
 
 
 def site_bbox(scene: bpy.types.Scene, frame: Frame) -> tuple[float, float, float, float]:
@@ -265,6 +321,16 @@ def object_name(layer: str, kind: Kind, kinds: list[Kind]) -> str:
     return layer if len(kinds) == 1 or kind is Kind.POLYGONS else f"{layer}{KIND_SUFFIX[kind]}"
 
 
+@dataclass(slots=True)
+class ImportResult:
+    """What :func:`import_vectors` made and what to tell the user."""
+
+    objects: list[bpy.types.Object]
+    warnings: list[str]
+    notes: list[str]
+    """Information lines: the reprojection used, with its accuracy and notes."""
+
+
 def import_vectors(
     context: bpy.types.Context,
     kind: str,
@@ -274,10 +340,14 @@ def import_vectors(
     where: str = "",
     within_site: bool = False,
     assume_project_crs: bool = False,
-) -> tuple[list[bpy.types.Object], list[str]]:
-    """Import ``layers`` of ``path`` as linked objects; return them and any warnings.
+    allow_grid_downloads: bool = False,
+) -> ImportResult:
+    """Import ``layers`` of ``path`` as linked objects.
 
-    Raises :class:`ImportRefused`, ValueError or OSError, before any object is made.
+    Data in another CRS is reprojected into the project CRS (PROJ may download
+    grids only with ``allow_grid_downloads``). Raises :class:`ImportRefused`,
+    ``NeedsProjectOrigin`` (projected data in a LOCAL or ANCHOR project),
+    ValueError or OSError, before any object is made.
     """
     scene = context.scene
     frame = project_frame(scene)
@@ -287,22 +357,34 @@ def import_vectors(
     for layer in layers:
         data = read_source(kind, path, layer, where)
         what = f"{path.name}" if kind == "GEOJSON" else f"{path.name} ({layer})"
-        crs = accept_crs(frame, data.crs, what, assume_project_crs)
-        bbox = site_bbox(scene, frame) if within_site else None
-        if bbox is not None:
-            data = data.select_rows(within_bbox(data, bbox))
-        loaded.append((layer, data, crs, bbox))
+        decision = accept_crs(frame, data.crs, what, assume_project_crs)
+        report = None
+        if decision.reproject:
+            data, report = reproject_into(frame, data, what, allow_grid_downloads)
+        loaded.append((layer, what, data, decision.crs, report))
+    if frame.project is None:
+        check_local(frame, [(what, data) for _l, what, data, _c, _r in loaded])
+    bbox = site_bbox(scene, frame) if within_site else None
+    if bbox is not None:
+        loaded = [
+            (layer, what, data.select_rows(within_bbox(data, bbox)), crs, report)
+            for layer, what, data, crs, report in loaded
+        ]
 
     collection = context.collection or scene.collection
     objects = []
     warnings = list(dict.fromkeys(frame.warnings))
-    for layer, data, crs, bbox in loaded:
+    notes: list[str] = []
+    for layer, _what, data, crs, report in loaded:
         layer_name = data.name if kind == "GEOJSON" else layer
         kinds = data.kinds()
         if not kinds:
             warnings.append(f"{layer_name}: no features to import")
         if data.dropped_parts:
             warnings.append(f"{layer_name}: skipped {data.dropped_parts} unreadable geometries")
+        if report is not None:
+            notes.append(f"{layer_name}: {crs_match.report_text(report)}.")
+            notes.extend(report.notes)
         for geometry_kind in kinds:
             name = object_name(layer_name, geometry_kind, kinds)
             built = build_kind(name, data, geometry_kind, frame)
@@ -316,10 +398,17 @@ def import_vectors(
             link.layer = layer_name
             link.fid_field = data.fid_field
             link.crs = crs_match.to_text(crs)
-            link.options = VectorOptions(geometry_kind, where, bbox, built.names).to_text()
+            link.options = VectorOptions(
+                geometry_kind,
+                where,
+                bbox,
+                built.names,
+                allow_grid_downloads=allow_grid_downloads,
+                reprojection=crs_match.report_to_dict(report) if report else None,
+            ).to_text()
             links.mark_synced(link, print_)
             objects.append(obj)
-    return objects, warnings
+    return ImportResult(objects, warnings, list(dict.fromkeys(notes)))
 
 
 # --- refresh ---------------------------------------------------------------------------
@@ -416,13 +505,26 @@ def refresh_vectors(obj: bpy.types.Object) -> RefreshResult:
         data = read_source(link.kind, path, link.layer, options.where)
     except (ValueError, OSError) as ex:
         raise RefreshError(f"Cannot read {path.name}: {ex}") from None
-    frame = project_frame(scene)
-    stored = crs_match.from_text(link.crs)
-    confirmed = stored is not None and stored.source == crs_match.SOURCE_USER
     try:
-        crs = accept_crs(frame, data.crs, path.name, assume_project_crs=confirmed)
+        frame = project_frame(scene)
     except ImportRefused as ex:
         raise RefreshError(str(ex)) from None
+    stored = crs_match.from_text(link.crs)
+    confirmed = stored is not None and stored.source == crs_match.SOURCE_USER
+    message = ""
+    try:
+        decision = accept_crs(frame, data.crs, path.name, assume_project_crs=confirmed)
+        report = None
+        if decision.reproject:
+            data, report = reproject_into(frame, data, path.name, options.allow_grid_downloads)
+        if frame.project is None:
+            check_local(frame, [(path.name, data)])
+    except (ImportRefused, NeedsProjectOrigin) as ex:
+        raise RefreshError(str(ex)) from None
+    crs = decision.crs
+    if report is not None:
+        message = _reprojection_message(report, options.reprojection)
+    options.reprojection = crs_match.report_to_dict(report) if report else None
     if options.site_bbox is not None:
         data = data.select_rows(within_bbox(data, options.site_bbox))
     old_fids, old_digests = (np.zeros(0, np.int64), np.zeros(0, np.uint64))
@@ -438,7 +540,20 @@ def refresh_vectors(obj: bpy.types.Object) -> RefreshResult:
     link.fid_field = data.fid_field
     options.columns = built.names
     link.options = options.to_text()
-    return RefreshResult(added, removed, changed)
+    return RefreshResult(added, removed, changed, message)
+
+
+def _reprojection_message(report: crs_match.ReprojectionReport, stored: object) -> str:
+    """Says the refresh reprojected as the import did, or what changed."""
+    before = crs_match.report_from_dict(stored)
+    if before is None:
+        return f"{crs_match.report_text(report)}."
+    if (before.operation, before.target) == (report.operation, report.target):
+        return f"Reprojected as at import: {report.operation}."
+    return (
+        f"The reprojection changed: {crs_match.report_text(report)}, where the last sync used "
+        f"{before.operation}."
+    )
 
 
 # --- write-back ------------------------------------------------------------------------
@@ -666,11 +781,15 @@ def _object_mode(cls: type, context: bpy.types.Context) -> bool:
     return True
 
 
-def _report_import(op: bpy.types.Operator, objects: list, warnings: list[str], path: Path) -> None:
+def report_import(op: bpy.types.Operator, result: ImportResult, path: Path) -> None:
+    """The import's summary, warnings and reprojection report, as operator reports."""
+    objects = result.objects
     noun = "object" if len(objects) == 1 else "objects"
     text = f"Imported {len(objects)} linked {noun} from {path.name}"
-    if warnings:
-        op.report({"WARNING"}, f"{text}. " + " ".join(warnings))
+    if result.notes:
+        op.report({"INFO"}, " ".join(result.notes))
+    if result.warnings:
+        op.report({"WARNING"}, f"{text}. " + " ".join(result.warnings))
     else:
         op.report({"INFO"}, text)
 
@@ -689,6 +808,13 @@ class _ImportVectorBase:
         description="The file does not say which CRS it is in: take it as the project CRS",
         default=False,
     )
+    allow_grid_downloads: BoolProperty(
+        name="Allow Grid Downloads",
+        description="When data in another CRS is reprojected, let PROJ download a "
+        "transformation grid from cdn.proj.org if a more accurate operation needs one. Off: "
+        "imports stay offline and reproducible",
+        default=False,
+    )
 
     @classmethod
     def poll(cls, context: bpy.types.Context) -> bool:
@@ -704,7 +830,7 @@ class _ImportVectorBase:
             self.report({"ERROR"}, f"File not found: {path}")
             return {"CANCELLED"}
         try:
-            objects, warnings = import_vectors(
+            result = import_vectors(
                 context,
                 kind,
                 path,
@@ -712,20 +838,33 @@ class _ImportVectorBase:
                 where=where,
                 within_site=self.within_site,
                 assume_project_crs=self.assume_project_crs,
+                allow_grid_downloads=self.allow_grid_downloads,
             )
+        except NeedsProjectOrigin as ex:
+            request = {
+                "kind": kind,
+                "filepath": str(path),
+                "layer": ",".join(layers) if kind == "GPKG" else "",
+                "where": where,
+                "within_site": self.within_site,
+                "allow_grid_downloads": self.allow_grid_downloads,
+            }
+            data_origin.offer(context, request, ex)
+            self.report({"ERROR"}, str(ex))
+            return {"CANCELLED"}
         except ImportRefused as ex:
             self.report({"ERROR"}, str(ex))
             return {"CANCELLED"}
         except (ValueError, OSError) as ex:
             self.report({"ERROR"}, f"Cannot import {path.name}: {ex}")
             return {"CANCELLED"}
-        _select(context, objects)
-        _report_import(self, objects, warnings, path)
+        select_imported(context, result.objects)
+        report_import(self, result, path)
         redraw_ui(context)
         return {"FINISHED"}
 
 
-def _select(context: bpy.types.Context, objects: list[bpy.types.Object]) -> None:
+def select_imported(context: bpy.types.Context, objects: list[bpy.types.Object]) -> None:
     view_layer = context.view_layer
     if view_layer is None or not objects:
         return
@@ -773,6 +912,7 @@ class GEOTOOLS_OT_import_gpkg(_ImportVectorBase, bpy.types.Operator):
         layout.prop(self, "where", placeholder="No filter")
         layout.prop(self, "within_site")
         layout.prop(self, "assume_project_crs")
+        layout.prop(self, "allow_grid_downloads")
 
     def execute(self, context: bpy.types.Context) -> set[str]:
         path = Path(bpy.path.abspath(self.filepath))
