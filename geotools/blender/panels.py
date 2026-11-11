@@ -1,7 +1,7 @@
 """View3D sidebar panels, category "GeoTools".
 
-Order: Project (with a Verify sub-panel), Source, Checks, Build Profiles, and
-About last. Panels draw cached state only; operators do the work.
+Order: Project (with a Verify sub-panel), Source, Checks, Build Profiles,
+Publish (defined in publish.py), and About last. Panels draw cached state only; operators do the work.
 """
 
 import textwrap
@@ -22,6 +22,7 @@ from .properties import (
     parse_vec,
     placement_from_props,
 )
+from .publish import GEOTOOLS_PT_publish
 
 
 class _GeoToolsPanel:
@@ -205,7 +206,7 @@ class GEOTOOLS_PT_checks(_GeoToolsPanel, bpy.types.Panel):
 
 
 class GEOTOOLS_PT_build_profiles(_GeoToolsPanel, bpy.types.Panel):
-    """Saved build settings (used by publishing, M2)."""
+    """Saved build settings, used by Publish."""
 
     bl_idname = "GEOTOOLS_PT_build_profiles"
     bl_label = "Build Profiles"
@@ -241,6 +242,8 @@ class GEOTOOLS_PT_build_profiles(_GeoToolsPanel, bpy.types.Panel):
         col.prop(profile, "jobs", text="Jobs (0 = Auto)")
         col.prop(profile, "memory_budget_gib", text="Memory GiB (0 = Default)")
         col.prop(profile, "output_path")
+        col.prop(profile, "overwrite")
+        col.prop(profile, "validate")
 
 
 # --- About ---------------------------------------------------------------------------
@@ -265,6 +268,7 @@ classes = (
     GEOTOOLS_PT_source,
     GEOTOOLS_PT_checks,
     GEOTOOLS_PT_build_profiles,
+    GEOTOOLS_PT_publish,
     GEOTOOLS_PT_about,
 )
 

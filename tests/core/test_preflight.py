@@ -388,3 +388,16 @@ def test_every_message_is_one_plain_sentence() -> None:
         assert issue.message[0].isupper() or issue.message[0].isdigit() or issue.subject
         assert issue.message.endswith(".")
         assert ". " not in issue.message.rstrip(".")
+
+
+def test_image_limits() -> None:
+    from geotools.core.preflight import ImageSummary, _image_limits
+
+    ok = ImageSummary("a", "/a.jpg", "JPEG", False, True, 8192, 8192, 20 << 20)
+    assert _image_limits(ok) == []
+    big_edge = ImageSummary("b", "/b.png", "PNG", False, True, 16385, 16, 1000)
+    assert [i.code for i in _image_limits(big_edge)] == ["image-too-large"]
+    big_file = ImageSummary("c", "/c.png", "PNG", False, True, 8192, 8192, 40 << 20)
+    assert [i.code for i in _image_limits(big_file)] == ["image-file-too-large"]
+    converted = ImageSummary("d", "", "OPEN_EXR", False, True, 8192, 8192, None)
+    assert [i.code for i in _image_limits(converted)] == ["image-png-size"]

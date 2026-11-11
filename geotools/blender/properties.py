@@ -224,7 +224,7 @@ PROFILE_ITEMS = (
 
 
 class GeoToolsBuildProfile(bpy.types.PropertyGroup):
-    """Settings for one build. Stored only; publishing (M2) uses them."""
+    """Settings for one build, and a summary of its last publish."""
 
     # ``name`` is the built-in PropertyGroup name, shown in the list.
     profile: EnumProperty(name="Profile", items=PROFILE_ITEMS, default="BALANCED")
@@ -243,6 +243,35 @@ class GeoToolsBuildProfile(bpy.types.PropertyGroup):
     output_path: StringProperty(
         name="Output", description="Where the .3tz archive is written", subtype="FILE_PATH"
     )
+    overwrite: BoolProperty(
+        name="Overwrite",
+        description="Replace an existing archive at the output path. The old one is kept "
+        "if the build fails or is cancelled",
+        default=False,
+    )
+    validate: BoolProperty(
+        name="Validate",
+        description="Validate the archive with rusty-tiles after building",
+        default=True,
+    )
+
+    # Last successful publish, written by geotools.publish (never while drawing).
+    last_output: StringProperty(name="Last Output", subtype="FILE_PATH")
+    last_record: StringProperty(name="Last Build Record", subtype="FILE_PATH")
+    last_build_utc: StringProperty(name="Last Build Time")
+    last_seconds: FloatProperty(name="Last Build Seconds", default=0.0)
+    last_validation: EnumProperty(
+        name="Last Validation",
+        items=(
+            ("NONE", "Not Run", "Validation was off or skipped"),
+            ("OK", "Passed", "rusty-tiles validated the archive"),
+            ("FAILED", "Failed", "rusty-tiles validation failed; see the build record"),
+        ),
+        default="NONE",
+    )
+    # Text, not IntProperty: counts can pass 2**31 on very large sources.
+    last_triangles: StringProperty(name="Last Triangles")
+    last_tiles: StringProperty(name="Last Tiles")
 
 
 PLACEMENT_MODE_ITEMS = (

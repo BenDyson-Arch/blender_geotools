@@ -46,7 +46,10 @@ class ImageSummary:
     filepath: str  # absolute, "" if none
     file_format: str  # Blender image.file_format, e.g. "PNG", "JPEG", "OPEN_EXR"
     packed: bool
-    exists: bool  # file exists on disk (or packed)
+    exists: bool  # pixels are available: file on disk, packed, generated or painted
+    width: int = 0
+    height: int = 0
+    file_bytes: int | None = None  # size of the PNG/JPEG file used as is, if any
 
 
 @dataclass(frozen=True, slots=True)
@@ -286,6 +289,9 @@ def _one_material(material: MaterialSummary) -> list[Issue]:
 
 def _one_image(image: ImageSummary) -> list[Issue]:
     name = image.name
+    limits = _image_limits(image)
+    if limits:
+        return limits
     if not image.exists and not image.packed:
         where = f" at {image.filepath}" if image.filepath else ""
         return [
@@ -320,3 +326,39 @@ def _length(metres: float) -> str:
 
 def _vec(a: np.ndarray) -> Vec3:
     return (float(a[0]), float(a[1]), float(a[2]))
+
+
+def _image_limits(image: ImageSummary) -> list[Issue]:
+    """rusty-tiles refuses images over 16384 px a side or 32 MiB encoded."""
+    from .gltf_writer import MAX_IMAGE_BYTES, MAX_IMAGE_EDGE
+
+    name = image.name
+    if max(image.width, image.height) > MAX_IMAGE_EDGE:
+        return [
+            _error(
+                "image-too-large",
+                f"Image {name} is {image.width}x{image.height}; rusty-tiles accepts at most "
+                f"{MAX_IMAGE_EDGE} pixels a side.",
+                name,
+            )
+        ]
+    if image.file_bytes is not None and image.file_bytes > MAX_IMAGE_BYTES:
+        mib = image.file_bytes / (1 << 20)
+        return [
+            _error(
+                "image-file-too-large",
+                f"Image {name} is {mib:.1f} MiB; rusty-tiles accepts at most 32 MiB per "
+                "encoded image. Save it as JPEG or at a smaller size.",
+                name,
+            )
+        ]
+    if image.file_bytes is None and image.width * image.height * 4 > MAX_IMAGE_BYTES:
+        return [
+            _warn(
+                "image-png-size",
+                f"Image {name} is converted to PNG at {image.width}x{image.height}, which can "
+                "exceed rusty-tiles' 32 MiB limit per image. Save it as JPEG to be sure.",
+                name,
+            )
+        ]
+    return []

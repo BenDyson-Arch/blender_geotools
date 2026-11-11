@@ -274,6 +274,7 @@ def test_panels_order_and_draw() -> None:
         "Source",
         "Checks",
         "Build Profiles",
+        "Publish",
         "About",
     ], top
     for cls in panels.classes:

@@ -1,4 +1,4 @@
-"""Build profiles: add, remove and reorder. Stored only; publishing (M2) uses them."""
+"""Build profiles: add, remove and reorder. Publish (publish.py) uses the active one."""
 
 import bpy
 from bpy.props import EnumProperty

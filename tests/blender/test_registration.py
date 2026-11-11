@@ -46,6 +46,9 @@ def test_panel_draws_version_and_status() -> None:
 
 
 def test_preferences_draw_status() -> None:
-    calls = h.draw(h.preferences_class())
+    prefs = bpy.context.preferences.addons[h.CONFIG.package].preferences
+    calls = h.draw(h.preferences_class(), data=prefs)
+    assert ("prop", "rusty_tiles_cli", "NONE") in calls, calls
+    assert ("prop", "cesium_dir", "NONE") in calls, calls
     assert any(text.startswith("rusty-tiles") for text, _icon in h.labels(calls)), calls
     assert ("operator", "geotools.check_dependencies", "FILE_REFRESH") in calls, calls

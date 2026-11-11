@@ -226,6 +226,13 @@ class StubLayout:
     def separator(self, **_kwargs: object) -> None:
         pass
 
+    def progress(
+        self, *, text: str = "", factor: float = 0.0, type: str = "BAR", **_kwargs: object
+    ) -> None:
+        assert 0.0 <= factor <= 1.0, factor
+        assert type in {"BAR", "RING"}, type
+        self.calls.append(("progress", text, "NONE"))
+
 
 def _check_icons(name: str, calls: list[tuple[str, str, str]]) -> None:
     icons = valid_icons()
@@ -233,10 +240,19 @@ def _check_icons(name: str, calls: list[tuple[str, str, str]]) -> None:
         assert icon in icons, f"{name} draws {kind} {text!r} with unknown icon {icon!r}"
 
 
-def draw(cls: type, alerts: list[str] | None = None) -> list[tuple[str, str, str]]:
-    """Run ``cls.draw`` against a :class:`StubLayout` and check every icon exists."""
+def draw(
+    cls: type, alerts: list[str] | None = None, data: object = None
+) -> list[tuple[str, str, str]]:
+    """Run ``cls.draw`` against a :class:`StubLayout` and check every icon exists.
+
+    With ``data`` (e.g. the add-on preferences), ``self`` reads every other
+    attribute from it, so ``layout.prop(self, ...)`` works.
+    """
     calls: list[tuple[str, str, str]] = []
-    fake_self = type("DrawSelf", (), {"layout": StubLayout(calls, alerts)})()
+    namespace: dict[str, object] = {"layout": StubLayout(calls, alerts)}
+    if data is not None:
+        namespace["__getattr__"] = lambda _self, name: getattr(data, name)
+    fake_self = type("DrawSelf", (), namespace)()
     cls.draw(fake_self, bpy.context)
     _check_icons(cls.__name__, calls)
     return calls
