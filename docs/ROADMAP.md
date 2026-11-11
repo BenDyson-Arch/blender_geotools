@@ -261,6 +261,23 @@ displacing) uses Blender's own tools, documented as recipes, not GeoTools code.
 - **GeoJSON and GeoPackage export:** Blender geometry, with Z and its
   attributes, written back into the project CRS. GeoPackage write-back to the
   source table by feature id, as 0.2 had.
+- **Linked sources (semi-live):**
+  - Each imported object keeps a link: file, layer or table, feature id
+    field, CRS, import options (including filters) and a fingerprint
+    (mtime, size, hash for small files). It is stored in the `.blend`.
+  - **Refresh** re-reads the file and replaces only the mesh data in place,
+    so modifiers (for example a draping recipe), materials, transform and
+    layer links survive and re-evaluate. One undo step.
+  - Stale detection on file load and on demand, shown in panel headers; an
+    optional **auto-refresh** polls the file's mtime every few seconds.
+  - Import filters: an attribute filter (GeoPackage SQL `WHERE`) and "within
+    the site extent".
+  - **Attribute write-back:** changed or new attribute columns go back to the
+    GeoPackage by feature id (`UPDATE` of those columns only; GeoJSON is
+    rewritten whole, keeping unknown members). Refused if the file changed
+    since the last sync, with Refresh offered.
+  - Geometry write-back is out of scope: QGIS stays the 2D editor, and the 3D
+    result is exported as a separate layer.
 - **GeoTIFF import:** read the GeoTIFF georeference (tie point, pixel scale,
   GeoKeys) and nodata. A DEM becomes a height mesh in the project frame, with
   an optional decimation step; an orthophoto becomes an image on a plane
@@ -275,7 +292,8 @@ displacing) uses Blender's own tools, documented as recipes, not GeoTools code.
 - **Publish vectors** as 3D Tiles with `vector_to_3tz` and `reuse_tileset`,
   which already updates incrementally.
 - **Exit:** a GeoJSON of contexts is imported, draped and offset with the
-  recipe, exported back to GeoPackage with Z values a GIS reads correctly, and
+  recipe, exported back to GeoPackage with Z values a GIS reads correctly; an
+  edit saved in QGIS re-drapes in Blender after a refresh; and
   a GeoTIFF DEM and orthophoto line up with the site mesh.
 
 ### M9 Queryable metadata without retiling (needs A or D)
