@@ -10,21 +10,32 @@ more.
 
 ## State
 
-The rebuild is at milestone M0 (foundation). Today the extension:
+The rebuild is at milestone M1 (project and georeference). In the 3D Viewport
+sidebar (**GeoTools** tab) the extension can:
 
-- installs and enables in Blender 5.2;
-- shows its version and the bundled rusty-tiles version in the 3D Viewport
-  sidebar (**GeoTools** tab) and in its preferences;
-- has a **Check Dependencies** button that loads rusty-tiles again and reports
-  the result.
+- **Place the project:** local metres, a WGS84 anchor with a heading, or a
+  source CRS with a Metashape-style E/N/A offset and a height offset. Offsets
+  and coordinates are stored at full double precision.
+- **Ingest a source mesh:** GLB, glTF, OBJ or PLY goes into a source
+  collection. An offset file next to the source is picked up automatically.
+- **Run checks:** the source is checked against rusty-tiles' mesh input rules
+  (shape keys, alpha blending, image formats, coordinate range and precision,
+  and the placement itself).
+- **Verify placement:** rusty-tiles is run on a single triangle spanning the
+  source bounds and reports where the source lands on Earth, as WGS84
+  longitude, latitude and ellipsoidal height. A CRS the bundled rusty-tiles
+  can't handle (for example EPSG:2193) fails here, before any build.
+- **Store build profiles:** profile, jobs, memory budget and output path, for
+  publishing in M2.
+- **Report versions:** the extension and bundled rusty-tiles versions, with a
+  **Check Dependencies** button.
 
-It does not import, analyse or publish anything yet.
+It does not publish tilesets yet.
 
 ## Coming next
 
 The plan is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
-- M1: project georeference (CRS, offsets) and source mesh ingest.
 - M2: publish from Blender to a validated `.3tz`. First release, 0.3.0.
 - M3: layers, and baking Geometry Nodes and attributes to vertex or texture
   space.

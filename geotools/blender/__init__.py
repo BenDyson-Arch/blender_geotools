@@ -1,4 +1,4 @@
-"""Blender glue: preferences, operators and panels.
+"""Blender glue: preferences, scene properties, operators and panels.
 
 Each module in :data:`MODULES` exposes ``register``/``unregister``. They are
 registered in order and unregistered in reverse.
@@ -10,11 +10,19 @@ import logging
 from types import ModuleType
 
 from ..core import deps
-from . import operators, panels, preferences
+from . import checks, operators, panels, preferences, profiles, properties, source
 
 log = logging.getLogger(__name__)
 
-MODULES: tuple[ModuleType, ...] = (preferences, operators, panels)
+MODULES: tuple[ModuleType, ...] = (
+    preferences,
+    properties,
+    operators,
+    source,
+    checks,
+    profiles,
+    panels,
+)
 
 
 def register() -> None:

@@ -22,6 +22,17 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   operator.
 - A `bpy`-free `geotools/core` package with pytest tests that run without
   Blender.
+- Project placement on the scene: local, WGS84 anchor with heading, or source
+  CRS with E/N/A source offset and height offset, stored as binary64 text so
+  large offsets keep full precision.
+- Source ingest for GLB, glTF, OBJ and PLY into a source collection, with
+  Metashape offset files detected next to the source or loaded by hand.
+- Checks of the source against rusty-tiles' mesh input rules, listed by
+  severity in the sidebar.
+- Verify Placement, which runs rusty-tiles on one triangle spanning the source
+  bounds and shows the WGS84 origin, or why the CRS is refused.
+- Build profiles (profile, jobs, memory budget, output path), stored for
+  publishing.
 
 ### Changed
 

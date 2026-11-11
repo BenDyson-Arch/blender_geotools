@@ -14,6 +14,8 @@ def _assert_fully_unregistered(classes: list[type]) -> None:
     leaked = [cls.__name__ for cls in classes if hasattr(bpy.types, cls.__name__)]
     assert not leaked, f"still on bpy.types after disable: {leaked}"
     assert not h.operator_available("geotools.check_dependencies")
+    assert not h.operator_available("geotools.ingest_source")
+    assert not hasattr(bpy.types.Scene, "geotools"), "Scene.geotools left behind"
 
 
 def _assert_fully_registered(classes: list[type]) -> None:
@@ -22,6 +24,8 @@ def _assert_fully_registered(classes: list[type]) -> None:
     assert not missing, f"not registered after enable: {missing}"
     assert h.operator_available("geotools.check_dependencies")
     assert bpy.ops.geotools.check_dependencies() == {"FINISHED"}
+    assert h.operator_available("geotools.ingest_source")
+    assert bpy.context.scene.geotools.placement_mode == "LOCAL"
 
 
 def test_disable_unregisters_cleanly() -> None:

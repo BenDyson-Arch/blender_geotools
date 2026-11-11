@@ -31,7 +31,8 @@ GeoTools creates tilesets; it no longer imports them.
 | Blender support | Latest release only (5.2 LTS) | Each new Blender release |
 | Where the source lives | The `.blend` plus image files on disk. Face maps and build records sit beside the outputs | Sources outgrow one Blender session (see M9) |
 | Versioning | Continue the 0.x line. First rebuild release is 0.3.0; 1.0.0 at M8 | |
-| CRS handling | rusty-tiles does all CRS maths at publish time (`source_crs`, `source_offset`, `height_offset`, `source_axes`). GeoTools stores the declaration and never reprojects geometry itself | |
+| CRS handling | rusty-tiles does all CRS maths at publish time (`source_crs`, `source_offset`, `height_offset`). GeoTools stores the declaration and never reprojects geometry itself. The source GLB is always standard glTF Y-up | |
+| Precision | Offsets, anchors and other geodetic numbers are binary64 Python floats, never Blender `FloatProperty` (single precision) | |
 | Performance rule | No Python loops over faces or vertices. Use `foreach_get`/`foreach_set` with numpy, Geometry Nodes or Cycles bakes | |
 
 ## rusty-tiles constraints this plan is built around (0.4.0)
@@ -101,8 +102,8 @@ GeoTools creates tilesets; it no longer imports them.
 
 - One project per scene:
   - placement in rusty-tiles' terms: `source_crs`, `source_offset` E/N/A,
-    `height_offset`, and `source_axes = xyz`, so Blender's Z-up frame passes
-    straight through;
+    and `height_offset`. The GLB writer always writes standard glTF Y-up, so
+    rusty-tiles is called with `source_axes = y-up`;
   - or a local anchor and orientation for unreferenced scenes.
 - Ingest a source mesh with Blender's GLB, OBJ or PLY importers, and read a
   Metashape `offset.txt`.

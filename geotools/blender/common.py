@@ -42,3 +42,13 @@ def draw_dependency_status(layout: bpy.types.UILayout) -> None:
         for line in textwrap.wrap(status.error or "unknown error", 48)[:6]:
             col.label(text=line)
     layout.operator("geotools.check_dependencies", icon="FILE_REFRESH")
+
+
+def redraw_ui(context: bpy.types.Context) -> None:
+    """Redraw every area, so panels show state an operator just changed."""
+    window_manager = context.window_manager
+    if window_manager is None:
+        return
+    for window in window_manager.windows:
+        for area in window.screen.areas:
+            area.tag_redraw()
