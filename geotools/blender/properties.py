@@ -240,8 +240,18 @@ OUTPUT_TYPE_ITEMS = (
             "not run"
         ),
     ),
+    (
+        "VECTOR",
+        "Vectors",
+        (
+            "The mesh objects of a vector collection (imported or linked GeoJSON and "
+            "GeoPackage, draped or not) as a vector 3D Tiles archive: faces become polygons, "
+            "loose edges lines and loose vertices points, with their attributes, tiled by "
+            "rusty-tiles' vector_to_3tz"
+        ),
+    ),
 )
-OUTPUT_SUFFIXES = {"3TZ": ".3tz", "GLB": ".glb"}
+OUTPUT_SUFFIXES = {"3TZ": ".3tz", "GLB": ".glb", "VECTOR": ".3tz"}
 
 GLB_EARTH_PLACED_DESCRIPTION = (
     "Also put the local-to-ECEF transform on a root node, so geospatial viewers such as "
@@ -306,6 +316,7 @@ class GeoToolsBuildProfile(bpy.types.PropertyGroup):
         name="Output",
         description="Where the .3tz archive (or .glb, for the GLB format) is written",
         subtype="FILE_PATH",
+        options={"PATH_SUPPORTS_BLEND_RELATIVE"},
     )
     glb_face_table: BoolProperty(
         name="Face Table", description=GLB_FACE_TABLE_DESCRIPTION, default=False
@@ -337,6 +348,27 @@ class GeoToolsBuildProfile(bpy.types.PropertyGroup):
         "as set in the layer's Display panel. Empty for the plain tileset",
         default="",
     )
+    # Vector builds (format Vectors, M8).
+    vector_collection: PointerProperty(
+        name="Vectors",
+        description="Collection whose mesh objects are published as vector features, one "
+        "layer per object and geometry kind",
+        type=bpy.types.Collection,
+    )
+    vector_reuse: BoolProperty(
+        name="Incremental",
+        description="Pass the archive already at the output to rusty-tiles as reuse_tileset, "
+        "so a republish re-encodes only the features that changed. An archive it cannot "
+        "reuse (other settings or rusty-tiles version) is rebuilt in full",
+        default=True,
+    )
+    vector_skip_invalid: BoolProperty(
+        name="Skip Invalid",
+        description="Leave out features rusty-tiles cannot convert (for example self-"
+        "intersecting polygons) and list them in the archive's report. Off: one invalid "
+        "feature stops the publish",
+        default=False,
+    )
 
     # Last successful publish, written by geotools.publish (never while drawing).
     last_output: StringProperty(name="Last Output", subtype="FILE_PATH")
@@ -355,6 +387,7 @@ class GeoToolsBuildProfile(bpy.types.PropertyGroup):
     # Text, not IntProperty: counts can pass 2**31 on very large sources.
     last_triangles: StringProperty(name="Last Triangles")
     last_tiles: StringProperty(name="Last Tiles")
+    last_features: StringProperty(name="Last Features")  # vector builds
 
 
 # --- image remedies -------------------------------------------------------------------

@@ -67,7 +67,9 @@ class GeoToolsLink(bpy.types.PropertyGroup):
     """The file an object was made from (``obj.geotools_link``)."""
 
     kind: EnumProperty(name="Kind", items=LINK_KIND_ITEMS, default="NONE")
-    filepath: StringProperty(name="File", subtype="FILE_PATH")
+    filepath: StringProperty(
+        name="File", subtype="FILE_PATH", options={"PATH_SUPPORTS_BLEND_RELATIVE"}
+    )
     layer: StringProperty(
         name="Layer",
         description="GeoPackage table; for GeoJSON the file's stem (a file holds one layer)",
