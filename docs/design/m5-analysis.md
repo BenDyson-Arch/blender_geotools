@@ -1,6 +1,6 @@
-# M5 design: the sun, and coordinates and measurement
+# M5 design: the sun, sun hours, and coordinates and measurement
 
-Status: the first two GeoTools-code tools of M5 (see
+Status: the first three GeoTools-code tools of M5 (see
 [ROADMAP.md](../ROADMAP.md#m5-analysis-library)). This note covers what they
 compute, how accurate it is, the north convention, and how the later M5 tools
 build on them.
@@ -8,7 +8,7 @@ build on them.
 The scope rule decides the split. GeoTools computes only what needs the
 georeference: where the sun is from this site at this moment, and where a
 scene point is on Earth. Blender does everything else. Its Sun light casts the
-shadows, Cycles and EEVEE render them, and its bakes will compute sun hours.
+shadows, Cycles and EEVEE render them, and Cycles casts the rays of sun hours.
 
 ## Layout
 
@@ -17,13 +17,17 @@ shadows, Cycles and EEVEE render them, and its bakes will compute sun hours.
 | `geotools/analysis/sun.py` | NREL SPA, vectorised over time; ΔT; time zones; the sun's direction and the Euler angles of a light. numpy only. |
 | `geotools/analysis/_spa_tables.py` | The SPA periodic terms (the paper's Tables A4.2 and A4.3). |
 | `geotools/analysis/site.py` | Scene points on Earth: E/N/RL, latitude and longitude, grid convergence, the combined scale factor, distances and areas. Uses pyproj. |
-| `geotools/blender/analysis.py` | Settings and results on `scene.geotools_analysis`, and the operators. |
-| `geotools/blender/analysis_ui.py` | The Analysis panel and its Sun and Coordinates sub-panels, before About. |
+| `geotools/analysis/sun_hours.py` | Sun hours and insolation, bpy-free: time steps over a period, the sun's rays and their weights, merging nearby directions, sky directions, the reference sum, ray offsets, equinox and solstice moments. |
+| `geotools/analysis/clearsky.py` | The Ineichen–Perez clear-sky model. |
+| `geotools/blender/analysis.py` | Settings and results on `scene.geotools_analysis`, and the sun and measurement operators. |
+| `geotools/blender/sun_hours.py` | The sun hours engine (Cycles bakes of Raycast nodes), the layers it writes, and the shadow study. |
+| `geotools/blender/analysis_ui.py` | The Analysis panel and its Sun, Sun Hours, Shadow Study and Coordinates sub-panels, before About. |
 
 `geotools/analysis` is bpy-free, like `geotools/core`, and
-`tests/core/test_no_bpy.py` checks it. Its tests are `tests/core/test_sun.py`
-and `tests/core/test_site.py`. The operators are tested in
-`tests/blender/test_analysis.py`.
+`tests/core/test_no_bpy.py` checks it. Its tests are `tests/core/test_sun.py`,
+`tests/core/test_site.py` and `tests/core/test_sun_hours.py`. The operators are
+tested in `tests/blender/test_analysis.py` and `tests/blender/test_sun_hours.py`.
+`scripts/bench_sun_hours.py` times sun hours on a synthetic town.
 
 ## Sun position
 
@@ -192,18 +196,260 @@ about 13 s for 10 million). It reports four areas:
 - ground surface area: each triangle's horizontal extent / CSF, with the
   vertical unchanged.
 
+## Sun hours, insolation and shadow studies
+
+**What it computes.** Hours of direct sun per face, per face corner or per
+texel, over a day, a date range (a season) or a calendar year, sampled at a
+chosen step from real SPA positions. Optionally the clear-sky irradiation on
+the surface in kWh/m². Both are M3 layers (FLOAT, units `h` and `kWh/m²`,
+`Origin.ANALYSIS`, aggregation `AREA_MEAN`, value range from the values,
+provenance below), so they display, publish as a variant and export as GLB
+metadata like any other layer. One click on **Compute Sun Hours** in the Sun
+Hours sub-panel; the date, time zone, site (scene origin or 3D cursor) and
+refraction are the Sun panel's.
+
+### Time and the sun
+
+`sun_hours.period_steps` cuts the period from local midnight of the first day
+to local midnight after the last (so a daylight-saving day is 23 or 25 hours
+long, as it is) into steps evenly spaced in UTC, the last one shortened to end
+on time. Each step counts for its whole length and is represented by its
+midpoint. `sun_steps` keeps the steps with the sun's centre above the horizon:
+apparent elevation (with refraction when the Sun panel says so) above 0°, and
+above the horizon profile when one is given. Directions are in scene axes,
+true azimuth minus the grid convergence at the site (`site.sun_site`), as for
+the Sun light. Convergence changes by about 0.005° per km across a site,
+which is negligible here.
+
+**Step error.** The midpoint rule is wrong by up to half a step at each
+sunrise, sunset and shadow edge, in either direction. Over a year these
+partly cancel. Measured against 1-minute steps at 27.5° S, for points behind
+an east-west wall 1 m high at 0.05 to 5 m (`test_time_step_error`), the
+largest error in the year's total of about 4,400 hours is:
+
+| Step | Largest error | Of the total |
+|---|---|---|
+| 5 min | 0.7 h | 0.02 % |
+| 10 min | 2.7 h | 0.06 % |
+| 30 min | 15 h | 0.35 % |
+| 60 min | 28 h | 0.64 % |
+
+For a single day the error is up to about one step per shadow edge crossed,
+so a day uses 5 to 15 minutes (the default is 15).
+
+### Merging nearby directions
+
+Rays to directions closer than a fraction of a degree see almost the same
+shadows. `group_directions` puts the sun directions on a sky grid of cells
+`tolerance` degrees high and about as wide (fewer cells towards the zenith),
+and gives each cell one ray: the time-weighted mean direction of its steps,
+carrying their summed hours and energy. Totals are kept exactly, and the
+largest angle between a step and its ray is reported. It is the user's
+**Merge Within** (default 2°; 0 casts one ray per step).
+
+A year at 30-minute steps has about 8,800 daytime steps. Against the analytic
+wall above (`test_grouping_error_against_an_analytic_wall`; errors as a share
+of the largest total):
+
+| Merge within | Rays | Largest step-to-ray angle | Mean error | Largest error |
+|---|---|---|---|---|
+| 0 | 8,789 | 0 | 0 | 0 |
+| 0.5° | 4,727 | 0.36° | 0.03 % | 0.14 % |
+| 1° | 2,457 | 0.90° | 0.05 % | 0.26 % |
+| 2° | 1,165 | 1.89° | 0.13 % | 0.55 % |
+| 5° | 353 | 5.2° | 0.33 % | 1.3 % |
+
+So merging within 2° costs less than the 30-minute step itself, and cuts the
+rays by 7.5 times. Merging blurs shadow edges by up to about the tolerance
+times the occluder's distance; it never moves the totals of an open surface.
+Coarser steps with interpolation were not used: visibility is on or off, so
+interpolating it between steps adds nothing a finer step or merging does not.
+
+### Visibility: Cycles Raycast nodes in a bake
+
+The scope rule says Blender casts the rays. Three ways were measured on this
+machine (16 threads, shared with other work), on a 1-million-triangle terrain:
+
+| Way | Throughput | Notes |
+|---|---|---|
+| (a) Geometry Nodes Raycast, one direction per evaluation, or many with Duplicate Elements or a Repeat zone | 7 to 14 Mrays/s | Blender's own BVH. About 0.7 µs per ray even at zero length: the cost is per call, not traversal. |
+| (b) A Cycles bake per time step (Sun light, diffuse or shadow pass) | about 1.3 s of fixed cost per bake | 8,800 bakes for a year; even 1,000 merged directions is over 20 minutes on 1M triangles. |
+| (c) Cycles `Raycast` shader nodes in one EMIT bake | 40 to 60 Mrays/s, after about 1 s of fixed cost | Many directions per bake; Cycles' BVH. |
+
+So the engine is (c), for all three domains. `mathutils.bvhtree` (d) was not
+considered for large meshes (the performance rule).
+
+- **The probe.** A shader node group holds one `Raycast` node per direction:
+  for each sample it adds, per ray, `(hours, energy × cos i, 0)` when the ray
+  is in front of the surface (cos i = normal · direction > 0) and hits
+  nothing, and emits the sums with 1 in the third channel to mark the texel as
+  baked. That is exactly `sun_hours.accumulate`, the tested reference. A ray
+  behind the surface gets length 0, so Cycles does not traverse it. A bake
+  takes up to 1,024 rays (`RAYS_PER_BAKE`), and numpy adds the bakes in
+  binary64. Within a bake the sums are float32: 4,400 hours to 0.0005 h.
+- **How it is built.** Three things shaped the shader, all found by
+  measuring. (1) Building a node tree from Python, and setting a socket
+  value in one, slows down with the tree's size: 512 rays as one tree of 9
+  nodes each took minutes. So each ray is one node of a shared 8-node "ray"
+  group, with its direction and weights as socket values, and rays come in
+  blocks of 32 (`BLOCK`), so no tree has more than about 35 nodes. Loading
+  1,024 rays takes 0.75 s. (2) The sums travel as one vector. Two float
+  chains overflowed Cycles' 255-float shader stack beyond about 128 rays,
+  silently: everything baked to 0. (3) A Raycast node whose Direction or
+  Position is unlinked uses the normal or the shading point, whatever its
+  value, so both are always linked.
+- **TEXTURE layers** bake the probe on each source object's UVs (the layer's
+  UV map, or the active render one), through a temporary material per object
+  as `bake_texture` does, with the layer's resolution and margin
+  (`EXTEND`). The position and normal are the shading point and the true
+  (geometric) normal. Texels the bake does not reach are no-data. The
+  UV-overlap check runs and warns. Images are saved as EXR next to the
+  `.blend`, so the `.blend` must have been saved.
+- **FACE and CORNER layers** bake a temporary sample object: one triangle per
+  sample, on its own texel of its own UV map (`gt_probe`), the texel's centre
+  inside it and no other. The sample's position and normal are face
+  attributes the probe reads, in world space, float32. A face's sample is its
+  centre with the face normal; a corner's is 10 % of the way from the corner
+  to the face centre, also with the face normal, so it is inside the face
+  rather than on a vertex shared with others. The triangles are 4 float32
+  steps across, at their sample point, and horizontal. Cycles bakes only
+  objects some ray type can see, so the sample object is visible to camera
+  rays, which also makes it visible to the Raycast node; but rays start 16
+  float32 steps off the surface, so a sample never hits its own triangle, and
+  hits another's only by passing within a few float32 steps of that sample.
+  Values are written to the original mesh (`layers.write_layer`), so an
+  object whose modifiers change the topology is skipped with a note (use a
+  TEXTURE layer, or apply the modifiers), as is a second object sharing a
+  mesh.
+- **Occluders** are everything that renders: the source objects (shown for
+  the bake if hidden) and any other object visible to render rays. Hide an
+  object from renders, or turn off its ray visibility, to leave it out. The
+  occluding geometry is the evaluated mesh. Rays are 10⁷ scene units long.
+- **Ray offset.** Origins move along the normal by the larger of 16 float32
+  steps at the largest coordinate and a millionth of the samples' extent
+  (`sun_hours.ray_offset`; 1 mm at 10 km from the origin, 1.4 mm for a 1.4 km
+  site), or by the panel's **Ray Offset**. Cycles also skips the triangle a
+  TEXTURE sample lies on. A surface closer than the offset to an occluder (a
+  wall standing on a slab) may see past it at the joint; the corner sample of
+  a face touching a wall can sit on the wall's own face.
+
+**Accuracy against a known answer** (`test_wall_shades_half_the_plane`): at
+the equator on an equinox, refraction off, a north-south wall of height H
+shades a point at distance d to its west until the sun clears atan(H/d), so
+it sees 6 + (90° − atan(H/d)) / 15° hours. At 5-minute steps every face of a
+20 × 20 m plane is within 0.1 h of that, and the two halves are symmetrical
+within 0.1 h. Corners (away from the wall's own face) are within 0.1 h, and
+texels within 0.2 h (a texel's centre is not a face centre).
+
+### Insolation
+
+**Model.** Ineichen–Perez (Ineichen and Perez 2002), as pvlib implements it
+(its default clear-sky model): Kasten–Young (1989) air mass on the apparent
+zenith, corrected for the site's pressure from its height (standard
+atmosphere), extraterrestrial irradiance 1366.1 W/m² over the SPA Earth–sun
+distance squared, and one Linke turbidity for the whole period (default 3,
+clean rural). It gives DNI, DHI and GHI in W/m²; the tests match pvlib 0.16.1
+to 1 × 10⁻⁶ relative at zeniths 0° to 89°, turbidities 2, 3 and 5 and heights
+0 and 1,000 m, and the Kasten–Young air mass at the horizon (37.92).
+
+**On the surface.** Direct: DNI × time × cos i, for each unblocked sun ray in
+front of the surface. Diffuse (optional, **Diffuse Sky**, default on): the
+isotropic sky, DHI × time summed over the period, times the sample's
+cosine-weighted sky view. That is a fixed set of sky rays (`sky_directions`,
+a Fibonacci spiral, equal solid angle each, 64 by default) with weight
+2 × ΣDHI·t / M, so their sum over the unblocked rays in front of a surface is
+ΣDHI·t × (1/π)∫V cos i dω. It costs M more rays per sample whatever the
+period, so it is cheap next to a year of sun rays. For an open horizontal
+surface the sky rays' cosines sum to exactly 1, so the result is ΣGHI·t
+(a Blender test checks this to 0.2 %). Ground-reflected light is not
+included: it would add about albedo × GHI × (1 − cos tilt) / 2, about 5 % of
+GHI on a wall at an albedo of 0.2.
+
+**Accuracy, honestly.** This is a clear-sky upper bound, not a forecast:
+cloud typically brings real annual totals to 50 to 80 % of it. The Linke
+turbidity dominates the error: 1 unit changes DNI by about 10 % at moderate
+air mass, and it varies by month. Validated against measured clear-sky data
+(Ineichen 2006), the model's global irradiance is within about ±5 % with a good
+turbidity, and its beam component less so. Diffuse is isotropic: it misses
+the brightening around the sun and at the horizon (Perez's anisotropic
+model), so it overstates diffuse on surfaces facing away from the sun and
+understates it towards it.
+
+### The far horizon
+
+Terrain beyond the mesh is unknown, so the sun counts from 0° elevation. The
+**Horizon** setting raises the horizon in every direction (for a valley, or
+a city of unmodelled buildings); `sun_hours.horizon_elevation` also takes a
+profile of (true azimuth, elevation) pairs, interpolated linearly and
+periodically, for archaeoastronomy's horizon tool to supply later. Sun steps
+and sky rays below it are dropped.
+
+### Provenance
+
+Each layer's provenance (`make_provenance("sun_hours", ...)`) records the
+algorithm, the first and last day, the time zone, the UTC start and end, the
+step, refraction, the site (latitude, longitude, height, geodetic CRS, origin
+or cursor), the convergence and what +Y is, the horizon, the domain, the
+number of samples, the ray offset, the steps (all, sun up, below the profile),
+the possible sun hours, the sun and sky rays, the merge tolerance and the
+largest step-to-ray angle, the direct-normal and diffuse-horizontal totals,
+and for insolation the clear-sky model, turbidity, altitude and diffuse
+treatment.
+
+### Shadow studies
+
+**Set Up Shadow Study** keys the Sun light, one frame per moment, at the
+chosen times (default 9:00, 12:00 and 15:00 local) on the March equinox, June
+solstice and December solstice (the September equinox is a tick away) of the
+Sun panel's year, from **First Frame** on, with CONSTANT interpolation and a
+timeline marker per frame ("21 Jun 09:00"). It sets the scene's frame range
+to those frames. The light is off for a moment with the sun below the horizon.
+The days are the real equinoxes and solstices (`season_moments`: where the
+sun's apparent longitude crosses 0°, 90°, 180° and 270°, within a minute of
+the published times), taken in the chosen time zone. It uses the Place Sun
+light and keyframing; rendering the frames (or a viewport playblast) is
+Blender's.
+
+### Timings
+
+`scripts/bench_sun_hours.py`, Blender 5.2.4 on a 16-thread Linux machine that
+was shared with other jobs throughout (load average 10 to 14), so these are
+pessimistic. The mesh is a 1 km synthetic town: a gentle swell with 12 to
+24 m blocks every 40 m, all triangles, one object; 27.5° S, 21 June or a
+year from it, CPU bakes.
+
+| Mesh | Case | Samples × rays | Bakes | Time |
+|---|---|---|---|---|
+| 10M triangles | FACE, one day at 15 min | 10.0M × 41 | 1 | 30 s (7.7 s samples, 22 s bake) |
+| 10M triangles | FACE, one day, insolation with 64 sky rays | 10.0M × 105 | 1 | 68 s * |
+| 10M triangles | FACE, a year at 30 min, merged within 5° | 10.0M × 351 | 1 | 147 s * |
+| 10M triangles | TEXTURE 1024², a year at 30 min, merged within 5° | 1.05M × 351 | 1 | 36 s |
+| 10M triangles | TEXTURE 1024², a year at 30 min, merged within 2° | 1.05M × 1,168 | 2 | 84 s |
+| 10M triangles | TEXTURE 2048², a year at 30 min, merged within 2° | 4.2M × 1,168 | 2 | 210 s |
+| 1M triangles | FACE, one day at 15 min | 1.0M × 41 | 1 | 6 s * |
+| 1M triangles | FACE, a year at 30 min, merged within 5° | 1.0M × 351 | 1 | 13 s * |
+
+\* Measured before the sample object was built through attribute arrays,
+which saved about 9 s of the 10M face runs' sample time (16.5 s to 7.7 s)
+and about 1 s at 1M.
+
+Rays run at 15 to 25 Mrays/s here once the bake is set up (the shader costs
+about as much as the traversal). Each bake on the 10M-triangle scene has a
+fixed cost of about 15 to 20 s: Cycles syncs the mesh and the sample object
+and builds its BVH. The 10M runs peak at about 10 GB.
+
+Against the roadmap's exit ("under a minute on a 10M-triangle mesh, or one
+bake"): a day of face values on 10M triangles, and a year as a texture layer
+in one bake, are under a minute. A year of per-face values on 10M faces is
+not: it is 10M samples × several hundred rays, about 2.5 minutes at 5°. For
+a year on a large mesh, use a texture layer (1024² or 2048²), merge within
+5°, or both. Cost is samples × rays plus the fixed cost per bake, so the
+panel's numbers predict a run: the result shows samples, rays and bakes.
+
 ## How the later M5 tools build on this
 
-- **Sun hours and insolation.** `sun.solar_position` over a year of time steps
-  (cheap, see above) gives directions in scene axes through `sun.direction` and
-  the same convergence. Each time step is a Blender Cycles bake (a shadow
-  catcher or a light-only bake with the Sun light placed at that direction),
-  summed in numpy into a TEXTURE or FACE layer (M3) with
-  `Origin.ANALYSIS` and provenance (site, dates, step, convergence). A
-  clear-sky model (for example Ineichen–Perez, or the ASHRAE model) can use the
-  SPA zenith and Earth-sun distance (`SunPosition.distance_au`) that the
-  result already carries. Solstice and equinox studies are this tool at a few
-  fixed moments.
+- **Sun hours, insolation and shadow studies** are built: see the next
+  section.
 - **Archaeoastronomy.** Sunrise and sunset azimuths come from the same SPA,
   searched for elevation crossings (the airless elevation with an explicit
   refraction and the sun's semi-diameter, `SunPosition.angular_diameter`).
@@ -229,6 +475,24 @@ about 13 s for 10 million). It reports four areas:
 
 ## Decisions
 
+- **Sun hours cast rays with Cycles, not Geometry Nodes.** The obvious
+  candidates were a Geometry Nodes Raycast for face and corner layers and a
+  Cycles bake per time step for textures. Measured, Cycles Raycast shader nodes in one
+  EMIT bake are 3 to 5 times faster per ray than Geometry Nodes and need one
+  bake per 1,024 directions rather than one per step, so one engine serves
+  all three domains; face and corner values bake through the sample object.
+- **Merge within 2° by default.** It keeps a year to about 1,200 rays at an
+  error below the 30-minute step's own, and is 0 for exactness.
+- **Ineichen–Perez, isotropic diffuse, no ground reflection.** The standard
+  clear-sky model with one input most users can estimate (turbidity), checked
+  against pvlib. Deferred: monthly turbidity, the Perez anisotropic sky,
+  ground-reflected light, and measured or typical-year weather (TMY) files,
+  which would replace the clear sky with real totals.
+- **Deferred for sun hours:** cancelling a run between bakes (each bake is
+  Blender's and blocks the UI), a GPU device (bakes use the CPU, as the
+  texture bake does), a horizon profile in the UI (the core takes one;
+  archaeoastronomy will compute it), and faster sample building and bake
+  set-up for 10M-triangle face layers (see Timings).
 - **SPA rather than NOAA.** The NOAA spreadsheet formulation (Meeus' low
   precision method) is good to about 0.01° near the present. SPA is exact to
   the paper and covers the dates archaeoastronomy needs, and with the

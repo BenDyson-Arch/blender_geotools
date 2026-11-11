@@ -30,6 +30,7 @@ from . import (
     raster_io,
     remedies,
     source,
+    sun_hours,
     vectors,
 )
 
@@ -54,6 +55,7 @@ MODULES: tuple[ModuleType, ...] = (
     publish,
     bake_texture,
     analysis,
+    sun_hours,
     analysis_presets,
     panels,  # last: the sidebar draws what the modules above register
 )
