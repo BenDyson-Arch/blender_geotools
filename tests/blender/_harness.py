@@ -208,6 +208,23 @@ class StubLayout:
         if self.alert:
             self.alerts.append(prop)
 
+    def prop_search(
+        self,
+        data: object,
+        prop: str,
+        search_data: object,
+        search_prop: str,
+        *,
+        text: str = "",
+        icon: str = "NONE",
+        **_kwargs: object,
+    ) -> None:
+        assert prop in data.bl_rna.properties, f"draws unknown property {prop!r} of {data!r}"
+        assert search_prop in search_data.bl_rna.properties, search_prop
+        self.calls.append(("prop", prop, icon))
+        if self.alert:
+            self.alerts.append(prop)
+
     def template_list(
         self,
         listtype_name: str,
