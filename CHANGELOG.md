@@ -61,9 +61,9 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   `//geotools_layers/`. A Layers panel after Source adds, renames and removes
   layers (optionally with their attributes and images), creates their
   attributes, works out their value range and shows what is missing.
-- Vertex-space bake (M3): Bake from Geometry Nodes, a sub-panel of Layers,
-  freezes a named attribute that a Geometry Nodes modifier outputs into a face
-  or corner layer on the source meshes. If the modifier keeps the topology,
+- Vertex-space bake (M3): the Bake sub-panel of Layers, for a face or corner
+  layer, freezes a named attribute that a Geometry Nodes modifier outputs into
+  the layer on the source meshes. If the modifier keeps the topology,
   the values are copied. Otherwise they are transferred by Nearest, Raycast
   (both ways along the face normal, within a maximum distance, falling back to
   Nearest) or Area Mean (falling back to Nearest), with Geometry Nodes
@@ -71,9 +71,9 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   value instead of a mean. No-data stays no-data. The report says how many
   faces each path filled. The bake records its provenance, updates the value
   range, and can turn the modifier off afterwards.
-- Texture-space bake (M3): Bake Texture Layer, in the Texture Bake sub-panel
-  of Layers, bakes a face or corner layer, or a named attribute of the
-  evaluated mesh, into a texture layer's float images on the source UVs with a
+- Texture-space bake (M3): Bake Texture Layer, in the Bake sub-panel of
+  Layers for a texture layer, bakes a face or corner layer, or a named
+  attribute of the evaluated mesh, into a texture layer's float images on the source UVs with a
   one-sample Cycles emission bake and an extended gutter of `margin` pixels.
   An attribute that only a topology-changing Geometry Nodes result has is
   baked selected to active from a copy of that result. NaN, inf and texels no
@@ -89,15 +89,14 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
 - `build.json` schema 2: the layers, the SHA-256 of `source.glb` and of the
   saved `.blend` (null if unsaved or modified), and the placement's EPSG code
   when the CRS is a preset or an EPSG code.
-- Layer presentation and variant tilesets (M3): a Presentation sub-panel of
+- Layer presentation and variant tilesets (M3): the Display sub-panel of
   Layers shows a layer through a colour ramp (viridis, magma, cividis, turbo,
   diverging red-blue, greys) over a set or automatic (2nd to 98th percentile)
   range, or one colour per category, with a no-data colour. Face and corner
   layers go into COLOR_0 through a `gt_present` byte colour attribute; texture
   layers into an 8-bit base-colour or emissive texture. Replace shows the ramp
-  alone and Multiply keeps the material. Publish Variant (or a build profile's
-  variant layer) publishes `<output>.<layer>.3tz`, an ordinary 3D Tiles archive
-  with its own staging directory, the same placement and checks, and a
+  alone and Multiply keeps the material. A build profile's Variant layer
+  publishes `<output>.<layer>.3tz`, an ordinary 3D Tiles archive with its own staging directory, the same placement and checks, and a
   `variant` record in `build.json` (palette, range and legend stops, or the
   category colours). The user's materials, images and active and render colour
   attributes are not changed, and the plain tileset never publishes
@@ -107,6 +106,31 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
 
 - Blender 5.2.0 is now the minimum version (was 5.1). Only the latest Blender
   release is supported.
+- The sidebar is redesigned around the workflow: Project, Source, Layers,
+  Checks, Publish, About. Each panel header shows whether the step is done,
+  still to set up, or has a warning or error. It fits the default sidebar width
+  without cut-off labels, and advanced settings are in closed sub-panels.
+  - Project shows a CRS preset by name ("GDA2020 / MGA zone 56"); the
+    definition and datum note are in CRS Details and the tooltip. Verify
+    Placement and its result are in the Project panel.
+  - Layers shows the selected layer at a glance, with its value range
+    formatted for people ("0.461 – 39.9 deg"). The vertex and texture bakes
+    are one Bake sub-panel that adapts to the layer's domain, followed by
+    Display (was Presentation) and a closed Details sub-panel. The ramp
+    minimum and maximum show the automatic range they will use.
+  - Build Profiles is merged into Publish, which is the one place to choose a
+    variant: the build profile's Variant field. The Publish button names the
+    file it writes. Build Settings and Last Build (with Preview) are
+    sub-panels.
+  - Counts, sizes, ranges, times and memory are formatted with units,
+    thousands separators and sensible precision; values are still stored at
+    full double precision.
+- Some labels are renamed: the placement mode "Source CRS" is "CRS", the build
+  profile's "Profile" is "Quality" (its "Quality" option is "High"), "Jobs" is
+  "Threads", "Variant Layer" is "Variant", and "Ingest Source" is drawn as
+  "Import Mesh...". The RNA identifiers and operator ids are unchanged.
+- `scripts/ui_screenshots.py` screenshots the sidebar in a real Blender window
+  for UI work.
 
 ### Removed
 

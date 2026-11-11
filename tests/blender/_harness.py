@@ -166,6 +166,10 @@ class StubOperatorProperties:
     """Stands in for the ``OperatorProperties`` that ``layout.operator`` returns."""
 
 
+OPERATOR_TEXTS: list[tuple[str, str]] = []
+"""``(idname, text)`` of every operator button the last :func:`draw` drew."""
+
+
 class StubLayout:
     """Records the calls panel and preference ``draw()`` code makes.
 
@@ -198,6 +202,7 @@ class StubLayout:
     ) -> StubOperatorProperties:
         assert operator_available(idname), f"draws unknown operator {idname!r}"
         self.calls.append(("operator", idname, icon))
+        OPERATOR_TEXTS.append((idname, text))
         return StubOperatorProperties()
 
     def prop(
@@ -266,6 +271,7 @@ def draw(
     attribute from it, so ``layout.prop(self, ...)`` works.
     """
     calls: list[tuple[str, str, str]] = []
+    OPERATOR_TEXTS.clear()
     namespace: dict[str, object] = {"layout": StubLayout(calls, alerts)}
     if data is not None:
         namespace["__getattr__"] = lambda _self, name: getattr(data, name)
@@ -273,6 +279,27 @@ def draw(
     cls.draw(fake_self, bpy.context)
     _check_icons(cls.__name__, calls)
     return calls
+
+
+def draw_header(cls: type) -> str | None:
+    """Run a panel's ``draw_header``; return the status icon it drew, or None."""
+    calls: list[tuple[str, str, str]] = []
+    fake_self = type("DrawSelf", (), {"layout": StubLayout(calls)})()
+    cls.draw_header(fake_self, bpy.context)
+    _check_icons(cls.__name__, calls)
+    icons = [icon for kind, _text, icon in calls if kind == "label"]
+    assert len(icons) <= 1, calls
+    return icons[0] if icons else None
+
+
+def operator_text(idname: str) -> str | None:
+    """Text of the first ``idname`` button the last :func:`draw` drew, if any."""
+    return next((text for name, text in OPERATOR_TEXTS if name == idname), None)
+
+
+def label_text(calls: list[tuple[str, str, str]]) -> str:
+    """Every label's text joined by spaces, so wrapped messages can be searched."""
+    return " ".join(text for text, _icon in labels(calls))
 
 
 def draw_list_item(cls: type, data: object, item: object) -> list[tuple[str, str, str]]:

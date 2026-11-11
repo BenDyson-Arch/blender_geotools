@@ -69,6 +69,7 @@ def test_run_checks_flags_shape_keys() -> None:
     panels = h.submodule("blender.panels")
     calls = h.draw(panels.GEOTOOLS_PT_checks)
     assert ("template_list", "GEOTOOLS_UL_issues", "NONE") in calls, calls
+    assert h.draw_header(panels.GEOTOOLS_PT_checks) == "CANCEL"
     row = h.draw_list_item(h.submodule("blender.checks").GEOTOOLS_UL_issues, h.project(), item)
     assert row == [("label", item.message, "CANCEL")], row
 
@@ -108,7 +109,7 @@ def test_verify_placement_needs_rusty_tiles() -> None:
     _source_with_cube()
     available = h.CONFIG.expect == "available"
     assert bpy.ops.geotools.verify_placement.poll() == available
-    calls = h.draw(h.submodule("blender.panels").GEOTOOLS_PT_project_verify)
+    calls = h.draw(h.submodule("blender.panels").GEOTOOLS_PT_project)
     assert ("operator", "geotools.verify_placement", "WORLD") in calls
 
 
@@ -144,16 +145,12 @@ def test_verify_placement_matches_core_probe() -> None:
     print(f"    origin: {got}, operation {props.probe_operation!r}")
     # Somewhere near Brisbane (UTM 56S), as a sanity check.
     assert 152.0 < got[0] < 154.0 and -28.0 < got[1] < -27.0, got
-    labels = [
-        t for t, _i in h.labels(h.draw(h.submodule("blender.panels").GEOTOOLS_PT_project_verify))
-    ]
-    assert f"Longitude  {got[0]:.9f}°" in labels, labels
-    assert "Placement changed since; verify again" not in labels
+    labels = [t for t, _i in h.labels(h.draw(h.submodule("blender.panels").GEOTOOLS_PT_project))]
+    assert f"{got[0]:.7f}°" in labels, labels
+    assert "Placement changed; verify again" not in labels
     p.write_number(props, "source_offset_n", 6961001.0)
-    labels = [
-        t for t, _i in h.labels(h.draw(h.submodule("blender.panels").GEOTOOLS_PT_project_verify))
-    ]
-    assert "Placement changed since; verify again" in labels, labels
+    labels = [t for t, _i in h.labels(h.draw(h.submodule("blender.panels").GEOTOOLS_PT_project))]
+    assert "Placement changed; verify again" in labels, labels
 
 
 def test_verify_placement_anchor_matches_core_probe() -> None:
@@ -192,8 +189,10 @@ def test_verify_placement_reports_unsupported_crs() -> None:
     assert props.probe_error and props.probe_lon == "", props.probe_error
     direct = _direct_probe()
     assert not direct.ok and direct.error == props.probe_error, (direct, props.probe_error)
-    calls = h.draw(h.submodule("blender.panels").GEOTOOLS_PT_project_verify)
+    panel = h.submodule("blender.panels").GEOTOOLS_PT_project
+    calls = h.draw(panel)
     assert any(icon == "ERROR" for _t, icon in h.labels(calls)), calls
+    assert h.draw_header(panel) == "CANCEL"  # the probe failed for this placement
     print(f"    EPSG:2193 error: {props.probe_error}")
 
 
@@ -248,10 +247,14 @@ def test_build_profiles_add_remove_move() -> None:
     assert bpy.ops.geotools.build_profile_add() == {"FINISHED"}
     assert props.build_profiles[-1].name == "Profile 3"
 
-    panel = h.submodule("blender.panels").GEOTOOLS_PT_build_profiles
-    calls = h.draw(panel)
+    panels = h.submodule("blender.panels")
+    calls = h.draw(panels.GEOTOOLS_PT_publish)
     assert ("template_list", "GEOTOOLS_UL_build_profiles", "NONE") in calls
-    assert {"profile", "jobs", "memory_budget_gib", "output_path"} <= set(h.props_drawn(calls))
+    assert {"output_path", "variant_layer", "overwrite", "validate"} <= set(h.props_drawn(calls))
+    assert panels.GEOTOOLS_PT_publish_settings.poll(bpy.context)
+    calls = h.draw(panels.GEOTOOLS_PT_publish_settings)
+    assert {"profile", "jobs", "memory_budget_gib"} <= set(h.props_drawn(calls))
+    assert any(t.startswith("Auto memory: ") for t, _i in h.labels(calls)), calls
     ul = h.submodule("blender.profiles").GEOTOOLS_UL_build_profiles
     row = h.draw_list_item(ul, props, props.build_profiles[0])
     assert ("label", "Balanced", "NONE") in row, row
@@ -274,10 +277,19 @@ def test_panels_order_and_draw() -> None:
         "Source",
         "Layers",
         "Checks",
-        "Build Profiles",
         "Publish",
         "About",
     ], top
+    children: dict[str, list[str]] = {}
+    for c in panels.classes:
+        if getattr(c, "bl_parent_id", ""):
+            children.setdefault(c.bl_parent_id, []).append(c.bl_label)
+    assert children == {
+        "GEOTOOLS_PT_project": ["CRS Details"],
+        "GEOTOOLS_PT_layers": ["Bake", "Display", "Details"],
+        "GEOTOOLS_PT_checks": ["Images"],
+        "GEOTOOLS_PT_publish": ["Build Settings", "Last Build"],
+    }, children
     for cls in panels.classes:
         assert cls.is_registered, cls
         assert (cls.bl_space_type, cls.bl_region_type, cls.bl_category) == (
@@ -286,3 +298,12 @@ def test_panels_order_and_draw() -> None:
             "GeoTools",
         )
         h.draw(cls)
+        if hasattr(cls, "draw_header"):
+            h.draw_header(cls)
+    # An empty project: what is left to do shows in the headers.
+    assert h.draw_header(panels.GEOTOOLS_PT_source) == "RADIOBUT_OFF"
+    assert h.draw_header(panels.GEOTOOLS_PT_checks) == "RADIOBUT_OFF"
+    assert h.draw_header(panels.GEOTOOLS_PT_publish) == "RADIOBUT_OFF"
+    assert h.draw_header(panels.GEOTOOLS_PT_layers) is None  # layers are optional
+    labels = h.label_text(h.draw(panels.GEOTOOLS_PT_source))
+    assert "Choose a source collection" in labels, labels

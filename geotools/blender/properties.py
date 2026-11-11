@@ -222,10 +222,10 @@ class GeoToolsIssue(bpy.types.PropertyGroup):
 
 
 PROFILE_ITEMS = (
-    ("FAST", "Fast", "Quickest build, lossy"),
-    ("BALANCED", "Balanced", "Balance between build time and quality"),
-    ("QUALITY", "Quality", "Best lossy quality, slower"),
-    ("LOSSLESS", "Lossless", "No lossy compression"),
+    ("FAST", "Fast", "rusty-tiles fast profile: quickest build, lossy"),
+    ("BALANCED", "Balanced", "rusty-tiles balanced profile: build time against quality"),
+    ("QUALITY", "High", "rusty-tiles quality profile: best lossy quality, slower"),
+    ("LOSSLESS", "Lossless", "rusty-tiles lossless profile: no lossy compression"),
 )
 
 
@@ -233,12 +233,21 @@ class GeoToolsBuildProfile(bpy.types.PropertyGroup):
     """Settings for one build, and a summary of its last publish."""
 
     # ``name`` is the built-in PropertyGroup name, shown in the list.
-    profile: EnumProperty(name="Profile", items=PROFILE_ITEMS, default="BALANCED")
+    profile: EnumProperty(
+        name="Quality",
+        description="The rusty-tiles build profile: how textures and geometry are compressed",
+        items=PROFILE_ITEMS,
+        default="BALANCED",
+    )
     jobs: IntProperty(
-        name="Jobs", description="Worker threads, 0 for automatic", default=0, min=0, soft_max=64
+        name="Threads",
+        description="Worker threads for rusty-tiles. 0 for automatic",
+        default=0,
+        min=0,
+        soft_max=64,
     )
     memory_budget_gib: FloatProperty(
-        name="Memory Budget",
+        name="Memory (GiB)",
         description="Memory budget for rusty-tiles in GiB. 0 for Auto: 60% of the memory "
         "available when publishing starts, minus 4 GiB for Blender",
         default=0.0,
@@ -262,9 +271,9 @@ class GeoToolsBuildProfile(bpy.types.PropertyGroup):
         default=True,
     )
     variant_layer: StringProperty(
-        name="Variant Layer",
-        description="Publish a variant tileset with this layer presented, as "
-        "<output>.<layer>.3tz. Empty for the plain tileset",
+        name="Variant",
+        description="Layer to publish as a variant tileset, <output>.<layer>.3tz, coloured "
+        "as set in the layer's Display panel. Empty for the plain tileset",
         default="",
     )
 
@@ -504,7 +513,9 @@ class GeoToolsLayer(bpy.types.PropertyGroup):
     PointerProperty); register their PropertyGroups before this class.
     """
 
-    label: StringProperty(name="Label", description="Display name; empty to show the layer name")
+    label: StringProperty(
+        name="Label", description="Display name; empty to show the layer's identifier"
+    )
     domain: EnumProperty(name="Domain", items=LAYER_DOMAIN_ITEMS, default=Domain.FACE.value)
     data_type: EnumProperty(name="Type", items=LAYER_DATA_TYPE_ITEMS, default=DataType.FLOAT.value)
     units: StringProperty(name="Units", description='Units of the values, e.g. "deg", "m", "h"')
@@ -530,15 +541,30 @@ class GeoToolsLayer(bpy.types.PropertyGroup):
     # The range of the values present (binary64 text, empty if not known), set by
     # whoever writes the values or by blender.layers.update_value_range.
     value_min: StringProperty(
-        name="Minimum",
+        name="Value Minimum",
         description="Smallest value present, ignoring no-data. Stored as text so the full "
         "double precision is kept; empty if not known",
         default="",
     )
     value_max: StringProperty(
-        name="Maximum",
+        name="Value Maximum",
         description="Largest value present, ignoring no-data. Stored as text so the full "
         "double precision is kept; empty if not known",
+        default="",
+    )
+    # The automatic ramp range (2nd to 98th percentile of the values present, as
+    # core.ramps.auto_range works it out), cached with value_min/value_max so the
+    # Display panel can show it without reading the values.
+    auto_min: StringProperty(
+        name="Automatic Minimum",
+        description="2nd percentile of the values present: the ramp minimum when none is "
+        "set. Binary64 text, empty if not known",
+        default="",
+    )
+    auto_max: StringProperty(
+        name="Automatic Maximum",
+        description="98th percentile of the values present: the ramp maximum when none is "
+        "set. Binary64 text, empty if not known",
         default="",
     )
     provenance: StringProperty(
@@ -578,7 +604,7 @@ class GeoToolsLayer(bpy.types.PropertyGroup):
 PLACEMENT_MODE_ITEMS = (
     ("LOCAL", "Local", "Local metres, not placed on Earth"),
     ("ANCHOR", "Anchor", "Local metres placed rigidly at a WGS84 point"),
-    ("SOURCE_CRS", "Source CRS", "Coordinates in a declared horizontal CRS plus an offset"),
+    ("SOURCE_CRS", "CRS", "Source coordinates in a declared horizontal CRS, plus an offset"),
 )
 
 PROBE_STATUS_ITEMS = (
@@ -595,7 +621,8 @@ class GeoToolsProject(bpy.types.PropertyGroup):
     placement_mode: EnumProperty(name="Placement", items=PLACEMENT_MODE_ITEMS, default="LOCAL")
     source_crs: StringProperty(
         name="CRS",
-        description='Horizontal CRS of the source coordinates, e.g. "EPSG:32756", WKT or PROJ',
+        description="Horizontal CRS of the source coordinates: an EPSG code such as "
+        '"EPSG:32756", WKT or a PROJ definition. Presets fill it in',
     )
     offset_file: StringProperty(
         name="Offset File", description="Offset file the source offset was read from"

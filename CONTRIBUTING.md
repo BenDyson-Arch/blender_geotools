@@ -15,7 +15,7 @@ behind it.
 | `geotools/publish/` | The publish job (bpy-free): staging layout and lock, the worker thread that writes the GLB and runs rusty-tiles, the build record, and the preview helper. |
 | `geotools/analysis/`, `geotools/bake/` | Empty, reserved for later milestones. |
 | `geotools/wheels/` | Fetched rusty-tiles wheels. Ignored by git, never committed. |
-| `scripts/` | Wheel fetching, extension build and the Blender test runner. |
+| `scripts/` | Wheel fetching, extension build, the Blender test runner and the sidebar screenshot tool. |
 | `tests/core/` | pytest tests for `geotools/core`. They run without Blender. |
 | `tests/blender/` | Tests that run inside Blender. |
 
@@ -147,6 +147,25 @@ and `develop`. It has three jobs:
   the `main` and `develop` rulesets.
 
 When you update the pinned Blender in `ci.yml`, update `release.yml` to match.
+
+## Screenshots of the sidebar
+
+Panel tests draw into a stub layout, so they cannot show truncated labels or a
+cluttered panel. For UI work, look at the real thing:
+
+```sh
+python3 scripts/ui_screenshots.py --out /tmp/geotools-shots
+```
+
+It builds and installs the extension into a temporary profile, opens Blender
+on your screen for about 20 seconds, builds a demo scene (a terrain with a
+face, a category and a texture layer, a build profile with a variant, checks
+run and one publish when rusty-tiles is bundled) and writes PNGs of the
+GeoTools sidebar: `montage.png` and `montage_texture.png` with every panel
+open, scrolled top to bottom, and `state_empty.png`, `state_mid.png` and
+`state_ready.png` with the default open and closed panels. `--states` picks
+some of them. On Linux it runs Blender on Xwayland (`WAYLAND_DISPLAY=`) unless
+you pass `--native`; it needs a display, so it does not run in CI.
 
 ## Isolating the Blender profile
 

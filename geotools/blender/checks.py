@@ -224,6 +224,17 @@ class GEOTOOLS_OT_apply_crs_preset(bpy.types.Operator):
 
     preset: bpy.props.EnumProperty(name="Preset", items=_preset_items)
 
+    @classmethod
+    def description(cls, context, properties) -> str:
+        scene = getattr(context, "scene", None)
+        preset = crs_presets.for_definition(scene.geotools.source_crs) if scene else None
+        if preset is None:
+            return cls.__doc__
+        return (
+            f"{preset.label} ({preset.epsg}). {preset.note}\n{preset.definition}\n"
+            "Click to choose another preset"
+        )
+
     def invoke(self, context, _event):
         context.window_manager.invoke_search_popup(self)
         return {"RUNNING_MODAL"}

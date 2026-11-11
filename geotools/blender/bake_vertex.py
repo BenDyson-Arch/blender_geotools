@@ -35,7 +35,6 @@ from __future__ import annotations
 import dataclasses
 import logging
 import math
-import textwrap
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -60,6 +59,7 @@ from .layers import (
     write_layer,
 )
 from .properties import GeoToolsLayer
+from .ui import big_button, split_column, wrapped
 
 log = logging.getLogger(__name__)
 
@@ -852,72 +852,54 @@ def _modifier_owner(context: bpy.types.Context, name: str) -> bpy.types.Object |
     return next((o for o in objects if any(m.type == "NODES" for m in o.modifiers)), None)
 
 
-class GEOTOOLS_PT_layers_bake_vertex(bpy.types.Panel):
-    """Bake the selected layer from a Geometry Nodes modifier on the source objects."""
-
-    bl_idname = "GEOTOOLS_PT_layers_bake_vertex"
-    bl_label = "Bake from Geometry Nodes"
-    bl_parent_id = "GEOTOOLS_PT_layers"
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category = "GeoTools"
-    bl_options = {"DEFAULT_CLOSED"}
-
-    @classmethod
-    def poll(cls, context: bpy.types.Context) -> bool:
-        item = _active_layer(context)
-        return item is not None and item.domain != "TEXTURE"
-
-    def draw(self, context: bpy.types.Context) -> None:
-        layout = self.layout
-        item = _active_layer(context)
-        if item is None:
-            return
-        settings = item.vertex_bake
-        col = layout.column()
-        col.use_property_split = True
-        col.use_property_decorate = False
-        owner = _modifier_owner(context, settings.modifier)
-        if owner is not None:
-            col.prop_search(settings, "modifier", owner, "modifiers", icon="GEOMETRY_NODES")
-        else:
-            col.prop(settings, "modifier", icon="GEOMETRY_NODES")
-        col.prop(settings, "attribute")
-        col.prop(settings, "method")
-        if settings.method == "RAYCAST":
-            col.prop(settings, "max_distance")
-        col.prop(settings, "disable_modifier")
-
-        objects = source_objects(context.scene)
-        having = sum(1 for o in objects if nodes_modifier(o, settings.modifier) is not None)
-        if settings.modifier and not having:
-            layout.label(text=f"No source object has {settings.modifier}", icon="ERROR")
-        elif settings.modifier:
-            layout.label(text=f"On {having} of {len(objects)} source objects", icon="INFO")
-
-        row = layout.row()
-        row.enabled = bool(settings.modifier and settings.attribute and having)
-        op = row.operator("geotools.bake_geonodes_layer", icon="NODETREE")
-        op.layer = item.name
-        op.modifier = settings.modifier
-        op.attribute = settings.attribute
-        op.method = settings.method
-        op.max_distance = settings.max_distance
-        op.disable_modifier = settings.disable_modifier
-        if settings.last_report:
-            box = layout.box()
-            for line in _wrap(settings.last_report):
-                box.label(text=line)
+def modifier_count(context: bpy.types.Context, name: str) -> tuple[int, int]:
+    """How many source objects have the Geometry Nodes modifier ``name``, of how many."""
+    objects = source_objects(context.scene)
+    return sum(1 for o in objects if nodes_modifier(o, name) is not None), len(objects)
 
 
-def _wrap(text: str, width: int = 44) -> list[str]:
-    return textwrap.wrap(text, width) or [""]
+def draw_bake(layout: bpy.types.UILayout, context: bpy.types.Context, item: GeoToolsLayer) -> None:
+    """The Bake sub-panel for a FACE or CORNER layer: bake from Geometry Nodes."""
+    settings = item.vertex_bake
+    col = split_column(layout)
+    owner = _modifier_owner(context, settings.modifier)
+    row = col.row()
+    having, total = modifier_count(context, settings.modifier)
+    row.alert = bool(settings.modifier) and not having
+    if owner is not None:
+        row.prop_search(settings, "modifier", owner, "modifiers", icon="GEOMETRY_NODES")
+    else:
+        row.prop(settings, "modifier", icon="GEOMETRY_NODES")
+    col.prop(settings, "attribute", placeholder="Named attribute")
+    col.prop(settings, "method")
+    if settings.method == "RAYCAST":
+        col.prop(settings, "max_distance")
+    col.prop(settings, "disable_modifier")
+
+    if settings.modifier and not having:
+        layout.label(text=f"No source object has {settings.modifier}", icon="ERROR")
+    elif settings.modifier:
+        layout.label(text=f"On {having} of {total} source objects", icon="INFO")
+    elif owner is None:
+        wrapped(layout, context, "Add a Geometry Nodes modifier to a source object", "INFO")
+
+    row = big_button(layout)
+    row.enabled = bool(settings.modifier and settings.attribute and having)
+    op = row.operator("geotools.bake_geonodes_layer", text="Bake", icon="NODETREE")
+    op.layer = item.name
+    op.modifier = settings.modifier
+    op.attribute = settings.attribute
+    op.method = settings.method
+    op.max_distance = settings.max_distance
+    op.disable_modifier = settings.disable_modifier
+    if settings.last_report:
+        box = layout.box()
+        wrapped(box, context, settings.last_report, icon="INFO")
 
 
 classes = (
     GeoToolsVertexBake,
     GEOTOOLS_OT_bake_geonodes_layer,
-    GEOTOOLS_PT_layers_bake_vertex,
 )
 
 _register_classes, _unregister_classes = bpy.utils.register_classes_factory(classes)

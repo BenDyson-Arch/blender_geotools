@@ -39,9 +39,9 @@ MODULES: tuple[ModuleType, ...] = (
     layers,
     presentation,
     publish,
-    panels,
-    bake_vertex,  # after panels: its sub-panel needs GEOTOOLS_PT_layers
-    bake_texture,  # likewise
+    bake_vertex,
+    bake_texture,
+    panels,  # last: the sidebar draws what the modules above register
 )
 
 

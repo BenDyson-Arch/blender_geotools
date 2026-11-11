@@ -44,6 +44,7 @@ from ..core.layers import (
     to_record,
     validate,
 )
+from ..core.ramps import auto_range
 from .common import redraw_ui
 from .properties import (
     LAYER_AGGREGATION_DEFAULT,
@@ -365,10 +366,14 @@ def update_value_range(
     (or, for a TEXTURE layer, the first channel of its images), ignoring NaN,
     inf and no-data. Both are None (stored as "") if no value is left. Raises
     ``RuntimeError`` if a source mesh is in Edit Mode.
+
+    Also caches the automatic ramp range (``core.ramps.auto_range`` of the same
+    values) in ``auto_min``/``auto_max``, for the Display panel to show.
     """
     spec = spec_from_props(item)
     nodata = spec.nodata if spec.nodata is not None and math.isfinite(spec.nodata) else None
     ranges = []
+    values: list[np.ndarray] = []
     if Domain(spec.domain) is Domain.TEXTURE:
         for entry in item.images:
             image = entry.image
@@ -376,16 +381,26 @@ def update_value_range(
                 continue
             pixels = np.empty(len(image.pixels), np.float32)
             image.pixels.foreach_get(pixels)
-            ranges.append(_finite_range(pixels[:: image.channels], nodata))
+            values.append(pixels[:: image.channels])
+            ranges.append(_finite_range(values[-1], nodata))
     else:
         for mesh in source_meshes(scene):
             if attribute_problem(mesh, spec) is None:
-                ranges.append(_finite_range(read_layer(mesh, spec), nodata))
+                values.append(read_layer(mesh, spec))
+                ranges.append(_finite_range(values[-1], nodata))
     found = [r for r in ranges if r is not None]
     low = min(r[0] for r in found) if found else None
     high = max(r[1] for r in found) if found else None
     item.value_min = format_number(low)
     item.value_max = format_number(high)
+    auto = None
+    if found and DataType(spec.data_type) in (DataType.FLOAT, DataType.INT):
+        try:
+            auto = auto_range(np.concatenate(values), nodata)
+        except ValueError:
+            auto = None
+    item.auto_min = format_number(auto[0] if auto else None)
+    item.auto_max = format_number(auto[1] if auto else None)
     return low, high
 
 
@@ -649,7 +664,7 @@ class GEOTOOLS_OT_layer_add(bpy.types.Operator):
     def invoke(self, context: bpy.types.Context, event: bpy.types.Event) -> set[str]:
         if not self.name:
             self.name = unique_layer_name(context.scene.geotools.layers)
-        return context.window_manager.invoke_props_dialog(self)
+        return context.window_manager.invoke_props_dialog(self, confirm_text="Add")
 
     def execute(self, context: bpy.types.Context) -> set[str]:
         props = context.scene.geotools
@@ -686,7 +701,7 @@ class GEOTOOLS_OT_layer_remove(bpy.types.Operator):
         return _active_layer_poll(cls, context, object_mode=True)
 
     def invoke(self, context: bpy.types.Context, event: bpy.types.Event) -> set[str]:
-        return context.window_manager.invoke_props_dialog(self)
+        return context.window_manager.invoke_props_dialog(self, confirm_text="Remove")
 
     def draw(self, context: bpy.types.Context) -> None:
         item = _active_layer(context)
@@ -740,7 +755,7 @@ class GEOTOOLS_OT_layer_rename(bpy.types.Operator):
 
     def invoke(self, context: bpy.types.Context, event: bpy.types.Event) -> set[str]:
         self.new_name = _active_layer(context).name
-        return context.window_manager.invoke_props_dialog(self)
+        return context.window_manager.invoke_props_dialog(self, confirm_text="Rename")
 
     def execute(self, context: bpy.types.Context) -> set[str]:
         scene = context.scene
@@ -852,7 +867,7 @@ class GEOTOOLS_OT_layer_set_categories(bpy.types.Operator):
 
     def invoke(self, context: bpy.types.Context, event: bpy.types.Event) -> set[str]:
         self.labels = ", ".join(parse_categories(_active_layer(context).categories))
-        return context.window_manager.invoke_props_dialog(self, width=400)
+        return context.window_manager.invoke_props_dialog(self, width=400, confirm_text="Set")
 
     def execute(self, context: bpy.types.Context) -> set[str]:
         item = _active_layer(context)

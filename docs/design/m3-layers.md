@@ -161,9 +161,15 @@ CATEGORY), `layer-categories-missing`, `layer-nodata-invalid`,
   - Publish passes the records in `BuildRequest.layers`; invalid layers are left
     out with a warning.
 - UI: a **Layers** panel (`GEOTOOLS_PT_layers`) after Source, with a UIList,
-  add/remove operators, the fields of the selected layer, and its status
-  (`layer_status`). Removing a layer asks whether to delete its attributes and
-  images too.
+  add, remove and rename operators, the selected layer's label, units, value
+  range and status (`layer_status`), and three sub-panels in workflow order:
+  **Bake** (`GEOTOOLS_PT_layers_bake`, sections 2 and 3), **Display**
+  (`GEOTOOLS_PT_layers_display`, section 4) and **Details**
+  (`GEOTOOLS_PT_layers_details`, closed by default: domain, type, no-data,
+  origin, aggregation, description, provenance and Create Attributes).
+  Removing a layer asks whether to delete its attributes and images too.
+  `update_value_range` also caches the automatic ramp range (`auto_min`,
+  `auto_max`) for the Display sub-panel.
 - The registry and the layer attributes survive saving and reopening the
   `.blend`. Images survive because they are saved files.
 - `build.json` gets a `"layers"` list (`to_record` of each layer) and, for a
@@ -253,9 +259,9 @@ Settled while building stream 2 (all compatible with the above):
 - The panel's settings are kept per layer in `GeoToolsLayer.vertex_bake`
   (`GeoToolsVertexBake`: the operator's settings plus `last_report`).
   `bake_vertex.register()` adds this pointer to the registered class, so
-  `properties.py` is unchanged. The UI is the **Bake from Geometry Nodes**
-  sub-panel of Layers (`GEOTOOLS_PT_layers_bake_vertex`), shown for FACE and
-  CORNER layers.
+  `properties.py` is unchanged. The UI is the **Bake** sub-panel of Layers
+  (`GEOTOOLS_PT_layers_bake`), which draws `bake_vertex.draw_bake` for FACE
+  and CORNER layers.
 
 ## 3. Texture-space bake: `geotools/blender/bake_texture.py`
 
@@ -322,8 +328,10 @@ Settled while building stream 3 (all compatible with the above):
   map, the counts, the grid (and what it was coarsened from) and example face
   indices. The Checks panel adds it as a warning for each source object and
   each UV map a TEXTURE layer uses (nothing without TEXTURE layers, since
-  rusty-tiles records overlap but never refuses it). The **Texture Bake**
-  sub-panel also has **Check UV Overlap** (`geotools.check_layer_uvs`).
+  rusty-tiles records overlap but never refuses it). For a TEXTURE layer the
+  **Bake** sub-panel draws `bake_texture.draw_bake`: the UV map, resolution
+  and margin, **Bake...** (the operator's dialog) and **Check UV Overlap**
+  (`geotools.check_layer_uvs`).
 - Operator properties: `layer` (empty for the selected one; must be TEXTURE),
   `source_layer` (a FACE or CORNER layer, baked from `gt_<name>`), `attribute`
   (used when `source_layer` is empty), `method` (`AUTO`, `DIRECT`,
@@ -489,9 +497,11 @@ def extract_scene(context, collection, image_dir, *, remedies=None,
   gets a plain white material.
 
 **Variant publish** (`blender/publish.py`): `geotools.publish` takes a
-`layer` property (empty: the build profile's `variant_layer`). The Presentation
-panel's **Publish Variant** button calls it with the selected layer and the
-selected build profile, and shows the file name it writes. The variant runs
+`layer` property (empty: the build profile's `variant_layer`). In the UI the
+variant is chosen in one place, the **Variant** field of the selected build
+profile in the Publish panel, whose **Publish** button names the file it
+writes; the `layer` property stays for scripts. The Display sub-panel says
+when its layer is the profile's variant. The variant runs
 the same checks plus `variant_issues(scene, layer)`: `variant-layer-missing`,
 `variant-layer-invalid`, the `presentation_issues` codes, `variant-edit-mode`,
 `variant-data-mismatch`, `variant-no-data` (no source mesh holds the

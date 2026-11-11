@@ -211,7 +211,7 @@ def _datablocks() -> tuple[int, ...]:
 
 def test_bake_registered() -> None:
     assert h.operator_available(OP)
-    assert hasattr(bpy.types, "GEOTOOLS_PT_layers_bake_vertex")
+    assert hasattr(bpy.types, "GEOTOOLS_PT_layers_bake")
     layer = h.submodule("blender.properties").GeoToolsLayer
     assert "vertex_bake" in layer.bl_rna.properties
 
@@ -586,7 +586,7 @@ def test_panel_draws() -> None:
     _clean()
     L = _layers()
     scene = bpy.context.scene
-    panel = bpy.types.GEOTOOLS_PT_layers_bake_vertex
+    panel = bpy.types.GEOTOOLS_PT_layers_bake
     assert not panel.poll(bpy.context)
     (obj,) = _source(_grid("Grid", 2))
     L.ensure_layer(scene, _spec())
@@ -606,14 +606,15 @@ def test_panel_draws() -> None:
     assert bpy.ops.geotools.bake_geonodes_layer(
         layer="height", modifier="GN", attribute="value"
     ) == {"FINISHED"}
-    labels = [text for text, _icon in h.labels(h.draw(panel))]
-    assert any(t.startswith("Baked height on 1 object") for t in labels), labels
+    labels = h.label_text(h.draw(panel))
+    assert "Baked height on 1 object" in labels, labels
+    assert h.draw_header(panel) == "CHECKMARK"
     settings.modifier = "Missing"
     assert ("label", "No source object has Missing", "ERROR") in h.draw(panel)
 
     L.ensure_layer(scene, _spec("shade", "TEXTURE"))
     h.project().layers_index = 1
-    assert not panel.poll(bpy.context)
+    assert ("operator", OP, "NODETREE") not in h.draw(panel)
 
 
 # --- persistence ------------------------------------------------------------------------------

@@ -217,12 +217,19 @@ def test_presentation_registered() -> None:
     layer_props = bpy.types.PropertyGroup.bl_rna_get_subclass_py("GeoToolsLayer")
     assert layer_props is not None and "presentation" in layer_props.bl_rna.properties
     panels = h.submodule("blender.panels")
-    present = _present().GEOTOOLS_PT_layers_presentation
-    assert present in panels.classes
-    assert panels.classes.index(present) == panels.classes.index(panels.GEOTOOLS_PT_layers) + 1
-    assert present.bl_parent_id == "GEOTOOLS_PT_layers"
+    display = panels.GEOTOOLS_PT_layers_display
+    assert display in panels.classes
+    # Bake, then display: the workflow order.
+    order = panels.classes.index
+    assert order(panels.GEOTOOLS_PT_layers) < order(panels.GEOTOOLS_PT_layers_bake)
+    assert order(display) == order(panels.GEOTOOLS_PT_layers_bake) + 1
+    assert display.bl_parent_id == "GEOTOOLS_PT_layers"
     modules = [m.__name__.rpartition(".")[2] for m in h.submodule("blender").MODULES]
     assert modules.index("layers") < modules.index("presentation") < modules.index("publish")
+
+
+def _display():
+    return h.submodule("blender.panels").GEOTOOLS_PT_layers_display
 
 
 def test_presentation_panel_draws() -> None:
@@ -230,25 +237,32 @@ def test_presentation_panel_draws() -> None:
     _grid()
     core = _core_layers()
     _layer({"name": "slope", "domain": core.Domain.FACE, "data_type": core.DataType.FLOAT})
-    calls = h.draw(_present().GEOTOOLS_PT_layers_presentation)
+    calls = h.draw(_display())
     props = h.props_drawn(calls)
-    assert {"target", "blend", "palette", "range_min", "range_max", "nodata_color"} <= set(props)
-    assert ("operator", "geotools.publish", "EXPORT") in calls
-    assert ("label", "Set an output on the build profile", "INFO") in calls
+    assert {"blend", "palette", "range_min", "range_max", "nodata_color"} <= set(props)
+    assert "target" not in props  # a face layer has one target, so it is not shown
+    assert ("operator", "geotools.layer_write_presentation", "BRUSH_DATA") in calls
+    assert ("operator", "geotools.publish", "EXPORT") not in calls  # variants: Publish only
+    assert ("label", "Publish: choose it as Variant", "INFO") in calls
+    assert h.draw_header(_display()) is None
 
     assert bpy.ops.geotools.build_profile_add() == {"FINISHED"}
     profile = h.project().build_profiles[0]
     profile.output_path = "/tmp/site.3tz"
-    calls = h.draw(_present().GEOTOOLS_PT_layers_presentation)
-    assert ("label", "Writes site.slope.3tz", "FILE_3D") in calls, calls
+    profile.variant_layer = "slope"
+    calls = h.draw(_display())
+    assert ("label", "Variant: site.slope.3tz", "FILE_3D") in calls, calls
+    profile.variant_layer = ""
 
-    # A target that does not suit the domain is flagged.
+    # A target that does not suit the domain is shown and flagged.
     alerts: list[str] = []
     item = _layers().find_layer(bpy.context.scene, "slope")
     item.presentation.target = "BASE_COLOR"
-    calls = h.draw(_present().GEOTOOLS_PT_layers_presentation, alerts)
+    calls = h.draw(_display(), alerts)
     assert "target" in alerts
     assert ("label", "Use Vertex Colour for this layer", "ERROR") in calls
+    assert h.draw_header(_display()) == "CANCEL"
+    item.presentation.target = "COLOR_0"
 
     # Categories list their colours instead of a palette.
     _layer(
@@ -261,22 +275,39 @@ def test_presentation_panel_draws() -> None:
     )
     h.project().layers_index = 1
     assert bpy.ops.geotools.layer_presentation_reset_colors() == {"FINISHED"}
-    calls = h.draw(_present().GEOTOOLS_PT_layers_presentation)
+    calls = h.draw(_display())
     assert "palette" not in h.props_drawn(calls)
     assert h.props_drawn(calls).count("color") == 2
     assert ("label", "1  grass", "NONE") in calls
 
-    # The build profile picks a variant layer; Publish shows it.
+    # The variant is chosen in one place: the Publish panel, on the build profile.
+    publish_panel = h.submodule("blender.panels").GEOTOOLS_PT_publish
     profile.variant_layer = "cover"
     alerts = []
-    calls = h.draw(h.submodule("blender.panels").GEOTOOLS_PT_build_profiles, alerts)
+    calls = h.draw(publish_panel, alerts)
     assert "variant_layer" in h.props_drawn(calls) and "variant_layer" not in alerts
+    assert h.operator_text("geotools.publish") == "Publish site.cover.3tz"
     profile.variant_layer = "nope"
-    h.draw(h.submodule("blender.panels").GEOTOOLS_PT_build_profiles, alerts)
+    h.draw(publish_panel, alerts)
     assert "variant_layer" in alerts
-    profile.variant_layer = "cover"
-    labels = [t for k, t, _i in h.draw(h.submodule("blender.publish").GEOTOOLS_PT_publish)]
-    assert "Variant: layer cover (.cover.3tz)" in labels, labels
+    profile.variant_layer = ""
+    h.draw(publish_panel)
+    assert h.operator_text("geotools.publish") == "Publish site.3tz"
+
+
+def test_display_shows_auto_range() -> None:
+    h.reset_scene()
+    _grid()
+    core = _core_layers()
+    _layer({"name": "slope", "domain": core.Domain.FACE, "data_type": core.DataType.FLOAT})
+    present = _present()
+    item = _layers().find_layer(bpy.context.scene, "slope")
+    assert present._auto_text(item, "min") == "Auto"
+    item.auto_min, item.auto_max = repr(4.914712905883789), repr(36.55620574951172)
+    assert present._auto_text(item, "min") == "Auto: 4.91"
+    assert present._auto_text(item, "max") == "Auto: 36.6"
+    item.data_type = "BOOLEAN"
+    assert present._auto_text(item, "max") == "Auto: 1"
 
 
 # --- COLOR_0: gt_present -----------------------------------------------------------------------
