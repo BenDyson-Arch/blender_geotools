@@ -70,10 +70,51 @@ def matches(project: DataCrs | None, data: DataCrs) -> bool | None   # None = ca
   The hook is `reproject(points, data_crs, project_crs) -> (points, report)`.
   It raises "not available" until the pyproj bundling lands. Rasters are
   never reprojected: "reproject in QGIS first".
-- Packaging: pyproj wheels are bundled per platform like rusty-tiles (5–10
-  MB each). pyproj 3.8.0's Intel-mac wheel needs macOS 15, so pin a version
-  with wheels for every platform Blender 5.2 supports (3.7.2 today), or pin
-  per platform.
+- The function behind the hook is
+  `geotools.core.reproject.reproject_points(xyz, source, target, *,
+  allow_network=False) -> (points, ReprojectionReport)`. It takes CRS strings
+  ("EPSG:nnnn", WKT or PROJ), so the hook calls it in one line. It raises
+  `ReprojectionUnavailable` without pyproj and `ReprojectionError` for a bad
+  CRS, bad input or a non-finite result. When PROJ keeps several candidate
+  operations, the report names the one it used at the centre of the data.
+  Z goes through PROJ only when both CRSs are 3D; otherwise it is passed
+  through and the report says so. 1M points take about 0.2 s.
+- A CRS preset as the project CRS: the target is used as written, so pyproj
+  follows the preset's `+towgs84` null shift, as rusty-tiles does at publish
+  time. The preset's EPSG code gives the same result only for data that is
+  already in that datum or in WGS84. GDA94 (EPSG:28356) into the MGA zone 56
+  preset goes GDA94 → WGS84 → null shift, which leaves the coordinates
+  unchanged. Into EPSG:7856, PROJ uses "GDA94 to GDA2020 (1)" (0.01 m), and
+  the two results are 1.51 m apart in Brisbane. The scene holds GDA2020/MGA
+  coordinates, and the source mesh is placed with the same null shift, so to
+  keep GDA94 vectors aligned with the mesh the hook should pass
+  `preset.epsg` as the target, not the preset definition. The report gives
+  the measured difference whenever the target is a preset.
+- Packaging (decided 2026-11-11): **pyproj 3.8.0** and **certifi
+  2026.10.23** are pinned under `[tool.geotools.wheels]` beside rusty-tiles,
+  one version for every platform:
+  - Blender 5.0 and later run only on Apple silicon with macOS 13 or later.
+    Blender 5.2 has no macOS x64 build at all (download.blender.org lists
+    linux-x64, windows-x64/arm64 and macos-arm64), so 3.8.0's
+    macOS-15-only Intel wheel reaches no Blender 5.2 user. The `macos-x64`
+    zip stays in `platforms` as configured, and 3.8.0 has a cp313 wheel for
+    it.
+  - On Apple silicon, 3.7.2 and 3.8.0 both need macOS 14
+    (`macosx_14_0_arm64`), and no pyproj with cp313 wheels supports macOS 13.
+    rusty-tiles' macOS wheels target macOS 15.0 in any case. So 3.7.2 would
+    gain nothing. Blender ignores the macOS version in a wheel tag when it
+    installs, so the minimum is enforced only by these tags: macOS 15 for the
+    GeoTools mac zips, set by rusty-tiles.
+  - 3.8.0 brings PROJ 9.8.1 and EPSG v12.029, against PROJ 9.5.1 and EPSG
+    v11.022 in 3.7.2.
+  - Wheels per platform zip: linux-x64 10.0 MB, windows-x64 6.7 MB,
+    macos-arm64 5.0 MB, macos-x64 6.1 MB, plus 0.1 MB of certifi.
+  - Releases are cp313 only. `fetch_wheels.py --python 3.14` (with
+    `build_extension.py --python 3.14`) is for a local Blender built against
+    another Python. Blender refuses a zip whose cp313 wheels don't match its
+    Python. CONTRIBUTING.md ("How Blender picks wheels") has the details,
+    including that Blender shares one pyproj between all extensions and
+    keeps the newest.
 
 ## Vectors
 

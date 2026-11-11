@@ -758,7 +758,13 @@ class GEOTOOLS_PT_about(_GeoToolsPanel, bpy.types.Panel):
     bl_options = {"DEFAULT_CLOSED"}
 
     def draw_header(self, context: bpy.types.Context) -> None:
-        header_status(self.layout, DONE if deps.probe_rusty_tiles().available else ERROR)
+        if not deps.probe_rusty_tiles().available:
+            state = ERROR
+        elif not deps.probe_pyproj().available:
+            state = WARNING  # everything but reprojecting imports still works
+        else:
+            state = DONE
+        header_status(self.layout, state)
 
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout

@@ -85,12 +85,14 @@ There are no releases yet, so you have to build the zip yourself. You need
 Python 3.11 or later and Blender 5.2:
 
 ```sh
-python3 scripts/fetch_wheels.py --from-dir DIR   # DIR holds rusty-tiles 0.4.0 wheels
+python3 scripts/fetch_wheels.py --from-dir rusty-tiles=DIR   # DIR holds rusty-tiles 0.4.0 wheels; pyproj comes from PyPI
 python3 scripts/build_extension.py --blender /path/to/blender
 ```
 
 The zips are written to `dist/`, one per platform. Once rusty-tiles 0.4.0 is on
-PyPI, `fetch_wheels.py` will download the wheels without `--from-dir`. See
+PyPI, `fetch_wheels.py` will download every wheel without `--from-dir`. A
+Blender that doesn't run Python 3.13 (some Linux distribution builds) needs
+`--python` on both commands. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## Licence

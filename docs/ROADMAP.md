@@ -94,7 +94,8 @@ GeoTools creates tilesets; it no longer imports them.
   - a Blender extension for Blender 5.2+, with the add-on in `geotools/`;
   - rusty-tiles wheels bundled for Linux x64, Windows x64 and macOS
     arm64/x64, pinned to one version and fetched by a script (never
-    committed);
+    committed); pyproj (with PROJ) and certifi are bundled the same way for
+    M8 imports;
   - no `bl_info`, and no pyproj or GDAL install steps.
 - Layout:
   - `geotools/core/`: pure Python and numpy, no `bpy`;

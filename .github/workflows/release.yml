@@ -76,7 +76,8 @@ jobs:
         with:
           version: ${{ env.BLENDER_VERSION }}
           sha256: ${{ env.BLENDER_SHA256 }}
-      - name: Fetch the pinned rusty-tiles wheels (PyPI, every platform)
+      - name: Fetch the pinned wheels (rusty-tiles, pyproj, certifi; PyPI, every platform)
+        # Always for CPython 3.13 (Blender 5.2 LTS): no --python here.
         run: python scripts/fetch_wheels.py
       - name: Validate and build the split extension zips
         run: python scripts/build_extension.py --blender "$BLENDER" --out dist
@@ -86,10 +87,14 @@ jobs:
         run: |
           set -eu
           for platform in linux_x64 windows_x64 macos_arm64 macos_x64; do
-            test -f "dist/geotools-${VERSION}-${platform}.zip" \
-              || { echo "::error::missing dist/geotools-${VERSION}-${platform}.zip"; exit 1; }
+            zip="dist/geotools-${VERSION}-${platform}.zip"
+            test -f "$zip" || { echo "::error::missing $zip"; exit 1; }
+            for wheel in rusty_tiles pyproj certifi; do
+              python -c 'import sys, zipfile; names = zipfile.ZipFile(sys.argv[1]).namelist(); sys.exit(not any(n.startswith("wheels/" + sys.argv[2] + "-") for n in names))' "$zip" "$wheel" \
+                || { echo "::error::$zip has no $wheel wheel"; exit 1; }
+            done
           done
-      - name: Install and test in Blender (linux-x64, rusty-tiles at the pin)
+      - name: Install and test in Blender (linux-x64, rusty-tiles and pyproj at the pins)
         env:
           VERSION: ${{ needs.check.outputs.version }}
         run: |

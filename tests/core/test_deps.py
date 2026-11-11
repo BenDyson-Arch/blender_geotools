@@ -36,9 +36,10 @@ class _FailingFinder(importlib.abc.MetaPathFinder, importlib.abc.Loader):
 
 @pytest.fixture(autouse=True)
 def _isolated(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Start each test with no cached status and no real rusty_tiles."""
+    """Start each test with no cached status and no real rusty_tiles or pyproj."""
     monkeypatch.delitem(sys.modules, deps.MODULE_NAME, raising=False)
     monkeypatch.delitem(sys.modules, f"{deps.MODULE_NAME}.{deps.MODULE_NAME}", raising=False)
+    monkeypatch.delitem(sys.modules, deps.PYPROJ_MODULE, raising=False)
     deps.reset_cache()
     yield
     deps.reset_cache()
@@ -175,3 +176,75 @@ def test_status_is_frozen() -> None:
     status = deps.DependencyStatus(True, version="0.4.0")
     with pytest.raises(AttributeError):
         status.available = False  # type: ignore[misc]
+
+
+# --- pyproj --------------------------------------------------------------------------
+
+
+def _fake_pyproj(
+    monkeypatch: pytest.MonkeyPatch, data_dir: str | Exception = "/x/proj_dir/share/proj"
+) -> types.ModuleType:
+    module = types.ModuleType(deps.PYPROJ_MODULE)
+    module.__version__ = "3.8.0"
+    module.proj_version_str = "9.8.1"
+
+    def get_data_dir() -> str:
+        if isinstance(data_dir, Exception):
+            raise data_dir
+        return data_dir
+
+    module.datadir = types.SimpleNamespace(get_data_dir=get_data_dir)
+    monkeypatch.setitem(sys.modules, deps.PYPROJ_MODULE, module)
+    return module
+
+
+def test_pyproj_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_pyproj(monkeypatch)
+    _no_metadata(monkeypatch)
+
+    status = deps.probe_pyproj()
+
+    assert status == deps.DependencyStatus(
+        True,
+        version="3.8.0",
+        name="pyproj",
+        proj_version="9.8.1",
+        data_dir="/x/proj_dir/share/proj",
+    )
+    assert status.summary == "pyproj 3.8.0 (PROJ 9.8.1)"
+    assert deps.probe_pyproj() is status  # cached
+
+
+def test_pyproj_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, deps.PYPROJ_MODULE, None)
+
+    status = deps.probe_pyproj()
+
+    assert not status.available and status.name == "pyproj"
+    assert status.summary == "pyproj not available: pyproj is not installed"
+
+
+def test_pyproj_without_data_dir_is_not_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_pyproj(monkeypatch, data_dir=RuntimeError("Valid PROJ data directory not found."))
+    _no_metadata(monkeypatch)
+
+    status = deps.probe_pyproj()
+
+    assert not status.available
+    assert status.version == "3.8.0" and status.proj_version == "9.8.1"
+    assert status.error == ("PROJ data directory not found: Valid PROJ data directory not found.")
+
+
+def test_probe_all_and_reset(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_module(monkeypatch, "0.4.0")
+    monkeypatch.setitem(sys.modules, deps.PYPROJ_MODULE, None)
+    _no_metadata(monkeypatch)
+
+    rusty, pyproj = deps.probe_all()
+    assert rusty.name == "rusty-tiles" and rusty.available
+    assert pyproj.name == "pyproj" and not pyproj.available
+
+    _fake_pyproj(monkeypatch)
+    assert not deps.probe_pyproj().available  # still cached
+    deps.reset_cache()
+    assert deps.probe_pyproj().available

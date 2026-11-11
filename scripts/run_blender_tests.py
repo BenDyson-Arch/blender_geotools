@@ -16,8 +16,12 @@ Usage:
     python scripts/run_blender_tests.py --zip dist/geotools-0.3.0-dev.zip --expect missing
 
 With --expect available the build bundles whatever scripts/fetch_wheels.py put
-in geotools/wheels/ and the expected rusty-tiles version defaults to the pin in
-pyproject.toml. With --expect missing it builds with --no-wheels.
+in geotools/wheels/, for the CPython of the Blender under test, and the expected
+rusty-tiles and pyproj versions default to the pins in pyproject.toml. With
+--expect missing it builds with --no-wheels, and neither library may load.
+
+A Blender whose Python is not 3.13 (a distribution build on 3.14, say) needs
+wheels fetched with ``scripts/fetch_wheels.py --python 3.14``.
 
 Stdlib only (Python 3.12+). Works on Linux, macOS and Windows.
 """
@@ -38,7 +42,7 @@ import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fetch_wheels import REPO_ROOT, FetchError, read_config
+from fetch_wheels import REPO_ROOT, FetchError, python_label, read_config
 
 SUITE = REPO_ROOT / "tests" / "blender" / "run_suite.py"
 BUILD_SCRIPT = REPO_ROOT / "scripts" / "build_extension.py"
@@ -88,10 +92,43 @@ def zip_manifest(path: Path) -> dict:
         raise RunError(f"cannot read the manifest in {path}: {ex}")
 
 
-def build(blender: str, out_dir: Path, with_wheels: bool, env: dict[str, str]) -> Path:
+def blender_python(blender: str, env: dict[str, str]) -> tuple[int, int]:
+    """The CPython version the Blender executable runs."""
+    marker = "GEOTOOLS_PYTHON="
+    cmd = [
+        blender,
+        "--background",
+        "--factory-startup",
+        "--python-expr",
+        f"import sys; print('{marker}%d.%d' % sys.version_info[:2])",
+    ]
+    try:
+        result = subprocess.run(
+            cmd, env=env, check=False, capture_output=True, text=True, timeout=BLENDER_TIMEOUT
+        )
+    except subprocess.TimeoutExpired:
+        raise RunError(f"Blender did not finish within {BLENDER_TIMEOUT}s")
+    for line in result.stdout.splitlines():
+        if line.startswith(marker):
+            major, _, minor = line[len(marker) :].strip().partition(".")
+            return int(major), int(minor)
+    raise RunError(
+        f"could not read the Python version of {blender} (exit code {result.returncode})"
+    )
+
+
+def build(
+    blender: str,
+    out_dir: Path,
+    with_wheels: bool,
+    env: dict[str, str],
+    python: tuple[int, int] | None = None,
+) -> Path:
     cmd = [sys.executable, str(BUILD_SCRIPT), "--blender", blender, "--out", str(out_dir)]
     if not with_wheels:
         cmd.append("--no-wheels")
+    elif python is not None:
+        cmd += ["--python", python_label(python)]
     print("$ " + " ".join(cmd), flush=True)
     if subprocess.run(cmd, env=env, check=False).returncode != 0:
         raise RunError("scripts/build_extension.py failed")
@@ -153,6 +190,7 @@ def run_suite(
     ext_version: str,
     expect: str,
     expect_version: str | None,
+    expect_pyproj_version: str | None,
     keyword: str | None,
     results: Path,
 ) -> dict:
@@ -179,6 +217,8 @@ def run_suite(
     ]
     if expect_version:
         cmd += ["--expect-version", expect_version]
+    if expect_pyproj_version:
+        cmd += ["--expect-pyproj-version", expect_pyproj_version]
     if keyword:
         cmd += ["-k", keyword]
     code = run_blender(cmd, env)
@@ -215,13 +255,19 @@ def main(argv: list[str] | None = None) -> int:
         "--expect",
         choices=("available", "missing"),
         required=True,
-        help="expected rusty-tiles status in the installed extension",
+        help="expected status of the bundled libraries (rusty-tiles, pyproj) in the "
+        "installed extension",
     )
     parser.add_argument(
         "--expect-version",
         metavar="VERSION",
         help="expected rusty-tiles version with --expect available "
         "(default: the pin in pyproject.toml)",
+    )
+    parser.add_argument(
+        "--expect-pyproj-version",
+        metavar="VERSION",
+        help="expected pyproj version with --expect available (default: the pin in pyproject.toml)",
     )
     parser.add_argument(
         "--zip",
@@ -236,8 +282,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     sys.stdout.reconfigure(line_buffering=True)
 
-    if args.expect == "missing" and args.expect_version:
-        parser.error("--expect-version only makes sense with --expect available")
+    if args.expect == "missing" and (args.expect_version or args.expect_pyproj_version):
+        parser.error("--expect-version/--expect-pyproj-version only make sense with available")
 
     tmp = Path(tempfile.mkdtemp(prefix="geotools-blender-tests-")).resolve()
     user_resources = tmp / "user"
@@ -245,9 +291,11 @@ def main(argv: list[str] | None = None) -> int:
     ok = False
     try:
         blender = find_blender(args.blender)
-        expect_version = None
+        expect_version = expect_pyproj_version = None
         if args.expect == "available":
-            expect_version = args.expect_version or read_config()[0]
+            config = read_config()
+            expect_version = args.expect_version or config.rusty_tiles
+            expect_pyproj_version = args.expect_pyproj_version or config.pins.get("pyproj")
 
         env = isolated_env(user_resources)
         if args.zip is not None:
@@ -255,7 +303,10 @@ def main(argv: list[str] | None = None) -> int:
             if not zip_path.is_file():
                 raise RunError(f"--zip {zip_path} does not exist")
         else:
-            zip_path = build(blender, tmp / "dist", args.expect == "available", env)
+            python = blender_python(blender, env) if args.expect == "available" else None
+            if python is not None:
+                print(f"Blender runs CPython {python_label(python)}")
+            zip_path = build(blender, tmp / "dist", args.expect == "available", env, python)
         manifest = zip_manifest(zip_path)
         ext_id, ext_version = str(manifest["id"]), str(manifest["version"])
         print(f"testing {zip_path.name} ({ext_id} {ext_version}) in {user_resources}")
@@ -268,6 +319,7 @@ def main(argv: list[str] | None = None) -> int:
             ext_version,
             args.expect,
             expect_version,
+            expect_pyproj_version,
             args.keyword,
             tmp / "results.json",
         )
@@ -275,6 +327,7 @@ def main(argv: list[str] | None = None) -> int:
             f"OK: {report['passed']} passed in Blender {report['blender']} "
             f"(Python {report['python']}), rusty-tiles {args.expect}"
             + (f" {expect_version}" if expect_version else "")
+            + (f", pyproj {expect_pyproj_version}" if expect_pyproj_version else "")
         )
         ok = True
     except (RunError, FetchError, KeyError) as ex:

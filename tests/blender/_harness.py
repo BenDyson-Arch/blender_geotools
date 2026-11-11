@@ -25,9 +25,11 @@ class Config:
     repo: str
     """Extension repository it was installed into, e.g. ``user_default``."""
     expect: str
-    """``available`` or ``missing``: the expected rusty-tiles status."""
+    """``available`` or ``missing``: the expected status of the bundled libraries."""
     expect_version: str | None
     """Expected rusty-tiles version when ``expect`` is ``available``."""
+    expect_pyproj_version: str | None
+    """Expected pyproj version when ``expect`` is ``available``."""
     extension_version: str | None
     """Version in the installed manifest, if known."""
 

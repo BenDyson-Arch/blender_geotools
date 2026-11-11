@@ -9,7 +9,7 @@ from .common import redraw_ui
 
 
 class GEOTOOLS_OT_check_dependencies(bpy.types.Operator):
-    """Re-check the bundled rusty-tiles library"""
+    """Re-check the bundled libraries: rusty-tiles and pyproj"""
 
     bl_idname = "geotools.check_dependencies"
     bl_label = "Check Dependencies"
@@ -17,8 +17,8 @@ class GEOTOOLS_OT_check_dependencies(bpy.types.Operator):
 
     def execute(self, context: bpy.types.Context) -> set[str]:
         deps.reset_cache()
-        status = deps.probe_rusty_tiles()
-        self.report({"INFO"} if status.available else {"WARNING"}, status.summary)
+        for status in deps.probe_all():
+            self.report({"INFO"} if status.available else {"WARNING"}, status.summary)
         redraw_ui(context)
         return {"FINISHED"}
 

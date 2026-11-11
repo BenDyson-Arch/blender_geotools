@@ -40,12 +40,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--extension-id", default="geotools", help="extension id")
     parser.add_argument("--expect", choices=("available", "missing"), required=True)
     parser.add_argument("--expect-version", help="expected rusty-tiles version (with available)")
+    parser.add_argument("--expect-pyproj-version", help="expected pyproj version (with available)")
     parser.add_argument("--extension-version", help="expected extension (manifest) version")
     parser.add_argument("-k", dest="keyword", help="only run tests whose name contains this")
     parser.add_argument("--results", type=Path, help="write a JSON report here")
     args = parser.parse_args(argv)
-    if args.expect == "available" and not args.expect_version:
-        parser.error("--expect available needs --expect-version")
+    if args.expect == "available" and not (args.expect_version and args.expect_pyproj_version):
+        parser.error("--expect available needs --expect-version and --expect-pyproj-version")
     return args
 
 
@@ -88,11 +89,15 @@ def main() -> int:
         repo=args.repo,
         expect=args.expect,
         expect_version=args.expect_version if args.expect == "available" else None,
+        expect_pyproj_version=args.expect_pyproj_version if args.expect == "available" else None,
         extension_version=args.extension_version,
     )
 
     print(f"Blender {bpy.app.version_string}, Python {sys.version.split()[0]}")
-    print(f"extension: {package}, expect rusty-tiles {args.expect} {args.expect_version or ''}")
+    print(
+        f"extension: {package}, expect rusty-tiles {args.expect} {args.expect_version or ''}, "
+        f"pyproj {args.expect} {args.expect_pyproj_version or ''}"
+    )
     print(f"startup state: {h.STARTUP}")
 
     results: list[dict[str, object]] = []
@@ -129,6 +134,7 @@ def main() -> int:
                     "package": package,
                     "expect": args.expect,
                     "expect_version": h.CONFIG.expect_version,
+                    "expect_pyproj_version": h.CONFIG.expect_pyproj_version,
                     "passed": passed,
                     "failed": failed,
                     "tests": results,

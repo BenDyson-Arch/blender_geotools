@@ -91,6 +91,20 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   category colours). The user's materials, images and active and render colour
   attributes are not changed. Write Colours previews COLOR_0 in a
   `gt_present` colour attribute, which no tileset publishes.
+- Bundled pyproj 3.8.0 (PROJ 9.8.1, no GDAL) and its dependency certifi, pinned
+  under `[tool.geotools.wheels]` in `pyproject.toml` beside rusty-tiles, for the
+  same four platforms (5 to 10 MB per platform zip). `scripts/fetch_wheels.py`
+  fetches every pin (`--from-dir NAME=DIR` takes one from a local directory)
+  and `--python` fetches and builds for a local Blender that is not on CPython
+  3.13. The About panel, the preferences and Check Dependencies show the pyproj
+  and PROJ versions; without pyproj the extension still registers and imports
+  report that reprojection is not available.
+- `geotools.core.reproject.reproject_points()`, which reprojects vector points
+  into the project CRS with pyproj for M8 imports: one vectorised call, offline
+  unless grid downloads are allowed, Z passed through when there is no vertical
+  transform, and a report of the operation used, its accuracy and any caveats
+  (ballpark operation, points outside the area of use, a missing grid, a CRS
+  preset as the target).
 
 ### Changed
 
