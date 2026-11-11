@@ -36,6 +36,7 @@ from pathlib import Path
 import bpy
 import numpy as np
 
+from ..core.display import format_number
 from ..core.issues import Issue, Severity
 from ..core.layers import DataType, Domain, LayerSpec, parse_number, validate
 from ..core.presentation import (
@@ -60,6 +61,7 @@ from .layers import (
     spec_from_props,
 )
 from .properties import PRESENT_TARGET_ITEMS
+from .ui import split_column
 
 log = logging.getLogger(__name__)
 
@@ -615,82 +617,88 @@ def variant_output_name(scene: bpy.types.Scene, layer_name: str) -> str | None:
         return None
 
 
-class GEOTOOLS_PT_layers_presentation(bpy.types.Panel):
-    """How the selected layer is shown in a variant tileset."""
+CATEGORY_ROWS = 16
+"""Categories the Display sub-panel lists before summarising the rest."""
 
-    bl_idname = "GEOTOOLS_PT_layers_presentation"
-    bl_label = "Presentation"
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category = "GeoTools"
-    bl_parent_id = "GEOTOOLS_PT_layers"
-    bl_options = {"DEFAULT_CLOSED"}
 
-    @classmethod
-    def poll(cls, context: bpy.types.Context) -> bool:
-        return _active_layer(context) is not None
+def display_issue_codes(item: bpy.types.PropertyGroup) -> set[str]:
+    """Codes of the presentation problems of a layer (cheap: reads no values)."""
+    spec = spec_from_props(item)
+    settings = presentation_settings(item)
+    return {
+        i.code
+        for i in presentation_issues(
+            spec, settings.target, settings.palette, settings.range_min, settings.range_max
+        )
+        if i.severity is Severity.ERROR
+    }
 
-    def draw(self, context: bpy.types.Context) -> None:
-        layout = self.layout
-        item = _active_layer(context)
-        if item is None:
-            return
-        p = item.presentation
-        spec = spec_from_props(item)
-        settings = presentation_settings(item)
-        codes = {
-            i.code
-            for i in presentation_issues(
-                spec, settings.target, settings.palette, settings.range_min, settings.range_max
-            )
-        }
-        col = layout.column()
-        col.use_property_split = True
-        col.use_property_decorate = False
+
+def _auto_text(item: bpy.types.PropertyGroup, end: str) -> str:
+    """Placeholder of an empty ramp end: the automatic value if it is cached."""
+    if item.data_type == DataType.BOOLEAN.value:
+        return "Auto: " + format_number(BOOLEAN_RANGE[0 if end == "min" else 1])
+    value = parse_number(item.auto_min if end == "min" else item.auto_max)
+    if value is None or not math.isfinite(value):
+        return "Auto"
+    return f"Auto: {format_number(value)}"
+
+
+def draw_display(
+    layout: bpy.types.UILayout, context: bpy.types.Context, item: bpy.types.PropertyGroup
+) -> None:
+    """The Display sub-panel: how the selected layer is coloured in its variant tileset."""
+    p = item.presentation
+    spec = spec_from_props(item)
+    codes = display_issue_codes(item)
+    col = split_column(layout)
+    target_bad = "variant-target-invalid" in codes
+    if Domain(spec.domain) is Domain.TEXTURE or target_bad:
         row = col.row()
-        row.alert = "variant-target-invalid" in codes
+        row.alert = target_bad
         row.prop(p, "target")
-        if row.alert:
+        if target_bad:
             labels = {key: label for key, label, _description in PRESENT_TARGET_ITEMS}
             names = " or ".join(labels[t.value] for t in targets_for(spec.domain))
             col.label(text=f"Use {names} for this layer", icon="ERROR")
-        col.prop(p, "blend")
-        if spec.data_type is DataType.CATEGORY:
-            box = layout.box()
-            header = box.row()
-            header.label(text="Category Colours")
-            header.operator(
-                "geotools.layer_presentation_reset_colors", text="", icon="FILE_REFRESH"
-            )
-            stored = p.category_colors
-            sub = box.column(align=True)
-            for value, label in enumerate(spec.categories[:16]):
-                row = sub.row(align=True)
-                row.label(text=f"{value}  {label}")
-                if value < len(stored):
-                    row.prop(stored[value], "color", text="")
-                else:
-                    row.label(text="default")
-            if len(spec.categories) > 16:
-                sub.label(text=f"... and {len(spec.categories) - 16} more")
-        else:
-            col.prop(p, "palette")
-            values = col.column(align=True)
-            values.alert = "variant-range-invalid" in codes
-            values.prop(p, "range_min", text="Minimum")
-            values.prop(p, "range_max", text="Maximum")
-            if not p.range_min.strip() or not p.range_max.strip():
-                col.label(text="Empty: automatic (2nd to 98th percentile)", icon="INFO")
+    col.prop(p, "blend")
+    if spec.data_type is DataType.CATEGORY:
+        col.prop(p, "nodata_color")
+        box = layout.box()
+        header = box.row()
+        header.label(text="Category Colours")
+        header.operator("geotools.layer_presentation_reset_colors", text="", icon="FILE_REFRESH")
+        stored = p.category_colors
+        sub = box.column(align=True)
+        if not spec.categories:
+            sub.label(text="No categories; set them on the layer", icon="ERROR")
+        for value, label in enumerate(spec.categories[:CATEGORY_ROWS]):
+            row = sub.split(factor=0.6, align=True)
+            row.label(text=f"{value}  {label}")
+            if value < len(stored):
+                row.prop(stored[value], "color", text="")
+            else:
+                row.label(text="Default")
+        if len(spec.categories) > CATEGORY_ROWS:
+            sub.label(text=f"... and {len(spec.categories) - CATEGORY_ROWS} more")
+    else:
+        col.prop(p, "palette")
+        values = col.column(align=True)
+        values.alert = "variant-range-invalid" in codes
+        values.prop(p, "range_min", text="Minimum", placeholder=_auto_text(item, "min"))
+        values.prop(p, "range_max", text="Maximum", placeholder=_auto_text(item, "max"))
         col.prop(p, "nodata_color")
 
-        layout.operator("geotools.layer_write_presentation", icon="BRUSH_DATA")
-        name = variant_output_name(context.scene, item.name)
-        op = layout.operator("geotools.publish", text="Publish Variant", icon="EXPORT")
-        op.layer = item.name
-        if name:
-            layout.label(text=f"Writes {name}", icon="FILE_3D")
-        else:
-            layout.label(text="Set an output on the build profile", icon="INFO")
+    layout.operator("geotools.layer_write_presentation", text="Write Colours", icon="BRUSH_DATA")
+    props = context.scene.geotools
+    profile = None
+    if 0 <= props.build_profile_index < len(props.build_profiles):
+        profile = props.build_profiles[props.build_profile_index]
+    name = variant_output_name(context.scene, item.name)
+    if profile is not None and profile.variant_layer.strip() == item.name and name:
+        layout.label(text=f"Variant: {name}", icon="FILE_3D")
+    else:
+        layout.label(text="Publish: choose it as Variant", icon="INFO")
 
 
 classes = (

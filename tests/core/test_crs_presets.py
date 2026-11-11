@@ -60,3 +60,12 @@ def test_epsg_code() -> None:
     assert crs_presets.epsg_code("EPSG:032756") == "EPSG:32756"
     for other in ("", None, "+proj=utm +zone=56 +south", "EPSG:", "EPSG:abc", "ESRI:102100"):
         assert crs_presets.epsg_code(other) is None, other
+
+
+def test_display_labels_are_short() -> None:
+    # The sidebar shows the preset as a full-width button (about 34 characters).
+    for preset in crs_presets.PRESETS:
+        assert preset.display_label, preset
+        assert len(preset.display_label) <= 30, preset.display_label
+    assert crs_presets.get("MGA2020_56").display_label == "GDA2020 / MGA zone 56"
+    assert crs_presets.get("NZTM2000").display_label == "NZGD2000 / NZTM2000"

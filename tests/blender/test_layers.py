@@ -396,6 +396,10 @@ def test_update_value_range() -> None:
     assert L.update_value_range(scene, slope) == (-3.0, 12.25)
     assert (slope.value_min, slope.value_max) == ("-3.0", "12.25")
     assert L.spec_from_props(slope).value_max == 12.25
+    # The automatic ramp range is cached too, for the Display panel.
+    ramps = h.submodule("core.ramps")
+    auto = ramps.auto_range(np.array([0.5, 12.25, -3.0], np.float64))
+    assert (float(slope.auto_min), float(slope.auto_max)) == auto, (slope.auto_min, auto)
 
     # No-data that is not exact in float32 is still recognised.
     odd = _spec("odd", nodata=0.1)
@@ -413,6 +417,7 @@ def test_update_value_range() -> None:
     item = L.ensure_layer(scene, flag)
     L.write_layer(obj.data, flag, np.array([True, True, True]))
     assert L.update_value_range(scene, item) == (1.0, 1.0)
+    assert (item.auto_min, item.auto_max) == ("", "")  # booleans always ramp 0 to 1
 
     tex = L.ensure_layer(scene, _spec("shade", "TEXTURE"))
     tex.resolution = 2
@@ -517,8 +522,8 @@ def test_layer_records_skip_invalid_layers() -> None:
 # --- panel ----------------------------------------------------------------------------------
 
 
-def _panel():
-    return h.submodule("blender.panels").GEOTOOLS_PT_layers
+def _panel(name: str = "GEOTOOLS_PT_layers"):
+    return getattr(h.submodule("blender.panels"), name)
 
 
 def test_panel_draws_without_layers() -> None:
@@ -526,7 +531,9 @@ def test_panel_draws_without_layers() -> None:
     calls = h.draw(_panel())
     assert ("template_list", "GEOTOOLS_UL_layers", "NONE") in calls, calls
     assert ("operator", "geotools.layer_add", "ADD") in calls
-    assert ("label", "No layers yet", "INFO") in calls, calls
+    assert "No layers yet" in h.label_text(calls), calls
+    for name in ("GEOTOOLS_PT_layers_bake", "GEOTOOLS_PT_layers_display", "GEOTOOLS_PT_layers_details"):
+        assert not _panel(name).poll(bpy.context), name
 
 
 def test_panel_draws_layers() -> None:
@@ -536,55 +543,69 @@ def test_panel_draws_layers() -> None:
     props = h.project()
     _source()
     L.ensure_layer(scene, _spec(units="deg"))
+    # The selected layer at a glance; the rest is in Details.
     calls = h.draw(_panel())
     drawn = h.props_drawn(calls)
-    for prop in (
-        "label",
-        "domain",
-        "data_type",
-        "units",
-        "nodata",
-        "origin",
-        "aggregation",
-        "value_min",
-        "value_max",
-    ):
-        assert prop in drawn, (prop, drawn)
-    assert "provenance" not in drawn
+    assert {"label", "units"} <= set(drawn), drawn
+    assert not {"domain", "data_type", "nodata", "value_min", "value_max"} & set(drawn), drawn
     assert ("operator", "geotools.layer_update_range", "FILE_REFRESH") in calls
-    assert ("operator", "geotools.layer_create_attributes", "ADD") in calls
-    labels = [text for text, _icon in h.labels(calls)]
-    assert "Default: Area Mean" in labels, labels
-    assert any("has no gt_slope attribute yet" in t for t in labels), labels
-    assert bpy.ops.geotools.layer_create_attributes() == {"FINISHED"}
-    labels = [text for text, _icon in h.labels(h.draw(_panel()))]
-    assert "Stored on every source object" in labels, labels
+    assert ("operator", "geotools.layer_rename", "GREASEPENCIL") in calls
+    assert ("Not known", "NONE") in list(h.labels(calls)), calls
+    assert "has no gt_slope attribute yet" in h.label_text(calls), calls
+    assert h.draw_header(_panel()) == "RADIOBUT_OFF"  # not baked yet
+    assert h.draw_header(_panel("GEOTOOLS_PT_layers_bake")) == "RADIOBUT_OFF"
 
-    # Invalid no-data and range are drawn as alerts.
+    details = _panel("GEOTOOLS_PT_layers_details")
+    assert details.poll(bpy.context)
+    calls = h.draw(details)
+    drawn = h.props_drawn(calls)
+    for prop in ("domain", "data_type", "nodata", "origin", "aggregation", "description"):
+        assert prop in drawn, (prop, drawn)
+    assert "provenance" not in drawn and "value_min" not in drawn
+    assert ("operator", "geotools.layer_create_attributes", "NONE") in calls
+    assert ("Area Mean", "INFO") in list(h.labels(calls)), calls
+
+    assert bpy.ops.geotools.layer_create_attributes() == {"FINISHED"}
+    labels = h.label_text(h.draw(_panel()))
+    assert "Stored on every source object" in labels, labels
+    assert h.draw_header(_panel()) == "CHECKMARK"
+    assert h.draw_header(_panel("GEOTOOLS_PT_layers_bake")) == "CHECKMARK"
+
+    # Values are formatted for people; binary64 stays in storage.
+    props.layers[0].value_min = repr(0.46055179834365845)
+    props.layers[0].value_max = repr(39.88410568237305)
+    labels = list(h.labels(h.draw(_panel())))
+    assert ("0.461 \u2013 39.9 deg", "NONE") in labels, labels
+
+    # Invalid no-data and range are drawn as alerts in Details.
     props.layers[0].nodata = "abc"
     props.layers[0].value_min = "inf"
     alerts: list[str] = []
-    h.draw(_panel(), alerts)
+    h.draw(details, alerts)
     assert "nodata" in alerts and "value_min" in alerts, alerts
+    assert h.draw_header(_panel()) == "CANCEL"
     props.layers[0].provenance = _core().format_provenance(
         _core().make_provenance("slope", {}, "0.3.0")
     )
-    labels = [text for text, _icon in h.labels(h.draw(_panel()))]
+    labels = h.label_text(h.draw(details))
     assert "Made by slope (GeoTools 0.3.0)" in labels, labels
 
     L.ensure_layer(scene, _spec("cover", data_type="CATEGORY", categories=("ground", "trees")))
     props.layers_index = 1
     calls = h.draw(_panel())
     assert ("operator", "geotools.layer_set_categories", "GREASEPENCIL") in calls
+    assert ("2", "NONE") in list(h.labels(calls)), calls
+    calls = h.draw(_panel("GEOTOOLS_PT_layers_display"))
     assert ("label", "1  trees", "NONE") in calls, calls
 
     L.ensure_layer(scene, _spec("shade", "TEXTURE"))
     props.layers_index = 2
-    calls = h.draw(_panel())
+    calls = h.draw(_panel("GEOTOOLS_PT_layers_bake"))
     drawn = h.props_drawn(calls)
     assert {"uv_map", "resolution", "margin"} <= set(drawn), drawn
-    assert ("operator", "geotools.layer_create_attributes", "ADD") not in calls
-    assert ("label", "0 images", "IMAGE_DATA") in calls, calls
+    assert ("label", "Not baked yet", "INFO") in calls, calls
+    calls = h.draw(details)
+    assert ("operator", "geotools.layer_create_attributes", "NONE") not in calls
 
     ul = bpy.types.GEOTOOLS_UL_layers
     for item in props.layers:

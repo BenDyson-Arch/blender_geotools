@@ -28,6 +28,12 @@ class CrsPreset:
     definition: str  # what is passed to rusty-tiles as source_crs
     epsg: str  # the EPSG code it stands in for
     note: str  # datum assumption and approximate accuracy against current WGS84
+    short_label: str = ""  # for narrow UI; empty to use ``label``
+
+    @property
+    def display_label(self) -> str:
+        """``short_label`` if set, else ``label``."""
+        return self.short_label or self.label
 
 
 _GDA2020_NOTE = (
@@ -53,6 +59,7 @@ PRESETS: tuple[CrsPreset, ...] = (
     CrsPreset(
         id="NZTM2000",
         label="NZGD2000 / New Zealand Transverse Mercator 2000",
+        short_label="NZGD2000 / NZTM2000",
         definition=(
             "+proj=tmerc +lat_0=0 +lon_0=173 +k=0.9996 +x_0=1600000 +y_0=10000000 "
             "+ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs"

@@ -160,7 +160,26 @@ def test_project_panel_shows_only_active_mode_fields() -> None:
     drawn = set(h.props_drawn(calls))
     assert source <= drawn and not drawn & anchor, drawn
     assert ("operator", "geotools.load_offset_file", "FILEBROWSER") in calls
-    assert ("Set the source CRS, e.g. EPSG:32756", "ERROR") in list(h.labels(calls))
+    assert ("Choose a preset or type a CRS", "ERROR") in list(h.labels(calls))
+    assert h.draw_header(panel) == "CANCEL"  # no CRS yet
+
+    # A preset shows by name; its definition and note are in CRS Details.
+    presets = h.submodule("core.crs_presets")
+    details = h.submodule("blender.panels").GEOTOOLS_PT_project_crs
+    assert not details.poll(bpy.context)
+    props.source_crs = presets.get("MGA2020_56").definition
+    calls = h.draw(panel)
+    assert "source_crs" not in h.props_drawn(calls)
+    assert h.operator_text("geotools.apply_crs_preset") == "GDA2020 / MGA zone 56"
+    assert h.draw_header(panel) == "CHECKMARK"
+    assert details.poll(bpy.context)
+    calls = h.draw(details)
+    assert "source_crs" in h.props_drawn(calls)
+    assert "null shift" in h.label_text(calls)
+    assert ("Stands in for EPSG:7856", "NONE") in list(h.labels(calls))
+
+    props.placement_mode = "LOCAL"
+    assert h.draw_header(panel) == "CHECKMARK"
 
 
 def test_project_panel_flags_invalid_numbers() -> None:
@@ -173,6 +192,7 @@ def test_project_panel_flags_invalid_numbers() -> None:
     alerts: list[str] = []
     h.draw(panel, alerts)
     assert alerts == ["source_offset_n"], alerts
+    assert h.draw_header(panel) == "CANCEL"
 
 
 def test_crs_preset_sets_source_crs() -> None:

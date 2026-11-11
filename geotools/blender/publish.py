@@ -20,7 +20,6 @@ import datetime as _dt
 import logging
 import os
 import shutil
-import textwrap
 import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,6 +29,7 @@ from bpy.app.handlers import persistent
 from bpy.props import EnumProperty, FloatProperty, IntProperty, StringProperty
 
 from ..core import deps, sysmem
+from ..core.display import format_count, format_seconds
 from ..core.issues import Severity
 from ..core.presentation import variant_output
 from ..publish import preview as pv
@@ -40,6 +40,7 @@ from .common import ADDON_PACKAGE, extension_version, redraw_ui
 from .layers import layer_records
 from .presentation import variant_issues, write_presentation
 from .properties import FieldError, placement_from_props
+from .ui import info_row, wrapped
 
 log = logging.getLogger(__name__)
 
@@ -319,7 +320,16 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
             return (
                 f"Publish the variant tileset of layer {properties.layer} with the active "
                 "build profile: the same source, placement and checks, with the layer's "
-                "presentation colours, as <output>.<layer>.3tz"
+                "display colours, as <output>.<layer>.3tz"
+            )
+        profile = active_profile(context.scene) if context.scene is not None else None
+        name = output_name(context.scene, profile) if profile is not None else None
+        if name:
+            variant = profile.variant_layer.strip()
+            what = f"the variant of layer {variant}" if variant else "the plain tileset"
+            return (
+                f"Write {name}, {what}, with build profile {profile.name}: run the checks, "
+                "write the source GLB and build the archive with rusty-tiles"
             )
         return cls.__doc__
 
@@ -347,7 +357,7 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
         if profile is None:
             self.report(
                 {"ERROR"},
-                "Cannot publish: add a build profile first (Build Profiles panel, + button)",
+                "Cannot publish: add a build profile first (Publish panel, + button)",
             )
             return {"CANCELLED"}
         try:
@@ -639,30 +649,43 @@ class GEOTOOLS_OT_stop_preview(bpy.types.Operator):
         return {"FINISHED"}
 
 
-# --- panel ----------------------------------------------------------------------------------
-
-
-def _format_seconds(seconds: float) -> str:
-    seconds = int(seconds)
-    if seconds < 60:
-        return f"{seconds} s"
-    minutes, seconds = divmod(seconds, 60)
-    if minutes < 60:
-        return f"{minutes} min {seconds:02d} s"
-    hours, minutes = divmod(minutes, 60)
-    return f"{hours} h {minutes:02d} min"
-
-
-def _wrapped(layout: bpy.types.UILayout, text: str, icon: str = "NONE", width: int = 44) -> None:
-    col = layout.column(align=True)
-    for i, line in enumerate(textwrap.wrap(text, width)[:8] or [""]):
-        col.label(text=line, icon=icon if i == 0 else "NONE")
+# --- drawing (the panels are in panels.py) ---------------------------------------------------
 
 
 _END_ICONS = {"DONE": "CHECKMARK", "FAILED": "ERROR", "CANCELLED": "CANCEL"}
 
 
-def _draw_progress(layout: bpy.types.UILayout, status_: GeoToolsPublishStatus) -> None:
+def output_name(scene: bpy.types.Scene, profile: bpy.types.PropertyGroup) -> str | None:
+    """File name the profile publishes (its variant's, if it has one), or None if unset."""
+    text = profile.output_path.strip()
+    if not text:
+        return None
+    path = Path(text.replace("//", "", 1))
+    variant = profile.variant_layer.strip()
+    if variant:
+        try:
+            path = variant_output(path, variant)
+        except ValueError:
+            return None
+    return path.name
+
+
+def publish_state(context: bpy.types.Context) -> str:
+    """The Publish panel's header state: BUSY, ERROR, DONE or TODO (ui states)."""
+    if is_running():
+        return "BUSY"
+    profile = active_profile(context.scene)
+    if profile is None or not profile.output_path.strip():
+        return "TODO"
+    status_ = status(context)
+    if status_ is not None and status_.state == "FAILED":
+        return "ERROR"
+    return "DONE" if profile.last_output else "TODO"
+
+
+def draw_progress(
+    layout: bpy.types.UILayout, context: bpy.types.Context, status_: GeoToolsPublishStatus
+) -> None:
     box = layout.box()
     label = {k: n for k, n, _d in STATE_ITEMS}.get(status_.state, status_.state)
     if status_.total > 0:
@@ -671,106 +694,72 @@ def _draw_progress(layout: bpy.types.UILayout, status_: GeoToolsPublishStatus) -
     else:
         factor = 0.0
         text = status_.phase or label
-    box.label(text=f"{label} ({_format_seconds(status_.elapsed)})", icon="SORTTIME")
+    box.label(text=f"{label} ({format_seconds(status_.elapsed)})", icon="SORTTIME")
     box.progress(factor=factor, type="BAR", text=text)
     if status_.message:
-        _wrapped(box, status_.message)
+        wrapped(box, context, status_.message)
     box.operator("geotools.cancel_publish", text="Cancel", icon="CANCEL")
 
 
-def _draw_last_build(layout: bpy.types.UILayout, profile: bpy.types.PropertyGroup) -> None:
+def draw_end_status(
+    layout: bpy.types.UILayout, context: bpy.types.Context, status_: GeoToolsPublishStatus | None
+) -> None:
+    """The outcome of the last publish this session, if it ended with a message."""
+    if status_ is None or status_.state not in _END_ICONS or not status_.message:
+        return
     box = layout.box()
-    col = box.column(align=True)
-    col.label(text="Last Build", icon="FILE_3D")
-    col.label(text=Path(profile.last_output).name)
+    box.alert = status_.state == "FAILED"
+    wrapped(box, context, status_.message, icon=_END_ICONS[status_.state])
+
+
+def draw_last_build(
+    layout: bpy.types.UILayout, context: bpy.types.Context, profile: bpy.types.PropertyGroup
+) -> None:
+    col = layout.column(align=True)
+    col.label(text=Path(profile.last_output).name, icon="FILE_3D")
     if profile.last_build_utc:
-        col.label(
-            text=f"{profile.last_build_utc.replace('T', ' ')} ({_format_seconds(profile.last_seconds)})"
-        )
+        when = profile.last_build_utc.replace("T", " ").removesuffix("Z")
+        info_row(col, "Built", f"{when[:16]} UTC")
+        info_row(col, "Took", format_seconds(profile.last_seconds))
     if profile.last_triangles:
-        col.label(text=f"Triangles  {int(profile.last_triangles):,}")
+        info_row(col, "Triangles", format_count(int(profile.last_triangles)))
     if profile.last_tiles:
-        col.label(text=f"Tiles  {profile.last_tiles}")
+        info_row(col, "Tiles", format_count(int(profile.last_tiles)))
     validation = {
-        "OK": ("Validation passed", "CHECKMARK"),
-        "FAILED": ("Validation FAILED, see the build record", "ERROR"),
-        "NONE": ("Not validated", "INFO"),
+        "OK": ("Passed", "CHECKMARK"),
+        "FAILED": ("FAILED", "ERROR"),
+        "NONE": ("Not run", "NONE"),
     }[profile.last_validation]
     row = col.row()
     row.alert = profile.last_validation == "FAILED"
-    row.label(text=validation[0], icon=validation[1])
-    row = box.row(align=True)
+    info_row(row, "Validation", validation[0], icon=validation[1])
+    row = layout.row(align=True)
     row.operator("geotools.open_output_folder", text="Folder", icon="FILE_FOLDER")
     row.operator("geotools.open_build_record", text="Record", icon="TEXT")
 
 
-def _draw_preview(layout: bpy.types.UILayout, context: bpy.types.Context) -> None:
+def draw_preview(layout: bpy.types.UILayout, context: bpy.types.Context) -> None:
     url = preview_url()
     if url:
         box = layout.box()
         box.label(text=url, icon="URL")
         box.operator("geotools.stop_preview", icon="CANCEL")
         return
-    layout.operator("geotools.preview_output", icon="WORLD")
-    problem = preview_problem(context)
-    if problem:
-        _wrapped(layout, problem, icon="INFO")
-
-
-class GEOTOOLS_PT_publish(bpy.types.Panel):
-    """Publish the source as a .3tz with the active build profile."""
-
-    bl_idname = "GEOTOOLS_PT_publish"
-    bl_label = "Publish"
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category = "GeoTools"
-
-    def draw(self, context: bpy.types.Context) -> None:
-        layout = self.layout
-        scene = context.scene
-        profile = active_profile(scene)
-        status_ = status(context)
-        running = is_running()
-
-        if profile is None:
-            layout.label(text="No build profile", icon="ERROR")
-            layout.operator("geotools.build_profile_add", text="Add Build Profile", icon="ADD")
-        else:
-            col = layout.column(align=True)
-            col.label(text=f"Profile: {profile.name}", icon="PRESET")
-            row = col.row(align=True)
-            row.alert = not profile.output_path.strip()
-            row.prop(profile, "output_path", text="")
-            variant = profile.variant_layer.strip()
-            if variant:
-                col.label(text=f"Variant: layer {variant} (.{variant}.3tz)", icon="RNA")
-            row = layout.row(align=True)
-            row.prop(profile, "overwrite")
-            row.prop(profile, "validate")
-            if profile.output_path.startswith("//") and not bpy.data.is_saved:
-                layout.label(text="Save the .blend first (// path)", icon="ERROR")
-
-        if not deps.probe_rusty_tiles().available:
-            layout.label(text="Needs rusty-tiles (see About)", icon="INFO")
-
-        if running and status_ is not None:
-            _draw_progress(layout, status_)
-        else:
-            layout.operator("geotools.publish", icon="EXPORT")
-            if status_ is not None and status_.state in _END_ICONS and status_.message:
-                box = layout.box()
-                box.alert = status_.state == "FAILED"
-                _wrapped(box, status_.message, icon=_END_ICONS[status_.state])
-
-        if profile is not None and profile.last_output:
-            _draw_last_build(layout, profile)
-        _draw_preview(layout, context)
+    row = layout.row(align=True)
+    row.operator("geotools.preview_output", icon="WORLD")
+    prefs = addon_preferences(context)
+    configured = prefs is not None and not (
+        pv.cli_problem(bpy.path.abspath(prefs.rusty_tiles_cli))
+        or pv.cesium_problem(bpy.path.abspath(prefs.cesium_dir))
+    )
+    if not configured:
+        op = row.operator("preferences.addon_show", text="", icon="PREFERENCES")
+        op.module = ADDON_PACKAGE
+        layout.label(text="Preview needs setup (see gear)", icon="INFO")
 
 
 # --- registration ----------------------------------------------------------------------------
 
-# The panel is registered by panels.py so it sits in the sidebar order there.
 classes = (
     GeoToolsPublishStatus,
     GEOTOOLS_OT_publish,

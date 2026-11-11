@@ -122,7 +122,11 @@ def _finish():
 
 
 def _panel_labels() -> list[str]:
-    calls = h.draw(_publish_mod().GEOTOOLS_PT_publish)
+    """Labels of the Publish panel and, if shown, its Last Build sub-panel."""
+    panels = h.submodule("blender.panels")
+    calls = h.draw(panels.GEOTOOLS_PT_publish)
+    if panels.GEOTOOLS_PT_publish_last.poll(bpy.context):
+        calls += h.draw(panels.GEOTOOLS_PT_publish_last)
     return [text for kind, text, _icon in calls if kind in {"label", "progress"}]
 
 
@@ -147,12 +151,15 @@ def test_publish_registered() -> None:
 
 def test_panel_without_profile() -> None:
     h.reset_scene()
-    calls = h.draw(_publish_mod().GEOTOOLS_PT_publish)
-    assert ("label", "No build profile", "ERROR") in calls, calls
+    panels = h.submodule("blender.panels")
+    calls = h.draw(panels.GEOTOOLS_PT_publish)
+    assert "Add a build profile" in h.label_text(calls), calls
     assert ("operator", "geotools.build_profile_add", "ADD") in calls
-    assert ("operator", "geotools.publish", "EXPORT") in calls
-    # Preview is offered but disabled with a hint when nothing is configured.
-    assert ("operator", "geotools.preview_output", "WORLD") in calls
+    assert ("operator", "geotools.publish", "EXPORT") not in calls
+    assert h.draw_header(panels.GEOTOOLS_PT_publish) == "RADIOBUT_OFF"
+    # Settings and Last Build (with Preview) wait for a profile and a build.
+    assert not panels.GEOTOOLS_PT_publish_settings.poll(bpy.context)
+    assert not panels.GEOTOOLS_PT_publish_last.poll(bpy.context)
     assert not bpy.ops.geotools.preview_output.poll()
 
 
@@ -291,8 +298,14 @@ def test_publish_end_to_end() -> None:
         assert bpy.ops.geotools.open_output_folder.poll()
 
         labels = _panel_labels()
-        assert "Validation passed" in labels, labels
-        assert "Triangles  72" in labels, labels
+        assert "Passed" in labels and "Validation" in labels, labels
+        assert "Triangles" in labels and "72" in labels, labels
+        panels = h.submodule("blender.panels")
+        assert h.draw_header(panels.GEOTOOLS_PT_publish) == "CHECKMARK"
+        calls = h.draw(panels.GEOTOOLS_PT_publish_last)
+        # Preview sits with the last build; unconfigured, it offers the preferences.
+        assert ("operator", "geotools.preview_output", "WORLD") in calls
+        assert ("operator", "preferences.addon_show", "PREFERENCES") in calls
 
 
 @contextmanager

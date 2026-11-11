@@ -302,8 +302,12 @@ def test_summary_bounds_match_known_geometry() -> None:
     assert (props.summary_faces, props.summary_vertices) == (12, 16)
     p = h.submodule("blender.properties")
     assert np.allclose(p.parse_vec(props.summary_bounds_max), (13.0, 22.0, 34.0), atol=1e-5)
-    calls = h.draw(h.submodule("blender.panels").GEOTOOLS_PT_source)
-    assert ("Faces  12", "NONE") in list(h.labels(calls)), calls
+    panel = h.submodule("blender.panels").GEOTOOLS_PT_source
+    labels = list(h.labels(h.draw(panel)))
+    for row in (("Faces", "NONE"), ("12", "NONE"), ("3 (2 meshes)", "NONE")):
+        assert row in labels, labels
+    assert ("19 \u00d7 23 \u00d7 35 m", "NONE") in labels, labels  # the bounds' size
+    assert h.draw_header(panel) == "CHECKMARK"
 
 
 def test_summary_layers_and_deformers() -> None:

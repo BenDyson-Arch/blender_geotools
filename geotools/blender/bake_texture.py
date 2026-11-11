@@ -54,6 +54,7 @@ from .layers import (
     spec_from_props,
     update_value_range,
 )
+from .ui import big_button, split_column
 
 log = logging.getLogger(__name__)
 
@@ -831,47 +832,49 @@ class GEOTOOLS_OT_check_layer_uvs(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class GEOTOOLS_PT_layers_bake_texture(bpy.types.Panel):
-    """Bake an attribute into the selected texture layer."""
+IMAGE_ROWS = 6
+"""Images the Bake sub-panel lists before summarising the rest."""
 
-    bl_idname = "GEOTOOLS_PT_layers_bake_texture"
-    bl_label = "Texture Bake"
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category = "GeoTools"
-    bl_parent_id = "GEOTOOLS_PT_layers"
 
-    @classmethod
-    def poll(cls, context: bpy.types.Context) -> bool:
-        item = _target_layer(context, "") if context.scene else None
-        return item is not None and item.domain == Domain.TEXTURE.value
+def draw_bake(layout: bpy.types.UILayout, context: bpy.types.Context, item) -> None:
+    """The Bake sub-panel for a TEXTURE layer: image settings and the Cycles bake."""
+    col = split_column(layout)
+    objects = source_objects(context.scene)
+    mesh = objects[0].data if objects else None
+    if mesh is not None and len(mesh.uv_layers):
+        row = col.row()
+        row.alert = bool(item.uv_map) and item.uv_map not in mesh.uv_layers
+        row.prop_search(item, "uv_map", mesh, "uv_layers", icon="GROUP_UVS")
+    else:
+        col.prop(item, "uv_map", icon="GROUP_UVS", placeholder="Active render UV map")
+    col.prop(item, "resolution")
+    col.prop(item, "margin")
 
-    def draw(self, context: bpy.types.Context) -> None:
-        layout = self.layout
-        item = _target_layer(context, "")
-        layout.operator("geotools.bake_texture_layer", icon="RENDER_STILL")
-        layout.operator("geotools.check_layer_uvs", icon="UV")
-        images = [(e.object, e.image) for e in item.images if e.object is not None]
-        if not images:
-            layout.label(text="Not baked yet", icon="INFO")
-            return
-        col = layout.column(align=True)
-        for obj, image in images[:12]:
-            name = image.name if image is not None else "missing"
-            col.label(text=f"{obj.name}: {name}", icon="IMAGE_DATA")
-        if len(images) > 12:
-            col.label(text=f"... and {len(images) - 12} more")
-        provenance = spec_from_props(item).provenance
-        if provenance and provenance.get("tool") == TOOL:
-            parameters = provenance.get("parameters") or {}
-            if isinstance(parameters, dict) and parameters.get("attribute"):
-                layout.label(text=f"Baked from {parameters['attribute']}", icon="INFO")
+    row = big_button(layout)
+    row.operator("geotools.bake_texture_layer", text="Bake...", icon="RENDER_STILL")
+    layout.operator("geotools.check_layer_uvs", icon="UV")
+
+    images = [(e.object, e.image) for e in item.images if e.object is not None]
+    if not images:
+        layout.label(text="Not baked yet", icon="INFO")
+        return
+    box = layout.box()
+    col = box.column(align=True)
+    for obj, image in images[:IMAGE_ROWS]:
+        name = image.name if image is not None else "missing"
+        col.label(text=f"{obj.name}: {name}", icon="IMAGE_DATA" if image else "ERROR")
+    if len(images) > IMAGE_ROWS:
+        col.label(text=f"... and {len(images) - IMAGE_ROWS} more")
+    provenance = spec_from_props(item).provenance
+    if provenance and provenance.get("tool") == TOOL:
+        parameters = provenance.get("parameters") or {}
+        if isinstance(parameters, dict) and parameters.get("attribute"):
+            box.label(text=f"Baked from {parameters['attribute']}", icon="INFO")
 
 
 classes = (
     GEOTOOLS_OT_bake_texture_layer,
     GEOTOOLS_OT_check_layer_uvs,
-    GEOTOOLS_PT_layers_bake_texture,
 )
 
 register, unregister = bpy.utils.register_classes_factory(classes)

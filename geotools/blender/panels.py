@@ -1,23 +1,49 @@
 """View3D sidebar panels, category "GeoTools".
 
-Order: Project (with a Verify sub-panel), Source, Layers, Checks (with an
-Images sub-panel), Build Profiles, Publish (defined in publish.py), and About
-last. Panels draw cached state only; operators do the work. The exception is
-the Layers panel's status, which ``layers.layer_status`` works out per object
-(never per face) while drawing.
+The panels follow the workflow top to bottom, and each header shows its state
+(``ui.STATUS_ICONS``: done, warning, error, not set up yet):
+
+- Project: where the source sits on Earth, and Verify Placement.
+  - CRS Details: the preset's definition and datum note.
+- Source: the source collection, ingest and summary.
+- Layers: the layer registry and the selected layer at a glance.
+  - Bake: from Geometry Nodes (face and corner layers) or with Cycles
+    (texture layers).
+  - Display: the colours of the layer's variant tileset.
+  - Details: no-data, origin, aggregation and the other rarely changed fields.
+- Checks: preflight issues and their fixes.
+  - Images: the source images and their remedies.
+- Publish: build profiles, output, variant and the Publish button.
+  - Build Settings: rusty-tiles quality, threads and memory.
+  - Last Build: what the last publish wrote, and Preview.
+- About: version and dependencies.
+
+Registration order is the sidebar order. Panels draw cached state only;
+operators do the work. The exceptions are per-object (never per-face) lookups:
+``layers.layer_status`` and the modifier count of the Bake sub-panel.
 """
 
-import textwrap
+from __future__ import annotations
+
 from pathlib import Path
 
 import bpy
 
 from ..core import crs_presets, deps, sysmem
+from ..core.display import format_count, format_gib, format_range, format_size
+from ..core.display import plural as plural_text
 from ..core.issues import Severity
-from ..core.layers import default_aggregation, validate
+from ..core.layers import DataType, Domain, default_aggregation, parse_number, validate
+from . import bake_texture, bake_vertex, presentation, publish
 from .common import draw_dependency_status, extension_version
-from .layers import layer_status, other_layer_names, spec_from_props
-from .presentation import GEOTOOLS_PT_layers_presentation
+from .layers import (
+    ATTRIBUTE_MISSING,
+    DOMAIN_ICONS,
+    IMAGE_MISSING,
+    layer_status,
+    other_layer_names,
+    spec_from_props,
+)
 from .properties import (
     ANCHOR_FIELDS,
     LAYER_AGGREGATION_DEFAULT,
@@ -29,8 +55,18 @@ from .properties import (
     parse_vec,
     placement_from_props,
 )
-from .publish import GEOTOOLS_PT_publish
 from .remedies import describe_image, draw_remedy_buttons
+from .ui import (
+    DONE,
+    ERROR,
+    TODO,
+    WARNING,
+    big_button,
+    header_status,
+    info_row,
+    split_column,
+    wrapped,
+)
 
 _SEVERITY_ORDER = {Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2}
 
@@ -41,28 +77,72 @@ class _GeoToolsPanel:
     bl_category = "GeoTools"
 
 
-def _wrapped(layout: bpy.types.UILayout, text: str, width: int = 44, icon: str = "NONE") -> None:
-    col = layout.column(align=True)
-    for i, line in enumerate(textwrap.wrap(text, width) or [""]):
-        col.label(text=line, icon=icon if i == 0 else "NONE")
-
-
 def _number_rows(
-    layout: bpy.types.UILayout, props: bpy.types.PropertyGroup, fields: tuple[NumberField, ...]
+    layout: bpy.types.UILayout,
+    props: bpy.types.PropertyGroup,
+    fields: tuple[NumberField, ...],
+    labels: tuple[str, ...],
 ) -> None:
+    """Binary64 text fields in an aligned block, each flagged if it does not parse."""
     col = layout.column(align=True)
-    for field in fields:
+    for field, label in zip(fields, labels, strict=True):
         row = col.row(align=True)
         row.alert = not number_is_valid(props, field.attr)
-        row.prop(props, field.attr, text=field.label)
+        row.prop(props, field.attr, text=label)
 
 
-def _format_bounds(text: str) -> str:
-    v = parse_vec(text)
-    return "" if v is None else f"{v[0]:.3f}, {v[1]:.3f}, {v[2]:.3f}"
+def _active_layer(context: bpy.types.Context):
+    props = context.scene.geotools if context.scene is not None else None
+    if props is not None and 0 <= props.layers_index < len(props.layers):
+        return props.layers[props.layers_index]
+    return None
+
+
+_NOT_BAKED = {ATTRIBUTE_MISSING, IMAGE_MISSING}
+
+
+def layer_state(scene: bpy.types.Scene, item) -> str:
+    """A layer's header state: ERROR, WARNING, TODO (not baked yet) or DONE."""
+    issues = layer_status(scene, item)
+    state = _worst(issues)
+    if state == WARNING and all(
+        i.code in _NOT_BAKED for i in issues if _severity(i) is Severity.WARNING
+    ):
+        return TODO
+    return state
+
+
+def _severity(issue) -> Severity:
+    """An issue's severity: a ``Severity``, or its name as stored on ``GeoToolsIssue``."""
+    value = issue.severity
+    return value if isinstance(value, Severity) else Severity[value]
+
+
+def _worst(issues) -> str:
+    severities = {_severity(i) for i in issues}
+    if Severity.ERROR in severities:
+        return ERROR
+    if Severity.WARNING in severities:
+        return WARNING
+    return DONE
 
 
 # --- Project -------------------------------------------------------------------------
+
+
+def placement_state(props: bpy.types.PropertyGroup) -> str:
+    """Project header state: ERROR if the placement cannot be built or failed to verify."""
+    if props.placement_mode == "LOCAL":
+        return DONE
+    if props.placement_mode == "SOURCE_CRS" and not props.source_crs.strip():
+        return ERROR
+    try:
+        key = repr(placement_from_props(props))
+    except FieldError:
+        return ERROR
+    if props.probe_status == "FAILED" and props.probe_key == key:
+        return ERROR
+    return DONE
 
 
 class GEOTOOLS_PT_project(_GeoToolsPanel, bpy.types.Panel):
@@ -71,6 +151,9 @@ class GEOTOOLS_PT_project(_GeoToolsPanel, bpy.types.Panel):
     bl_idname = "GEOTOOLS_PT_project"
     bl_label = "Project"
 
+    def draw_header(self, context: bpy.types.Context) -> None:
+        header_status(self.layout, placement_state(context.scene.geotools))
+
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
         props = context.scene.geotools
@@ -78,70 +161,103 @@ class GEOTOOLS_PT_project(_GeoToolsPanel, bpy.types.Panel):
 
         mode = props.placement_mode
         if mode == "LOCAL":
-            _wrapped(layout, "Local metres. The output is not placed on Earth.", icon="INFO")
+            wrapped(layout, context, "Local metres: the output is not placed on Earth.", "INFO")
         elif mode == "ANCHOR":
-            layout.label(text="Anchor (WGS84)")
-            _number_rows(layout, props, ANCHOR_FIELDS[:3])
-            layout.label(text="Orientation")
-            _number_rows(layout, props, ANCHOR_FIELDS[3:4])
-            layout.label(text="Scene Offset (metres)")
-            _number_rows(layout, props, ANCHOR_FIELDS[4:])
+            col = split_column(layout)
+            _number_rows(col, props, ANCHOR_FIELDS[:3], ("Longitude", "Latitude", "Height"))
+            _number_rows(col, props, ANCHOR_FIELDS[3:4], ("Heading",))
+            _number_rows(col, props, ANCHOR_FIELDS[4:], ("Offset E", "N", "U"))
         else:
-            row = layout.row()
-            row.alert = not props.source_crs.strip()
-            row.prop(props, "source_crs")
-            row.operator("geotools.apply_crs_preset", text="", icon="PRESET")
-            preset = crs_presets.for_definition(props.source_crs)
-            if preset is not None:
-                _wrapped(layout, f"{preset.label} ({preset.epsg}). {preset.note}", icon="INFO")
-            if not props.source_crs.strip():
-                layout.label(text="Set the source CRS, e.g. EPSG:32756", icon="ERROR")
-            layout.label(text="Source Offset")
-            _number_rows(layout, props, SOURCE_CRS_FIELDS[:3])
-            _number_rows(layout, props, SOURCE_CRS_FIELDS[3:])
-            row = layout.row(align=True)
-            row.operator("geotools.load_offset_file", icon="FILEBROWSER")
-            if props.offset_file:
-                layout.label(text=f"From {Path(props.offset_file).name}", icon="TEXT")
+            _draw_source_crs(layout, context, props)
+        layout.separator()
+        _draw_verify(layout, context, props)
 
 
-class GEOTOOLS_PT_project_verify(_GeoToolsPanel, bpy.types.Panel):
-    """Where rusty-tiles puts the source with the current placement."""
+def _draw_source_crs(layout, context, props) -> None:
+    preset = crs_presets.for_definition(props.source_crs)
+    if preset is not None:
+        # The preset's name; its definition and datum note are in the tooltip
+        # and the CRS Details sub-panel.
+        layout.operator("geotools.apply_crs_preset", text=preset.display_label, icon="WORLD_DATA")
+    else:
+        col = split_column(layout)
+        row = col.row(align=True)
+        row.alert = not props.source_crs.strip()
+        row.prop(props, "source_crs", placeholder="EPSG:32756")
+        row.operator("geotools.apply_crs_preset", text="", icon="PRESET")
+        if not props.source_crs.strip():
+            layout.label(text="Choose a preset or type a CRS", icon="ERROR")
+    col = split_column(layout)
+    _number_rows(col, props, SOURCE_CRS_FIELDS[:3], ("Offset E", "N", "A"))
+    _number_rows(col, props, SOURCE_CRS_FIELDS[3:], ("Height Offset",))
+    row = layout.row(align=True)
+    row.operator("geotools.load_offset_file", icon="FILEBROWSER")
+    if props.offset_file:
+        layout.label(text=f"From {Path(props.offset_file).name}", icon="TEXT")
 
-    bl_idname = "GEOTOOLS_PT_project_verify"
-    bl_label = "Verify Placement"
+
+def _draw_verify(layout, context, props) -> None:
+    layout.operator("geotools.verify_placement", icon="WORLD")
+    if not deps.probe_rusty_tiles().available:
+        layout.label(text="Needs rusty-tiles (see About)", icon="INFO")
+    if props.probe_status == "NONE":
+        return
+    try:
+        current = repr(placement_from_props(props))
+    except FieldError:
+        current = None
+    box = layout.box()
+    if props.probe_status == "OK":
+        col = box.column(align=True)
+        info_row(col, "Longitude", f"{float(props.probe_lon):.7f}°")
+        info_row(col, "Latitude", f"{float(props.probe_lat):.7f}°")
+        info_row(col, "Height", f"{float(props.probe_height):,.3f} m")
+        if props.probe_operation:
+            wrapped(col, context, props.probe_operation, icon="INFO")
+    else:
+        col = box.column(align=True)
+        col.alert = True
+        wrapped(col, context, props.probe_error or "Placement failed", icon="ERROR")
+    if props.probe_key and current != props.probe_key:
+        box.label(text="Placement changed; verify again", icon="FILE_REFRESH")
+
+
+class GEOTOOLS_PT_project_crs(_GeoToolsPanel, bpy.types.Panel):
+    """The CRS preset's definition (editable) and datum assumption."""
+
+    bl_idname = "GEOTOOLS_PT_project_crs"
+    bl_label = "CRS Details"
     bl_parent_id = "GEOTOOLS_PT_project"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, context: bpy.types.Context) -> bool:
+        props = context.scene.geotools if context.scene is not None else None
+        return (
+            props is not None
+            and props.placement_mode == "SOURCE_CRS"
+            and crs_presets.for_definition(props.source_crs) is not None
+        )
 
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
         props = context.scene.geotools
-        layout.operator("geotools.verify_placement", icon="WORLD")
-        if not deps.probe_rusty_tiles().available:
-            layout.label(text="Needs rusty-tiles (see About)", icon="INFO")
-        if props.probe_status == "NONE":
+        preset = crs_presets.for_definition(props.source_crs)
+        if preset is None:
             return
-        try:
-            current = repr(placement_from_props(props))
-        except FieldError:
-            current = None
-        box = layout.box()
-        if props.probe_status == "OK":
-            col = box.column(align=True)
-            col.label(text="Origin (WGS84)", icon="CHECKMARK")
-            col.label(text=f"Longitude  {float(props.probe_lon):.9f}°")
-            col.label(text=f"Latitude  {float(props.probe_lat):.9f}°")
-            col.label(text=f"Height  {float(props.probe_height):.4f} m (ellipsoidal)")
-            if props.probe_operation:
-                col.label(text=f"Operation  {props.probe_operation}")
-        else:
-            col = box.column(align=True)
-            col.alert = True
-            _wrapped(col, props.probe_error or "Placement failed", icon="ERROR")
-        if props.probe_key and current != props.probe_key:
-            box.label(text="Placement changed since; verify again", icon="FILE_REFRESH")
+        layout.label(text=f"Stands in for {preset.epsg}")
+        wrapped(layout, context, preset.note, icon="INFO")
+        layout.label(text="Definition")
+        layout.prop(props, "source_crs", text="")
 
 
 # --- Source --------------------------------------------------------------------------
+
+
+def source_state(props: bpy.types.PropertyGroup) -> str:
+    if props.source_collection is None or not props.summary_valid:
+        return TODO
+    return DONE if props.summary_meshes else ERROR
 
 
 class GEOTOOLS_PT_source(_GeoToolsPanel, bpy.types.Panel):
@@ -150,13 +266,17 @@ class GEOTOOLS_PT_source(_GeoToolsPanel, bpy.types.Panel):
     bl_idname = "GEOTOOLS_PT_source"
     bl_label = "Source"
 
+    def draw_header(self, context: bpy.types.Context) -> None:
+        header_status(self.layout, source_state(context.scene.geotools))
+
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
         props = context.scene.geotools
-        layout.prop(props, "source_collection", text="Collection")
-        row = layout.row(align=True)
-        row.operator("geotools.ingest_source", icon="IMPORT")
-        row.operator("geotools.load_offset_file", text="Offset File", icon="FILEBROWSER")
+        if props.source_collection is None:
+            wrapped(layout, context, "Choose a source collection, or import a mesh.", "INFO")
+        col = split_column(layout)
+        col.prop(props, "source_collection", text="Collection")
+        layout.operator("geotools.ingest_source", text="Import Mesh...", icon="IMPORT")
         if props.source_filepath:
             layout.label(text=f"From {Path(props.source_filepath).name}", icon="FILE")
 
@@ -170,37 +290,43 @@ class GEOTOOLS_PT_source(_GeoToolsPanel, bpy.types.Panel):
             box.label(text="Not summarised yet")
             return
         col = box.column(align=True)
-        col.label(text=f"Objects  {props.summary_objects:,} ({props.summary_meshes:,} meshes)")
-        col.label(text=f"Faces  {props.summary_faces:,}")
-        col.label(text=f"Vertices  {props.summary_vertices:,}")
-        if props.summary_bounds_min:
-            col.label(text="World Bounds")
-            col.label(text=f"Min  {_format_bounds(props.summary_bounds_min)}")
-            col.label(text=f"Max  {_format_bounds(props.summary_bounds_max)}")
+        meshes = plural_text(props.summary_meshes, "mesh", "meshes")
+        info_row(col, "Objects", f"{format_count(props.summary_objects)} ({meshes})")
+        info_row(col, "Faces", format_count(props.summary_faces))
+        info_row(col, "Vertices", format_count(props.summary_vertices))
+        low, high = parse_vec(props.summary_bounds_min), parse_vec(props.summary_bounds_max)
+        if low is not None and high is not None:
+            size = tuple(h - lo for lo, h in zip(low, high, strict=True))
+            info_row(col, "Size", format_size(size))  # type: ignore[arg-type]
         else:
             col.label(text="No meshes", icon="ERROR")
 
 
 # --- Layers --------------------------------------------------------------------------
 
-LAYER_STATUS_ROWS = 6
+LAYER_STATUS_ROWS = 3
 """Issues the Layers panel lists before summarising the rest."""
 
 
-def _draw_layer_status(layout: bpy.types.UILayout, context: bpy.types.Context, item) -> None:
-    issues = sorted(
-        layer_status(context.scene, item), key=lambda i: _SEVERITY_ORDER[Severity(i.severity)]
-    )
-    box = layout.box()
+def _values_text(item) -> str:
+    low, high = parse_number(item.value_min), parse_number(item.value_max)
+    if item.data_type == DataType.BOOLEAN.value and low is not None and high is not None:
+        return {(0.0, 0.0): "all false", (1.0, 1.0): "all true"}.get((low, high), "false, true")
+    return format_range(low, high, item.units.strip()) or "Not known"
+
+
+def _draw_layer_status(layout: bpy.types.UILayout, context: bpy.types.Context, issues) -> None:
+    issues = sorted(issues, key=lambda i: _SEVERITY_ORDER[Severity(i.severity)])
     if not issues:
-        box.label(text="Stored on every source object", icon="CHECKMARK")
+        layout.label(text="Stored on every source object", icon="CHECKMARK")
         return
+    col = layout.column(align=True)
     for issue in issues[:LAYER_STATUS_ROWS]:
-        col = box.column(align=True)
-        col.alert = issue.severity is Severity.ERROR
-        _wrapped(col, issue.message, icon=SEVERITY_ICONS[Severity(issue.severity).name])
+        sub = col.column(align=True)
+        sub.alert = issue.severity is Severity.ERROR
+        wrapped(sub, context, issue.message, icon=SEVERITY_ICONS[Severity(issue.severity).name])
     if len(issues) > LAYER_STATUS_ROWS:
-        box.label(text=f"... and {len(issues) - LAYER_STATUS_ROWS} more")
+        col.label(text=f"... and {len(issues) - LAYER_STATUS_ROWS} more", icon="BLANK1")
 
 
 class GEOTOOLS_PT_layers(_GeoToolsPanel, bpy.types.Panel):
@@ -208,6 +334,11 @@ class GEOTOOLS_PT_layers(_GeoToolsPanel, bpy.types.Panel):
 
     bl_idname = "GEOTOOLS_PT_layers"
     bl_label = "Layers"
+
+    def draw_header(self, context: bpy.types.Context) -> None:
+        item = _active_layer(context)
+        if item is not None:
+            header_status(self.layout, layer_state(context.scene, item))
 
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
@@ -217,80 +348,87 @@ class GEOTOOLS_PT_layers(_GeoToolsPanel, bpy.types.Panel):
         col = row.column(align=True)
         col.operator("geotools.layer_add", text="", icon="ADD")
         col.operator("geotools.layer_remove", text="", icon="REMOVE")
+        col.separator()
+        col.operator("geotools.layer_rename", text="", icon="GREASEPENCIL")
 
-        if not 0 <= props.layers_index < len(props.layers):
+        item = _active_layer(context)
+        if item is None:
             if not len(props.layers):
-                layout.label(text="No layers yet", icon="INFO")
+                wrapped(layout, context, "No layers yet. Add one to bake values into.", "INFO")
             return
-        item = props.layers[props.layers_index]
-        row = layout.row(align=True)
-        row.label(text=item.name, icon="RNA")
-        row.operator("geotools.layer_rename", text="", icon="GREASEPENCIL")
 
-        col = layout.column()
-        col.use_property_split = True
-        col.use_property_decorate = False
-        col.prop(item, "label")
-        col.prop(item, "domain")
-        col.prop(item, "data_type")
-        col.prop(item, "units")
-        spec = spec_from_props(item)
-        issues = validate(spec, other_layer_names(context.scene, item))
-        nodata = col.row()
-        nodata.alert = any(i.code == "layer-nodata-invalid" for i in issues)
-        nodata.prop(item, "nodata")
-        col.prop(item, "origin")
-        agg = col.row()
-        agg.alert = any(i.code == "layer-aggregation-invalid" for i in issues)
-        agg.prop(item, "aggregation")
-        if item.aggregation == LAYER_AGGREGATION_DEFAULT:
-            text = f"Default: {_aggregation_label(item, spec.data_type)}"
-            col.label(text=text, icon="INFO")
-        col.prop(item, "description")
-
-        box = layout.box()
-        header = box.row()
-        header.label(text="Value Range")
-        header.operator("geotools.layer_update_range", text="", icon="FILE_REFRESH")
-        values = box.column(align=True)
-        values.alert = any(i.code == "layer-range-invalid" for i in issues)
-        values.prop(item, "value_min")
-        values.prop(item, "value_max")
-        provenance = spec.provenance
-        if provenance is not None:
-            if any(i.code == "layer-provenance-invalid" for i in issues):
-                box.label(text="Provenance is not valid JSON", icon="ERROR")
-            else:
-                version = provenance.get("geotools_version") or "unknown version"
-                box.label(text=f"Made by {provenance['tool']} (GeoTools {version})", icon="INFO")
-
-        if item.data_type == "CATEGORY":
-            box = layout.box()
-            header = box.row()
-            header.label(text="Categories")
-            header.operator("geotools.layer_set_categories", text="", icon="GREASEPENCIL")
-            labels = spec.categories
-            if not labels:
-                box.label(text="None set", icon="ERROR")
-            sub = box.column(align=True)
-            for value, label in enumerate(labels[:16]):
-                sub.label(text=f"{value}  {label}")
-            if len(labels) > 16:
-                sub.label(text=f"... and {len(labels) - 16} more")
-
-        if item.domain == "TEXTURE":
-            col = layout.column()
-            col.use_property_split = True
-            col.use_property_decorate = False
-            col.prop(item, "uv_map")
-            col.prop(item, "resolution")
-            col.prop(item, "margin")
-            count = sum(1 for entry in item.images if entry.image is not None)
-            col.label(text=f"{count} image{'s' * (count != 1)}", icon="IMAGE_DATA")
+        col = split_column(layout)
+        col.prop(item, "label", placeholder=item.name)
+        col.prop(item, "units", placeholder="None")
+        if item.data_type == DataType.CATEGORY.value:
+            count = len(spec_from_props(item).categories)
+            row = col.row()
+            row.alert = not count
+            value = info_row(row, "Categories", f"{count}" if count else "None set")
+            value.operator("geotools.layer_set_categories", text="", icon="GREASEPENCIL")
         else:
-            layout.operator("geotools.layer_create_attributes", icon="ADD")
+            value = info_row(col, "Values", _values_text(item))
+            value.operator("geotools.layer_update_range", text="", icon="FILE_REFRESH")
+        _draw_layer_status(layout, context, layer_status(context.scene, item))
 
-        _draw_layer_status(layout, context, item)
+
+def _bake_state(context: bpy.types.Context, item) -> str:
+    if context.scene.geotools.source_collection is None:
+        return TODO
+    issues = layer_status(context.scene, item)
+    return TODO if any(i.code in _NOT_BAKED for i in issues) else DONE
+
+
+class GEOTOOLS_PT_layers_bake(_GeoToolsPanel, bpy.types.Panel):
+    """Fill the selected layer: from Geometry Nodes, or a Cycles bake for a texture layer."""
+
+    bl_idname = "GEOTOOLS_PT_layers_bake"
+    bl_label = "Bake"
+    bl_parent_id = "GEOTOOLS_PT_layers"
+
+    @classmethod
+    def poll(cls, context: bpy.types.Context) -> bool:
+        return _active_layer(context) is not None
+
+    def draw_header(self, context: bpy.types.Context) -> None:
+        item = _active_layer(context)
+        if item is not None:
+            header_status(self.layout, _bake_state(context, item))
+
+    def draw(self, context: bpy.types.Context) -> None:
+        item = _active_layer(context)
+        if item is None:
+            return
+        if context.scene.geotools.source_collection is None:
+            wrapped(self.layout, context, "Choose a source collection first.", "INFO")
+            return
+        if item.domain == Domain.TEXTURE.value:
+            bake_texture.draw_bake(self.layout, context, item)
+        else:
+            bake_vertex.draw_bake(self.layout, context, item)
+
+
+class GEOTOOLS_PT_layers_display(_GeoToolsPanel, bpy.types.Panel):
+    """How the selected layer is coloured in its variant tileset."""
+
+    bl_idname = "GEOTOOLS_PT_layers_display"
+    bl_label = "Display"
+    bl_parent_id = "GEOTOOLS_PT_layers"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, context: bpy.types.Context) -> bool:
+        return _active_layer(context) is not None
+
+    def draw_header(self, context: bpy.types.Context) -> None:
+        item = _active_layer(context)
+        if item is not None and presentation.display_issue_codes(item):
+            header_status(self.layout, ERROR)
+
+    def draw(self, context: bpy.types.Context) -> None:
+        item = _active_layer(context)
+        if item is not None:
+            presentation.draw_display(self.layout, context, item)
 
 
 def _aggregation_label(item, data_type: str) -> str:
@@ -298,7 +436,64 @@ def _aggregation_label(item, data_type: str) -> str:
     return item.bl_rna.properties["aggregation"].enum_items[value].name
 
 
+class GEOTOOLS_PT_layers_details(_GeoToolsPanel, bpy.types.Panel):
+    """The selected layer's rarely changed fields."""
+
+    bl_idname = "GEOTOOLS_PT_layers_details"
+    bl_label = "Details"
+    bl_parent_id = "GEOTOOLS_PT_layers"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, context: bpy.types.Context) -> bool:
+        return _active_layer(context) is not None
+
+    def draw(self, context: bpy.types.Context) -> None:
+        layout = self.layout
+        item = _active_layer(context)
+        if item is None:
+            return
+        spec = spec_from_props(item)
+        codes = {i.code for i in validate(spec, other_layer_names(context.scene, item))}
+        col = split_column(layout)
+        info_row(col, "Identifier", item.name, icon=DOMAIN_ICONS.get(item.domain, "NONE"))
+        col.prop(item, "domain")
+        col.prop(item, "data_type")
+        row = col.row()
+        row.alert = "layer-nodata-invalid" in codes
+        row.prop(item, "nodata", placeholder="None")
+        col.prop(item, "origin")
+        row = col.row()
+        row.alert = "layer-aggregation-invalid" in codes
+        row.prop(item, "aggregation")
+        if item.aggregation == LAYER_AGGREGATION_DEFAULT:
+            info_row(col, "", f"{_aggregation_label(item, spec.data_type)}", icon="INFO")
+        col.prop(item, "description", text="Notes")
+
+        if "layer-range-invalid" in codes:
+            # The range is worked out by Update Range; show the stored text only to fix it.
+            values = col.column(align=True)
+            values.alert = True
+            values.prop(item, "value_min", text="Range Min")
+            values.prop(item, "value_max", text="Max")
+
+        provenance = spec.provenance
+        if "layer-provenance-invalid" in codes:
+            layout.label(text="Provenance is not valid JSON", icon="ERROR")
+        elif provenance is not None:
+            version = provenance.get("geotools_version") or "unknown version"
+            wrapped(layout, context, f"Made by {provenance['tool']} (GeoTools {version})", "INFO")
+        if item.domain != Domain.TEXTURE.value:
+            layout.operator("geotools.layer_create_attributes", text="Create Empty Attributes")
+
+
 # --- Checks --------------------------------------------------------------------------
+
+
+def checks_state(props: bpy.types.PropertyGroup) -> str:
+    if not props.checks_run:
+        return TODO
+    return _worst(props.issues)
 
 
 class GEOTOOLS_PT_checks(_GeoToolsPanel, bpy.types.Panel):
@@ -307,11 +502,15 @@ class GEOTOOLS_PT_checks(_GeoToolsPanel, bpy.types.Panel):
     bl_idname = "GEOTOOLS_PT_checks"
     bl_label = "Checks"
 
+    def draw_header(self, context: bpy.types.Context) -> None:
+        header_status(self.layout, checks_state(context.scene.geotools))
+
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
         props = context.scene.geotools
-        layout.operator("geotools.run_checks", icon="CHECKMARK")
+        big_button(layout, 1.2).operator("geotools.run_checks", icon="CHECKMARK")
         if not props.checks_run:
+            wrapped(layout, context, "Publish runs them too; run them here to fix issues early.")
             return
         counts = dict.fromkeys(("ERROR", "WARNING", "INFO"), 0)
         for item in props.issues:
@@ -324,13 +523,13 @@ class GEOTOOLS_PT_checks(_GeoToolsPanel, bpy.types.Panel):
             key = severity.name
             row.label(text=str(counts[key]), icon=SEVERITY_ICONS[key])
         layout.template_list(
-            "GEOTOOLS_UL_issues", "", props, "issues", props, "issues_index", rows=4
+            "GEOTOOLS_UL_issues", "", props, "issues", props, "issues_index", rows=3
         )
         if 0 <= props.issues_index < len(props.issues):
             item = props.issues[props.issues_index]
             box = layout.box()
-            _wrapped(box, item.message, icon=SEVERITY_ICONS[item.severity])
-            box.label(text=f"Code: {item.code}")
+            wrapped(box, context, item.message, icon=SEVERITY_ICONS[item.severity])
+            box.label(text=f"Code: {item.code}", icon="BLANK1")
             draw_remedy_buttons(box, item.code, item.subject)
 
 
@@ -346,7 +545,7 @@ class GEOTOOLS_PT_checks_images(_GeoToolsPanel, bpy.types.Panel):
         layout = self.layout
         props = context.scene.geotools
         if not props.summary_valid:
-            layout.label(text="Run Checks to list the source images")
+            layout.label(text="Run Checks to list the images")
             return
         if not len(props.summary_images):
             layout.label(text="The source uses no images")
@@ -361,37 +560,58 @@ class GEOTOOLS_PT_checks_images(_GeoToolsPanel, bpy.types.Panel):
         box = layout.box()
         box.label(text=describe_image(item))
         if image is None:
-            box.label(text="The image no longer exists; run Checks again", icon="ERROR")
+            wrapped(box, context, "The image no longer exists; run Checks again.", "ERROR")
             return
         remedy = image.geotools_remedy
-        col = box.column(align=True)
+        col = split_column(box)
         col.enabled = image.library is None
         col.prop(remedy, "kind", text="Remedy")
         if remedy.kind in {"JPEG", "DOWNSCALE"}:
-            col.prop(remedy, "quality")
+            col.prop(remedy, "quality", text="Quality")
         if remedy.kind == "DOWNSCALE":
             col.prop(remedy, "max_edge")
         if image.library is not None:
-            box.label(
-                text="Linked image; make it local to choose a remedy", icon="LIBRARY_DATA_DIRECT"
+            wrapped(
+                box,
+                context,
+                "Linked image: make it local to choose a remedy.",
+                "LIBRARY_DATA_DIRECT",
             )
         elif remedy.kind != "NONE":
             box.label(text="Only the published copy changes", icon="INFO")
 
 
-# --- Build profiles --------------------------------------------------------------------
+# --- Publish ---------------------------------------------------------------------------
 
 
-class GEOTOOLS_PT_build_profiles(_GeoToolsPanel, bpy.types.Panel):
-    """Saved build settings, used by Publish."""
+def _active_profile(context: bpy.types.Context):
+    return publish.active_profile(context.scene) if context.scene is not None else None
 
-    bl_idname = "GEOTOOLS_PT_build_profiles"
-    bl_label = "Build Profiles"
-    bl_options = {"DEFAULT_CLOSED"}
+
+class GEOTOOLS_PT_publish(_GeoToolsPanel, bpy.types.Panel):
+    """Publish the source as a .3tz, or a variant of one layer, with a build profile."""
+
+    bl_idname = "GEOTOOLS_PT_publish"
+    bl_label = "Publish"
+
+    def draw_header(self, context: bpy.types.Context) -> None:
+        header_status(self.layout, publish.publish_state(context))
 
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
         props = context.scene.geotools
+        status_ = publish.status(context)
+        running = publish.is_running()
+
+        if not len(props.build_profiles):
+            wrapped(
+                layout, context, "Add a build profile: it says where and how to publish.", "INFO"
+            )
+            big_button(layout).operator(
+                "geotools.build_profile_add", text="Add Build Profile", icon="ADD"
+            )
+            return
+
         row = layout.row()
         row.template_list(
             "GEOTOOLS_UL_build_profiles",
@@ -409,34 +629,96 @@ class GEOTOOLS_PT_build_profiles(_GeoToolsPanel, bpy.types.Panel):
         col.operator("geotools.build_profile_move", text="", icon="TRIA_UP").direction = "UP"
         col.operator("geotools.build_profile_move", text="", icon="TRIA_DOWN").direction = "DOWN"
 
-        if not 0 <= props.build_profile_index < len(props.build_profiles):
+        profile = _active_profile(context)
+        if profile is None:
             return
-        profile = props.build_profiles[props.build_profile_index]
-        col = layout.column()
-        col.use_property_split = True
-        col.use_property_decorate = False
+        col = layout.column(align=True)
+        col.label(text="Output")
+        row = col.row(align=True)
+        row.alert = not profile.output_path.strip()
+        row.prop(profile, "output_path", text="", placeholder="//site.3tz")
+        col = split_column(layout)
+        row = col.row()
+        variant = profile.variant_layer.strip()
+        row.alert = bool(variant) and props.layers.get(variant) is None
+        row.prop_search(profile, "variant_layer", props, "layers", icon="RNA")
+        row = layout.row(align=True)
+        row.prop(profile, "overwrite")
+        row.prop(profile, "validate")
+
+        name = publish.output_name(context.scene, profile)
+        if profile.output_path.startswith("//") and not bpy.data.is_saved:
+            layout.label(text="Save the .blend first (// path)", icon="ERROR")
+        if not deps.probe_rusty_tiles().available:
+            layout.label(text="Needs rusty-tiles (see About)", icon="ERROR")
+
+        if running and status_ is not None:
+            publish.draw_progress(layout, context, status_)
+            return
+        button = big_button(layout, 1.6)
+        button.enabled = bool(name)
+        button.operator(
+            "geotools.publish", text=f"Publish {name}" if name else "Publish", icon="EXPORT"
+        )
+        if not name:
+            layout.label(text="Set the output path", icon="INFO")
+        publish.draw_end_status(layout, context, status_)
+
+
+class GEOTOOLS_PT_publish_settings(_GeoToolsPanel, bpy.types.Panel):
+    """rusty-tiles settings of the selected build profile."""
+
+    bl_idname = "GEOTOOLS_PT_publish_settings"
+    bl_label = "Build Settings"
+    bl_parent_id = "GEOTOOLS_PT_publish"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, context: bpy.types.Context) -> bool:
+        return _active_profile(context) is not None
+
+    def draw(self, context: bpy.types.Context) -> None:
+        profile = _active_profile(context)
+        if profile is None:
+            return
+        col = split_column(self.layout)
         col.prop(profile, "profile")
-        col.prop(profile, "jobs", text="Jobs (0 = Auto)")
-        col.prop(profile, "memory_budget_gib", text="Memory GiB (0 = Auto)")
+        col.prop(profile, "jobs")
+        col.prop(profile, "memory_budget_gib", text="Memory GiB")
         if profile.memory_budget_gib <= 0:
             available = sysmem.available_memory_bytes()
             budget = sysmem.auto_memory_budget(available)
             if budget is None:
-                col.label(text="Auto: rusty-tiles default (memory unknown)", icon="INFO")
+                text = "Auto memory: rusty-tiles default"
             else:
-                col.label(
-                    text=f"Auto: {budget / sysmem.GIB:.1f} GiB of "
-                    f"{available / sysmem.GIB:.1f} GiB available",
-                    icon="INFO",
-                )
-        col.prop(profile, "output_path")
-        col.prop(profile, "overwrite")
-        col.prop(profile, "validate")
-        row = col.row()
-        row.alert = bool(profile.variant_layer.strip()) and (
-            props.layers.get(profile.variant_layer.strip()) is None
-        )
-        row.prop_search(profile, "variant_layer", props, "layers", icon="RNA")
+                gib = format_gib(budget).removesuffix(" GiB")
+                text = f"Auto memory: {gib} of {format_gib(available)}"
+            self.layout.label(text=text, icon="INFO")
+
+
+class GEOTOOLS_PT_publish_last(_GeoToolsPanel, bpy.types.Panel):
+    """What the selected profile last published, and a local preview of it."""
+
+    bl_idname = "GEOTOOLS_PT_publish_last"
+    bl_label = "Last Build"
+    bl_parent_id = "GEOTOOLS_PT_publish"
+
+    @classmethod
+    def poll(cls, context: bpy.types.Context) -> bool:
+        profile = _active_profile(context)
+        return profile is not None and bool(profile.last_output)
+
+    def draw_header(self, context: bpy.types.Context) -> None:
+        profile = _active_profile(context)
+        if profile is not None and profile.last_validation == "FAILED":
+            header_status(self.layout, ERROR)
+
+    def draw(self, context: bpy.types.Context) -> None:
+        profile = _active_profile(context)
+        if profile is None:
+            return
+        publish.draw_last_build(self.layout, context, profile)
+        publish.draw_preview(self.layout, context)
 
 
 # --- About ---------------------------------------------------------------------------
@@ -447,6 +729,10 @@ class GEOTOOLS_PT_about(_GeoToolsPanel, bpy.types.Panel):
 
     bl_idname = "GEOTOOLS_PT_about"
     bl_label = "About"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw_header(self, context: bpy.types.Context) -> None:
+        header_status(self.layout, DONE if deps.probe_rusty_tiles().available else ERROR)
 
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
@@ -457,14 +743,17 @@ class GEOTOOLS_PT_about(_GeoToolsPanel, bpy.types.Panel):
 # Registration order is the sidebar order; About stays last.
 classes = (
     GEOTOOLS_PT_project,
-    GEOTOOLS_PT_project_verify,
+    GEOTOOLS_PT_project_crs,
     GEOTOOLS_PT_source,
     GEOTOOLS_PT_layers,
-    GEOTOOLS_PT_layers_presentation,
+    GEOTOOLS_PT_layers_bake,
+    GEOTOOLS_PT_layers_display,
+    GEOTOOLS_PT_layers_details,
     GEOTOOLS_PT_checks,
     GEOTOOLS_PT_checks_images,
-    GEOTOOLS_PT_build_profiles,
     GEOTOOLS_PT_publish,
+    GEOTOOLS_PT_publish_settings,
+    GEOTOOLS_PT_publish_last,
     GEOTOOLS_PT_about,
 )
 
