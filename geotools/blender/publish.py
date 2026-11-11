@@ -42,7 +42,7 @@ from .checks import count_issues, describe_counts, run_checks, store_issues
 from .common import ADDON_PACKAGE, extension_version, redraw_ui
 from .layers import layer_records
 from .presentation import build_presentation, variant_issues
-from .properties import FieldError, placement_from_props
+from .properties import OUTPUT_SUFFIXES, FieldError, placement_from_props
 from .ui import info_row, wrapped
 
 log = logging.getLogger(__name__)
@@ -126,15 +126,24 @@ class OutputPathError(ValueError):
     pass
 
 
-def resolve_output(path_text: str) -> Path:
-    """The absolute ``.3tz`` path of a build profile's output.
+def profile_suffix(profile: bpy.types.PropertyGroup) -> str:
+    """``.3tz`` or ``.glb``: what the profile's format writes."""
+    return OUTPUT_SUFFIXES.get(getattr(profile, "output_type", "3TZ"), ".3tz")
+
+
+def is_glb(profile: bpy.types.PropertyGroup | None) -> bool:
+    return profile is not None and getattr(profile, "output_type", "3TZ") == "GLB"
+
+
+def resolve_output(path_text: str, suffix: str = ".3tz") -> Path:
+    """The absolute ``suffix`` (``.3tz`` or ``.glb``) path of a build profile's output.
 
     ``//`` paths are relative to the .blend and need it saved; other relative
     paths are refused, since Blender's working directory is arbitrary.
     """
     text = path_text.strip()
     if not text:
-        raise OutputPathError("Set an output path (.3tz) on the build profile")
+        raise OutputPathError(f"Set an output path ({suffix}) on the build profile")
     if text.startswith("//") and not bpy.data.is_saved:
         raise OutputPathError(
             "The output path is relative to the .blend (//); save the .blend first "
@@ -146,8 +155,8 @@ def resolve_output(path_text: str) -> Path:
             f"The output path {text!r} is relative; use an absolute path or // for the .blend's folder"
         )
     output = Path(os.path.normpath(resolved))
-    if output.suffix != ".3tz":
-        raise OutputPathError(f"The output must end in .3tz: {output}")
+    if output.suffix != suffix:
+        raise OutputPathError(f"The output must end in {suffix}: {output}")
     return output
 
 
@@ -186,6 +195,8 @@ def _store_result(session: _Session) -> None:
     if profile is None:
         return
     summary = result.report_summary
+    if result.output.suffix == ".glb":
+        summary = {"triangles": result.triangles, "tiles": ""}
     profile.last_output = str(result.output)
     profile.last_record = str(result.record_path)
     profile.last_build_utc = _utc_now()
@@ -290,6 +301,16 @@ def _extract_scene(
     )
 
 
+def _push_undo(message: str) -> None:
+    """An undo step, so a later undo keeps what was just stored (the object ids)."""
+    if bpy.app.background:
+        return
+    try:
+        bpy.ops.ed.undo_push(message=message)
+    except RuntimeError:
+        log.debug("publish: undo push failed", exc_info=True)
+
+
 def blend_path_for_record(filepath: str | None = None, is_dirty: bool | None = None) -> Path | None:
     """The saved ``.blend`` whose hash build.json records, or None.
 
@@ -319,7 +340,7 @@ def _extra_record(
 
 
 class GEOTOOLS_OT_publish(bpy.types.Operator):
-    """Run the checks, write the source GLB and build a .3tz with rusty-tiles"""
+    """Run the checks, write the source GLB and build a .3tz with rusty-tiles, or write the metadata GLB for a .glb build profile"""
 
     bl_idname = "geotools.publish"
     bl_label = "Publish"
@@ -342,6 +363,11 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
             )
         profile = active_profile(context.scene) if context.scene is not None else None
         name = output_name(context.scene, profile) if profile is not None else None
+        if name and is_glb(profile):
+            return (
+                f"Write {name} with build profile {profile.name}: run the checks and write a "
+                "standard GLB with the objects, layers and georeference as glTF metadata"
+            )
         if name:
             variant = profile.variant_layer.strip()
             what = f"the variant of layer {variant}" if variant else "the plain tileset"
@@ -378,8 +404,9 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
                 "Cannot publish: add a build profile first (Publish panel, + button)",
             )
             return {"CANCELLED"}
+        glb = is_glb(profile)
         try:
-            output = resolve_output(profile.output_path)
+            output = resolve_output(profile.output_path, profile_suffix(profile))
         except OutputPathError as ex:
             self.report({"ERROR"}, f"Cannot publish with {profile.name!r}: {ex}")
             return {"CANCELLED"}
@@ -391,9 +418,20 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
                 self.report({"ERROR"}, f"Cannot publish the variant: {ex}")
                 return {"CANCELLED"}
 
+        options = None
         issues = run_checks(context)
         if variant:
             issues += variant_issues(context.scene, variant)
+        if glb:
+            from .glb_export import GlbOptions, glb_issues
+
+            options = GlbOptions(
+                face_table=profile.glb_face_table,
+                earth_placed=profile.glb_earth_placed,
+                apply_modifiers=bool(profile.apply_modifiers),
+                variant=variant,
+            )
+            issues += glb_issues(context.scene, options)
         store_issues(props, issues)
         counts = count_issues(issues)
         if counts[Severity.ERROR]:
@@ -410,7 +448,7 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
             self.report({"ERROR"}, f"Cannot publish: {ex}")
             return {"CANCELLED"}
         dep = deps.probe_rusty_tiles()
-        if not dep.available:
+        if not dep.available and not glb:
             self.report({"ERROR"}, f"Cannot publish: {dep.summary}")
             return {"CANCELLED"}
 
@@ -423,37 +461,62 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
             image_dir = st.images_dir_for(output)
             shutil.rmtree(image_dir, ignore_errors=True)
             image_dir.mkdir(parents=True)
-            present, variant_record = None, None
-            if variant:
-                present, variant_record = build_presentation(context.scene, variant)
             remedies: list[dict] = []
             apply = bool(profile.apply_modifiers)
-            scene_export, topology = _extract_scene(
-                context, props.source_collection, image_dir, remedies, present, apply
-            )
             extra_record = _extra_record(context, profile.name, props.source_collection.name, apply)
-            if remedies:
-                # Which file each remedy wrote (a downscale may fall back to JPEG).
-                extra_record["image_remedies"] = remedies
             layer_records_, invalid_layers = layer_records(context.scene)
-            request = BuildRequest(
-                output=output,
-                placement_kwargs=placement_kwargs,
-                profile=profile.profile.lower(),
-                jobs=profile.jobs or None,
-                memory_budget_bytes=(
-                    int(profile.memory_budget_gib * 2**30)
-                    if profile.memory_budget_gib > 0
-                    else sysmem.auto_memory_budget(sysmem.available_memory_bytes())
-                ),
-                force=profile.overwrite,
-                validate=profile.validate,
-                topology=dict(topology),
-                extra_record=extra_record,
-                layers=layer_records_,
-                blend_path=blend_path,
-                variant=variant_record,
-            )
+            if glb:
+                from .glb_export import prepare_glb
+
+                prepared = prepare_glb(context, image_dir, options)
+                if prepared.ids_made:
+                    blend_path = None  # the saved .blend does not have the new object ids
+                    _push_undo("GeoTools object ids")
+                remedies = prepared.remedies
+                scene_export = prepared.scene
+                if remedies:
+                    extra_record["image_remedies"] = remedies
+                request = BuildRequest(
+                    output=output,
+                    placement_kwargs=placement_kwargs,
+                    force=profile.overwrite,
+                    validate=False,
+                    topology=dict(prepared.topology),
+                    extra_record=extra_record,
+                    layers=layer_records_,
+                    blend_path=blend_path,
+                    variant=prepared.variant,
+                    extension=prepared.extension,
+                    glb_record=prepared.record,
+                )
+            else:
+                present, variant_record = None, None
+                if variant:
+                    present, variant_record = build_presentation(context.scene, variant)
+                scene_export, topology = _extract_scene(
+                    context, props.source_collection, image_dir, remedies, present, apply
+                )
+                if remedies:
+                    # Which file each remedy wrote (a downscale may fall back to JPEG).
+                    extra_record["image_remedies"] = remedies
+                request = BuildRequest(
+                    output=output,
+                    placement_kwargs=placement_kwargs,
+                    profile=profile.profile.lower(),
+                    jobs=profile.jobs or None,
+                    memory_budget_bytes=(
+                        int(profile.memory_budget_gib * 2**30)
+                        if profile.memory_budget_gib > 0
+                        else sysmem.auto_memory_budget(sysmem.available_memory_bytes())
+                    ),
+                    force=profile.overwrite,
+                    validate=profile.validate,
+                    topology=dict(topology),
+                    extra_record=extra_record,
+                    layers=layer_records_,
+                    blend_path=blend_path,
+                    variant=variant_record,
+                )
             job = BuildJob(scene_export, request, lock=lock)
         except Exception as ex:
             shutil.rmtree(st.images_dir_for(output), ignore_errors=True)
@@ -488,7 +551,8 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
                 "recorded: fix them in the Layers panel"
             )
         note = f" ({', '.join(notes)})" if notes else ""
-        self.report({"WARNING" if invalid_layers else "INFO"}, f"Publishing {output.name}{note}")
+        verb = "Exporting" if glb else "Publishing"
+        self.report({"WARNING" if invalid_layers else "INFO"}, f"{verb} {output.name}{note}")
         redraw_ui(context)
         return {"FINISHED"}
 
@@ -675,11 +739,14 @@ _END_ICONS = {"DONE": "CHECKMARK", "FAILED": "ERROR", "CANCELLED": "CANCEL"}
 
 
 def output_name(scene: bpy.types.Scene, profile: bpy.types.PropertyGroup) -> str | None:
-    """File name the profile publishes (its variant's, if it has one), or None if unset."""
+    """File name the profile publishes (its variant's, if it has one), or None if it is
+    unset or does not end in the format's suffix."""
     text = profile.output_path.strip()
     if not text:
         return None
     path = Path(text.replace("//", "", 1))
+    if path.suffix != profile_suffix(profile):
+        return None
     variant = profile.variant_layer.strip()
     if variant:
         try:
@@ -745,6 +812,12 @@ def draw_last_build(
         info_row(col, "Triangles", format_count(int(profile.last_triangles)))
     if profile.last_tiles:
         info_row(col, "Tiles", format_count(int(profile.last_tiles)))
+    glb = Path(profile.last_output).suffix == ".glb"
+    row = layout.row(align=True)
+    row.operator("geotools.open_output_folder", text="Folder", icon="FILE_FOLDER")
+    row.operator("geotools.open_build_record", text="Record", icon="TEXT")
+    if glb:
+        return
     validation = {
         "OK": ("Passed", "CHECKMARK"),
         "FAILED": ("FAILED", "ERROR"),
@@ -753,9 +826,6 @@ def draw_last_build(
     row = col.row()
     row.alert = profile.last_validation == "FAILED"
     info_row(row, "Validation", validation[0], icon=validation[1])
-    row = layout.row(align=True)
-    row.operator("geotools.open_output_folder", text="Folder", icon="FILE_FOLDER")
-    row.operator("geotools.open_build_record", text="Record", icon="TEXT")
 
 
 def draw_preview(layout: bpy.types.UILayout, context: bpy.types.Context) -> None:

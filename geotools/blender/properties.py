@@ -229,6 +229,45 @@ PROFILE_ITEMS = (
 )
 
 
+OUTPUT_TYPE_ITEMS = (
+    ("3TZ", ".3tz", "A 3D Tiles archive, tiled by rusty-tiles"),
+    (
+        "GLB",
+        ".glb",
+        (
+            "One standard GLB with the objects, layers and georeference as glTF metadata "
+            "(EXT_mesh_features, EXT_structural_metadata, KHR_xmp_json_ld); rusty-tiles is "
+            "not run"
+        ),
+    ),
+)
+OUTPUT_SUFFIXES = {"3TZ": ".3tz", "GLB": ".glb"}
+
+GLB_EARTH_PLACED_DESCRIPTION = (
+    "Also put the local-to-ECEF transform on a root node, so geospatial viewers such as "
+    "CesiumJS place the model on Earth with no extra input. General glTF tools apply it "
+    "too and put the model about 6,400 km from their origin, in float32. Positions stay "
+    "local either way, and the georeference is always recorded as XMP metadata"
+)
+GLB_FACE_TABLE_DESCRIPTION = (
+    "Write face layers as a per-face feature ID set with a property table, so each face "
+    "can be picked and its values queried. Vertices are then shared only within a face: "
+    "up to about 6 times the vertex data of a smooth mesh, less where face values already "
+    "differ between neighbours. Off: face values are vertex attributes, which can be "
+    "styled and keep the mesh compact where neighbouring faces share values"
+)
+
+
+def _output_type_changed(self, _context) -> None:
+    """Keep the output path's suffix in step with the format."""
+    text = self.output_path
+    suffix = OUTPUT_SUFFIXES[self.output_type]
+    for old in OUTPUT_SUFFIXES.values():
+        if text.endswith(old) and old != suffix:
+            self.output_path = text[: -len(old)] + suffix
+            return
+
+
 class GeoToolsBuildProfile(bpy.types.PropertyGroup):
     """Settings for one build, and a summary of its last publish."""
 
@@ -256,8 +295,23 @@ class GeoToolsBuildProfile(bpy.types.PropertyGroup):
         precision=1,
         unit="NONE",
     )
+    output_type: EnumProperty(
+        name="Format",
+        description="What the profile writes",
+        items=OUTPUT_TYPE_ITEMS,
+        default="3TZ",
+        update=_output_type_changed,
+    )
     output_path: StringProperty(
-        name="Output", description="Where the .3tz archive is written", subtype="FILE_PATH"
+        name="Output",
+        description="Where the .3tz archive (or .glb, for the GLB format) is written",
+        subtype="FILE_PATH",
+    )
+    glb_face_table: BoolProperty(
+        name="Face Table", description=GLB_FACE_TABLE_DESCRIPTION, default=False
+    )
+    glb_earth_placed: BoolProperty(
+        name="Earth-Placed", description=GLB_EARTH_PLACED_DESCRIPTION, default=False
     )
     overwrite: BoolProperty(
         name="Overwrite",

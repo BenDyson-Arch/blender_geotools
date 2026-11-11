@@ -5,6 +5,11 @@ it to a BuildJob, which does everything else on one worker thread. The main
 thread drains ``poll_events()`` from a timer. rusty-tiles releases the GIL and
 calls ``callback`` from Rust worker threads; the job only queues those events.
 
+A ``.glb`` output (a build profile of output type ``.glb``, M4) is the
+metadata GLB instead: the job writes it with the request's ``extension``
+(``core.gltf_metadata``) into ``work/``, moves it onto the output, writes the
+face map and build.json, and never runs rusty-tiles.
+
 Staging layout, next to the output ``<dir>/<name>.3tz`` (see ``publish.staging``
 for the full list):
     <dir>/<name>.geotools/source.glb   the exact rusty-tiles input
@@ -67,7 +72,9 @@ log = logging.getLogger(__name__)
 RECORD_SCHEMA = 2
 """``schema`` of build.json. 2 added ``layers`` (the M3 layer registry),
 ``source`` (GLB and ``.blend`` hashes), ``placement.crs_epsg`` and ``variant``
-(the presented layer of a variant tileset, null for the plain one)."""
+(the presented layer of a variant tileset, null for the plain one), and then
+``output_type`` (``"3tz"`` or ``"glb"``) and, for a GLB, ``glb``: its file,
+extensions used, options and face table cost (M4)."""
 
 MAX_RECORDED_WARNINGS = 50
 
@@ -100,7 +107,7 @@ class ProgressEvent:
 
 @dataclass(frozen=True, slots=True)
 class BuildRequest:
-    output: Path  # must end in .3tz
+    output: Path  # must end in .3tz, or .glb for the metadata GLB
     placement_kwargs: dict[str, object]  # from Placement.mesh_to_tileset_kwargs()
     profile: str = "balanced"  # fast | balanced | quality | lossless
     jobs: int | None = None  # None = rusty-tiles "auto"
@@ -120,6 +127,14 @@ class BuildRequest:
     # A variant tileset's presentation (core.presentation.variant_record); None
     # for the plain tileset.
     variant: dict[str, object] | None = None
+    # .glb outputs: the metadata extension (core.gltf_metadata.MetadataExtension)
+    # and what build.json records about it (options, extensions, face table cost).
+    extension: object | None = None
+    glb_record: dict[str, object] = field(default_factory=dict)
+
+    @property
+    def output_type(self) -> str:
+        return "glb" if Path(self.output).suffix == ".glb" else "3tz"
 
 
 @dataclass(frozen=True, slots=True)
@@ -515,6 +530,9 @@ class BuildJob:
             phase_seconds["hash_blend"] = time.monotonic() - t
             self._check_cancel()
 
+        if request.output_type == "glb":
+            return self._build_glb(work, started_utc, t_start, phase_seconds, blend_sha256)
+
         # 1. GLB and face map. The writer has no cancel hook; check around it.
         self._set_state(JobState.WRITING, "Writing source GLB")
         t = time.monotonic()
@@ -572,6 +590,7 @@ class BuildJob:
         record_path = staging / st.RECORD_NAME
         record = {
             "schema": RECORD_SCHEMA,
+            "output_type": "3tz",
             "output": str(output),
             "output_bytes": _size(output),
             "started_utc": started_utc,
@@ -638,6 +657,90 @@ class BuildJob:
         elif validation_ok:
             message += ", validated"
         return result, message
+
+    def _build_glb(
+        self,
+        work: Path,
+        started_utc: str,
+        t_start: float,
+        phase_seconds: dict[str, float],
+        blend_sha256: str | None,
+    ) -> tuple[BuildResult, str]:
+        """The metadata GLB: write, move onto the output, face map, record."""
+        request = self._request
+        output = self._output
+        if request.extension is None:
+            raise ValueError("a .glb build needs the metadata extension")
+        self._set_state(JobState.WRITING, f"Writing {output.name}")
+        t = time.monotonic()
+        glb = write_glb(self._scene, work / output.name, extension=request.extension)  # type: ignore[arg-type]
+        phase_seconds["write_glb"] = time.monotonic() - t
+        self._check_cancel()
+        t = time.monotonic()
+        face_map = build_face_map(self._scene, dict(request.topology))
+        save_face_map(face_map, work / st.FACEMAP_NAME)
+        phase_seconds["face_map"] = time.monotonic() - t
+        self._check_cancel()
+        _rmtree(self._staging / st.IMAGES_DIR)
+
+        # Publish: the GLB replaces the output in one rename (same directory tree).
+        if output.exists() and not request.force:
+            raise OutputExistsError(
+                f"{output} already exists; turn on Overwrite (force) to replace it"
+            )
+        os.replace(work / output.name, output)
+        self._published = True
+
+        staging = self._staging
+        record_path = staging / st.RECORD_NAME
+        seconds = time.monotonic() - t_start
+        record = {
+            "schema": RECORD_SCHEMA,
+            "output_type": "glb",
+            "output": str(output),
+            "output_bytes": _size(output),
+            "started_utc": started_utc,
+            "finished_utc": _utc_now(),
+            "seconds": seconds,
+            "phase_seconds": phase_seconds,
+            "rusty_tiles_phase_seconds": {},
+            "rusty_tiles_version": None,
+            "geotools": dict(request.extra_record),
+            "settings": {"force": request.force},
+            "placement": {
+                **request.placement_kwargs,
+                "crs_epsg": epsg_code(request.placement_kwargs.get("source_crs")),  # type: ignore[arg-type]
+            },
+            "source": {"glb_sha256": glb.sha256, "blend_sha256": blend_sha256},
+            "layers": [dict(record) for record in request.layers],
+            "variant": None if request.variant is None else dict(request.variant),
+            "glb": {
+                "path": output.name,
+                "sha256": glb.sha256,
+                "bytes": glb.bytes,
+                "primitives": glb.primitives,
+                "triangles": glb.triangles,
+                **dict(request.glb_record),
+            },
+            "face_map": st.FACEMAP_NAME,
+            "report_summary": {},
+            "validation": {"requested": False, "ok": None},
+            "warnings": {"count": 0, "first": []},
+        }
+        record_path.unlink(missing_ok=True)
+        os.replace(work / st.FACEMAP_NAME, staging / st.FACEMAP_NAME)
+        write_json(record_path, record)
+        result = BuildResult(
+            output=output,
+            staging_dir=staging,
+            glb_sha256=glb.sha256,
+            triangles=glb.triangles,
+            report_summary={"triangles": glb.triangles, "bytes": glb.bytes},
+            validation_ok=None,
+            record_path=record_path,
+            seconds=seconds,
+        )
+        return result, f"Exported {output.name}: {glb.triangles:,} triangles, {glb.bytes:,} bytes"
 
     def _validate(self, rt: ModuleType, output: Path, work: Path) -> dict[str, object]:
         """Run rusty_tiles.validate; never raises except for internal bugs."""

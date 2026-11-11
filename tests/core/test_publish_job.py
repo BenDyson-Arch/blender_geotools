@@ -111,8 +111,60 @@ def test_staging_layout(tmp_path: Path) -> None:
     out = tmp_path / "site.3tz"
     assert job_mod.staging_dir_for(out) == tmp_path / "site.geotools"
     assert st.images_dir_for(out) == tmp_path / "site.geotools" / "images"
+    # A metadata GLB keeps its own record beside a .3tz of the same name.
+    assert st.staging_dir_for(tmp_path / "site.glb") == tmp_path / "site.glb.geotools"
     with pytest.raises(ValueError):
-        st.staging_dir_for(tmp_path / "site.glb")
+        st.staging_dir_for(tmp_path / "site.obj")
+
+
+def test_glb_job_writes_the_glb_and_record(tmp_path: Path, monkeypatch) -> None:
+    from geotools.core import gltf_metadata as gm
+
+    def no_rusty_tiles():
+        raise AssertionError("a .glb build never runs rusty-tiles")
+
+    monkeypatch.setattr(job_mod, "_rusty_tiles", no_rusty_tiles)
+    base = grid_scene(2)
+    prim = base.primitives[0]
+    ids = ("_FEATURE_ID_0", np.zeros(prim.positions.shape[0], np.float32))
+    from dataclasses import replace
+
+    scene = replace(base, primitives=(replace(prim, custom_attributes=(ids,)),))
+    extension = gm.build_extension(scene, object_ids=["11111111-2222"])
+    out = tmp_path / "site.glb"
+    out.write_bytes(b"old")
+    job = BuildJob(
+        scene,
+        request(out, extension=extension, glb_record={"options": {"face_table": False}}),
+    )
+    run(job)
+    assert job.state is JobState.FAILED and "OutputExistsError" in job.error
+    assert out.read_bytes() == b"old"  # the old file is kept
+
+    job = BuildJob(
+        scene,
+        request(out, force=True, extension=extension, glb_record={"options": {"face_table": 0}}),
+    )
+    run(job)
+    assert job.state is JobState.DONE, job.error
+    assert job.staging_dir == tmp_path / "site.glb.geotools"
+    assert out.read_bytes()[:4] == b"glTF"
+    record = json.loads((job.staging_dir / "build.json").read_text())
+    assert record["schema"] == RECORD_SCHEMA and record["output_type"] == "glb"
+    assert record["rusty_tiles_version"] is None
+    glb = record["glb"]
+    assert glb["path"] == "site.glb" and glb["bytes"] == out.stat().st_size
+    assert glb["sha256"] == hashlib.sha256(out.read_bytes()).hexdigest()
+    assert glb["options"] == {"face_table": 0}
+    assert record["source"]["glb_sha256"] == glb["sha256"]
+    assert (job.staging_dir / "facemap.npz").is_file()
+    assert not (job.staging_dir / "work").exists()
+    assert sorted(p.name for p in job.staging_dir.iterdir()) == [
+        ".lock",
+        "build.json",
+        "facemap.npz",
+    ]
+    assert job.result.validation_ok is None
 
 
 def test_lock_is_exclusive(tmp_path: Path) -> None:

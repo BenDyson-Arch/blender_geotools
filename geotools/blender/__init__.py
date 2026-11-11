@@ -13,6 +13,7 @@ from ..core import deps
 from . import (
     bake_texture,
     checks,
+    glb_export,
     layers,
     operators,
     panels,
@@ -37,6 +38,7 @@ MODULES: tuple[ModuleType, ...] = (
     profiles,
     layers,
     presentation,
+    glb_export,
     publish,
     bake_texture,
     panels,  # last: the sidebar draws what the modules above register

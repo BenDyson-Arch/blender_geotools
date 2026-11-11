@@ -14,9 +14,10 @@ The panels follow the workflow top to bottom, and each header shows its state
   - Details: no-data, origin, aggregation and the other rarely changed fields.
 - Checks: preflight issues and their fixes.
   - Images: the source images and their remedies.
-- Publish: build profiles, output, variant and the Publish button.
+- Publish: build profiles, output, format (.3tz or the metadata .glb), variant,
+  the GLB options (Face Table, Earth-Placed) and the Publish (or Export) button.
   - Build Settings: Apply Modifiers, rusty-tiles quality, threads and memory.
-  - Last Build: what the last publish wrote, and Preview.
+  - Last Build: what the last publish wrote, and Preview (.3tz only).
 - About: version and dependencies.
 
 Registration order is the sidebar order. Panels draw cached state only and
@@ -657,35 +658,48 @@ class GEOTOOLS_PT_publish(_GeoToolsPanel, bpy.types.Panel):
         profile = _active_profile(context)
         if profile is None:
             return
+        glb = publish.is_glb(profile)
+        suffix = publish.profile_suffix(profile)
+        path = profile.output_path.strip()
+        wrong_suffix = bool(path) and not path.endswith(suffix)
         col = layout.column(align=True)
         col.label(text="Output")
         row = col.row(align=True)
-        row.alert = not profile.output_path.strip()
-        row.prop(profile, "output_path", text="", placeholder="//site.3tz")
+        row.alert = not path or wrong_suffix
+        row.prop(profile, "output_path", text="", placeholder=f"//site{suffix}")
         col = split_column(layout)
+        col.row().prop(profile, "output_type", expand=True)
         row = col.row()
         variant = profile.variant_layer.strip()
         row.alert = bool(variant) and props.layers.get(variant) is None
         row.prop_search(profile, "variant_layer", props, "layers", icon="RNA")
         row = layout.row(align=True)
         row.prop(profile, "overwrite")
-        row.prop(profile, "validate")
+        if glb:
+            row.prop(profile, "glb_face_table")
+            layout.prop(profile, "glb_earth_placed")
+        else:
+            row.prop(profile, "validate")
 
         name = publish.output_name(context.scene, profile)
         if profile.output_path.startswith("//") and not bpy.data.is_saved:
             layout.label(text="Save the .blend first (// path)", icon="ERROR")
-        if not deps.probe_rusty_tiles().available:
+        rusty = deps.probe_rusty_tiles().available
+        if not rusty and not glb:
             layout.label(text="Needs rusty-tiles (see About)", icon="ERROR")
+        elif not rusty and profile.glb_earth_placed:
+            layout.label(text="Earth-placed needs rusty-tiles", icon="ERROR")
 
         if running and status_ is not None:
             publish.draw_progress(layout, context, status_)
             return
+        verb = "Export" if glb else "Publish"
         button = big_button(layout, 1.6)
         button.enabled = bool(name)
-        button.operator(
-            "geotools.publish", text=f"Publish {name}" if name else "Publish", icon="EXPORT"
-        )
-        if not name:
+        button.operator("geotools.publish", text=f"{verb} {name}" if name else verb, icon="EXPORT")
+        if wrong_suffix:
+            layout.label(text=f"The output must end in {suffix}", icon="INFO")
+        elif not name:
             layout.label(text="Set the output path", icon="INFO")
         publish.draw_end_status(layout, context, status_)
 
@@ -708,6 +722,14 @@ class GEOTOOLS_PT_publish_settings(_GeoToolsPanel, bpy.types.Panel):
             return
         col = split_column(self.layout)
         col.prop(profile, "apply_modifiers")
+        if publish.is_glb(profile):
+            wrapped(
+                self.layout,
+                context,
+                "Quality, threads and memory are rusty-tiles settings, used by .3tz builds only.",
+                "INFO",
+            )
+            return
         col.prop(profile, "profile")
         col.prop(profile, "jobs")
         col.prop(profile, "memory_budget_gib", text="Memory GiB")
@@ -744,7 +766,8 @@ class GEOTOOLS_PT_publish_last(_GeoToolsPanel, bpy.types.Panel):
         if profile is None:
             return
         publish.draw_last_build(self.layout, context, profile)
-        publish.draw_preview(self.layout, context)
+        if not profile.last_output.endswith(".glb"):
+            publish.draw_preview(self.layout, context)
 
 
 # --- About ---------------------------------------------------------------------------

@@ -83,15 +83,17 @@ def variant_output(output: Path, layer: str) -> Path:
     """``<dir>/<stem>.<layer>.3tz`` for the plain output ``<dir>/<stem>.3tz``.
 
     Its staging directory is then ``<stem>.<layer>.geotools``, separate from the
-    plain tileset's. Raises ``ValueError`` unless ``output`` is a ``.3tz`` path
-    and ``layer`` a non-empty name without path separators or dots.
+    plain tileset's. A metadata GLB (``.glb``, M4) keeps its suffix:
+    ``site.glb`` becomes ``site.slope.glb``. Raises ``ValueError`` unless
+    ``output`` is a ``.3tz`` or ``.glb`` path and ``layer`` a non-empty name
+    without path separators or dots.
     """
     output = Path(output)
-    if output.suffix != ".3tz" or not output.stem:
-        raise ValueError(f"the output must be a .3tz file, got {str(output)!r}")
+    if output.suffix not in (".3tz", ".glb") or not output.stem:
+        raise ValueError(f"the output must be a .3tz or .glb file, got {str(output)!r}")
     if not layer or any(c in layer for c in "/\\.") or layer != layer.strip():
         raise ValueError(f"{layer!r} cannot be part of a file name")
-    return output.with_name(f"{output.stem}.{layer}.3tz")
+    return output.with_name(f"{output.stem}.{layer}{output.suffix}")
 
 
 def presentation_issues(

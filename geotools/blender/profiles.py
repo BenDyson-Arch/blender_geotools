@@ -95,7 +95,7 @@ class GEOTOOLS_OT_build_profile_move(bpy.types.Operator):
 
 
 class GEOTOOLS_UL_build_profiles(bpy.types.UIList):
-    """Build profiles: editable name and the rusty-tiles profile."""
+    """Build profiles: editable name and the rusty-tiles profile (or .glb)."""
 
     bl_idname = "GEOTOOLS_UL_build_profiles"
 
@@ -113,7 +113,10 @@ class GEOTOOLS_UL_build_profiles(bpy.types.UIList):
     ) -> None:
         row = layout.row(align=True)
         row.prop(item, "name", text="", emboss=False, icon="PRESET")
-        row.label(text=item.bl_rna.properties["profile"].enum_items[item.profile].name)
+        if item.output_type == "GLB":
+            row.label(text=".glb")  # the quality is a rusty-tiles setting
+        else:
+            row.label(text=item.bl_rna.properties["profile"].enum_items[item.profile].name)
 
 
 classes = (
