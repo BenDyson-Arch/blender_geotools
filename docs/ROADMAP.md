@@ -223,7 +223,7 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
 
 - **GeoTools tools (code):**
   - **Sun at a moment:** sun direction from the project's latitude,
-    longitude, date, time and time zone, corrected from grid north to true
+    longitude, date, time and time zone, corrected from true north to grid
     north (grid convergence, up to about 1.5° at an MGA zone edge). Places or
     animates Blender's sun; shadows are rendered or baked by Blender.
   - **Sun hours and insolation:** hours of direct sun, or kWh/m² with a
