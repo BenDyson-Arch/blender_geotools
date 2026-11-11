@@ -275,6 +275,7 @@ def test_panels_order_and_draw() -> None:
     assert [c.bl_label for c in top] == [
         "Project",
         "Source",
+        "Linked Data",
         "Layers",
         "Checks",
         "Publish",

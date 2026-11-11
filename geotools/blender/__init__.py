@@ -13,7 +13,9 @@ from ..core import deps
 from . import (
     bake_texture,
     checks,
+    data_origin,
     layers,
+    links,
     operators,
     panels,
     preferences,
@@ -21,8 +23,10 @@ from . import (
     profiles,
     properties,
     publish,
+    raster_io,
     remedies,
     source,
+    vectors,
 )
 
 log = logging.getLogger(__name__)
@@ -32,6 +36,10 @@ MODULES: tuple[ModuleType, ...] = (
     properties,
     operators,
     source,
+    links,
+    data_origin,
+    vectors,
+    raster_io,
     checks,
     remedies,
     profiles,

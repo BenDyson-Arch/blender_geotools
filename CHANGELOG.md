@@ -105,6 +105,69 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   transform, and a report of the operation used, its accuracy and any caveats
   (ballpark operation, points outside the area of use, a missing grid, a CRS
   preset as the target).
+- Geo formats (M8): GeoJSON, GeoPackage and GeoTIFF import, GeoJSON and
+  GeoPackage export, in File > Import and File > Export and in the new Linked
+  Data panel after Source. Everything is placed in the project frame:
+  coordinates are shifted by the project offset in binary64 and only then
+  become float32.
+  - GeoJSON and GeoPackage import: points become loose vertices, lines loose
+    edges and polygons faces (n-gons, or triangles for polygons with holes),
+    one object per layer and geometry kind, with Z kept. Feature properties
+    become FLOAT, INT, BOOLEAN or STRING attributes on the face, edge or point
+    domain, with an INT `fid`. Degenerate polygon parts are skipped, as in 0.2.
+  - Vector data in another CRS is reprojected into the project CRS with the
+    bundled pyproj, before the offset is applied. When the project CRS is a
+    GeoTools preset, the target is the preset's EPSG code (EPSG:7856 for MGA
+    zone 56), so GDA94 data moves the real ~1.5 m into GDA2020. The import
+    report names the operation, its accuracy and any caveats; the report is
+    kept with the link and Refresh reprojects the same way. "Allow Grid
+    Downloads" (off by default) lets PROJ fetch a transformation grid.
+    Without pyproj, data in another CRS is refused with both CRSs named and
+    "reprojection is not available". Data of unknown CRS can be confirmed as
+    being in the project CRS.
+  - GeoTIFF import: a DEM becomes a grid mesh at pixel centres (PixelIsArea
+    and PixelIsPoint), with nodata cells removed, an optional decimation step
+    that shows the resulting spacing, and UVs over the raster extent so an
+    orthophoto of the same extent maps onto it. An orthophoto becomes a plane
+    over its footprint with its image linked to the file. GeoTools parses the
+    georeference, GeoKeys and GDAL_NODATA; pixels go through Blender's image
+    loader where it is exact (float32, int16, uint16, uint8; any compression
+    it reads, tiled or BigTIFF) and through a numpy reader for other sample
+    types in uncompressed and deflate files. Rotated rasters and rasters in
+    another CRS are refused, with a pointer to QGIS: rasters are never
+    reprojected. A 4096² DEM imports in about 3.5 s.
+  - LOCAL and ANCHOR projects take imported coordinates as local metres, with
+    a warning, when they are within about 100 km of the origin or of unknown
+    CRS. Projected data with larger coordinates is refused, with a one-click
+    "Use This Data's Centre as the Project Origin" (`geotools.use_data_origin`)
+    in a popup and in the Linked Data panel: the project switches to the
+    data's CRS (the preset for its EPSG code when there is one), with the
+    centre of its extent in whole metres as the E/N offset and A 0, and the
+    import goes ahead. If the source collection already has objects, a dialog
+    asks first, since the existing scene's placement on Earth changes.
+  - Linked sources: each imported object keeps its file, layer, CRS, import
+    options and a fingerprint (`obj.geotools_link`). Refresh re-reads the file
+    and replaces only the mesh data (an orthophoto reloads its image and moves
+    its plane), so modifiers, materials, transform and parent stay; vectors
+    report features added, removed and changed by fid. Changed files are
+    detected when a `.blend` is opened and on demand, and an optional
+    auto-refresh polls the file every 2 seconds. Vectors and GeoTIFF share one
+    refresher registry (`links.register_refresher`).
+  - Import filters: an SQL `WHERE` clause on a GeoPackage table, run on a
+    read-only connection that may only read that table, and "within the site
+    extent" (the source collection's bounds).
+  - Attribute write-back: chosen attributes go back to the GeoPackage by fid
+    in one transaction (`UPDATE`, adding columns when needed), or into the
+    GeoJSON file (rewritten, keeping unknown members and feature order).
+    Refused if the file changed since the last sync. Geometry is never written
+    back.
+  - GeoJSON and GeoPackage export (File > Export, and Export in Linked Data)
+    from the evaluated mesh, with Z and the face, edge and point attributes,
+    in the project CRS. Faces grouped by `fid` become polygons with their
+    holes. Projected GeoJSON carries the legacy `crs` member.
+  - `scripts/vector_timing.py` times import and export of 100k polygons inside
+    Blender, and the `scripts/ui_screenshots.py` demo shows a linked GeoJSON
+    and a linked DEM.
 
 ### Changed
 
@@ -134,7 +197,8 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   "Threads", "Variant Layer" is "Variant", and "Ingest Source" is drawn as
   "Import Mesh...". The RNA identifiers and operator ids are unchanged.
 - `scripts/ui_screenshots.py` screenshots the sidebar in a real Blender window
-  for UI work.
+  for UI work. It builds the extension for the CPython of the Blender it runs,
+  like `scripts/run_blender_tests.py`, so wheels fetched with `--python` work.
 - Face and corner layers read their values from each source object's
   evaluated mesh, with its modifiers and Geometry Nodes applied, as the export
   does: the value range, the layer status, the presentation and the variant
@@ -160,9 +224,11 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
 - The 0.2 GeoJSON, GeoPackage, DEM and 3D Tiles importers, the analysis tools,
   and the `api/` add-on registry. They remain on the `legacy-0.2` branch and the
   `v0.2.0` tag.
-- pyproj and GDAL support, the built-in reprojection and the MapTiler fallback.
-  Nothing needs to be installed beside the extension. CRS maths will be done by
-  rusty-tiles at publish time.
+- 0.2's pyproj and GDAL support (installed separately), its built-in
+  reprojection and the MapTiler fallback. Nothing needs to be installed beside
+  the extension: pyproj is now bundled (see Added) and used only to reproject
+  imported vector points, and tile placement is done by rusty-tiles at publish
+  time.
 - The BlenderGIS-derived code in `core/proj/`.
 - The vertex-space bake (`geotools.bake_geonodes_layer`) of M3 and its
   attribute transfers (`core/transfer.py`): it repeated Blender's Apply

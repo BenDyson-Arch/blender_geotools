@@ -24,12 +24,13 @@ Behaviour:
   accuracy; ballpark operations and points outside the operation's area of use
   are noted.
 
-A GeoTools CRS preset (:mod:`geotools.core.crs_presets`) as the target is used
-as written: pyproj follows that PROJ definition, including its ``+towgs84``
-null shift, which is what rusty-tiles applies to the same definition at publish
-time. The preset's EPSG code is *not* substituted, because the result differs
-for data in another datum (GDA94 into the MGA zone 56 preset is not the same
-as GDA94 into EPSG:7856); the report says when that can happen.
+A GeoTools CRS preset (:mod:`geotools.core.crs_presets`) given as the target
+here is used as written: pyproj follows that PROJ definition, including its
+``+towgs84`` null shift, and the report says how far the preset's EPSG code
+would put the points instead (GDA94 into the MGA zone 56 preset is not the same
+as GDA94 into EPSG:7856). Imports do not hit that case: the hook
+:func:`geotools.core.crs_match.reproject` passes the preset's EPSG code, the
+datum the scene's coordinates are in (see ``crs_match.reprojection_target``).
 """
 
 from __future__ import annotations
