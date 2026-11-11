@@ -9,7 +9,7 @@ from pathlib import Path
 
 import bpy
 
-from ..core import deps
+from ..core import crs_presets, deps
 from ..core.issues import Severity
 from .common import draw_dependency_status, extension_version
 from .properties import (
@@ -80,6 +80,10 @@ class GEOTOOLS_PT_project(_GeoToolsPanel, bpy.types.Panel):
             row = layout.row()
             row.alert = not props.source_crs.strip()
             row.prop(props, "source_crs")
+            row.operator("geotools.apply_crs_preset", text="", icon="PRESET")
+            preset = crs_presets.for_definition(props.source_crs)
+            if preset is not None:
+                _wrapped(layout, f"{preset.label} ({preset.epsg}). {preset.note}", icon="INFO")
             if not props.source_crs.strip():
                 layout.label(text="Set the source CRS, e.g. EPSG:32756", icon="ERROR")
             layout.label(text="Source Offset")

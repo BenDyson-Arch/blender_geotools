@@ -49,6 +49,12 @@ GeoTools creates tilesets; it no longer imports them.
    (vertex space only).
 5. CesiumJS cannot open `.3tz` directly; publish extracted directories for
    viewers.
+6. The wheel resolves EPSG codes only for WGS84 geographic, WGS84 UTM and
+   Mercator. Other projected CRSs (GDA2020/GDA94 MGA, NZTM) work as PROJ
+   definitions with an explicit `+towgs84` shift; GeoTools ships these as
+   presets with their datum assumption stated. A verified EPSG allow-list is
+   approved for rusty-tiles 0.4.x; the presets switch to plain EPSG codes when
+   it ships. Coordinate epochs and grid-based datums (e.g. OSTN15) are refused.
 
 ## Upstream dependencies
 

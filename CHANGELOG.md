@@ -34,6 +34,8 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   bounds and shows the WGS84 origin, or why the CRS is refused.
 - Build profiles (profile, jobs, memory budget, output path), stored for
   publishing.
+- CRS presets for GDA2020 MGA zones 46–59 and NZTM2000 as PROJ definitions the
+  bundled rusty-tiles accepts, each stating its datum assumption.
 
 ### Changed
 

@@ -2,7 +2,7 @@
 
 import bpy
 
-from ..core import deps, preflight, probe
+from ..core import crs_presets, deps, preflight, probe
 from ..core.issues import Issue, Severity
 from ..core.placement import Placement
 from .common import redraw_ui
@@ -193,6 +193,42 @@ class GEOTOOLS_UL_issues(bpy.types.UIList):
         layout.label(text=item.message, icon=SEVERITY_ICONS.get(item.severity, "INFO"))
 
 
-classes = (GEOTOOLS_OT_run_checks, GEOTOOLS_OT_verify_placement, GEOTOOLS_UL_issues)
+def _preset_items(_self, _context):
+    return [(p.id, p.label, f"{p.epsg}. {p.note}") for p in crs_presets.PRESETS]
+
+
+class GEOTOOLS_OT_apply_crs_preset(bpy.types.Operator):
+    """Set the source CRS to a definition the bundled rusty-tiles accepts"""
+
+    bl_idname = "geotools.apply_crs_preset"
+    bl_label = "CRS Preset"
+    bl_options = {"REGISTER", "UNDO"}
+    bl_property = "preset"
+
+    preset: bpy.props.EnumProperty(name="Preset", items=_preset_items)
+
+    def invoke(self, context, _event):
+        context.window_manager.invoke_search_popup(self)
+        return {"RUNNING_MODAL"}
+
+    def execute(self, context):
+        preset = crs_presets.get(self.preset)
+        if preset is None:
+            self.report({"ERROR"}, f"Unknown CRS preset {self.preset!r}")
+            return {"CANCELLED"}
+        props = context.scene.geotools
+        props.placement_mode = "SOURCE_CRS"
+        props.source_crs = preset.definition
+        self.report({"INFO"}, f"Source CRS set to {preset.label}. {preset.note}")
+        redraw_ui(context)
+        return {"FINISHED"}
+
+
+classes = (
+    GEOTOOLS_OT_run_checks,
+    GEOTOOLS_OT_verify_placement,
+    GEOTOOLS_OT_apply_crs_preset,
+    GEOTOOLS_UL_issues,
+)
 
 register, unregister = bpy.utils.register_classes_factory(classes)
