@@ -454,6 +454,9 @@ def parse_sources(values: list[str] | None, pins: dict[str, str]) -> dict[str, P
             if default is not None:
                 raise FetchError("--from-dir DIR (without NAME=) can be given only once")
             default = Path(value).expanduser().resolve()
+    for path in [*named.values(), *([default] if default else [])]:
+        if not path.is_dir():
+            raise FetchError(f"--from-dir: {path} is not a directory")
     return {dist: named.get(dist, default) for dist in pins}
 
 
@@ -534,7 +537,6 @@ def main(argv: list[str] | None = None) -> int:
             )
 
         wheels_dir: Path = args.wheels_dir
-        clear_wheels_dir(wheels_dir)
         pins = ", ".join(f"{d} {v}" for d, v in config.pins.items())
         print(f"{pins} -> {wheels_dir} for {', '.join(platforms)} (CPython {python_label(python)})")
 
@@ -550,8 +552,12 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     pip = pip or pip_command()
                     download(pip, dist, pin, platforms, staging, python)
-            for path in sorted(staging.glob("*.whl")):
+            staged = sorted(staging.glob("*.whl"))
+            for path in staged:
                 check_wheel(path, config.pins, python)
+            # Only now replace the existing wheels: a failure above leaves them untouched.
+            clear_wheels_dir(wheels_dir)
+            for path in staged:
                 shutil.copy2(path, wheels_dir / path.name)
     except FetchError as ex:
         print(f"error: {ex}", file=sys.stderr)
