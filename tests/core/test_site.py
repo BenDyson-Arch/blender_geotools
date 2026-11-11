@@ -9,12 +9,13 @@ import numpy as np
 import pytest
 
 from geotools.analysis import site, sun
-from geotools.core import crs_presets, deps
+from geotools.core import deps
+from geotools.core.crs_migration import PRESET_CODES
 from geotools.core.placement import Placement, PlacementMode
 
 pyproj = pytest.importorskip("pyproj")
 
-MGA56 = crs_presets.get("MGA2020_56")
+MGA56_PRESET = next(text for text, code in PRESET_CODES.items() if code == "EPSG:7856")
 # The west edge of MGA zone 56 (central meridian 153 E) at 30 S: the convergence is
 # about 3 x sin(30) = 1.5 degrees, the largest MGA has at that latitude.
 EDGE_LON, EDGE_LAT = 150.0, -30.0
@@ -30,14 +31,15 @@ def _crs_placement(
     east, north = _grid(lon, lat)
     return Placement(
         PlacementMode.SOURCE_CRS,
-        source_crs=crs or MGA56.definition,
+        source_crs=crs or "EPSG:7856",
         source_offset=(east, north, a),
         height_offset=height_offset,
     )
 
 
 def test_crs_input_prefers_the_epsg_code() -> None:
-    assert site.crs_input(MGA56.definition) == "EPSG:7856"
+    assert site.crs_input("EPSG:7856") == "EPSG:7856"
+    assert site.crs_input(MGA56_PRESET) == "EPSG:7856"  # a saved preset, not migrated yet
     assert site.crs_input(" epsg:32756 ") == "EPSG:32756"
     proj = "+proj=utm +zone=56 +south +ellps=GRS80 +units=m +no_defs"
     assert site.crs_input(f" {proj} ") == proj
@@ -114,7 +116,7 @@ def test_reading_precision() -> None:
     east, north = _grid(153.0, -27.5)
     placement = Placement(
         PlacementMode.SOURCE_CRS,
-        source_crs=MGA56.definition,
+        source_crs="EPSG:7856",
         source_offset=(east, north, 10.0),
         height_offset=40.25,
     )
@@ -133,8 +135,8 @@ def test_reading_precision() -> None:
     assert f"E\t{reading.east!r}" in text and "Latitude (GDA2020)" in text
 
 
-def test_preset_and_epsg_code_agree() -> None:
-    by_preset = site.read_point(_crs_placement(152.1, -28.0), (5.0, 6.0, 0.0))
+def test_saved_preset_and_epsg_code_agree() -> None:
+    by_preset = site.read_point(_crs_placement(152.1, -28.0, crs=MGA56_PRESET), (5.0, 6.0, 0.0))
     by_code = site.read_point(_crs_placement(152.1, -28.0, crs="EPSG:7856"), (5.0, 6.0, 0.0))
     assert by_preset == by_code
 

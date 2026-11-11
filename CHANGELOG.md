@@ -78,8 +78,26 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   encoded, over 16384 px, 16-bit): re-encode as JPEG, downscale, or convert to
   8-bit, applied only to the exported copy. Unsaved generated or painted images
   publish with their current pixels.
-- CRS presets for GDA2020 MGA zones 46–59 and NZTM2000 as PROJ definitions the
-  bundled rusty-tiles accepts, each stating its datum assumption.
+- A searchable EPSG picker for the project CRS (Project panel), backed by
+  rusty-tiles 0.4.1's GDAL-verified allow-list: every code it resolves (3,211)
+  is listed as `EPSG:7856 — GDA2020 / MGA zone 56`, with names and areas of use
+  from the bundled pyproj (codes only without it). Typing filters by code or
+  name words; with a project location (a verified placement, the CRS and
+  offset, or an anchor) the codes whose area of use holds the site come first,
+  and "Near This Site" lists only those. The plain `EPSG:nnnn` is stored and
+  passed to rusty-tiles; WKT and PROJ text still work. The panel and Run
+  Checks show `resolve_source_crs()`'s verdict before any bake: the EPSG datum
+  operation and its stated accuracy, or the refusal as an error (British
+  National Grid, NAD27 and other grid-based or dynamic CRSs). CRS Details shows
+  the area of use and the definition rusty-tiles uses. Scenes saved by
+  development builds with a GDA2020 MGA or NZTM2000 preset PROJ string are
+  moved to its EPSG code on load, only when rusty-tiles resolves that code to
+  the same definition, so placement is unchanged (a test compares the ECEF of
+  probe points within 1 mm).
+- An import (GeoTIFF, GeoPackage, GeoJSON) into a Source CRS project with no
+  CRS yet offers the data's CRS as the project CRS, with the same one-click
+  button as for Local projects: the CRS only when the project has an offset,
+  else also the data's centre.
 - A layer registry (M3): named, typed values per face, face corner or texel of
   the source, with a display label, units, no-data, the range of values
   present, origin, provenance (tool, parameters, GeoTools version) and
@@ -104,8 +122,9 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   texture layers, and a texture bake refuses overlapping UVs unless Bake
   Anyway is ticked.
 - `build.json` schema 2: the layers, the SHA-256 of `source.glb` and of the
-  saved `.blend` (null if unsaved or modified), and the placement's EPSG code
-  when the CRS is a preset or an EPSG code.
+  saved `.blend` (null if unsaved or modified), the placement's EPSG code, and
+  `placement.crs_operation`: rusty-tiles' `crsOperation` (the EPSG datum
+  operation and stated accuracy) for mesh, GLB and vector builds.
 - Layer presentation and variant tilesets (M3): the Display sub-panel of
   Layers shows a layer through a colour ramp (viridis, magma, cividis, turbo,
   diverging red-blue, greys) over a set or automatic (2nd to 98th percentile)
@@ -145,8 +164,7 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   into the project CRS with pyproj for M8 imports: one vectorised call, offline
   unless grid downloads are allowed, Z passed through when there is no vertical
   transform, and a report of the operation used, its accuracy and any caveats
-  (ballpark operation, points outside the area of use, a missing grid, a CRS
-  preset as the target).
+  (ballpark operation, points outside the area of use, a missing grid).
 - Geo formats (M8): GeoJSON, GeoPackage and GeoTIFF import, GeoJSON and
   GeoPackage export, in File > Import and File > Export and in the new Linked
   Data panel after Source. Everything is placed in the project frame:
@@ -158,9 +176,9 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
     become FLOAT, INT, BOOLEAN or STRING attributes on the face, edge or point
     domain, with an INT `fid`. Degenerate polygon parts are skipped, as in 0.2.
   - Vector data in another CRS is reprojected into the project CRS with the
-    bundled pyproj, before the offset is applied. When the project CRS is a
-    GeoTools preset, the target is the preset's EPSG code (EPSG:7856 for MGA
-    zone 56), so GDA94 data moves the real ~1.5 m into GDA2020. The import
+    bundled pyproj, before the offset is applied. The target is the project's
+    EPSG code (EPSG:7856 for MGA zone 56), so GDA94 data moves the real ~1.5 m
+    into GDA2020. The import
     report names the operation, its accuracy and any caveats; the report is
     kept with the link and Refresh reprojects the same way. "Allow Grid
     Downloads" (off by default) lets PROJ fetch a transformation grid.
@@ -183,7 +201,7 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
     CRS. Projected data with larger coordinates is refused, with a one-click
     "Use This Data's Centre as the Project Origin" (`geotools.use_data_origin`)
     in a popup and in the Linked Data panel: the project switches to the
-    data's CRS (the preset for its EPSG code when there is one), with the
+    data's CRS (its `EPSG:nnnn`), with the
     centre of its extent in whole metres as the E/N offset and A 0, and the
     import goes ahead. If the source collection already has objects, a dialog
     asks first, since the existing scene's placement on Earth changes.
@@ -216,7 +234,7 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
     `vector_to_3tz`. The evaluated geometry (or the original mesh data with
     Apply Modifiers off) is written to a GeoPackage in the project CRS, with the
     offset restored in binary64. The project's `source_crs` is passed
-    explicitly, so the CRS presets work with the bundled rusty-tiles 0.4.0.
+    explicitly.
     A republish passes the previous archive as `reuse_tileset`, so only changed
     features are re-encoded; an archive rusty-tiles cannot reuse is rebuilt in
     full. The archive is validated and recorded in `build.json`
@@ -233,14 +251,18 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
 
 ### Changed
 
+- GeoTools needs rusty-tiles 0.4.1 or later (`supported_epsg_codes` and
+  `resolve_source_crs`). A wheel without them is reported as not available, in
+  About and Check Dependencies. The pin in `pyproject.toml` stays at 0.4.0
+  until 0.4.1 is released (the develop wheel still reports 0.4.0).
 - Blender 5.2.0 is now the minimum version (was 5.1). Only the latest Blender
   release is supported.
 - The sidebar is redesigned around the workflow: Project, Source, Layers,
   Checks, Publish, About. Each panel header shows whether the step is done,
   still to set up, or has a warning or error. It fits the default sidebar width
   without cut-off labels, and advanced settings are in closed sub-panels.
-  - Project shows a CRS preset by name ("GDA2020 / MGA zone 56"); the
-    definition and datum note are in CRS Details and the tooltip. Verify
+  - Project shows the CRS's name and rusty-tiles' verdict under the EPSG
+    field; the area of use and definition are in CRS Details. Verify
     Placement and its result are in the Project panel.
   - Layers shows the selected layer at a glance, with its value range
     formatted for people ("0.461 – 39.9 deg"). The texture bake is the Bake

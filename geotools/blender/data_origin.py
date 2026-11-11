@@ -105,11 +105,11 @@ def draw_offer(layout: bpy.types.UILayout, context: bpy.types.Context, pending: 
     col.alert = True
     wrapped(col, context, str(pending.get("message", "")), "ERROR", max_lines=12)
     row = box.row(align=True)
-    op = row.operator(
-        GEOTOOLS_OT_use_data_origin.bl_idname,
-        text="Use This Data's Centre as the Project Origin",
-        icon="ORIENTATION_GLOBAL",
-    )
+    origin = DataOrigin.from_dict(pending.get("origin"))
+    text = "Use This Data's Centre as the Project Origin"
+    if origin is not None and not origin.set_offset:
+        text = f"Use {origin.epsg or 'the Data CRS'} as the Project CRS"
+    op = row.operator(GEOTOOLS_OT_use_data_origin.bl_idname, text=text, icon="ORIENTATION_GLOBAL")
     fill(op, pending["request"])
     row.operator(GEOTOOLS_OT_dismiss_origin_offer.bl_idname, text="", icon="X")
 
@@ -135,9 +135,14 @@ def needs_confirmation(scene: bpy.types.Scene) -> bool:
 
 
 def apply_origin(props: bpy.types.PropertyGroup, origin: DataOrigin) -> None:
-    """Switch the project to SOURCE_CRS with ``origin``'s CRS and offset (A is 0)."""
+    """Switch the project to SOURCE_CRS with ``origin``'s CRS and offset (A is 0).
+
+    An origin that only offers its CRS (``set_offset`` False) keeps the offset.
+    """
     props.placement_mode = "SOURCE_CRS"
     props.source_crs = origin.source_crs
+    if not origin.set_offset:
+        return
     for attr, value in zip(
         ("source_offset_e", "source_offset_n", "source_offset_a"), origin.offset, strict=True
     ):

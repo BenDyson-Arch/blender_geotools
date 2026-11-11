@@ -4,7 +4,7 @@ The panels follow the workflow top to bottom, and each header shows its state
 (``ui.STATUS_ICONS``: done, warning, error, not set up yet):
 
 - Project: where the source sits on Earth, and Verify Placement.
-  - CRS Details: the preset's definition and datum note.
+  - CRS Details: the CRS's area of use, definition and datum operation.
 - Source: the source collection, ingest and summary.
 - Linked Data: GeoJSON, GeoPackage and GeoTIFF files linked to objects
   (``links_ui``).
@@ -36,7 +36,7 @@ from pathlib import Path
 
 import bpy
 
-from ..core import crs_presets, deps, sysmem
+from ..core import crs_catalog, deps, sysmem
 from ..core.display import format_count, format_gib, format_range, format_size
 from ..core.display import plural as plural_text
 from ..core.issues import Severity
@@ -48,7 +48,7 @@ from ..core.layers import (
     parse_number,
     validate,
 )
-from . import analysis_ui, bake_texture, links_ui, presentation, publish, vector_publish
+from . import analysis_ui, bake_texture, crs_picker, links_ui, presentation, publish, vector_publish
 from .common import draw_dependency_status, extension_version
 from .layers import (
     ATTRIBUTE_MISSING,
@@ -157,8 +157,12 @@ def placement_state(props: bpy.types.PropertyGroup) -> str:
     if props.placement_mode == "SOURCE_CRS" and not props.source_crs.strip():
         return ERROR
     try:
-        key = repr(placement_from_props(props))
+        placement = placement_from_props(props)
     except FieldError:
+        return ERROR
+    key = repr(placement)
+    resolved = crs_catalog.resolve(placement.source_crs) if placement.source_crs else None
+    if resolved is not None and not resolved.accepted:
         return ERROR
     if props.probe_status == "FAILED" and props.probe_key == key:
         return ERROR
@@ -194,19 +198,7 @@ class GEOTOOLS_PT_project(_GeoToolsPanel, bpy.types.Panel):
 
 
 def _draw_source_crs(layout, context, props) -> None:
-    preset = crs_presets.for_definition(props.source_crs)
-    if preset is not None:
-        # The preset's name; its definition and datum note are in the tooltip
-        # and the CRS Details sub-panel.
-        layout.operator("geotools.apply_crs_preset", text=preset.display_label, icon="WORLD_DATA")
-    else:
-        col = split_column(layout)
-        row = col.row(align=True)
-        row.alert = not props.source_crs.strip()
-        row.prop(props, "source_crs", placeholder="EPSG:32756")
-        row.operator("geotools.apply_crs_preset", text="", icon="PRESET")
-        if not props.source_crs.strip():
-            layout.label(text="Choose a preset or type a CRS", icon="ERROR")
+    crs_picker.draw_source_crs(layout, context, props)
     col = split_column(layout)
     _number_rows(col, props, SOURCE_CRS_FIELDS[:3], ("Offset E", "N", "A"))
     _number_rows(col, props, SOURCE_CRS_FIELDS[3:], ("Height Offset",))
@@ -243,7 +235,7 @@ def _draw_verify(layout, context, props) -> None:
 
 
 class GEOTOOLS_PT_project_crs(_GeoToolsPanel, bpy.types.Panel):
-    """The CRS preset's definition (editable) and datum assumption."""
+    """The CRS's area of use, the definition rusty-tiles uses and its datum operation."""
 
     bl_idname = "GEOTOOLS_PT_project_crs"
     bl_label = "CRS Details"
@@ -253,22 +245,10 @@ class GEOTOOLS_PT_project_crs(_GeoToolsPanel, bpy.types.Panel):
     @classmethod
     def poll(cls, context: bpy.types.Context) -> bool:
         props = context.scene.geotools if context.scene is not None else None
-        return (
-            props is not None
-            and props.placement_mode == "SOURCE_CRS"
-            and crs_presets.for_definition(props.source_crs) is not None
-        )
+        return props is not None and crs_picker.details_poll(props)
 
     def draw(self, context: bpy.types.Context) -> None:
-        layout = self.layout
-        props = context.scene.geotools
-        preset = crs_presets.for_definition(props.source_crs)
-        if preset is None:
-            return
-        layout.label(text=f"Stands in for {preset.epsg}")
-        wrapped(layout, context, preset.note, icon="INFO")
-        layout.label(text="Definition")
-        layout.prop(props, "source_crs", text="")
+        crs_picker.draw_details(self.layout, context, context.scene.geotools)
 
 
 # --- Source --------------------------------------------------------------------------

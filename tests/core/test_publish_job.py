@@ -16,7 +16,6 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from geotools.core import crs_presets
 from geotools.core.facemap import load_face_map
 from geotools.core.gltf_writer import MaterialData, PrimitiveData, SceneExport
 from geotools.core.layers import DataType, Domain, LayerSpec, from_record, to_record
@@ -393,12 +392,26 @@ def test_variant_is_recorded(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_source_hashes_and_crs_epsg(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(job_mod, "_rusty_tiles", fake_rt)
+    operation = {
+        "source": "EPSG:7856",
+        "kind": "null",
+        "operation": "GDA2020 to WGS 84 (2)",
+        "operationId": "EPSG:8450",
+        "accuracyMetres": 3.0,
+        "verification": "test",
+    }
+    plain = fake_rt().mesh_to_tileset
+
+    def mesh_to_tileset(input, output, **kwargs):
+        result = plain(input, output, **kwargs)
+        result.report["source_crs"] = {"definition": "x", "datum_operation": operation}
+        return result
+
+    monkeypatch.setattr(job_mod, "_rusty_tiles", lambda: fake_rt(mesh_to_tileset=mesh_to_tileset))
     blend = tmp_path / "site.blend"
     blend.write_bytes(b"BLENDER-v502" + bytes(range(256)) * 5000)
-    preset = crs_presets.PRESETS[0]
     placement = {
-        "source_crs": preset.definition,
+        "source_crs": "EPSG:7856",
         "source_axes": "y-up",
         "source_offset": (500000.0, 6961000.0, 10.0),
         "height_offset": 0.0,
@@ -415,8 +428,10 @@ def test_source_hashes_and_crs_epsg(tmp_path: Path, monkeypatch) -> None:
         "blend_sha256": hashlib.sha256(blend.read_bytes()).hexdigest(),
     }
     assert record["source"]["glb_sha256"] == job.result.glb_sha256
-    assert record["placement"]["crs_epsg"] == preset.epsg
-    assert record["placement"]["source_crs"] == preset.definition  # the fallback, unchanged
+    assert record["placement"]["crs_epsg"] == "EPSG:7856"
+    assert record["placement"]["source_crs"] == "EPSG:7856"
+    assert record["placement"]["crs_operation"] == operation  # rusty-tiles' crsOperation
+    assert record["report_summary"]["source_crs"]["datum_operation"] == operation
     assert "hash_blend" in record["phase_seconds"]
 
     # An unreadable .blend is recorded as null, not a failed build.
@@ -472,7 +487,11 @@ def test_publish_success_and_record(tmp_path: Path) -> None:
         "force": False,
         "validate": True,
     }
-    assert record["placement"] == {"anchor": [153.02, -27.47, 10.0], "crs_epsg": None}
+    assert record["placement"] == {
+        "anchor": [153.02, -27.47, 10.0],
+        "crs_epsg": None,
+        "crs_operation": None,
+    }
     assert record["source"] == {"glb_sha256": result.glb_sha256, "blend_sha256": None}
     assert record["rusty_tiles_version"] == "0.4.0"
     assert record["geotools"] == {"geotools_version": "test", "build_profile": "Test"}
@@ -626,3 +645,12 @@ def test_failed_rebuild_keeps_previous_build(tmp_path: Path, monkeypatch) -> Non
     for name, data in snapshot.items():
         if name != ".lock":
             assert (staging / name).read_bytes() == data, name
+
+
+def test_crs_operation_from_each_kind_of_report() -> None:
+    op = {"source": "EPSG:7856", "operation": "GDA2020 to WGS 84 (2)", "accuracyMetres": 3.0}
+    assert job_mod.crs_operation({"source_crs": {"datum_operation": op}}) == op  # mesh
+    assert job_mod.crs_operation({"layers": [{"name": "a"}, {"crsOperation": op}]}) == op
+    assert job_mod.crs_operation({"crsOperation": op}) == op  # point cloud
+    assert job_mod.crs_operation({"source_crs": {"datum_operation": None}}) is None  # WGS84
+    assert job_mod.crs_operation({"triangles": 1}) is None  # rusty-tiles 0.4.0

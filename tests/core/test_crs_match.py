@@ -8,7 +8,8 @@ import numpy as np
 import pytest
 
 from geotools.core import crs_match as cm
-from geotools.core import crs_presets, reproject
+from geotools.core import reproject
+from geotools.core.crs_migration import PRESET_CODES
 from geotools.core.placement import Placement, PlacementMode
 
 MGA56_WKT1 = (
@@ -67,6 +68,9 @@ def test_from_gpkg_srs() -> None:
         assert cm.matches(cm.DataCrs("EPSG:7856", None, "project"), crs) is None
 
 
+MGA56_PRESET = next(text for text, code in PRESET_CODES.items() if code == "EPSG:7856")
+
+
 def _project(definition: str) -> Placement:
     return Placement(mode=PlacementMode.SOURCE_CRS, source_crs=definition)
 
@@ -77,17 +81,13 @@ def test_project_crs() -> None:
     assert cm.project_crs(_project("")) is None
     crs = cm.project_crs(_project("EPSG:32756"))
     assert crs == cm.DataCrs("EPSG:32756", "EPSG:32756", cm.SOURCE_PROJECT)
-    preset = crs_presets.get("MGA2020_56")
-    assert preset is not None
-    crs = cm.project_crs(_project(preset.definition))
+    crs = cm.project_crs(_project(MGA56_PRESET))  # a saved preset, not migrated yet
     assert crs is not None and crs.epsg == "EPSG:7856"
-    assert crs.definition == preset.definition
+    assert crs.definition == MGA56_PRESET
 
 
 def test_matches() -> None:
-    preset = crs_presets.get("MGA2020_56")
-    assert preset is not None
-    project = cm.project_crs(_project(preset.definition))
+    project = cm.project_crs(_project("EPSG:7856"))
     assert cm.matches(project, cm.DataCrs("EPSG:7856", None, cm.SOURCE_GEOJSON_MEMBER)) is True
     assert cm.matches(project, cm.DataCrs("EPSG:4326", None, cm.SOURCE_RFC7946)) is False
     assert cm.matches(project, cm.DataCrs("EPSG:7855", MGA56_WKT1, cm.SOURCE_GPKG)) is False
@@ -100,6 +100,8 @@ def test_matches() -> None:
     assert cm.matches(None, cm.DataCrs("EPSG:7856", None, cm.SOURCE_GPKG)) is None
 
 
+@pytest.mark.skipif(importlib.util.find_spec("pyproj") is None, reason="needs pyproj")
+@pytest.mark.usefixtures("allow_list")
 def test_messages_name_both_crss() -> None:
     project = cm.DataCrs("EPSG:7856", "x", "project")
     data = cm.DataCrs("EPSG:4326", None, cm.SOURCE_RFC7946)
@@ -122,13 +124,14 @@ def test_text_round_trip() -> None:
 
 HAS_PYPROJ = importlib.util.find_spec("pyproj") is not None
 needs_pyproj = pytest.mark.skipif(not HAS_PYPROJ, reason="pyproj is not installed")
-MGA56 = crs_presets.get("MGA2020_56")
 WGS84 = cm.DataCrs("EPSG:4326", None, cm.SOURCE_RFC7946)
 GDA94_MGA56 = cm.DataCrs("EPSG:28356", None, cm.SOURCE_GPKG)
-PRESET_PROJECT = cm.DataCrs(MGA56.epsg, MGA56.definition, cm.SOURCE_PROJECT)
+PROJECT = cm.DataCrs("EPSG:7856", "EPSG:7856", cm.SOURCE_PROJECT)
+PRESET_PROJECT = cm.DataCrs("EPSG:7856", MGA56_PRESET, cm.SOURCE_PROJECT)  # not migrated yet
 
 
-def test_reprojection_target_is_the_presets_epsg_code() -> None:
+def test_reprojection_target_is_the_epsg_code() -> None:
+    assert cm.reprojection_target(PROJECT) == "EPSG:7856"
     assert cm.reprojection_target(PRESET_PROJECT) == "EPSG:7856"
     other = cm.DataCrs(None, "+proj=tmerc +lon_0=151 +ellps=GRS80", cm.SOURCE_PROJECT)
     assert cm.reprojection_target(other) == other.definition
@@ -145,24 +148,26 @@ def test_reproject_without_pyproj_is_refused(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @needs_pyproj
-def test_reproject_wgs84_into_a_preset_project_uses_epsg() -> None:
+def test_reproject_wgs84_into_the_project() -> None:
     import pyproj
 
     points = np.array([[153.0251, -27.4698]])
-    out, report = cm.reproject(points, WGS84, PRESET_PROJECT)
+    out, report = cm.reproject(points, WGS84, PROJECT)
     e, n = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:7856", always_xy=True).transform(
         153.0251, -27.4698
     )
     np.testing.assert_allclose(out[0], (e, n), atol=1e-6)
     assert report.source == "EPSG:4326" and report.target == "EPSG:7856"
-    assert any("preset" in note and "EPSG:7856" in note for note in report.notes), report.notes
     assert points[0, 0] == 153.0251  # input untouched
 
 
 @needs_pyproj
-def test_reproject_gda94_into_a_preset_project_moves_about_1_5_m() -> None:
+@pytest.mark.parametrize("project", [PROJECT, PRESET_PROJECT], ids=["code", "saved-preset"])
+def test_reproject_gda94_into_gda2020_moves_about_1_5_m(project: cm.DataCrs) -> None:
+    # A saved preset not migrated yet goes into its EPSG code too: the real datum
+    # shift, not the PROJ string's null +towgs84.
     points = np.array([[502_000.0, 6_961_000.0, 12.0]])
-    out, report = cm.reproject(points, GDA94_MGA56, PRESET_PROJECT)
+    out, report = cm.reproject(points, GDA94_MGA56, project)
     shift = float(np.hypot(*(out[0, :2] - points[0, :2])))
     assert 1.4 < shift < 1.6, shift
     assert out[0, 2] == 12.0  # 2D CRSs: Z passed through
@@ -179,19 +184,16 @@ def test_report_round_trip() -> None:
     assert "accuracy unknown" in cm.report_text(unknown)
 
 
-def test_label_and_preset_lookup() -> None:
+def test_label() -> None:
     assert cm.DataCrs("EPSG:7856", None, "x").label() == "EPSG:7856"
     assert cm.DataCrs(None, "+proj=tmerc", "x").label() == "+proj=tmerc"
     assert cm.DataCrs(None, None, "x").label() == "an unknown CRS"
-    assert cm.preset_for_epsg("epsg:7856") is MGA56
-    assert cm.preset_for_epsg("EPSG:4326") is None and cm.preset_for_epsg(None) is None
 
 
 def test_is_geographic_without_pyproj(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(reproject, "available", lambda: False)
     assert cm.is_geographic(WGS84) is True
-    assert cm.is_geographic(cm.DataCrs("EPSG:7856", None, "x")) is False
-    assert cm.is_geographic(cm.DataCrs("EPSG:28356", None, "x")) is None
+    assert cm.is_geographic(cm.DataCrs("EPSG:7856", None, "x")) is None
     assert cm.is_geographic(cm.DataCrs(None, None, "x")) is None
 
 
@@ -199,4 +201,4 @@ def test_is_geographic_without_pyproj(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_is_geographic_with_pyproj() -> None:
     assert cm.is_geographic(WGS84) is True
     assert cm.is_geographic(GDA94_MGA56) is False
-    assert cm.is_geographic(cm.DataCrs(None, MGA56.definition, "x")) is False
+    assert cm.is_geographic(cm.DataCrs(None, MGA56_PRESET, "x")) is False

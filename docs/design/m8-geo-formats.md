@@ -65,8 +65,7 @@ def matches(project: DataCrs | None, data: DataCrs) -> bool | None   # None = ca
   - `pyproj.network.set_network_enabled(False)` unless the user opts in to
     grid downloads, so imports stay offline and reproducible;
   - the import report shows `transformer.description` and its accuracy
-    ("unknown" when PROJ doesn't know), in the same spirit as the CRS preset
-    notes;
+    ("unknown" when PROJ doesn't know);
   - tile placement is unaffected: publishing still goes from the project CRS
     through rusty-tiles.
   The hook is `reproject(points, data_crs, project_crs, *,
@@ -82,18 +81,11 @@ def matches(project: DataCrs | None, data: DataCrs) -> bool | None   # None = ca
   operations, the report names the one it used at the centre of the data.
   Z goes through PROJ only when both CRSs are 3D; otherwise it is passed
   through and the report says so. 1M points take about 0.2 s.
-- A CRS preset as the project CRS: the target is used as written, so pyproj
-  follows the preset's `+towgs84` null shift, as rusty-tiles does at publish
-  time. The preset's EPSG code gives the same result only for data that is
-  already in that datum or in WGS84. GDA94 (EPSG:28356) into the MGA zone 56
-  preset goes GDA94 → WGS84 → null shift, which leaves the coordinates
-  unchanged. Into EPSG:7856, PROJ uses "GDA94 to GDA2020 (1)" (0.01 m), and
-  the two results are 1.51 m apart in Brisbane. The scene holds GDA2020/MGA
-  coordinates, and the source mesh is placed with the same null shift, so to
-  keep GDA94 vectors aligned with the mesh the hook passes `preset.epsg` as
-  the target, not the preset definition (settled in the integration).
-  `reproject_points` itself still uses a preset definition as written, and
-  its report gives the measured difference whenever the target is a preset.
+- The target is the project's EPSG code. GDA94 (EPSG:28356) into EPSG:7856
+  uses "GDA94 to GDA2020 (1)" (0.01 m), 1.51 m in Brisbane. (Before the EPSG
+  picker the project CRS could be a PROJ string with a null `+towgs84` shift,
+  which would have left GDA94 data unmoved; a saved one not yet migrated is
+  still reprojected into the code it stood for.)
 - Packaging (decided 2026-11-11): **pyproj 3.8.0** and **certifi
   2026.10.23** are pinned under `[tool.geotools.wheels]` beside rusty-tiles,
   one version for every platform:
@@ -127,11 +119,8 @@ def matches(project: DataCrs | None, data: DataCrs) -> bool | None   # None = ca
   Otherwise it calls `reproject_points(points, source, target,
   allow_network=...)` with:
   - source: the data's EPSG code, else its definition;
-  - target: `crs_match.reprojection_target(project)`, which is
-    `crs_presets.for_definition(source_crs).epsg` when the project CRS is a
-    preset, and the project's definition otherwise.
-  A preset target adds a note to the report that the points went into the
-  preset's EPSG code, not through its null shift.
+  - target: `crs_match.reprojection_target(project)`: the project's EPSG code
+    when it has one, else its definition.
 - Vector import (`blender/vectors.py`): `accept_crs` returns a
   `CrsDecision(crs, reproject)`. On a mismatch with pyproj available, every
   coordinate of the layer goes through one call
@@ -150,7 +139,7 @@ def matches(project: DataCrs | None, data: DataCrs) -> bool | None   # None = ca
 - Without pyproj, a mismatch is refused: both CRSs named, "Reprojection is not
   available: pyproj did not load (see Check Dependencies)", and the QGIS hint.
 - Rasters: `core/raster.check_crs` refuses any mismatch, pyproj or not.
-- Measured (pyproj 3.8.0, PROJ 9.8.1): WGS84 into the MGA zone 56 preset uses
+- Measured (pyproj 3.8.0, PROJ 9.8.1): WGS84 into EPSG:7856 uses
   "Inverse of GDA2020 to WGS 84 (2) + Map Grid of Australia zone 56"
   (accuracy 3 m); GDA94 (EPSG:28356) uses "... + GDA94 to GDA2020 (1) + ..."
   (0.01 m) and moves points near (502000, 6961000) about 1.5 m. The Blender
@@ -166,16 +155,20 @@ would land hundreds of kilometres from the scene and lose float32 precision.
 - `check_local_project(mode, data_crs, bounds, what)` returns the warning, or
   raises `NeedsProjectOrigin` (a ValueError carrying a `DataOrigin`) when the
   data's CRS is known, not geographic (`crs_match.is_geographic`: pyproj when
-  available, else the presets and a few common codes), and its extent reaches
+  available, else a few common geographic codes), and its extent reaches
   beyond `LOCAL_RADIUS_M` (100 km) of the origin. Small coordinates or an
   unknown CRS keep the warning. Vectors check the layers of one CRS together;
   GeoTIFF passes `GeoTiffInfo.bounds()` to `raster.check_crs`.
 - `suggest_origin(data_crs, bounds) -> DataOrigin(source_crs, epsg,
-  preset_label, offset)`: the CRS is the preset's definition when a preset
-  stands in for the data's EPSG code (`crs_match.preset_for_epsg`), else
-  `EPSG:nnnn`, else the data's definition, and the project checks then say
-  whether rusty-tiles supports it; the E/N offset is the centre of the extent
-  rounded to a whole metre; A is 0.
+  crs_name, offset, set_offset)`: the CRS is `EPSG:nnnn`, else the data's
+  definition, and the project checks then say whether rusty-tiles supports
+  it; the E/N offset is the centre of the extent rounded to a whole metre; A
+  is 0.
+- `offer_project_crs(data_crs, bounds, project_offset, what)` (added with the
+  EPSG picker): a SOURCE_CRS project with no CRS yet raises the same
+  `NeedsProjectOrigin` for data in a known, not geographic CRS. With a zero
+  E/N offset it carries the data's centre too; otherwise `set_offset` is
+  False and only the CRS is set. The offer, popup and button are the same.
 
 Blender (`blender/data_origin.py`): the import operators catch
 `NeedsProjectOrigin`, report the refusal and call `offer(context, request,
@@ -321,7 +314,7 @@ generic, so GeoTIFF only registers its refresher (`"GEOTIFF"` →
 `scene.geotools_link_index`.
 
 **`crs_match`** (`geotools/core/crs_match.py`): `DataCrs(epsg, definition,
-source)` with `.known`, `.describe()` (with the preset's label) and `.label()`
+source)` with `.known`, `.describe()` (with the EPSG catalogue name) and `.label()`
 (the code alone: stream 2's short form, added to stream 1's class);
 `project_crs(placement)` (None for LOCAL and ANCHOR, whose imports follow
 "LOCAL and ANCHOR projects" above; the project's `source` is `"project"`); `matches(project, data)`
@@ -330,7 +323,7 @@ when it can't tell); `mismatch_message` and `unknown_message`;
 `to_text`/`from_text`; `normalise_epsg` (EPSG:n, OGC URNs and URLs, CRS84 →
 EPSG:4326); `epsg_from_wkt` (the root `AUTHORITY`/`ID` of WKT1 or WKT2);
 `from_gpkg_srs(organization, code, definition, srs_id)` (srs_id 0 and -1 are
-unknown); `preset_for_epsg`; `is_geographic`; `reprojection_target`,
+unknown); `is_geographic`; `reprojection_target`,
 `reproject`, `report_text`, `report_to_dict` and `report_from_dict` (see
 "Reprojection wiring"); and the `SOURCE_*` constants (GeoTIFF uses
 `SOURCE_GEOTIFF`). `mismatch_message(project, data, what, reason="")` takes the
@@ -554,13 +547,10 @@ Settled in `feat/m8-recipes-vector-publish`.
 - **CRS:** `source_crs` is always passed, never left to the GeoPackage:
   `publish.vector.placement_kwargs` gives the project's own `source_crs` text
   (the same string the mesh publish passes) and its `height_offset`.
-  - With a GeoTools preset this is the PROJ definition with `+towgs84`, which
-    the bundled 0.4.0 accepts. The GeoPackage declares EPSG:7856, which 0.4.0
-    would refuse (and a 3D horizontal CRS needs an explicit `height_offset`
-    anyway).
-  - When the presets become plain EPSG codes (rusty-tiles 0.4.1's allow-list,
-    the EPSG picker), the code passes through unchanged. Nothing here depends on
-    the preset table.
+  - The EPSG picker stores a plain `EPSG:nnnn`, which passes through unchanged
+    (rusty-tiles 0.4.1's allow-list). A 3D horizontal CRS needs an explicit
+    `height_offset` anyway. Each layer's `crsOperation` is kept in the report
+    summary, and the record's `placement.crs_operation`.
   - LOCAL publishes `source_crs="local"` (local metres). ANCHOR is refused:
     rusty-tiles places vectors by CRS and has no anchor for them.
 - **Heights:** the GeoPackage has absolute Z (local z + A), and rusty-tiles adds
@@ -590,7 +580,7 @@ Settled in `feat/m8-recipes-vector-publish`.
 - **Tests:** `tests/core/test_publish_vector.py` (placement keywords, table
   names, GeoPackage in binary64, the job with a fake rusty-tiles: reuse copy,
   refusal fallback, failure keeps the archive; and with the real wheel: the
-  MGA preset validates, an unchanged republish reuses everything, other LOD
+  EPSG:7856 layer validates with its datum operation recorded, an unchanged republish reuses everything, other LOD
   settings fall back) and `tests/blender/test_vector_publish.py` (UI, refusals,
   an end-to-end publish of a linked layer raised by a Geometry Nodes modifier,
   validated, refreshed and republished with reuse, Apply Modifiers off, and a
