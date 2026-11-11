@@ -50,40 +50,60 @@ GeoTools creates tilesets; it no longer imports them.
    (vertex space only).
 5. CesiumJS cannot open `.3tz` directly; publish extracted directories for
    viewers.
-6. The wheel resolves EPSG codes only for WGS84 geographic, WGS84 UTM and
-   Mercator. Other projected CRSs (GDA2020/GDA94 MGA, NZTM) work as PROJ
-   definitions with an explicit `+towgs84` shift; GeoTools ships these as
-   presets with their datum assumption stated. A verified EPSG allow-list is
-   planned for rusty-tiles 0.4.1 (#337); the presets switch to plain EPSG codes when
-   it ships. Coordinate epochs and grid-based datums (e.g. OSTN15) are refused.
+6. The 0.4.0 wheel resolves EPSG codes only for WGS84 geographic, WGS84 UTM
+   and Mercator. Other projected CRSs (GDA2020/GDA94 MGA, NZTM) work as PROJ
+   definitions with an explicit `+towgs84` shift, which is why the CRS picker
+   holds only hand-written MGA and NZTM presets. 0.4.1 adds a GDAL-verified
+   allow-list ([#337](https://github.com/BenDyson-Arch/rusty-tiles/issues/337),
+   merged to rusty-tiles develop in #340): 3,211 EPSG codes resolve, each with
+   its EPSG datum operation and stated accuracy reported as `crsOperation`.
+   Covered: GDA2020/GDA94 MGA, NZTM, ETRS89 UTM, Lambert-93, NAD83(2011)/(CSRS),
+   JGD and others. Still refused: grid-based datums (British National Grid
+   27700, NAD27, original NAD83), dynamic frames, compound/geoid CRSs and
+   coordinate epochs.
 
 ## Upstream dependencies
 
 | rusty-tiles item | Release | Tracking | Gates |
 |---|---|---|---|
-| 0.4.0 release (wheel on PyPI and GitHub) | 0.4.0 | release in progress | M0 wheel pin, M2 |
-| E. Blender 5.2 LTS in wheel acceptance | 0.4.x | [#330](https://github.com/BenDyson-Arch/rusty-tiles/issues/330) | M2 release |
-| C. Decoded tile export (`decode_tile` to plain GLB or arrays) | 0.4.x | [#329](https://github.com/BenDyson-Arch/rusty-tiles/issues/329) | M7 |
-| A. Annotate pass from `(source_primitive, source_triangle)` tables | 0.5 | addendum in the local metadata-tiling design (no GitHub issue yet) | M9 |
-| D. Custom vertex attributes in mesh input | 0.5 | same design; needs a decision on the strict-admission policy | M9 (alternative to A) |
+Calibrated 2026-11-11 against the rusty-tiles 0.4.1, 0.4.2 and 0.4.3
+milestones. rusty-tiles 0.4.x adds no new public capability (fixes,
+operability and quality); new capabilities come in 0.5.
+
+| rusty-tiles item | Release | Tracking | Gates |
+|---|---|---|---|
+| 0.4.0 release (wheel on PyPI and GitHub) | 0.4.0 | publishing 2026-11-11 | M0 wheel pin, CI gating on the PyPI wheel |
+| E. Blender 5.2 LTS in wheel acceptance | 0.4.1 | [#330](https://github.com/BenDyson-Arch/rusty-tiles/issues/330) | **0.3.0 release** |
+| CRS allow-list: GDAL-verified EPSG codes in the wheel | 0.4.1 (merged on develop) | [#337](https://github.com/BenDyson-Arch/rusty-tiles/issues/337) | M1 follow-up: EPSG picker replaces the PROJ-string presets |
+| CRS resolve without converting, and the supported EPSG list, from Python | 0.4.1 | [#367](https://github.com/BenDyson-Arch/rusty-tiles/issues/367) | The picker lists only codes that will publish; Check shows the datum operation and accuracy before a bake |
+| Encoded images admitted by memory budget, not a fixed 32 MiB | 0.4.1 | [#338](https://github.com/BenDyson-Arch/rusty-tiles/issues/338) | Publishing 8K PNG photogrammetry without re-encoding; GeoTools drops its 32 MiB check |
+| C. Decoded tile export (`decode_tile` to plain GLB or arrays) | 0.4.1 | [#329](https://github.com/BenDyson-Arch/rusty-tiles/issues/329) | M7 (moved forward) |
+| Coarse smooth normals fixed on untextured surfaces | 0.4.1 | [#336](https://github.com/BenDyson-Arch/rusty-tiles/issues/336) | Untextured analysis publishes (M3 colour variants) shade correctly |
+| Mesh inspect: open edges, seams, predicted coarse omissions | 0.4.2 | [#348](https://github.com/BenDyson-Arch/rusty-tiles/issues/348) | M2 Check: run it before a bake once the wheel exposes it; GeoTools' own open-edge checks defer to it |
+| Bake part of a source (`--bbox` / `--polygon`) | 0.4.2 | [#350](https://github.com/BenDyson-Arch/rusty-tiles/issues/350) | "Test publish" of an area or selection; M10 |
+| Stage totals and an incremental run report | 0.4.2 | [#353](https://github.com/BenDyson-Arch/rusty-tiles/issues/353) | Publish progress bar with a real total and ETA |
+| Scratch cleanup on stop | 0.4.2 | [#354](https://github.com/BenDyson-Arch/rusty-tiles/issues/354) | Cancel from Blender leaves no spill folders |
+| Opt-in weld and same-material primitive joins | 0.4.2 | [#349](https://github.com/BenDyson-Arch/rusty-tiles/issues/349) | None for Blender sources: Merge by Distance is the remedy (scope rule); passed through only for referenced GLBs |
+| Coarse-level quality (fragmentation, root simplifier, first view) | 0.4.3 | [#344](https://github.com/BenDyson-Arch/rusty-tiles/issues/344), [#359](https://github.com/BenDyson-Arch/rusty-tiles/issues/359)–[#362](https://github.com/BenDyson-Arch/rusty-tiles/issues/362) | Nothing to build; republish to pick it up |
+| Multi-tileset preview with A/B view | 0.4.3 | [#355](https://github.com/BenDyson-Arch/rusty-tiles/issues/355) | Compare two publishes (for example variants) when the CLI is installed |
+| A+D. Tile `EXT_structural_metadata` / `EXT_mesh_features` sources with exact leaf metadata; annotate pass | 0.5 | [#332](https://github.com/BenDyson-Arch/rusty-tiles/issues/332) | M9 |
+| Pure-Rust GeoTIFF DEM reader and projected-CRS terrain | 0.5 | [#221](https://github.com/BenDyson-Arch/rusty-tiles/issues/221), [#222](https://github.com/BenDyson-Arch/rusty-tiles/issues/222) | Candidate: publish an M8 GeoTIFF DEM as terrain (not planned yet) |
 | B. Appearance-only rebuild | post-0.4 | [#331](https://github.com/BenDyson-Arch/rusty-tiles/issues/331) | M10 |
-| CRS allow-list: GDAL-verified EPSG codes (MGA, NZTM, ETRS89 ...) in the wheel | 0.4.1 | [#337](https://github.com/BenDyson-Arch/rusty-tiles/issues/337) | Replaces the PROJ-string CRS presets |
-| Encoded images admitted by memory budget, not a fixed 32 MiB | 0.4.1 | [#338](https://github.com/BenDyson-Arch/rusty-tiles/issues/338) | Publishing 8K PNG photogrammetry without re-encoding |
 
 ## Milestones
 
 | Milestone | Delivers | Needs from rusty-tiles | Release |
 |---|---|---|---|
-| M0 Foundation | Clean scaffold, packaging, CI | 0.4.0 wheel | none |
+| M0 Foundation | Clean scaffold, packaging, CI | 0.4.x wheel | none |
 | M1 Project and georeference | CRS, offsets, source ingest | 0.4.0 | none |
-| M2 Publish | Blender to a validated `.3tz` | 0.4.0, plus E to release | **0.3.0** |
+| M2 Publish | Blender to a validated `.3tz` | 0.4.1 (E and the CRS allow-list) | **0.3.0** |
 | M3 Layers and bake engine | Layers read from Geometry Nodes outputs or stored attributes, and texture-space bakes | none | 0.4.0 |
 | M4 GLB export with metadata | A standard glTF 2.0 GLB carrying objects and layers as `EXT_mesh_features` / `EXT_structural_metadata` | none | 0.4.0 |
 | M5 Analysis library | Georeferenced sun, archaeoastronomy, 3D hydrology and measurement; a preset library of Geometry Nodes analyses | none | 0.4.0 |
 | M6 Texture cleanup | Paint, clean, publish | none | 0.5.0 |
-| M7 Output inspection | Open output tiles in Blender, quality checks | C | 0.6.0 |
+| M7 Output inspection | Open output tiles in Blender, quality checks | C (0.4.1) | 0.5.0 |
 | M8 Geo formats | GeoJSON, GeoPackage and GeoTIFF in and out of Blender, in the project frame | none | any time after M2 |
-| M9 Queryable metadata without retiling | Annotate pass from layers | A or D (rusty-tiles 0.5) | 1.0.0 |
+| M9 Queryable metadata without retiling | M4 GLBs tiled with exact leaf metadata, then an annotate pass | #332 (rusty-tiles 0.5) | 1.0.0 |
 | M10 Large sites and texture-only rebuilds | Chunked working mode, texture-only republish | B | later |
 
 ### M0 Foundation
@@ -93,7 +113,7 @@ GeoTools creates tilesets; it no longer imports them.
 - Packaging:
   - a Blender extension for Blender 5.2+, with the add-on in `geotools/`;
   - rusty-tiles wheels bundled for Linux x64, Windows x64 and macOS
-    arm64/x64, pinned to one version and fetched by a script (never
+    arm64 (Blender 5.x has no Intel macOS build), pinned to one version and fetched by a script (never
     committed); pyproj (with PROJ) and certifi are bundled the same way for
     M8 imports;
   - no `bl_info`, and no pyproj or GDAL install steps.
@@ -124,6 +144,15 @@ GeoTools creates tilesets; it no longer imports them.
   rusty-tiles' input rules.
 - **Exit:** a Metashape export is placed correctly, and its CRS and offsets
   round-trip to the values rusty-tiles expects.
+- **Follow-up on rusty-tiles 0.4.1 (EPSG picker):** replace the hand-written
+  MGA/NZTM PROJ-string presets with a searchable EPSG picker. Names and areas
+  of use come from the bundled pyproj. The list is filtered to
+  `supported_epsg_codes()` (#367), and the plain code is passed to
+  rusty-tiles. Check calls `resolve_source_crs()` and shows the datum
+  operation and its EPSG-stated accuracy, or the refusal (for example British
+  National Grid, which needs a grid), before any bake. Imported data with a
+  CRS (GeoTIFF, GeoPackage, GeoJSON) offers its code as the project CRS.
+  Projects saved with a preset are migrated to the preset's EPSG code.
 
 ### M2 Publish (first release, 0.3.0)
 
@@ -146,7 +175,8 @@ GeoTools creates tilesets; it no longer imports them.
 - **Preview:** a one-click launch of `rusty-tiles preview` on an extracted copy
   when the CLI is installed.
 - **Exit:** a 10M-triangle photogrammetry scene publishes from Blender to a
-  validated `.3tz` that displays in Cesium. Release once E is green.
+  validated `.3tz` that displays in Cesium. Release on rusty-tiles 0.4.1,
+  which brings E and the CRS allow-list.
 
 ### M3 Layers and bake engine
 
@@ -223,7 +253,7 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
 
 - **GeoTools tools (code):**
   - **Sun at a moment:** sun direction from the project's latitude,
-    longitude, date, time and time zone, corrected from grid north to true
+    longitude, date, time and time zone, corrected from true north to grid
     north (grid convergence, up to about 1.5° at an MGA zone edge). Places or
     animates Blender's sun; shadows are rendered or baked by Blender.
   - **Sun hours and insolation:** hours of direct sun, or kWh/m² with a
@@ -281,7 +311,7 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
   full retile until B lands.
 - **Exit:** a painted source republishes, and coarse levels pick up the change.
 
-### M7 Output inspection (needs C)
+### M7 Output inspection (needs C, in rusty-tiles 0.4.1)
 
 - Load output leaves or coarse tiles back into Blender as read-only objects
   through `decode_tile`.
@@ -345,12 +375,22 @@ displacing) uses Blender's own tools, documented as recipes, not GeoTools code.
   edit saved in QGIS re-drapes in Blender after a refresh; and
   a GeoTIFF DEM and orthophoto line up with the site mesh.
 
-### M9 Queryable metadata without retiling (needs A or D)
+### M9 Queryable metadata without retiling (needs rusty-tiles #332, 0.5)
 
-- Publish layers as metadata keyed by `(source_primitive, source_triangle)`,
-  through the annotate pass or custom vertex attributes, whichever the
-  rusty-tiles 0.5 design picks.
-- Texture layers become property textures.
+- **Tile the M4 GLB.** rusty-tiles #332 admits `EXT_structural_metadata` and
+  `EXT_mesh_features` sources and keeps exact metadata on leaves, so the M4
+  GLB becomes the publish source. Its 0.5 MVP admits PNG RGBA8 property
+  textures (nearest, no mips, UV0/UV1), per-triangle feature IDs and property
+  tables, but not property attributes. M4 therefore gains a **tileable
+  layout**: face layers as feature IDs with a property table, texture layers
+  as property textures. Corner layers are refused for tiling (bake them to a
+  texture) until rusty-tiles admits property attributes. Check reports which
+  layers will reach the tiles.
+- Coarse tiles carry the visual appearance and a representative
+  `source_primitive` only, and declare that analysis is available at leaf
+  detail. Aggregated coarse metadata is a later rusty-tiles item.
+- **Annotate pass** (also under #332): attach layers to an existing `.3tz` by
+  `(source_primitive, source_triangle)` without a retile.
 - Standard output only: 3D Tiles 1.1 metadata (`EXT_mesh_features` feature IDs,
   `EXT_structural_metadata` property tables and property textures). Object
   identity is published the same way, as a layer, so any viewer can pick

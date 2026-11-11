@@ -101,8 +101,7 @@ def matches(project: DataCrs | None, data: DataCrs) -> bool | None   # None = ca
     Blender 5.2 has no macOS x64 build at all (download.blender.org lists
     linux-x64, windows-x64/arm64 and macos-arm64), so 3.8.0's
     macOS-15-only Intel wheel reaches no Blender 5.2 user. The `macos-x64`
-    zip stays in `platforms` as configured, and 3.8.0 has a cp313 wheel for
-    it.
+    platform was therefore dropped from `platforms`.
   - On Apple silicon, 3.7.2 and 3.8.0 both need macOS 14
     (`macosx_14_0_arm64`), and no pyproj with cp313 wheels supports macOS 13.
     rusty-tiles' macOS wheels target macOS 15.0 in any case. So 3.7.2 would
@@ -112,7 +111,7 @@ def matches(project: DataCrs | None, data: DataCrs) -> bool | None   # None = ca
   - 3.8.0 brings PROJ 9.8.1 and EPSG v12.029, against PROJ 9.5.1 and EPSG
     v11.022 in 3.7.2.
   - Wheels per platform zip: linux-x64 10.0 MB, windows-x64 6.7 MB,
-    macos-arm64 5.0 MB, macos-x64 6.1 MB, plus 0.1 MB of certifi.
+    macos-arm64 5.0 MB, plus 0.1 MB of certifi.
   - Releases are cp313 only. `fetch_wheels.py --python 3.14` (with
     `build_extension.py --python 3.14`) is for a local Blender built against
     another Python. Blender refuses a zip whose cp313 wheels don't match its

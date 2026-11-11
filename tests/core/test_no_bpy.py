@@ -1,4 +1,4 @@
-"""The package root and core must import without Blender."""
+"""The package root, core and analysis must import without Blender."""
 
 from __future__ import annotations
 
@@ -26,8 +26,11 @@ _SCRIPT = textwrap.dedent(
 
     import geotools
     import geotools.core
-    for info in pkgutil.walk_packages(geotools.core.__path__, "geotools.core."):
-        importlib.import_module(info.name)
+    import geotools.analysis
+    for package in (geotools.core, geotools.analysis):
+        prefix = package.__name__ + "."
+        for info in pkgutil.walk_packages(package.__path__, prefix):
+            importlib.import_module(info.name)
     geotools.core.deps.probe_rusty_tiles()
 
     bad = sorted(m for m in sys.modules if m == "bpy" or m.startswith("bpy."))
@@ -38,7 +41,7 @@ _SCRIPT = textwrap.dedent(
 )
 
 
-def test_geotools_and_core_never_import_bpy() -> None:
+def test_geotools_core_and_analysis_never_import_bpy() -> None:
     result = subprocess.run(
         [sys.executable, "-c", _SCRIPT, str(REPO_ROOT)],
         capture_output=True,

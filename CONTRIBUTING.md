@@ -13,7 +13,8 @@ behind it.
 | `geotools/core/` | Pure Python and numpy. Never imports `bpy`, so it can be tested with plain pytest. |
 | `geotools/blender/` | The `bpy` glue: operators, panels and preferences. |
 | `geotools/publish/` | The publish job (bpy-free): staging layout and lock, the worker thread that writes the GLB and runs rusty-tiles, the build record, and the preview helper. |
-| `geotools/analysis/`, `geotools/bake/` | Empty, reserved for later milestones. |
+| `geotools/analysis/` | M5 analysis maths (bpy-free, like `core`): the sun (NREL SPA) and points, distances and areas on Earth. See [docs/design/m5-analysis.md](docs/design/m5-analysis.md). |
+| `geotools/bake/` | Empty, reserved for a later milestone. |
 | `geotools/wheels/` | Fetched wheels (rusty-tiles, pyproj, certifi). Ignored by git, never committed. |
 | `scripts/` | Wheel fetching, extension build, the Blender test runner and the sidebar screenshot tool. |
 | `tests/core/` | pytest tests for `geotools/core`. They run without Blender. |
@@ -87,8 +88,7 @@ directory, for example a rusty-tiles `dist/` folder:
 python scripts/fetch_wheels.py --from-dir rusty-tiles=/path/to/rusty-tiles/dist --platform linux-x64
 ```
 
-`--platform` takes any of `linux-x64`, `windows-x64`, `macos-arm64` and
-`macos-x64`. Repeat it or separate names with commas. Without it the script
+`--platform` takes any of `linux-x64`, `windows-x64` and `macos-arm64`. Repeat it or separate names with commas. Without it the script
 fetches every platform in `pyproject.toml`.
 
 A locally built Linux wheel is often tagged `linux_x86_64` rather than
@@ -160,8 +160,8 @@ builds only those and says so. Use `--out DIR` to write elsewhere. Use
 for a local Blender that is not on CPython 3.13 (see above). The repository
 manifest is never changed.
 
-A platform zip carries about 10 MB of pyproj on Linux, 6.7 MB on Windows,
-5.0 MB on macOS arm64 and 6.1 MB on macOS x64, on top of rusty-tiles.
+A platform zip carries about 10 MB of pyproj on Linux, 6.7 MB on Windows
+and 5.0 MB on macOS arm64, on top of rusty-tiles.
 
 `--blender` defaults to `blender` on `PATH`.
 

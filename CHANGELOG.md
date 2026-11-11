@@ -12,10 +12,24 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
 
 ### Added
 
+- Analysis (M5), in a new Analysis panel. **Sun:** the sun's position from the
+  project's site, date, time and time zone (NREL SPA, within 0.00001° of the
+  paper's example), turned from true north to the scene's grid north by the
+  grid convergence. It is placed on a Blender Sun light, or keyframed over a
+  day at a chosen step, with the light off below the horizon. Named IANA time
+  zones are used where Python has a time zone database, else a fixed UTC
+  offset. **Coordinates:** read a point from the 3D cursor or a click as E, N,
+  RL and latitude and longitude at full binary64 precision, with the float32
+  limit of the local position shown. Grid and ground distance between two
+  points uses the combined scale factor (grid scale from pyproj, height factor
+  from the ellipsoidal height), and the grid and ground area of the selected
+  faces is also available. Every result can be copied to the clipboard. A CRS
+  project needs the bundled pyproj and says so without it. The design is in
+  `docs/design/m5-analysis.md`.
 - Packaging as a Blender extension (`geotools/blender_manifest.toml`), with no
   `bl_info`.
 - Bundled rusty-tiles wheels, pinned to 0.4.0 in `pyproject.toml`, for Linux x64,
-  Windows x64, macOS arm64 and macOS x64. `scripts/fetch_wheels.py` fetches them
+  Windows x64 and macOS arm64 (Blender 5.x has no Intel macOS build). `scripts/fetch_wheels.py` fetches them
   and `scripts/build_extension.py` builds one extension zip per platform.
 - A GeoTools sidebar panel and a preferences panel that show the extension
   version and the bundled rusty-tiles version, with a Check Dependencies

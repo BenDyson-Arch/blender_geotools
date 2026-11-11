@@ -11,6 +11,7 @@ from types import ModuleType
 
 from ..core import deps
 from . import (
+    analysis,
     bake_texture,
     checks,
     data_origin,
@@ -49,6 +50,7 @@ MODULES: tuple[ModuleType, ...] = (
     glb_export,
     publish,
     bake_texture,
+    analysis,
     panels,  # last: the sidebar draws what the modules above register
 )
 
