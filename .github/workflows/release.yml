@@ -86,7 +86,7 @@ jobs:
           VERSION: ${{ needs.check.outputs.version }}
         run: |
           set -eu
-          for platform in linux_x64 windows_x64 macos_arm64 macos_x64; do
+          for platform in linux_x64 windows_x64 macos_arm64; do
             zip="dist/geotools-${VERSION}-${platform}.zip"
             test -f "$zip" || { echo "::error::missing $zip"; exit 1; }
             for wheel in rusty_tiles pyproj certifi; do

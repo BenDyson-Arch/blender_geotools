@@ -15,7 +15,7 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
 - Packaging as a Blender extension (`geotools/blender_manifest.toml`), with no
   `bl_info`.
 - Bundled rusty-tiles wheels, pinned to 0.4.0 in `pyproject.toml`, for Linux x64,
-  Windows x64, macOS arm64 and macOS x64. `scripts/fetch_wheels.py` fetches them
+  Windows x64 and macOS arm64 (Blender 5.x has no Intel macOS build). `scripts/fetch_wheels.py` fetches them
   and `scripts/build_extension.py` builds one extension zip per platform.
 - A GeoTools sidebar panel and a preferences panel that show the extension
   version and the bundled rusty-tiles version, with a Check Dependencies
