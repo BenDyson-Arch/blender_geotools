@@ -31,7 +31,7 @@ GeoTools creates tilesets; it no longer imports them.
 | Blender support | Latest release only (5.2 LTS) | Each new Blender release |
 | Where the source lives | The `.blend` plus image files on disk. Face maps and build records sit beside the outputs | Sources outgrow one Blender session (see M10) |
 | Versioning | Continue the 0.x line. First rebuild release is 0.3.0; 1.0.0 at M9 | |
-| CRS handling | rusty-tiles does all CRS maths at publish time (`source_crs`, `source_offset`, `height_offset`). GeoTools stores the declaration and never reprojects geometry itself. The source GLB is always standard glTF Y-up | |
+| CRS handling | rusty-tiles does all CRS maths at publish time (`source_crs`, `source_offset`, `height_offset`). Imports (M8) reproject vector points into the project CRS with a bundled pyproj, never GeoTools' own maths; rusty-tiles will not add general reprojection. Rasters are not reprojected (QGIS first). The source GLB is always standard glTF Y-up | |
 | Precision | Offsets, anchors and other geodetic numbers are binary64 Python floats, never Blender `FloatProperty` (single precision) | |
 | Performance rule | No Python loops over faces or vertices. Use `foreach_get`/`foreach_set` with numpy, Geometry Nodes or Cycles bakes | |
 | Scope | Don't do what Blender already does. GeoTools reads and writes geo formats, handles georeference and publishes; modelling, draping, displacement and painting use Blender's own tools, with recipes in the docs | A task needs something Blender cannot do |
@@ -283,9 +283,11 @@ displacing) uses Blender's own tools, documented as recipes, not GeoTools code.
   an optional decimation step; an orthophoto becomes an image on a plane
   placed and sized to its footprint. Pixels are read through Blender's image
   loader where it can; only the georeference tags are parsed by GeoTools.
-- **CRS:** data in the project CRS is placed exactly. Data in another CRS is
-  refused with a clear message until rusty-tiles offers a reprojection
-  helper (to be asked); WGS84 GeoJSON is the common case.
+- **CRS:** data in the project CRS is placed exactly. Vector data in another
+  CRS is reprojected into the project CRS with a bundled pyproj (offline, no
+  grid downloads unless the user opts in), and the import reports the
+  operation and its accuracy. Rasters in another CRS are refused: reproject
+  them in QGIS first.
 - **Recipes (docs and an example `.blend`):** drape archaeological contexts on
   a site mesh with Raycast and Set Position, offset them by a depth or level
   attribute, and extrude volumes between top and bottom levels.

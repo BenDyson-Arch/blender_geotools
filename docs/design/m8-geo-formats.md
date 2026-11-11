@@ -55,15 +55,25 @@ def matches(project: DataCrs | None, data: DataCrs) -> bool | None   # None = ca
 - A mismatch is refused with a message that names both CRSs and suggests
   reprojecting in QGIS. When the CRS can't be determined, the user can confirm
   "data is in the project CRS".
-- Reprojection: rusty-tiles has assessed a narrow `transform_points(xyz,
-  from_crs, to_crs)` over its allow-listed CRSs as feasible for a 0.4.x
-  release. It returns the points plus a report: operations per leg, the
-  EPSG-stated accuracy, and the vertical handling. It goes through WGS84, so
-  it reports or refuses pairs where a direct EPSG operation would be
-  better. Keep one hook, `reproject(points, data_crs, project_crs)`, that
-  raises "not available" today. When the function ships, the hook calls it
-  and the import shows the reported accuracy. Points only: GeoTIFFs still
-  need reprojecting in QGIS first.
+- Reprojection (decided 2026-11-11): rusty-tiles will not add general
+  reprojection. GeoTools bundles **pyproj** (PROJ included, no GDAL) and
+  reprojects **vector points only** into the project CRS:
+  - `Transformer.from_crs(src, project, always_xy=True)`, picking EPSG's best
+    operation (for example GDA94 → GDA2020 directly, about 1 cm);
+  - `pyproj.network.set_network_enabled(False)` unless the user opts in to
+    grid downloads, so imports stay offline and reproducible;
+  - the import report shows `transformer.description` and its accuracy
+    ("unknown" when PROJ doesn't know), in the same spirit as the CRS preset
+    notes;
+  - tile placement is unaffected: publishing still goes from the project CRS
+    through rusty-tiles.
+  The hook is `reproject(points, data_crs, project_crs) -> (points, report)`.
+  It raises "not available" until the pyproj bundling lands. Rasters are
+  never reprojected: "reproject in QGIS first".
+- Packaging: pyproj wheels are bundled per platform like rusty-tiles (5–10
+  MB each). pyproj 3.8.0's Intel-mac wheel needs macOS 15, so pin a version
+  with wheels for every platform Blender 5.2 supports (3.7.2 today), or pin
+  per platform.
 
 ## Vectors
 
