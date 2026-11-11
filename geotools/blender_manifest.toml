@@ -1,0 +1,21 @@
+schema_version = "1.0.0"
+
+id = "geotools"
+version = "0.3.0-dev"
+name = "GeoTools"
+tagline = "Create, analyse and publish 3D Tiles from Blender"
+maintainer = "BenDyson-Arch"
+type = "add-on"
+website = "https://github.com/BenDyson-Arch/blender_geotools"
+tags = ["Import-Export", "Mesh", "Bake"]
+
+blender_version_min = "5.2.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
+
+# `platforms` and `wheels` are injected by scripts/build_extension.py from the
+# pinned rusty-tiles version in pyproject.toml. Do not list them here.
+
+[permissions]
+# Blender limits permission reasons to 64 characters, no trailing punctuation.
+files = "Read source meshes and images, write 3D Tiles and build records"

@@ -1,1 +1,0 @@
-"""Analysis-tool addon manifests."""

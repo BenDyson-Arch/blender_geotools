@@ -1,0 +1,17 @@
+# Tooling configuration only. GeoTools is a Blender extension, not a Python
+# distribution; the add-on lives in geotools/ and ships via
+# scripts/build_extension.py.
+
+[tool.geotools]
+# The single pin for the bundled rusty-tiles wheels.
+rusty-tiles = "0.4.0"
+# Platforms the extension is built for (Blender platform names).
+platforms = ["linux-x64", "windows-x64", "macos-arm64", "macos-x64"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/core"]
+addopts = "--import-mode=importlib"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
