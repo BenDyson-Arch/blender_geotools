@@ -102,6 +102,40 @@ CATEGORY), `layer-categories-missing`, `layer-nodata-invalid`.
   def layer_status(scene, item) -> list[Issue]            # missing attributes or images, wrong domain/type
   ```
 
+- Additions made while building stream 1 (all compatible with the above):
+  - `core.layers` also has `effective_aggregation(spec)`, `numpy_dtype(data_type)`,
+    `fill_value(spec)` (no-data, else NaN for FLOAT, 0 for INT/CATEGORY, False for
+    BOOLEAN), `VALID_AGGREGATIONS`, `RESERVED_NAMES` (`present`, for
+    `gt_present`), and `parse_nodata`/`format_nodata`/`parse_categories`/
+    `format_categories` for the text fields. `validate`'s `existing_names` are
+    the *other* layers' names.
+  - `to_record` writes the effective aggregation and an `"attribute"` key
+    (`gt_<name>`, or null for TEXTURE); `from_record(to_record(s)) == s` when
+    `s.aggregation` is set.
+  - `GeoToolsLayer.aggregation` has a `DEFAULT` item for `None`; the layer name is
+    the PropertyGroup `name`.
+  - `spec_from_props` never raises: bad no-data text becomes NaN, reported as
+    `layer-nodata-invalid`. `ensure_layer` raises `ValueError` on an invalid spec.
+  - `ensure_attribute(mesh, spec, *, issues=None)` and
+    `write_layer(mesh, spec, values, *, issues=None)`: a new attribute is filled
+    with `fill_value`; a replaced one is logged and added to `issues` as
+    `layer-attribute-replaced`. `write_layer` creates the attribute if needed.
+    `read_layer` raises `KeyError` (missing) or `ValueError` (wrong domain/type).
+    All need Object Mode.
+  - More helpers in `blender.layers`: `source_objects`, `source_meshes`,
+    `domain_size`, `attribute_type`, `attribute_problem`, `remove_attribute`,
+    `layer_image`, `ensure_layer_image`, `save_layer_image` (full-float EXR at
+    `//geotools_layers/<layer>__<object>.exr`), `image_is_saved`,
+    `remove_layer_data`, `layer_records`, `write_props`, `other_layer_names`.
+  - `layer_status` codes: `layer-attribute-missing` (warning),
+    `layer-attribute-mismatch` (error), `layer-image-missing` (warning),
+    `layer-image-unsaved` (warning), `layer-uv-map-missing` (error),
+    `layer-no-source` (info), plus the validation codes.
+  - Operators: `geotools.layer_add`, `layer_remove` (`delete_data`; image files on
+    disk are kept), `layer_rename` (renames the attributes too),
+    `layer_create_attributes`, `layer_set_categories`.
+  - Publish passes the records in `BuildRequest.layers`; invalid layers are left
+    out with a warning.
 - UI: a **Layers** panel (`GEOTOOLS_PT_layers`) after Source, with a UIList,
   add/remove operators, the fields of the selected layer, and its status
   (`layer_status`). Removing a layer asks whether to delete its attributes and

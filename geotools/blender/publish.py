@@ -36,6 +36,7 @@ from ..publish import staging as st
 from ..publish.job import BuildJob, BuildRequest, JobState
 from .checks import count_issues, describe_counts, run_checks, store_issues
 from .common import ADDON_PACKAGE, extension_version, redraw_ui
+from .layers import layer_records
 from .properties import FieldError, placement_from_props
 
 log = logging.getLogger(__name__)
@@ -356,6 +357,7 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
             if remedies:
                 # Which file each remedy wrote (a downscale may fall back to JPEG).
                 extra_record["image_remedies"] = remedies
+            layer_records_, invalid_layers = layer_records(context.scene)
             request = BuildRequest(
                 output=output,
                 placement_kwargs=placement_kwargs,
@@ -370,6 +372,7 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
                 validate=profile.validate,
                 topology=dict(topology),
                 extra_record=extra_record,
+                layers=layer_records_,
             )
             job = BuildJob(scene_export, request, lock=lock)
         except Exception as ex:
@@ -399,8 +402,13 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
         notes = [f"{warnings} check warning{'s' * (warnings != 1)}"] if warnings else []
         if remedies:
             notes.append(f"{len(remedies)} image{'s' * (len(remedies) != 1)} remedied")
+        if invalid_layers:
+            notes.append(
+                f"layer{'s' * (len(invalid_layers) != 1)} {', '.join(invalid_layers)} not "
+                "recorded: fix them in the Layers panel"
+            )
         note = f" ({', '.join(notes)})" if notes else ""
-        self.report({"INFO"}, f"Publishing {output.name}{note}")
+        self.report({"WARNING" if invalid_layers else "INFO"}, f"Publishing {output.name}{note}")
         redraw_ui(context)
         return {"FINISHED"}
 

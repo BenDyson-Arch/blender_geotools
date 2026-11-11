@@ -9,7 +9,7 @@ Staging layout, next to the output ``<dir>/<name>.3tz`` (see ``publish.staging``
 for the full list):
     <dir>/<name>.geotools/source.glb   the exact rusty-tiles input
     <dir>/<name>.geotools/facemap.npz  see core.facemap
-    <dir>/<name>.geotools/build.json   the build record (schema 1)
+    <dir>/<name>.geotools/build.json   the build record (schema 2)
 
 Threads: the worker thread runs every step. rusty-tiles calls the callback on
 its own worker threads; the callback checks the cancel flag, then appends to a
@@ -62,8 +62,8 @@ __all__ = [
 
 log = logging.getLogger(__name__)
 
-RECORD_SCHEMA = 1
-"""``schema`` of build.json."""
+RECORD_SCHEMA = 2
+"""``schema`` of build.json. 2 added ``layers``, the layer registry (M3)."""
 
 MAX_RECORDED_WARNINGS = 50
 
@@ -107,6 +107,9 @@ class BuildRequest:
     extra_record: dict[str, object] = field(
         default_factory=dict
     )  # e.g. geotools version, profile name
+    layers: list[dict[str, object]] = field(
+        default_factory=list
+    )  # core.layers.to_record of each layer, for build.json
 
 
 @dataclass(frozen=True, slots=True)
@@ -567,6 +570,7 @@ class BuildJob:
                 "validate": request.validate,
             },
             "placement": dict(request.placement_kwargs),
+            "layers": [dict(record) for record in request.layers],
             "source_glb": {
                 "path": st.GLB_NAME,
                 "sha256": glb.sha256,

@@ -53,6 +53,13 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   publish with their current pixels.
 - CRS presets for GDA2020 MGA zones 46–59 and NZTM2000 as PROJ definitions the
   bundled rusty-tiles accepts, each stating its datum assumption.
+- A layer registry (M3): named, typed values per face, face corner or texel of
+  the source, with units, no-data, origin and coarse-level aggregation, stored
+  in the `.blend`. Face and corner layers live in `gt_<name>` mesh attributes,
+  texture layers in float OpenEXR images in `//geotools_layers/`. A Layers panel
+  after Source adds, renames and removes layers (optionally with their
+  attributes and images), creates their attributes and shows what is missing.
+  `build.json` lists the layers and is now schema 2.
 
 ### Changed
 

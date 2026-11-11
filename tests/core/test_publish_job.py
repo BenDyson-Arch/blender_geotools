@@ -17,9 +17,16 @@ import pytest
 
 from geotools.core.facemap import load_face_map
 from geotools.core.gltf_writer import MaterialData, PrimitiveData, SceneExport
+from geotools.core.layers import DataType, Domain, LayerSpec, from_record, to_record
 from geotools.publish import job as job_mod
 from geotools.publish import staging as st
-from geotools.publish.job import BuildJob, BuildRequest, JobState, ProgressEvent
+from geotools.publish.job import (
+    RECORD_SCHEMA,
+    BuildJob,
+    BuildRequest,
+    JobState,
+    ProgressEvent,
+)
 
 try:
     import rusty_tiles
@@ -288,6 +295,25 @@ def test_events_and_warnings(tmp_path: Path, monkeypatch) -> None:
     assert record["warnings"] == {"count": 1, "first": ["something odd"]}
     validation = json.loads((st.staging_dir_for(out) / "validation.json").read_text())
     assert "payloads" not in validation and validation["payload_rows"] == 1
+    assert record["schema"] == RECORD_SCHEMA == 2
+    assert record["layers"] == []
+
+
+def test_layers_are_recorded(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(job_mod, "_rusty_tiles", fake_rt)
+    specs = [
+        LayerSpec("slope", Domain.FACE, DataType.FLOAT, units="deg", nodata=-9999.0),
+        LayerSpec("cover", Domain.CORNER, DataType.CATEGORY, categories=("a", "b"), nodata=-1),
+        LayerSpec("lit", Domain.TEXTURE, DataType.BOOLEAN),
+    ]
+    out = tmp_path / "site.3tz"
+    job = BuildJob(grid_scene(), request(out, layers=[to_record(s) for s in specs]))
+    run(job)
+    assert job.state is JobState.DONE, job.error
+    record = json.loads((st.staging_dir_for(out) / "build.json").read_text())
+    assert record["layers"] == [to_record(s) for s in specs]
+    assert [from_record(r).name for r in record["layers"]] == ["slope", "cover", "lit"]
+    assert record["layers"][0]["attribute"] == "gt_slope"
 
 
 # --- with rusty-tiles ----------------------------------------------------------------------
@@ -322,7 +348,7 @@ def test_publish_success_and_record(tmp_path: Path) -> None:
     assert not images.exists()
 
     record = json.loads(result.record_path.read_text())
-    assert record["schema"] == 1
+    assert record["schema"] == 2
     assert record["output"] == str(out)
     assert record["output_bytes"] == out.stat().st_size
     assert record["source_glb"]["sha256"] == result.glb_sha256
