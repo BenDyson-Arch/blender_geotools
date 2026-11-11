@@ -91,6 +91,21 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   category colours). The user's materials, images and active and render colour
   attributes are not changed. Write Colours previews COLOR_0 in a
   `gt_present` colour attribute, which no tileset publishes.
+- A GLB with metadata (M4): one standard glTF 2.0 GLB of the source
+  collection, separate from rusty-tiles' `source.glb`, written by a build
+  profile whose Format is `.glb` (through the same checks and staging, with a
+  `build.json` recording the extensions and options) or by File > Export >
+  GeoTools GLB with metadata. Objects are an `EXT_mesh_features` feature ID
+  set with a property table of names and persistent object ids (a UUID kept on
+  each object across renames and saves). Layers become an
+  `EXT_structural_metadata` schema with names, units, no-data, ranges and enums
+  for category layers: face and corner layers as property attributes, or face
+  layers as a per-face feature table (Face Table); texture layers as property
+  textures, float32 values packed losslessly into PNGs. The georeference (CRS,
+  offsets, origin and heading from the placement probe) is recorded with
+  `KHR_xmp_json_ld`; Earth-Placed also puts the local-to-ECEF transform on the
+  root node. The 3d-tiles-validator and the glTF-Validator accept the files,
+  and Blender's glTF importer opens them. See `docs/design/m4-glb-metadata.md`.
 
 ### Changed
 

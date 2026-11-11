@@ -159,10 +159,11 @@ python3 scripts/ui_screenshots.py --out /tmp/geotools-shots
 
 It builds and installs the extension into a temporary profile, opens Blender
 on your screen for about 20 seconds, builds a demo scene (a terrain with a
-face, a category and a texture layer, a build profile with a variant, checks
-run and one publish when rusty-tiles is bundled) and writes PNGs of the
-GeoTools sidebar: `montage.png` and `montage_texture.png` with every panel
-open, scrolled top to bottom, and `state_empty.png`, `state_mid.png` and
+face, a category and a texture layer, a build profile with a variant and a
+`.glb` profile, checks run and one publish when rusty-tiles is bundled) and
+writes PNGs of the GeoTools sidebar: `montage.png`, `montage_texture.png` and
+`montage_glb.png` (the `.glb` profile, exported once) with every panel open,
+scrolled top to bottom, and `state_empty.png`, `state_mid.png` and
 `state_ready.png` with the default open and closed panels. `--states` picks
 some of them. On Linux it runs Blender on Xwayland (`WAYLAND_DISPLAY=`) unless
 you pass `--native`; it needs a display, so it does not run in CI.

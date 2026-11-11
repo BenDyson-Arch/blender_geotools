@@ -181,6 +181,7 @@ A standard GLB of the source collection that any glTF tool can open, with
 object identity and layer values carried as glTF metadata, the same metadata
 3D Tiles 1.1 uses. It is a separate file from the plain `source.glb` that
 rusty-tiles tiles, because rusty-tiles 0.4 refuses input with extensions.
+Design and file layout: [design/m4-glb-metadata.md](design/m4-glb-metadata.md).
 
 - **Schema from layers:** a bpy-free module turns `LayerSpec`s into an
   `EXT_structural_metadata` schema (classes, properties, `min`/`max`,

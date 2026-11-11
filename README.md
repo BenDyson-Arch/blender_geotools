@@ -43,8 +43,32 @@ setting up, or a warning or error icon:
    rusty-tiles quality, threads and memory; **Last Build** summarises the last publish and offers a
    local **Preview** if the rusty-tiles CLI and a Cesium runtime are set in
    preferences. A 10M-triangle textured scene publishes in about 20 minutes on
-   a 20-core desktop.
+   a 20-core desktop. A profile whose **Format** is `.glb` exports the
+   metadata GLB instead (below), through the same checks, with **Export
+   site.glb**.
 6. **About** (closed by default): the extension and rusty-tiles versions.
+
+### GLB with metadata
+
+Besides the tileset, GeoTools writes one standard glTF 2.0 GLB of the source
+collection that any glTF tool opens, with the objects and layers as glTF
+metadata, the same metadata 3D Tiles 1.1 uses: a `.glb` build profile, or
+**File > Export > GeoTools GLB with metadata**.
+
+- Every object is a feature (`EXT_mesh_features`) with a row in a property
+  table: its name and a persistent id that survives renames and saves.
+- Face and corner layers are vertex attributes (`EXT_structural_metadata`
+  property attributes), or with **Face Table** a per-face feature ID set and
+  property table, so each face can be picked and queried. Texture layers are
+  property textures, the float values packed losslessly into PNGs. Category
+  layers become enums, and units, no-data and value ranges are in the schema.
+- Positions stay local, so the file opens in the right place in any tool. The
+  CRS, offsets and the origin on Earth are recorded as XMP metadata
+  (`KHR_xmp_json_ld`). **Earth-Placed** also puts the local-to-ECEF transform
+  on the root node, for geospatial viewers such as CesiumJS.
+
+It is a separate file from the plain source GLB rusty-tiles tiles. See
+[docs/design/m4-glb-metadata.md](docs/design/m4-glb-metadata.md).
 
 ## Coming next
 
@@ -52,8 +76,6 @@ The plan is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 - M3: layers computed by Geometry Nodes or stored on the mesh, and baking
   attributes to texture space.
-- M4: GLB export with object and layer metadata (`EXT_mesh_features`,
-  `EXT_structural_metadata`).
 - M5: analysis tools rebuilt on the bake engine.
 - M6: texture painting and cleanup.
 - M7: open output tiles in Blender and check their quality.
