@@ -99,7 +99,8 @@ The plan is in [docs/ROADMAP.md](docs/ROADMAP.md).
 ## Requirements
 
 - Blender 5.2 LTS. Only the latest Blender release is supported.
-- Linux x64, Windows x64, macOS arm64 or macOS x64.
+- Linux x64, Windows x64 or macOS arm64 (Apple silicon; Blender 5.x has no
+  Intel macOS build).
 - On macOS, macOS 15 or later. The rusty-tiles wheels are built for that.
 
 Nothing else. rusty-tiles and pyproj (with PROJ, no GDAL) are bundled in the

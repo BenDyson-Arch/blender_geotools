@@ -87,8 +87,7 @@ directory, for example a rusty-tiles `dist/` folder:
 python scripts/fetch_wheels.py --from-dir rusty-tiles=/path/to/rusty-tiles/dist --platform linux-x64
 ```
 
-`--platform` takes any of `linux-x64`, `windows-x64`, `macos-arm64` and
-`macos-x64`. Repeat it or separate names with commas. Without it the script
+`--platform` takes any of `linux-x64`, `windows-x64` and `macos-arm64`. Repeat it or separate names with commas. Without it the script
 fetches every platform in `pyproject.toml`.
 
 A locally built Linux wheel is often tagged `linux_x86_64` rather than
@@ -160,8 +159,8 @@ builds only those and says so. Use `--out DIR` to write elsewhere. Use
 for a local Blender that is not on CPython 3.13 (see above). The repository
 manifest is never changed.
 
-A platform zip carries about 10 MB of pyproj on Linux, 6.7 MB on Windows,
-5.0 MB on macOS arm64 and 6.1 MB on macOS x64, on top of rusty-tiles.
+A platform zip carries about 10 MB of pyproj on Linux, 6.7 MB on Windows
+and 5.0 MB on macOS arm64, on top of rusty-tiles.
 
 `--blender` defaults to `blender` on `PATH`.
 
