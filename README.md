@@ -50,12 +50,14 @@ The plan is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 - M3: layers, and baking Geometry Nodes and attributes to vertex or texture
   space.
-- M4: analysis tools rebuilt on the bake engine.
-- M5: texture painting and cleanup.
-- M6: open output tiles in Blender and check their quality.
-- M7: vector layers from GeoPackage.
-- M8: queryable metadata without retiling (needs rusty-tiles 0.5).
-- M9: large sites and texture-only rebuilds.
+- M4: GLB export with object and layer metadata (`EXT_mesh_features`,
+  `EXT_structural_metadata`).
+- M5: analysis tools rebuilt on the bake engine.
+- M6: texture painting and cleanup.
+- M7: open output tiles in Blender and check their quality.
+- M8: vector layers from GeoPackage.
+- M9: queryable metadata without retiling (needs rusty-tiles 0.5).
+- M10: large sites and texture-only rebuilds.
 
 ## Requirements
 

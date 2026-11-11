@@ -8,7 +8,7 @@ first, then in code.
 
 A **layer** is a named, typed value that lives on the source: one value per
 face, per face corner, or per texel. Layers come from Geometry Nodes, from
-analysis tools (M4) or from the user. M3 provides:
+analysis tools (M5) or from the user. M3 provides:
 
 1. the **layer registry**, stored in the `.blend`;
 2. **vertex-space bakes**: freeze a Geometry Nodes output into a stored source
@@ -19,7 +19,7 @@ analysis tools (M4) or from the user. M3 provides:
    COLOR_0, or an 8-bit texture in the base-colour or emissive slot) and
    publishes it as a **variant tileset** such as `site.slope.3tz`.
 
-rusty-tiles 0.4.0 publishes no custom attributes, so until M8 a layer reaches a
+rusty-tiles 0.4.0 publishes no custom attributes, so until M9 a layer reaches a
 tileset only through presentation. The registry still records everything the
 0.5 annotate pass will need (units, no-data, aggregation).
 
@@ -394,7 +394,7 @@ for CATEGORY, one colour per category.
   placement, same checks, and the variant is recorded in `build.json`.
 
 A variant is an ordinary 3D Tiles archive: no values sidecar or other
-non-standard output (the values themselves wait for the M8 metadata).
+non-standard output (the values themselves wait for the M9 metadata).
 
 ### Settled while building stream 4
 
