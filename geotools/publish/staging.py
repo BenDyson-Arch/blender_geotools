@@ -9,6 +9,8 @@ and moved onto the output once it is complete.
 
     .lock              held by the one job building this output (see StagingLock)
     source.glb         the exact rusty-tiles input of the last successful build
+    vectors.gpkg       the same for a vector build (M8): the GeoPackage that
+                       ``vector_to_3tz`` tiled
     facemap.npz        its face map (core.facemap)
     report.json        rusty-tiles' full report (TilerResult.report)
     diagnostics.json   rusty-tiles' runtime diagnostics (TilerResult.diagnostics)
@@ -37,6 +39,8 @@ from typing import Self
 STAGING_SUFFIX = ".geotools"
 LOCK_NAME = ".lock"
 GLB_NAME = "source.glb"
+VECTORS_NAME = "vectors.gpkg"
+PREVIOUS_NAME = "previous.3tz"  # in work/: the reuse baseline of a vector build
 FACEMAP_NAME = "facemap.npz"
 REPORT_NAME = "report.json"
 DIAGNOSTICS_NAME = "diagnostics.json"
@@ -49,7 +53,14 @@ PREVIEW_DIR = "preview"
 
 # Promoted from work/ into the staging directory after a successful build, in
 # this order; build.json is written after them.
-PROMOTED_FILES = (GLB_NAME, FACEMAP_NAME, REPORT_NAME, DIAGNOSTICS_NAME, VALIDATION_NAME)
+PROMOTED_FILES = (
+    GLB_NAME,
+    VECTORS_NAME,
+    FACEMAP_NAME,
+    REPORT_NAME,
+    DIAGNOSTICS_NAME,
+    VALIDATION_NAME,
+)
 
 
 OUTPUT_SUFFIXES = (".3tz", ".glb")
