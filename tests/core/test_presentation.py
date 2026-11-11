@@ -47,8 +47,9 @@ def test_variant_output_and_its_staging_dir(tmp_path: Path) -> None:
     for bad in ("", "a/b", "a.b", " slope"):
         with pytest.raises(ValueError):
             variant_output(output, bad)
+    assert variant_output(tmp_path / "site.glb", "slope") == tmp_path / "site.slope.glb"
     with pytest.raises(ValueError):
-        variant_output(tmp_path / "site.glb", "slope")
+        variant_output(tmp_path / "site.obj", "slope")
 
 
 def test_presentation_issues() -> None:

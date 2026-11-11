@@ -7,5 +7,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+for path in (REPO_ROOT, REPO_ROOT / "tests"):  # tests/: glbcheck, shared with the Blender suite
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))

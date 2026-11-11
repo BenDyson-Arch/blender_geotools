@@ -13,6 +13,9 @@ It writes, in ``--out``:
   sidebar scrolled top to bottom and the strips put side by side;
 * ``montage_texture.png``: the same with the texture layer selected (after
   ``montage``, so it needs it);
+* ``montage_glb.png``: the same with the second build profile selected, a
+  ``.glb`` profile (the metadata GLB, with the face table), exported once
+  (after ``montage``, so it needs it);
 * ``state_empty.png``, ``state_mid.png``, ``state_ready.png``: what a user
   sees with the default open and closed panels, for an empty project, one
   half set up (placed, a source, an empty layer) and the full demo scene.
@@ -59,7 +62,7 @@ try:
 except ImportError:
     INSIDE_BLENDER = False
 
-STATES = ("empty", "mid", "ready", "montage", "texture")
+STATES = ("empty", "mid", "ready", "montage", "texture", "glb")
 WINDOW = (1800, 1350)
 GUI_TIMEOUT = 300  # seconds
 MONTAGE_WORKSPACE = "Modeling"  # a factory workspace with a 3D Viewport
@@ -494,6 +497,13 @@ def inner_main(argv: list[str]) -> None:
         profile.name = "Site"
         profile.output_path = bpy.path.abspath("//site.3tz")  # beside the temporary demo.blend
         profile.variant_layer = "slope"
+        bpy.ops.geotools.build_profile_add()
+        glb = props.build_profiles[1]
+        glb.name = "Site GLB"
+        glb.output_path = bpy.path.abspath("//site.glb")
+        glb.output_type = "GLB"
+        glb.glb_face_table = True
+        props.build_profile_index = 0
         run_op(bpy.ops.geotools.run_checks)
         linked_dem()
         linked_contexts()
@@ -606,6 +616,19 @@ def inner_main(argv: list[str]) -> None:
             props.layers_index = list(props.layers.keys()).index("shade")
             yield 1.0
             yield from capture("montage_texture")
+        if "glb" in states and "montage" in states:
+            props = bpy.context.scene.geotools
+            props.layers_index = 0
+            props.build_profile_index = 1
+            props.build_profiles[1].overwrite = True
+            run_op(bpy.ops.geotools.publish)
+            publish = mod("blender.publish")
+            for _ in range(240):
+                yield 0.25
+                if not publish.is_running():
+                    break
+            yield 1.0
+            yield from capture("montage_glb")
 
     steps = run()
 

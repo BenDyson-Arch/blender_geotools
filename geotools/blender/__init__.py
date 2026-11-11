@@ -14,6 +14,7 @@ from . import (
     bake_texture,
     checks,
     data_origin,
+    glb_export,
     layers,
     links,
     operators,
@@ -45,6 +46,7 @@ MODULES: tuple[ModuleType, ...] = (
     profiles,
     layers,
     presentation,
+    glb_export,
     publish,
     bake_texture,
     panels,  # last: the sidebar draws what the modules above register

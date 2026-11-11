@@ -1,7 +1,11 @@
 """The staging directory beside a published archive, and its lock.
 
 bpy-free. For an output ``<dir>/<name>.3tz`` the staging directory is
-``<dir>/<name>.geotools/``:
+``<dir>/<name>.geotools/``; for a metadata GLB ``<dir>/<name>.glb`` (a ``.glb``
+build profile, M4) it is ``<dir>/<name>.glb.geotools/``, so a ``.3tz`` and a
+``.glb`` of the same name keep separate records. A ``.glb`` staging directory
+holds only ``facemap.npz`` and ``build.json``; the GLB is written in ``work/``
+and moved onto the output once it is complete.
 
     .lock              held by the one job building this output (see StagingLock)
     source.glb         the exact rusty-tiles input of the last successful build
@@ -48,17 +52,22 @@ PREVIEW_DIR = "preview"
 PROMOTED_FILES = (GLB_NAME, FACEMAP_NAME, REPORT_NAME, DIAGNOSTICS_NAME, VALIDATION_NAME)
 
 
+OUTPUT_SUFFIXES = (".3tz", ".glb")
+
+
 def check_output(output: Path) -> Path:
-    """The absolute output path; ValueError unless it names a ``.3tz`` file."""
+    """The absolute output path; ValueError unless it names a ``.3tz`` or ``.glb`` file."""
     output = Path(output)
-    if output.suffix != ".3tz" or not output.stem:
-        raise ValueError(f"the output must be a .3tz file, got {str(output)!r}")
+    if output.suffix not in OUTPUT_SUFFIXES or not output.stem:
+        raise ValueError(f"the output must be a .3tz or .glb file, got {str(output)!r}")
     return Path(os.path.abspath(output))
 
 
 def staging_dir_for(output: Path) -> Path:
-    """``<dir>/<name>.geotools`` for ``<dir>/<name>.3tz``."""
+    """``<dir>/<name>.geotools`` for ``<dir>/<name>.3tz``, ``<name>.glb.geotools`` for a GLB."""
     output = check_output(output)
+    if output.suffix == ".glb":
+        return output.with_name(output.name + STAGING_SUFFIX)
     return output.with_name(output.stem + STAGING_SUFFIX)
 
 

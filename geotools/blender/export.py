@@ -122,6 +122,34 @@ written changes:
 ``gt_present``, the colour attribute the Write Colours button paints for a
 viewport preview, is never published: COLOR_0 skips it even when it is the
 render or active colour attribute, and a COLOR_0 presentation does not read it.
+
+Metadata (the M4 metadata GLB)
+------------------------------
+``extract_scene(..., metadata=Metadata(...))`` adds what ``core.gltf_metadata``
+needs, as custom vertex attributes on every primitive (the plain export never
+writes them):
+
+* ``_FEATURE_ID_0``: the object's index in ``SceneExport.object_names``;
+* with ``Metadata.face_table``, ``_FEATURE_ID_1``: the face's row in the face
+  table (objects in order, each object's exported faces in order). It is also a
+  weld source, so vertices are shared only within a face;
+* each of ``Metadata.vertex_layers``: the values in ``Metadata.values``
+  (object name -> one value per face or corner of the exported mesh, read by
+  ``blender.glb_export`` from the same evaluated meshes), as the layer's
+  attribute type (``core.gltf_metadata.layer_attribute_values``). FACE values
+  repeat on the face's corners. They are weld sources too, so corners with
+  different values never become one vertex. An object without values gets the
+  layer's fill value; values whose count is not the mesh's are an
+  ``ExportError``.
+
+With ``Metadata.per_object`` (texture layers: every object has its own layer
+images, and a primitive refers to one property texture) primitives are split
+by object as well as by material and layout, and ``Metadata.texture_uv``
+names the UV maps each object's layer images use; they are put in the
+texcoord sets (an ``ExportError`` if the material already uses two others).
+``PrimitiveData.texcoord_names`` then says which map each set is.
+``Metadata.stats`` receives the face counts per object and, with the face
+table, the vertex count the export would have without it.
 """
 
 from __future__ import annotations
@@ -140,6 +168,7 @@ import numpy as np
 
 from ..core import gltf_writer
 from ..core.facemap import topology_digest
+from ..core.gltf_metadata import FACE_FEATURE_ID, OBJECT_FEATURE_ID, layer_attribute_values
 from ..core.gltf_writer import (
     ExportError,
     ImageData,
@@ -149,6 +178,8 @@ from ..core.gltf_writer import (
     TextureRef,
 )
 from ..core.images import ImageRemedy, RemedyKind, scaled_size
+from ..core.layers import Domain, LayerSpec, fill_value
+from ..core.metadata_schema import attribute_semantic
 from ..core.presentation import PRESENT_ATTRIBUTE, Blend, Target
 from ..core.ramps import srgb_bytes_to_linear
 from . import nodes
@@ -202,6 +233,32 @@ class Presentation:
         return self.target is not Target.COLOR_0
 
 
+@dataclass(frozen=True, slots=True, eq=False)
+class Metadata:
+    """What the metadata GLB adds to the export; see "Metadata" in the module docstring."""
+
+    vertex_layers: tuple[LayerSpec, ...] = ()
+    """FACE and CORNER layers written as vertex attributes."""
+    values: Mapping[str, Mapping[str, np.ndarray]] = field(default_factory=dict)
+    """Layer name -> object name -> values, one per face (FACE) or corner (CORNER)."""
+    face_table: bool = False
+    """Write ``_FEATURE_ID_1`` (the face table's row) and share vertices only within a face."""
+    per_object: bool = False
+    """One primitive per object (and material and layout), for property textures."""
+    texture_uv: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    """Object name -> UV maps its texture layers use ("" for the render UV map)."""
+    stats: dict = field(default_factory=dict)
+    """Filled by the export: ``face_counts`` (per object, in order), ``vertices``
+    and, with the face table, ``vertices_without_face_table``."""
+
+
+def render_uv_name(mesh: bpy.types.Mesh) -> str | None:
+    """The UV map an unconnected Image Texture samples: the render map, else the first."""
+    layers = list(mesh.uv_layers)
+    render = next((layer.name for layer in layers if layer.active_render), None)
+    return render or (layers[0].name if layers else None)
+
+
 def extract_scene(
     context: bpy.types.Context,
     collection: bpy.types.Collection,
@@ -210,6 +267,7 @@ def extract_scene(
     remedies: list[dict] | None = None,
     presentation: Presentation | None = None,
     apply_modifiers: bool = True,
+    metadata: Metadata | None = None,
 ) -> tuple[SceneExport, dict[str, str]]:
     """The collection's mesh objects as a ``SceneExport``, plus object name ->
     topology digest (prefixed ``"evaluated:"`` when polygon indices refer to the
@@ -220,7 +278,8 @@ def extract_scene(
     With ``presentation``, that layer presentation is published in place of the
     user's colours (see "Presentation" in the module docstring). With
     ``apply_modifiers`` False the original meshes are exported, without their
-    modifiers."""
+    modifiers. With ``metadata``, the feature ID and layer attributes of the
+    metadata GLB are added (see "Metadata")."""
     objects = sorted((o for o in collection.all_objects if o.type == "MESH"), key=lambda o: o.name)
     _sync_edit_mode(context, objects)
     depsgraph = context.evaluated_depsgraph_get()
@@ -228,10 +287,13 @@ def extract_scene(
     materials = _MaterialTable(Path(image_dir), presentation)
     groups: dict[tuple[int | None, _Layout], list[_Chunk]] = {}
     topology: dict[str, str] = {}
+    meta = _MetaState(metadata) if metadata is not None else None
     for index, obj in enumerate(objects):
         topology[obj.name] = _extract_object(
-            obj, index, depsgraph, materials, groups, presentation, apply_modifiers
+            obj, index, depsgraph, materials, groups, presentation, apply_modifiers, meta
         )
+    if meta is not None:
+        metadata.stats.update(meta.stats())
 
     def order(key: tuple[int | None, _Layout]) -> tuple:
         material, layout = key
@@ -997,6 +1059,31 @@ class _Layout:
     texcoords: int
     color: bool
     tangents: bool
+    owner: int = -1  # the object, when primitives are per object (metadata textures)
+
+
+class _MetaState:
+    """Running state of a metadata export: face offsets and vertex counts."""
+
+    def __init__(self, metadata: Metadata) -> None:
+        self.metadata = metadata
+        self.face_counts: list[int] = []
+        self.face_offset = 0  # faces of the objects before this one
+        self.vertices = 0
+        self.vertices_plain = 0
+
+    def add_object(self, faces: int) -> int:
+        """Count an object's faces; returns its first face table row."""
+        first = self.face_offset
+        self.face_counts.append(faces)
+        self.face_offset += faces
+        return first
+
+    def stats(self) -> dict:
+        out: dict = {"face_counts": list(self.face_counts), "vertices": self.vertices}
+        if self.metadata.face_table:
+            out["vertices_without_face_table"] = self.vertices_plain
+        return out
 
 
 @dataclass(frozen=True, slots=True)
@@ -1009,6 +1096,8 @@ class _Chunk:
     indices: np.ndarray
     source_object: int
     source_polygon: np.ndarray
+    custom: tuple[tuple[str, np.ndarray], ...] = ()
+    texcoord_names: tuple[str, ...] = ()
 
 
 class _ObjectData:
@@ -1197,6 +1286,7 @@ def _extract_object(
     groups: dict[tuple[int | None, _Layout], list[_Chunk]],
     presentation: Presentation | None = None,
     apply_modifiers: bool = True,
+    meta: _MetaState | None = None,
 ) -> str:
     evaluated = obj.evaluated_get(depsgraph)
     # Without Apply Modifiers, the original object's to_mesh(): a copy of its own
@@ -1205,11 +1295,13 @@ def _extract_object(
     mesh = owner.to_mesh()
     try:
         digest = mesh_topology_digest(obj.data, mesh)
+        face_offset = meta.add_object(len(mesh.polygons)) if meta is not None else 0
         if len(mesh.polygons) == 0:
             return digest
         data = _ObjectData(evaluated, mesh, presentation)
         if data.tri_verts.shape[0] == 0:
             return digest
+        extra = _metadata_sources(obj, mesh, obj_index, face_offset, meta)
 
         # Material of each triangle; Blender clamps material_index to the last slot.
         # A texture presentation gives each object its own materials, and a white
@@ -1242,11 +1334,66 @@ def _extract_object(
             material = None if key < 0 else key
             info = None if material is None else materials.infos[material]
             name = "" if info is None else info.data.name
-            layout, chunk = _chunk(data, obj_index, selection, info, name)
+            layout, chunk = _chunk(data, obj_index, selection, info, name, extra, meta)
             groups.setdefault((material, layout), []).append(chunk)
         return digest
     finally:
         owner.to_mesh_clear()
+
+
+@dataclass(frozen=True, slots=True)
+class _Extra:
+    """One metadata attribute of an object: per-face (FACE) or per-corner values."""
+
+    name: str
+    weld: np.ndarray  # float32, compared bit for bit by the weld
+    values: np.ndarray  # the attribute's own dtype, same rows as ``weld``
+    domain: str  # "FACE", "CORNER" or "CONSTANT" (one row)
+    is_face_id: bool = False
+
+
+def _metadata_sources(
+    obj: bpy.types.Object,
+    mesh: bpy.types.Mesh,
+    obj_index: int,
+    face_offset: int,
+    meta: _MetaState | None,
+) -> list[_Extra]:
+    """The metadata attributes of one exported mesh (see "Metadata")."""
+    if meta is None:
+        return []
+    metadata = meta.metadata
+    extras = [
+        _Extra(
+            OBJECT_FEATURE_ID,
+            np.array([obj_index], np.float32),
+            np.array([obj_index], np.float32),
+            "CONSTANT",
+        )
+    ]
+    faces, corners = len(mesh.polygons), len(mesh.loops)
+    if metadata.face_table:
+        ids = np.arange(face_offset, face_offset + faces, dtype=np.float32)
+        extras.append(_Extra(FACE_FEATURE_ID, ids, ids, "FACE", is_face_id=True))
+    for spec in metadata.vertex_layers:
+        domain = Domain(spec.domain).value
+        values = metadata.values.get(spec.name, {}).get(obj.name)
+        if values is None:
+            raw = np.array([fill_value(spec)])
+            domain = "CONSTANT"
+        else:
+            raw = np.asarray(values)
+            count = faces if domain == "FACE" else corners
+            if raw.shape != (count,):
+                what = "faces" if domain == "FACE" else "corners"
+                raise ExportError(
+                    f"Object {obj.name!r}: layer {spec.name} has {raw.shape[0]} values but the "
+                    f"exported mesh has {count} {what}; the mesh changed after they were read. "
+                    "Export again."
+                )
+        typed = layer_attribute_values(raw, spec)
+        extras.append(_Extra(attribute_semantic(spec), typed.astype(np.float32), typed, domain))
+    return extras
 
 
 def _chunk(
@@ -1255,6 +1402,8 @@ def _chunk(
     selection: np.ndarray | None,
     info: _MaterialInfo | None,
     material_name: str,
+    extras: list[_Extra] | None = None,
+    meta: _MetaState | None = None,
 ) -> tuple[_Layout, _Chunk]:
     """Weld the triangles ``selection`` (None = all) of one object into a chunk."""
 
@@ -1270,6 +1419,8 @@ def _chunk(
 
     sources = [_Source(data.normals, loops)]
     uv_names = data.texcoord_names(info, material_name)
+    if meta is not None:
+        uv_names = _with_texture_uvs(data, uv_names, meta.metadata, material_name)
     sources += [_Source(data.uv(name), loops) for name in uv_names]
 
     color_src = None
@@ -1306,7 +1457,21 @@ def _chunk(
         tangent_src = _Source(values, index)
         sources.append(tangent_src)
 
-    first, inverse = weld(vertex, sources)
+    extra_sources: list[tuple[_Extra, _Source]] = []
+    if extras:
+        indices = {
+            "FACE": np.repeat(tri_poly, 3),
+            "CORNER": loops,
+            "CONSTANT": np.zeros(vertex.shape[0], dtype=np.int64),
+        }
+        extra_sources = [(e, _Source(e.weld, indices[e.domain])) for e in extras]
+    plain_sources = sources + [s for e, s in extra_sources if not e.is_face_id]
+    first, inverse = weld(vertex, sources + [s for _e, s in extra_sources])
+    if meta is not None:
+        meta.vertices += int(first.shape[0])
+        if meta.metadata.face_table:
+            meta.vertices_plain += int(weld(vertex, plain_sources)[0].shape[0])
+    custom = tuple((e.name, e.values[s.index[first]]) for e, s in extra_sources)
     chunk = _Chunk(
         positions=data.positions[vertex[first]],
         normals=data.normals[loops[first]],
@@ -1316,9 +1481,37 @@ def _chunk(
         indices=inverse.reshape(tri_count, 3),
         source_object=obj_index,
         source_polygon=np.ascontiguousarray(tri_poly, dtype=np.int32),
+        custom=custom,
+        texcoord_names=tuple(uv_names),
     )
-    layout = _Layout(len(uv_names), color_src is not None, tangent_src is not None)
+    owner = obj_index if meta is not None and meta.metadata.per_object else -1
+    layout = _Layout(len(uv_names), color_src is not None, tangent_src is not None, owner)
     return layout, chunk
+
+
+def _with_texture_uvs(
+    data: _ObjectData, uv_names: list[str], metadata: Metadata, material_name: str
+) -> list[str]:
+    """``uv_names`` with the UV maps of the object's texture layers added."""
+    names = list(uv_names)
+    for ref in metadata.texture_uv.get(data.obj.name, ()):
+        name = ref or data.render_uv
+        if name is None or name not in data.uv_names:
+            what = f"UV map {ref!r}" if ref else "a UV map"
+            raise ExportError(
+                f"A texture layer of object {data.obj.name!r} uses {what}, which the object "
+                "does not have."
+            )
+        if name in names:
+            continue
+        if len(names) >= MAX_TEXCOORDS:
+            raise ExportError(
+                f"Object {data.obj.name!r}: material {material_name!r} uses UV maps "
+                f"{', '.join(names)}, so the texture layers' map {name!r} would be a third; "
+                f"the GLB writer allows {MAX_TEXCOORDS}."
+            )
+        names.append(name)
+    return names
 
 
 def _merge(material: int | None, chunks: list[_Chunk]) -> PrimitiveData:
@@ -1339,6 +1532,10 @@ def _merge(material: int | None, chunks: list[_Chunk]) -> PrimitiveData:
     source_object = np.repeat(
         np.array([c.source_object for c in chunks], dtype=np.int32), triangles
     )
+    custom = tuple(
+        (name, cat([c.custom[i][1] for c in chunks])) for i, (name, _v) in enumerate(first.custom)
+    )
+    same = all(c.texcoord_names == first.texcoord_names for c in chunks)
     return PrimitiveData(
         material=material,
         positions=cat([c.positions for c in chunks]),
@@ -1349,4 +1546,6 @@ def _merge(material: int | None, chunks: list[_Chunk]) -> PrimitiveData:
         color=None if first.color is None else cat([c.color for c in chunks]),
         source_object=source_object,
         source_polygon=cat([c.source_polygon for c in chunks]),
+        custom_attributes=custom,
+        texcoord_names=first.texcoord_names if same else (),
     )
