@@ -664,7 +664,7 @@ class GEOTOOLS_OT_layer_add(bpy.types.Operator):
     def invoke(self, context: bpy.types.Context, event: bpy.types.Event) -> set[str]:
         if not self.name:
             self.name = unique_layer_name(context.scene.geotools.layers)
-        return context.window_manager.invoke_props_dialog(self)
+        return context.window_manager.invoke_props_dialog(self, confirm_text="Add")
 
     def execute(self, context: bpy.types.Context) -> set[str]:
         props = context.scene.geotools
@@ -701,7 +701,7 @@ class GEOTOOLS_OT_layer_remove(bpy.types.Operator):
         return _active_layer_poll(cls, context, object_mode=True)
 
     def invoke(self, context: bpy.types.Context, event: bpy.types.Event) -> set[str]:
-        return context.window_manager.invoke_props_dialog(self)
+        return context.window_manager.invoke_props_dialog(self, confirm_text="Remove")
 
     def draw(self, context: bpy.types.Context) -> None:
         item = _active_layer(context)
@@ -755,7 +755,7 @@ class GEOTOOLS_OT_layer_rename(bpy.types.Operator):
 
     def invoke(self, context: bpy.types.Context, event: bpy.types.Event) -> set[str]:
         self.new_name = _active_layer(context).name
-        return context.window_manager.invoke_props_dialog(self)
+        return context.window_manager.invoke_props_dialog(self, confirm_text="Rename")
 
     def execute(self, context: bpy.types.Context) -> set[str]:
         scene = context.scene
@@ -867,7 +867,7 @@ class GEOTOOLS_OT_layer_set_categories(bpy.types.Operator):
 
     def invoke(self, context: bpy.types.Context, event: bpy.types.Event) -> set[str]:
         self.labels = ", ".join(parse_categories(_active_layer(context).categories))
-        return context.window_manager.invoke_props_dialog(self, width=400)
+        return context.window_manager.invoke_props_dialog(self, width=400, confirm_text="Set")
 
     def execute(self, context: bpy.types.Context) -> set[str]:
         item = _active_layer(context)

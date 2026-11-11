@@ -145,15 +145,11 @@ def test_verify_placement_matches_core_probe() -> None:
     print(f"    origin: {got}, operation {props.probe_operation!r}")
     # Somewhere near Brisbane (UTM 56S), as a sanity check.
     assert 152.0 < got[0] < 154.0 and -28.0 < got[1] < -27.0, got
-    labels = [
-        t for t, _i in h.labels(h.draw(h.submodule("blender.panels").GEOTOOLS_PT_project))
-    ]
+    labels = [t for t, _i in h.labels(h.draw(h.submodule("blender.panels").GEOTOOLS_PT_project))]
     assert f"{got[0]:.7f}°" in labels, labels
     assert "Placement changed; verify again" not in labels
     p.write_number(props, "source_offset_n", 6961001.0)
-    labels = [
-        t for t, _i in h.labels(h.draw(h.submodule("blender.panels").GEOTOOLS_PT_project))
-    ]
+    labels = [t for t, _i in h.labels(h.draw(h.submodule("blender.panels").GEOTOOLS_PT_project))]
     assert "Placement changed; verify again" in labels, labels
 
 

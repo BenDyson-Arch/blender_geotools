@@ -532,7 +532,11 @@ def test_panel_draws_without_layers() -> None:
     assert ("template_list", "GEOTOOLS_UL_layers", "NONE") in calls, calls
     assert ("operator", "geotools.layer_add", "ADD") in calls
     assert "No layers yet" in h.label_text(calls), calls
-    for name in ("GEOTOOLS_PT_layers_bake", "GEOTOOLS_PT_layers_display", "GEOTOOLS_PT_layers_details"):
+    for name in (
+        "GEOTOOLS_PT_layers_bake",
+        "GEOTOOLS_PT_layers_display",
+        "GEOTOOLS_PT_layers_details",
+    ):
         assert not _panel(name).poll(bpy.context), name
 
 

@@ -543,7 +543,11 @@ class GEOTOOLS_OT_bake_texture_layer(bpy.types.Operator):
         return True
 
     def invoke(self, context: bpy.types.Context, event: bpy.types.Event) -> set[str]:
-        return context.window_manager.invoke_props_dialog(self, width=360)
+        item = _target_layer(context, self.layer)
+        title = f"Bake {item.name}" if item is not None else "Bake Texture Layer"
+        return context.window_manager.invoke_props_dialog(
+            self, width=360, title=title, confirm_text="Bake"
+        )
 
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout

@@ -9,8 +9,10 @@ your screen for about 20 seconds.
 It writes, in ``--out``:
 
 * ``montage.png``: every panel open (DEFAULT_CLOSED ignored), the demo scene
-  ready to publish, the sidebar scrolled top to bottom and the strips put side
-  by side;
+  published once (when rusty-tiles is bundled, so Last Build shows), the
+  sidebar scrolled top to bottom and the strips put side by side;
+* ``montage_texture.png``: the same with the texture layer selected (after
+  ``montage``, so it needs it);
 * ``state_empty.png``, ``state_mid.png``, ``state_ready.png``: what a user
   sees with the default open and closed panels, for an empty project, one
   half set up (placed, a source, an unbaked layer) and the full demo scene.
@@ -54,7 +56,7 @@ try:
 except ImportError:
     INSIDE_BLENDER = False
 
-STATES = ("empty", "mid", "ready", "montage")
+STATES = ("empty", "mid", "ready", "montage", "texture")
 WINDOW = (1800, 1350)
 GUI_TIMEOUT = 300  # seconds
 MONTAGE_WORKSPACE = "Modeling"  # a factory workspace with a 3D Viewport
@@ -491,7 +493,7 @@ def inner_main(argv: list[str]) -> None:
         bpy.ops.geotools.build_profile_add()
         profile = props.build_profiles[0]
         profile.name = "Site"
-        profile.output_path = str(out / "site.3tz")
+        profile.output_path = bpy.path.abspath("//site.3tz")  # beside the temporary demo.blend
         profile.variant_layer = "slope"
         run_op(bpy.ops.geotools.run_checks)
         if "gt_present" in mesh.color_attributes:
@@ -503,6 +505,23 @@ def inner_main(argv: list[str]) -> None:
         reset()
 
     builders = {"empty": build_empty, "mid": build_mid, "ready": build_ready}
+
+    def publish_demo():
+        """Publish the plain tileset, so Last Build has something to show."""
+        if not mod("core.deps").probe_rusty_tiles().available:
+            print("UI-SHOTS publish skipped: rusty-tiles is not bundled", flush=True)
+            return
+        props = bpy.context.scene.geotools
+        profile = props.build_profiles[0]
+        variant, profile.variant_layer = profile.variant_layer, ""
+        profile.overwrite = True
+        run_op(bpy.ops.geotools.publish)
+        publish = mod("blender.publish")
+        for _ in range(240):
+            yield 0.25
+            if not publish.is_running():
+                break
+        profile.variant_layer = variant
 
     # -- the run ---------------------------------------------------------------------------
 
@@ -534,8 +553,14 @@ def inner_main(argv: list[str]) -> None:
             yield 1.0
             hide_other_tabs()
             prepare_view()
+            yield from publish_demo()
             yield 1.0
             yield from capture("montage")
+        if "texture" in states and "montage" in states:
+            props = bpy.context.scene.geotools
+            props.layers_index = list(props.layers.keys()).index("shade")
+            yield 1.0
+            yield from capture("montage_texture")
 
     steps = run()
 

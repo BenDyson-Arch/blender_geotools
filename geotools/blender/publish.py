@@ -704,8 +704,9 @@ def draw_progress(
 def draw_end_status(
     layout: bpy.types.UILayout, context: bpy.types.Context, status_: GeoToolsPublishStatus | None
 ) -> None:
-    """The outcome of the last publish this session, if it ended with a message."""
-    if status_ is None or status_.state not in _END_ICONS or not status_.message:
+    """Why the last publish this session failed or was cancelled (a success shows in
+    Last Build)."""
+    if status_ is None or status_.state not in {"FAILED", "CANCELLED"} or not status_.message:
         return
     box = layout.box()
     box.alert = status_.state == "FAILED"

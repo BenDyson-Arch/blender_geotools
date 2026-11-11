@@ -10,24 +10,39 @@ more.
 
 ## State
 
-The rebuild has reached milestone M2 (publish). In the 3D Viewport sidebar
-(**GeoTools** tab) the extension can:
+The rebuild has reached milestone M2 (publish), and work on M3 (layers and
+bakes) is under way. The extension lives in the 3D Viewport sidebar (N),
+**GeoTools** tab. Its panels follow the workflow from top to bottom. Each
+panel header shows a tick when that step is done, a circle when it still needs
+setting up, or a warning or error icon:
 
-- **Place the project:** local metres, a WGS84 anchor with a heading, or a
-  source CRS with an E/N/A offset and a height offset. GDA2020 MGA and NZTM are
-  available as presets. Offsets are stored at full double precision.
-- **Ingest a source mesh:** GLB, glTF, OBJ or PLY goes into a source collection.
-- **Run checks** against rusty-tiles' mesh input rules, with one-click,
-  opt-in fixes for oversize or 16-bit images.
-- **Verify placement:** rusty-tiles reports where the source lands on Earth, or
-  why it refuses the CRS, before any build.
-- **Publish** the source collection (modifiers and Geometry Nodes applied) to a
-  validated `.3tz` with progress and cancel. Each build writes the source GLB,
-  a face map from output triangles back to Blender faces, and a build record
-  next to the archive. A 10M-triangle textured scene publishes in about 20
-  minutes on a 20-core desktop.
-- **Preview** the output locally if the rusty-tiles CLI and a Cesium runtime are
-  set in preferences.
+1. **Project:** place the project on Earth: local metres, a WGS84 anchor with a
+   heading, or a source CRS with an E/N/A offset and a height offset. GDA2020
+   MGA and NZTM are presets, shown by name; the PROJ definition and the datum
+   note are in **CRS Details** and the tooltip. Offsets are stored at full
+   double precision. **Verify Placement** asks rusty-tiles where the source
+   lands on Earth, or why it refuses the CRS, before any build.
+2. **Source:** pick the source collection, or import a GLB, glTF, OBJ or PLY
+   into one. A summary shows its objects, faces and size.
+3. **Layers:** named values per face, face corner or texel. The panel shows the
+   selected layer at a glance (label, units, value range, what is missing).
+   **Bake** fills it from a Geometry Nodes output (face and corner layers) or
+   with a Cycles bake (texture layers); **Display** sets its colour ramp or
+   category colours for a variant tileset; **Details** holds no-data, origin,
+   aggregation and notes.
+4. **Checks:** run the checks against rusty-tiles' mesh input rules, with
+   one-click, opt-in fixes for oversize or 16-bit images.
+5. **Publish:** pick a build profile and its output, optionally a **Variant**
+   layer, and press **Publish**. It writes `site.3tz`, or `site.<layer>.3tz`
+   for a variant, with the source collection's modifiers and Geometry Nodes
+   applied, with progress and cancel. Each build also writes the source GLB, a
+   face map from output triangles back to Blender faces, and a build record
+   next to the archive. **Build Settings** holds the rusty-tiles quality,
+   threads and memory; **Last Build** summarises the last publish and offers a
+   local **Preview** if the rusty-tiles CLI and a Cesium runtime are set in
+   preferences. A 10M-triangle textured scene publishes in about 20 minutes on
+   a 20-core desktop.
+6. **About** (closed by default): the extension and rusty-tiles versions.
 
 ## Coming next
 
@@ -57,8 +72,9 @@ pyproj, GDAL or other package to install.
    `geotools-0.3.0-dev-linux_x64.zip`.
 2. In Blender, open **Edit > Preferences > Get Extensions** and choose
    **Install from Disk**. Or drag the zip into the Blender window.
-3. Open the 3D Viewport sidebar (N) and select the **GeoTools** tab. It should
-   show the rusty-tiles version.
+3. Open the 3D Viewport sidebar (N) and select the **GeoTools** tab. The
+   **About** panel header shows a tick when the bundled rusty-tiles loads; open
+   it to see the version.
 
 There are no releases yet, so you have to build the zip yourself. You need
 Python 3.11 or later and Blender 5.2:
