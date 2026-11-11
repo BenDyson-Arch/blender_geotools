@@ -20,7 +20,8 @@ It writes, in ``--out``:
 The demo scene is a 200 m terrain grid in GDA2020 / MGA zone 56 with a FACE
 layer (``slope``, baked from a Geometry Nodes modifier), a CATEGORY layer
 (``landcover``) and a TEXTURE layer (``shade``, baked from ``slope`` with
-Cycles), a build profile whose variant is ``slope``, and checks run.
+Cycles), a build profile whose variant is ``slope``, checks run, and a
+synthetic GeoJSON of four contexts imported as linked data.
 
 Usage:
     python3 scripts/ui_screenshots.py --out /tmp/shots
@@ -496,10 +497,39 @@ def inner_main(argv: list[str]) -> None:
         profile.output_path = bpy.path.abspath("//site.3tz")  # beside the temporary demo.blend
         profile.variant_layer = "slope"
         run_op(bpy.ops.geotools.run_checks)
+        linked_contexts()
         if "gt_present" in mesh.color_attributes:
             mesh.color_attributes.active_color = mesh.color_attributes["gt_present"]
         bpy.ops.object.select_all(action="DESELECT")
         bpy.context.view_layer.objects.active = None
+
+    def linked_contexts() -> None:
+        """A small synthetic GeoJSON of excavation contexts, imported as linked data."""
+        import json
+
+        features = []
+        for k, (x, y) in enumerate(((-60, -40), (-20, 10), (30, -25), (45, 40))):
+            e, n = 502000.0 + x, 6961000.0 + y
+            ring = [[e, n], [e + 18, n], [e + 18, n + 12], [e, n + 12], [e, n]]
+            features.append(
+                {
+                    "type": "Feature",
+                    "id": k + 1,
+                    "geometry": {"type": "Polygon", "coordinates": [ring]},
+                    "properties": {"context": f"C{k + 1:03d}", "depth": 0.4 * (k + 1)},
+                }
+            )
+        path = Path(bpy.path.abspath("//contexts.geojson"))
+        path.write_text(
+            json.dumps(
+                {
+                    "type": "FeatureCollection",
+                    "crs": {"type": "name", "properties": {"name": "EPSG:7856"}},
+                    "features": features,
+                }
+            )
+        )
+        run_op(bpy.ops.geotools.import_geojson, filepath=str(path))
 
     def build_empty() -> None:
         reset()

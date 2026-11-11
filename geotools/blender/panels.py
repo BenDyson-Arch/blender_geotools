@@ -6,6 +6,8 @@ The panels follow the workflow top to bottom, and each header shows its state
 - Project: where the source sits on Earth, and Verify Placement.
   - CRS Details: the preset's definition and datum note.
 - Source: the source collection, ingest and summary.
+- Linked Data: GeoJSON, GeoPackage and GeoTIFF files linked to objects
+  (``links_ui``).
 - Layers: the layer registry and the selected layer at a glance.
   - Bake: from Geometry Nodes (face and corner layers) or with Cycles
     (texture layers).
@@ -34,7 +36,7 @@ from ..core.display import format_count, format_gib, format_range, format_size
 from ..core.display import plural as plural_text
 from ..core.issues import Severity
 from ..core.layers import DataType, Domain, default_aggregation, parse_number, validate
-from . import bake_texture, bake_vertex, presentation, publish
+from . import bake_texture, bake_vertex, links_ui, presentation, publish
 from .common import draw_dependency_status, extension_version
 from .layers import (
     ATTRIBUTE_MISSING,
@@ -745,6 +747,7 @@ classes = (
     GEOTOOLS_PT_project,
     GEOTOOLS_PT_project_crs,
     GEOTOOLS_PT_source,
+    *links_ui.classes,
     GEOTOOLS_PT_layers,
     GEOTOOLS_PT_layers_bake,
     GEOTOOLS_PT_layers_display,
