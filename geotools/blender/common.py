@@ -30,18 +30,34 @@ def extension_version() -> str:
         return "unknown"
 
 
-def draw_dependency_status(layout: bpy.types.UILayout) -> None:
-    """Draw the rusty-tiles status and a re-check button."""
-    status = deps.probe_rusty_tiles()
-    col = layout.column(align=True)
-    if status.available:
-        col.label(text=f"rusty-tiles {status.version or '(unknown version)'}", icon="CHECKMARK")
-    else:
-        col.alert = True
-        col.label(text="rusty-tiles not available", icon="ERROR")
-        for line in textwrap.wrap(status.error or "unknown error", 48)[:6]:
+def draw_dependency_status(layout: bpy.types.UILayout, *, show_paths: bool = False) -> None:
+    """Draw the rusty-tiles and pyproj status and a re-check button.
+
+    ``show_paths`` adds the PROJ data directory (for the wider preferences).
+    """
+    _draw_one(layout, deps.probe_rusty_tiles(), consequence=None)
+    pyproj = deps.probe_pyproj()
+    col = _draw_one(layout, pyproj, consequence="Imports cannot reproject")
+    if show_paths and pyproj.available and pyproj.data_dir:
+        for line in textwrap.wrap(f"PROJ data: {pyproj.data_dir}", 72)[:3]:
             col.label(text=line)
     layout.operator("geotools.check_dependencies", icon="FILE_REFRESH")
+
+
+def _draw_one(
+    layout: bpy.types.UILayout, status: deps.DependencyStatus, consequence: str | None
+) -> bpy.types.UILayout:
+    col = layout.column(align=True)
+    if status.available:
+        col.label(text=status.summary, icon="CHECKMARK")
+        return col
+    col.alert = True
+    col.label(text=f"{status.name} not available", icon="ERROR")
+    for line in textwrap.wrap(status.error or "unknown error", 48)[:6]:
+        col.label(text=line)
+    if consequence:
+        col.label(text=consequence)
+    return col
 
 
 def redraw_ui(context: bpy.types.Context) -> None:
