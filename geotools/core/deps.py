@@ -70,7 +70,7 @@ def _probe() -> DependencyStatus:
         return DependencyStatus(False, error=f"{MODULE_NAME} failed to import: {exc}")
     except ImportError as exc:
         return DependencyStatus(False, error=f"{MODULE_NAME} failed to import: {exc}")
-    except Exception as exc:  # noqa: BLE001 - a broken native wheel can raise anything
+    except Exception as exc:  # a broken native wheel can raise anything
         log.debug("rusty-tiles load failure", exc_info=True)
         return DependencyStatus(
             False, error=f"{MODULE_NAME} failed to load: {type(exc).__name__}: {exc}"
@@ -84,7 +84,7 @@ def _version(module: ModuleType) -> str | None:
         return importlib.metadata.version(DIST_NAME)
     except importlib.metadata.PackageNotFoundError:
         pass
-    except Exception:  # noqa: BLE001 - corrupt metadata must not hide the module
+    except Exception:  # corrupt metadata must not hide the module
         log.debug("could not read %s metadata", DIST_NAME, exc_info=True)
     # The pyo3 module sets __version__; the package re-exports it via `import *`,
     # which depends on the native __all__, so also look on the native submodule.

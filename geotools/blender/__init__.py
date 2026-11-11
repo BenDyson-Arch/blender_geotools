@@ -28,7 +28,7 @@ def register() -> None:
         for module in reversed(done):
             try:
                 module.unregister()
-            except Exception:  # noqa: BLE001 - keep rolling back
+            except Exception:  # keep rolling back
                 log.exception("rollback of %s failed", module.__name__)
         raise
     # Probe once at enable time so the status is logged and cached for the UI.

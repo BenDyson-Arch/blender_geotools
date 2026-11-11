@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.13"
+  # Tool pins: ruff's default rule set changes between releases.
+  RUFF_VERSION: "0.17.4"
+  PYTEST_VERSION: "9.2.0"
+  # Official Blender 5.2 LTS, latest patch release. To update, take the
+  # linux-x64 line from
+  #   https://download.blender.org/release/Blender5.2/blender-<version>.sha256
+  BLENDER_VERSION: "5.2.4"
+  BLENDER_SHA256: "2fd14c50987426897ba60237ee996edf2b4151f4b1a72a460ca20be58c1d2d86"
+
+jobs:
+  core:
+    name: core (pytest, ruff)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install tools
+        run: python -m pip install "pytest==${PYTEST_VERSION}" "ruff==${RUFF_VERSION}"
+      - name: ruff check
+        run: ruff check --output-format=github geotools scripts tests
+      - name: ruff format --check
+        run: ruff format --check geotools scripts tests
+      - name: pytest (tests/core)
+        run: python -m pytest
+
+  blender:
+    name: blender (official 5.2 LTS, no wheels)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Set up Blender
+        id: blender
+        uses: ./.github/actions/setup-blender
+        with:
+          version: ${{ env.BLENDER_VERSION }}
+          sha256: ${{ env.BLENDER_SHA256 }}
+      - name: Validate and build the extension (no wheels)
+        run: python scripts/build_extension.py --blender "$BLENDER" --no-wheels --out dist
+      - name: Upload the extension zip
+        uses: actions/upload-artifact@v7
+        with:
+          name: geotools-extension-no-wheels
+          path: dist/*.zip
+          if-no-files-found: error
+      - name: Install and test in Blender (rusty-tiles missing)
+        run: |
+          shopt -s failglob
+          python scripts/run_blender_tests.py --blender "$BLENDER" --zip dist/geotools-*.zip \
+            --expect missing
+
+  blender-wheel:
+    name: blender (official 5.2 LTS, rusty-tiles wheel from PyPI)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # NOT GATING YET. This job needs the pinned rusty-tiles wheel ([tool.geotools]
+    # in pyproject.toml, currently 0.4.0) on PyPI, and 0.4.0 is not published yet,
+    # so it is expected to fail at "Fetch the pinned rusty-tiles wheel".
+    # TO MAKE IT GATING once the wheel is on PyPI: set the repository variable
+    # RUSTY_TILES_WHEEL_GATING to "true" (Settings > Secrets and variables >
+    # Actions > Variables), or delete this continue-on-error line; then add this
+    # job as a required status check in branch protection.
+    # It never falls back to a wheel-less build.
+    continue-on-error: ${{ vars.RUSTY_TILES_WHEEL_GATING != 'true' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Set up Blender
+        id: blender
+        uses: ./.github/actions/setup-blender
+        with:
+          version: ${{ env.BLENDER_VERSION }}
+          sha256: ${{ env.BLENDER_SHA256 }}
+      - name: Fetch the pinned rusty-tiles wheel (PyPI, linux-x64)
+        run: python scripts/fetch_wheels.py --platform linux-x64
+      - name: Validate and build the extension (linux-x64 wheel)
+        run: python scripts/build_extension.py --blender "$BLENDER" --out dist
+      - name: Upload the extension zip
+        uses: actions/upload-artifact@v7
+        with:
+          name: geotools-extension-linux-x64
+          path: dist/*.zip
+          if-no-files-found: error
+      - name: Install and test in Blender (rusty-tiles available at the pin)
+        # --expect-version defaults to the pin in pyproject.toml.
+        run: |
+          shopt -s failglob
+          python scripts/run_blender_tests.py --blender "$BLENDER" \
+            --zip dist/geotools-*-linux_x64.zip --expect available

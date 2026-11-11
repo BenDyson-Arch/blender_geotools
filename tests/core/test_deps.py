@@ -21,15 +21,15 @@ class _FailingFinder(importlib.abc.MetaPathFinder, importlib.abc.Loader):
         self.exc = exc
         self.calls = 0
 
-    def find_spec(self, fullname, path=None, target=None):  # noqa: ANN001
+    def find_spec(self, fullname, path=None, target=None):
         if fullname != deps.MODULE_NAME:
             return None
         return importlib.machinery.ModuleSpec(fullname, self)
 
-    def create_module(self, spec):  # noqa: ANN001
+    def create_module(self, spec):
         return None
 
-    def exec_module(self, module):  # noqa: ANN001
+    def exec_module(self, module):
         self.calls += 1
         raise self.exc
 
@@ -145,9 +145,7 @@ def test_missing(monkeypatch: pytest.MonkeyPatch) -> None:
         ),
     ],
 )
-def test_broken_import(
-    monkeypatch: pytest.MonkeyPatch, exc: BaseException, expected: str
-) -> None:
+def test_broken_import(monkeypatch: pytest.MonkeyPatch, exc: BaseException, expected: str) -> None:
     monkeypatch.setattr(sys, "meta_path", [_FailingFinder(exc), *sys.meta_path])
 
     status = deps.probe_rusty_tiles()
