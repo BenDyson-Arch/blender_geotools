@@ -29,8 +29,8 @@ GeoTools creates tilesets; it no longer imports them.
 | Decision | Choice | Revisit when |
 |---|---|---|
 | Blender support | Latest release only (5.2 LTS) | Each new Blender release |
-| Where the source lives | The `.blend` plus image files on disk. Face maps and build records sit beside the outputs | Sources outgrow one Blender session (see M9) |
-| Versioning | Continue the 0.x line. First rebuild release is 0.3.0; 1.0.0 at M8 | |
+| Where the source lives | The `.blend` plus image files on disk. Face maps and build records sit beside the outputs | Sources outgrow one Blender session (see M10) |
+| Versioning | Continue the 0.x line. First rebuild release is 0.3.0; 1.0.0 at M9 | |
 | CRS handling | rusty-tiles does all CRS maths at publish time (`source_crs`, `source_offset`, `height_offset`). GeoTools stores the declaration and never reprojects geometry itself. The source GLB is always standard glTF Y-up | |
 | Precision | Offsets, anchors and other geodetic numbers are binary64 Python floats, never Blender `FloatProperty` (single precision) | |
 | Performance rule | No Python loops over faces or vertices. Use `foreach_get`/`foreach_set` with numpy, Geometry Nodes or Cycles bakes | |
@@ -62,10 +62,10 @@ GeoTools creates tilesets; it no longer imports them.
 |---|---|---|---|
 | 0.4.0 release (wheel on PyPI and GitHub) | 0.4.0 | release in progress | M0 wheel pin, M2 |
 | E. Blender 5.2 LTS in wheel acceptance | 0.4.x | [#330](https://github.com/BenDyson-Arch/rusty-tiles/issues/330) | M2 release |
-| C. Decoded tile export (`decode_tile` to plain GLB or arrays) | 0.4.x | [#329](https://github.com/BenDyson-Arch/rusty-tiles/issues/329) | M6 |
-| A. Annotate pass from `(source_primitive, source_triangle)` tables | 0.5 | addendum in the local metadata-tiling design (no GitHub issue yet) | M8 |
-| D. Custom vertex attributes in mesh input | 0.5 | same design; needs a decision on the strict-admission policy | M8 (alternative to A) |
-| B. Appearance-only rebuild | post-0.4 | [#331](https://github.com/BenDyson-Arch/rusty-tiles/issues/331) | M9 |
+| C. Decoded tile export (`decode_tile` to plain GLB or arrays) | 0.4.x | [#329](https://github.com/BenDyson-Arch/rusty-tiles/issues/329) | M7 |
+| A. Annotate pass from `(source_primitive, source_triangle)` tables | 0.5 | addendum in the local metadata-tiling design (no GitHub issue yet) | M9 |
+| D. Custom vertex attributes in mesh input | 0.5 | same design; needs a decision on the strict-admission policy | M9 (alternative to A) |
+| B. Appearance-only rebuild | post-0.4 | [#331](https://github.com/BenDyson-Arch/rusty-tiles/issues/331) | M10 |
 | CRS allow-list: GDAL-verified EPSG codes (MGA, NZTM, ETRS89 ...) in the wheel | 0.4.1 | [#337](https://github.com/BenDyson-Arch/rusty-tiles/issues/337) | Replaces the PROJ-string CRS presets |
 | Encoded images admitted by memory budget, not a fixed 32 MiB | 0.4.1 | [#338](https://github.com/BenDyson-Arch/rusty-tiles/issues/338) | Publishing 8K PNG photogrammetry without re-encoding |
 
@@ -77,12 +77,13 @@ GeoTools creates tilesets; it no longer imports them.
 | M1 Project and georeference | CRS, offsets, source ingest | 0.4.0 | none |
 | M2 Publish | Blender to a validated `.3tz` | 0.4.0, plus E to release | **0.3.0** |
 | M3 Layers and bake engine | Geometry Nodes and attributes baked to vertex or texture space | none | 0.4.0 |
-| M4 Analysis library | Fast analysis rebuilt on the bake engine | none | 0.4.0 |
-| M5 Texture cleanup | Paint, clean, publish | none | 0.5.0 |
-| M6 Output inspection | Open output tiles in Blender, quality checks | C | 0.6.0 |
-| M7 Vectors | GeoPackage layers, incremental vector tiles | none | any time after M2 |
-| M8 Queryable metadata without retiling | Annotate pass from layers | A or D (rusty-tiles 0.5) | 1.0.0 |
-| M9 Large sites and texture-only rebuilds | Chunked working mode, texture-only republish | B | later |
+| M4 GLB export with metadata | A standard glTF 2.0 GLB carrying objects and layers as `EXT_mesh_features` / `EXT_structural_metadata` | none | 0.4.0 |
+| M5 Analysis library | Fast analysis rebuilt on the bake engine | none | 0.4.0 |
+| M6 Texture cleanup | Paint, clean, publish | none | 0.5.0 |
+| M7 Output inspection | Open output tiles in Blender, quality checks | C | 0.6.0 |
+| M8 Vectors | GeoPackage layers, incremental vector tiles | none | any time after M2 |
+| M9 Queryable metadata without retiling | Annotate pass from layers | A or D (rusty-tiles 0.5) | 1.0.0 |
+| M10 Large sites and texture-only rebuilds | Chunked working mode, texture-only republish | B | later |
 
 ### M0 Foundation
 
@@ -160,7 +161,7 @@ GeoTools creates tilesets; it no longer imports them.
     gutters;
   - a UV-overlap check that uses the same rule as rusty-tiles' texture
     ownership, so overlapping UVs are flagged before baking.
-- **Presentation step (until M8):** turn a layer into something visible,
+- **Presentation step (until M9):** turn a layer into something visible,
   either a colour ramp into COLOR_0 or a texture in the base-colour or
   emissive slot. Publish it as a variant tileset such as `site.slope.3tz`.
 - **Exit:**
@@ -168,7 +169,44 @@ GeoTools creates tilesets; it no longer imports them.
   - the layer survives saving and reopening the `.blend`;
   - the variant tileset shows the analysis in Cesium.
 
-### M4 Analysis library
+### M4 GLB export with metadata
+
+A standard GLB of the source collection that any glTF tool can open, with
+object identity and layer values carried as glTF metadata, the same metadata
+3D Tiles 1.1 uses. It is a separate file from the plain `source.glb` that
+rusty-tiles tiles, because rusty-tiles 0.4 refuses input with extensions.
+
+- **Schema from layers:** a bpy-free module turns `LayerSpec`s into an
+  `EXT_structural_metadata` schema (classes, properties, `min`/`max`,
+  `noData`, enums for CATEGORY layers; label and units in descriptions). M9
+  reuses it for tilesets.
+- **Object identity:** an `EXT_mesh_features` feature ID set "object" with a
+  property table (name and a persistent object id stored on the Blender
+  object).
+- **FACE and CORNER layers:** property attributes (vertex attributes) by
+  default, which keep the mesh compact and can be styled. Optionally, FACE
+  layers as a per-face feature ID set with property tables, which can be
+  picked and queried but need unshared vertices (about six times the vertex
+  data).
+- **TEXTURE layers:** property textures, with float32 values packed into
+  lossless PNG channels.
+- **Placement:** vertex positions always stay in the local frame (float32
+  near the origin), so the file opens correctly in any glTF tool.
+  - Default: the georeference is recorded in `KHR_xmp_json_ld` (CRS as EPSG
+    code and definition, E/N/A offset, height offset, origin longitude,
+    latitude and height, heading). Nothing is lost, and nothing moves the
+    model away from the origin.
+  - Option "Earth-placed": the root node also carries the local-to-ECEF
+    transform (the same matrix as the tileset root transform, from the
+    placement probe), so geospatial viewers such as CesiumJS place it with no
+    extra input. General tools apply it in float32 and put the model about
+    6,400 km from their origin, so it is off by default.
+- **Output:** a build profile output type of `.3tz` or `.glb`, through the
+  same checks and staging.
+- **Exit:** the 3d-tiles-validator accepts the GLB; CesiumJS shows it, picks
+  objects and reads layer values; Blender's glTF importer still opens it.
+
+### M5 Analysis library
 
 Each tool writes a layer (M3).
 
@@ -185,7 +223,7 @@ Each tool writes a layer (M3).
 - **Exit:** each tool finishes in under a minute on a 10M-triangle mesh, or as
   one bake.
 
-### M5 Texture cleanup
+### M6 Texture cleanup
 
 - Blender 5.2 texture painting on source images, with UV-overlap warnings.
 - Cleanup tools: fill holes from neighbouring pixels, clone and patch across
@@ -195,7 +233,7 @@ Each tool writes a layer (M3).
   full retile until B lands.
 - **Exit:** a painted source republishes, and coarse levels pick up the change.
 
-### M6 Output inspection (needs C)
+### M7 Output inspection (needs C)
 
 - Load output leaves or coarse tiles back into Blender as read-only objects
   through `decode_tile`.
@@ -206,7 +244,7 @@ Each tool writes a layer (M3).
 - **Exit:** you can open any tile of a published archive and trace it back to
   its source faces.
 
-### M7 Vectors (can run in parallel after M2)
+### M8 Vectors (can run in parallel after M2)
 
 - Bring back the GeoPackage reader and writer from `legacy-0.2`, for annotation
   polygons and lines drawn in Blender such as cleanup masks or regions of
@@ -215,7 +253,7 @@ Each tool writes a layer (M3).
   incrementally.
 - **Exit:** editing one polygon republishes only the tiles that changed.
 
-### M8 Queryable metadata without retiling (needs A or D)
+### M9 Queryable metadata without retiling (needs A or D)
 
 - Publish layers as metadata keyed by `(source_primitive, source_triangle)`,
   through the annotate pass or custom vertex attributes, whichever the
@@ -232,7 +270,7 @@ Each tool writes a layer (M3).
 - **Exit:** changing one analysis layer updates the archive in seconds without
   a retile, and the values can be queried and styled in Cesium.
 
-### M9 Large sites and texture-only rebuilds (later)
+### M10 Large sites and texture-only rebuilds (later)
 
 - A chunked working mode for sources too big for one Blender session: one
   `.3tz` per chunk under a parent tileset.

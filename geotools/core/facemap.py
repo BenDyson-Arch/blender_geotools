@@ -2,7 +2,7 @@
 
 CONTRACT (M2). Saved next to every build as ``facemap.npz``. rusty-tiles keeps
 exact source IDs on every leaf triangle, so this map links output leaves back to
-Blender polygons (M6 inspection, M8 annotation).
+Blender polygons (M7 inspection, M9 annotation).
 
 Numbering (checked against rusty-tiles 0.4.0 by ``tests/core/test_gltf_writer.py``):
 the GLB has one node and one mesh, so a leaf's ``source_triangle`` row carries
