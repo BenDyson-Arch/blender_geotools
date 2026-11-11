@@ -207,6 +207,10 @@ class StubLayout:
         OPERATOR_TEXTS.append((idname, text))
         return StubOperatorProperties()
 
+    def menu(self, menu: str, *, text: str = "", icon: str = "NONE", **_kwargs: object) -> None:
+        assert hasattr(bpy.types, menu), f"draws unknown menu {menu!r}"
+        self.calls.append(("menu", menu, icon))
+
     def prop(
         self, data: object, prop: str, *, text: str = "", icon: str = "NONE", **_kwargs: object
     ) -> None:
