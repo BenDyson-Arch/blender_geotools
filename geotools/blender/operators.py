@@ -5,6 +5,7 @@ from __future__ import annotations
 import bpy
 
 from ..core import deps
+from .common import redraw_ui
 
 
 class GEOTOOLS_OT_check_dependencies(bpy.types.Operator):
@@ -18,9 +19,7 @@ class GEOTOOLS_OT_check_dependencies(bpy.types.Operator):
         deps.reset_cache()
         status = deps.probe_rusty_tiles()
         self.report({"INFO"} if status.available else {"WARNING"}, status.summary)
-        for window in context.window_manager.windows:
-            for area in window.screen.areas:
-                area.tag_redraw()
+        redraw_ui(context)
         return {"FINISHED"}
 
 
