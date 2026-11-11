@@ -1,0 +1,75 @@
+name: Set up official Blender
+description: >-
+  Download an official Blender Linux x64 build from download.blender.org,
+  verify it against a pinned SHA-256, cache the tarball and put Blender on PATH.
+
+inputs:
+  version:
+    description: Full Blender version, e.g. 5.2.4
+    required: true
+  sha256:
+    description: >-
+      SHA-256 of blender-<version>-linux-x64.tar.xz, from
+      https://download.blender.org/release/Blender<major.minor>/blender-<version>.sha256
+    required: true
+
+outputs:
+  blender:
+    description: Path to the blender executable (also exported as BLENDER)
+    value: ${{ steps.install.outputs.blender }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Blender's runtime libraries
+      shell: bash
+      run: |
+        sudo apt-get update -q
+        sudo apt-get install -y -q --no-install-recommends \
+          libegl1 libgl1 libsm6 libxfixes3 libxi6 libxkbcommon0 libxrender1 libxxf86vm1
+
+    - name: Cache the Blender tarball
+      uses: actions/cache@v6
+      with:
+        path: ~/.cache/blender-download
+        key: blender-${{ inputs.version }}-linux-x64-${{ inputs.sha256 }}
+
+    - name: Download, verify and extract Blender ${{ inputs.version }}
+      id: install
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        SHA256: ${{ inputs.sha256 }}
+      run: |
+        set -euo pipefail
+        name="blender-${VERSION}-linux-x64"
+        url="https://download.blender.org/release/Blender${VERSION%.*}/${name}.tar.xz"
+        dl="$HOME/.cache/blender-download"
+        tarball="$dl/$name.tar.xz"
+        mkdir -p "$dl"
+        if [ -f "$tarball" ]; then
+          echo "using cached $tarball"
+        else
+          echo "downloading $url"
+          curl --fail --location --silent --show-error --retry 3 --retry-delay 10 \
+            --output "$tarball.part" "$url"
+          mv "$tarball.part" "$tarball"
+        fi
+        # Verify every time, including cache hits.
+        if ! echo "${SHA256}  ${tarball}" | sha256sum --check --strict -; then
+          echo "::error::SHA-256 mismatch for ${name}.tar.xz (expected ${SHA256})"
+          rm -f "$tarball"
+          exit 1
+        fi
+        dest="$RUNNER_TEMP/blender"
+        rm -rf "$dest"
+        mkdir -p "$dest"
+        tar -xJf "$tarball" -C "$dest"
+        blender="$dest/$name/blender"
+        "$blender" --version | tee "$RUNNER_TEMP/blender-version.txt"
+        case "$(head -n 1 "$RUNNER_TEMP/blender-version.txt")" in
+          "Blender ${VERSION}" | "Blender ${VERSION} "*) ;;
+          *) echo "::error::$blender does not report Blender ${VERSION}"; exit 1 ;;
+        esac
+        echo "blender=$blender" >> "$GITHUB_OUTPUT"
+        echo "BLENDER=$blender" >> "$GITHUB_ENV"
