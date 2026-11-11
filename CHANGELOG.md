@@ -64,6 +64,19 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
 - `build.json` schema 2: the layers, the SHA-256 of `source.glb` and of the
   saved `.blend` (null if unsaved or modified), and the placement's EPSG code
   when the CRS is a preset or an EPSG code.
+- Layer presentation and variant tilesets (M3): a Presentation sub-panel of
+  Layers shows a layer through a colour ramp (viridis, magma, cividis, turbo,
+  diverging red-blue, greys) over a set or automatic (2nd to 98th percentile)
+  range, or one colour per category, with a no-data colour. Face and corner
+  layers go into COLOR_0 through a `gt_present` byte colour attribute; texture
+  layers into an 8-bit base-colour or emissive texture. Replace shows the ramp
+  alone and Multiply keeps the material. Publish Variant (or a build profile's
+  variant layer) publishes `<output>.<layer>.3tz`, an ordinary 3D Tiles archive
+  with its own staging directory, the same placement and checks, and a
+  `variant` record in `build.json` (palette, range and legend stops, or the
+  category colours). The user's materials, images and active and render colour
+  attributes are not changed, and the plain tileset never publishes
+  `gt_present`.
 
 ### Changed
 

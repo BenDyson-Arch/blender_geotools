@@ -167,7 +167,8 @@ CATEGORY), `layer-categories-missing`, `layer-nodata-invalid`,
 - The registry and the layer attributes survive saving and reopening the
   `.blend`. Images survive because they are saved files.
 - `build.json` gets a `"layers"` list (`to_record` of each layer) and, for a
-  variant, `"variant": {"layer": name, ...}`. Bump `RECORD_SCHEMA` to 2.
+  variant, `"variant": {"layer": name, ...}` (section 4; null for the plain
+  tileset). Bump `RECORD_SCHEMA` to 2.
   Schema 2 also has:
   - `"source": {"glb_sha256": <hex of source.glb>, "blend_sha256": <hex of the
     saved .blend, or null>}`. The operator passes `BuildRequest.blend_path`
@@ -267,6 +268,137 @@ for CATEGORY, one colour per category.
   meaning the plain tileset). The output name gets `.<layer>` before `.3tz`
   (`site.3tz` becomes `site.slope.3tz`), with its own staging directory. Same
   placement, same checks, and the variant is recorded in `build.json`.
+
+A variant is an ordinary 3D Tiles archive: no values sidecar or other
+non-standard output (the values themselves wait for the M8 metadata).
+
+### Settled while building stream 4
+
+**Ramps** (`core.ramps`, also `PALETTES`' companions):
+
+- Each palette is a compact table of sRGB stops, low end first, evenly spaced,
+  sampled from the published palette (matplotlib viridis, magma and cividis at
+  10 points; Google Turbo at 17 points from its polynomial with the lookup
+  table's end points; ColorBrewer RdBu with 11 classes, **red low, blue high**;
+  `greys` **black low, white high**). Values are interpolated linearly in sRGB
+  between neighbouring stops, as matplotlib does with listed colormaps.
+- `apply_ramp` clamps values outside `[vmin, vmax]` to the ends. NaN, ±inf and
+  `nodata` (compared in the values' own precision, so a float32 attribute
+  matches `float32(nodata)`) get `nodata_rgba`; other values are opaque. With
+  `vmin == vmax` values below get the low end, above the high end and equal
+  ones the middle. `palette` may also be a `(K, 3)` stop table.
+- `apply_categories(values, colours, *, nodata=None, nodata_rgba=(0,0,0,0))`:
+  value `i` gets `colours[i]` (`(C, 3)` or `(C, 4)` bytes); no-data,
+  non-integral and out-of-range values get `nodata_rgba`.
+- `auto_range(..., *, max_samples=1 << 22)` subsamples longer inputs with an
+  even stride (deterministic) and raises `ValueError` when no value is left.
+- `ramp_stops(palette, vmin, vmax, n=11)` gives `n` legend entries
+  `{"value", "rgba"}` whose colours are exactly `apply_ramp`'s.
+- `default_category_colours(count)`: Tableau 10, repeated.
+
+**`geotools/core/presentation.py`** (new, bpy-free): `Target` and `Blend`
+(`StrEnum`s), `PRESENT_ATTRIBUTE = "gt_present"`, `targets_for(domain)` (FACE
+and CORNER: COLOR_0; TEXTURE: BASE_COLOR or EMISSIVE),
+`variant_output(output, layer)` (`site.3tz` -> `site.slope.3tz`, so the staging
+directory is `site.slope.geotools`), `presentation_issues(spec, target,
+palette, range_min, range_max)` (`variant-target-invalid`,
+`variant-palette-invalid`, `variant-range-invalid`) and `variant_record(...)`.
+
+**Targets and blend modes**, as published (glTF core PBR only):
+
+| target | REPLACE | MULTIPLY |
+|---|---|---|
+| COLOR_0 | base colour factor white, no base-colour texture; COLOR_0 is the ramp | the material is kept; COLOR_0 multiplies its base colour |
+| BASE_COLOR | base-colour texture is the ramp, factor white, COLOR_0 dropped | base-colour texture is the ramp; the factor and COLOR_0 are kept and multiply it |
+| EMISSIVE | emissive texture is the ramp (factor 1); base colour **black** with no texture, metallic 0 and no metallic-roughness texture; COLOR_0 dropped, so the ramp shows unlit | emissive texture is the ramp (factor 1), added on top of the unchanged material |
+
+EMISSIVE + REPLACE uses a black base rather than white: glTF adds emission to
+the lit base colour, so a white base would wash the ramp out. glTF has one
+base-colour texture slot, so BASE_COLOR + MULTIPLY replaces the user's
+texture and keeps only its factor.
+
+**Storage** (`properties.py`): `GeoToolsLayerPresentation` also has
+`nodata_color` (sRGB, default mid grey; presentations are always opaque),
+`category_colors` (a collection of `GeoToolsCategoryColor.color`, item `i` for
+value `i`; missing items use `default_category_colours`) and `images` (the
+8-bit presentation images, `GeoToolsLayerImage` items, one per object). It is
+`GeoToolsLayer.presentation`. A BOOLEAN layer ramps over `(0, 1)` when its
+range is automatic.
+
+**Writing** (`geotools/blender/presentation.py`): `write_presentation(scene,
+layer_name) -> (Presentation, variant_record)`.
+
+- COLOR_0: `gt_present` (`BYTE_COLOR`, CORNER) on every source mesh, written
+  with `foreach_set("color_srgb")`; a FACE layer is repeated over each face's
+  corners. A mesh without the layer's attribute is painted with the no-data
+  colour (a `variant-data-missing` warning). Adding a colour attribute makes
+  Blender set it active and render, so the previous active and render names
+  are put back. An existing `gt_present` of another type or domain is replaced.
+- TEXTURE: one 8-bit sRGB image per object (`gt_present.<layer>.<object>`, the
+  size of the float layer image, alpha 255), from the first channel of the
+  float image. They are generated datablocks, not files: the exporter writes
+  them as PNG like any other unsaved image, and each variant publish writes
+  them again.
+- The user's materials, images and colour attributes are never changed. The
+  plain export never publishes `gt_present`, even when it is the render or
+  active colour attribute: COLOR_0 then comes from the next one.
+- Operators: `geotools.layer_write_presentation` (write now, to look at it in
+  the viewport) and `geotools.layer_presentation_reset_colors`.
+
+**Export** (`blender/export.py`):
+
+```python
+@dataclass(frozen=True, slots=True, eq=False)
+class Presentation:
+    target: Target
+    blend: Blend
+    attribute: str = "gt_present"                     # COLOR_0 source
+    images: Mapping[str, bpy.types.Image] = {}        # object name -> 8-bit image
+    uv_map: str = ""                                  # "" = each object's render UV map
+
+def extract_scene(context, collection, image_dir, *, remedies=None,
+                  presentation: Presentation | None = None) -> tuple[SceneExport, dict[str, str]]
+```
+
+- COLOR_0 is read from `gt_present` on the **evaluated** mesh, so modifiers
+  carry it like any corner attribute (Subdivision interpolates it). If a
+  modifier drops it and the evaluated topology equals the original's (the
+  topology digest is not `evaluated:`), it is read from the original mesh,
+  whose corners are then the same. If it is dropped **and** the topology
+  changed, `extract_scene` raises `ExportError` naming the object: apply the
+  modifiers or bake the layer on the evaluated topology first.
+- Texture targets give each object its own copy of each of its materials
+  (named `<material> [<object>]`), with the object's image in the slot and its
+  texture coordinates renumbered (still at most two UV maps); an empty slot
+  gets a plain white material.
+
+**Variant publish** (`blender/publish.py`): `geotools.publish` takes a
+`layer` property (empty: the build profile's `variant_layer`). The Presentation
+panel's **Publish Variant** button calls it with the selected layer and the
+selected build profile, and shows the file name it writes. The variant runs
+the same checks plus `variant_issues(scene, layer)`: `variant-layer-missing`,
+`variant-layer-invalid`, the `presentation_issues` codes, `variant-edit-mode`,
+`variant-data-mismatch`, `variant-no-data` (no source mesh holds the
+attribute) and `variant-data-missing` (warning) for FACE and CORNER layers, and
+`variant-image-missing` and `variant-uv-map-missing` for TEXTURE layers. An
+automatic range over no values fails the publish (`PresentationError`). The
+last-build summary on the profile then describes the variant.
+
+**`build.json`**: schema stays 2, with a `"variant"` key: null for the plain
+tileset, else (in this order)
+
+```json
+{"layer": "slope", "target": "COLOR_0", "blend": "REPLACE",
+ "palette": "viridis",
+ "range": {"min": 0.0, "max": 45.0, "auto_min": true, "auto_max": false},
+ "nodata_rgba": [128, 128, 128, 255],
+ "ramp_stops": [{"value": 0.0, "rgba": [68, 1, 84, 255]}, ...]}
+```
+
+For a CATEGORY layer `palette` and `range` are null and `ramp_stops` is
+replaced by `"categories": [{"value": 0, "label": "bare", "rgba": [...]}, ...]`.
+`range` is the range actually used; `auto_min`/`auto_max` say which ends came
+from `auto_range`. Colours are 8-bit sRGB RGBA. `ramp_stops` has 11 entries.
 
 ## Exit (from the roadmap)
 
