@@ -221,6 +221,12 @@ Each tool writes a layer (M3).
   through the annotate pass or custom vertex attributes, whichever the
   rusty-tiles 0.5 design picks.
 - Texture layers become property textures.
+- Standard output only: 3D Tiles 1.1 metadata (`EXT_mesh_features` feature IDs,
+  `EXT_structural_metadata` property tables and property textures). Object
+  identity is published the same way, as a layer, so any viewer can pick
+  objects and read values. No consumer-specific sidecars or export variants;
+  `source.glb` and `build.json` are GeoTools' own staging and build record,
+  not a published format.
 - Incremental publishing: hash each layer and re-annotate only the layers that
   changed. Geometry or texture edits still mean a retile.
 - **Exit:** changing one analysis layer updates the archive in seconds without
