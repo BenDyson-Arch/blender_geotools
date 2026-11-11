@@ -7,6 +7,7 @@ from ..core.issues import Issue, Severity
 from ..core.placement import Placement
 from .bake_texture import uv_overlap_issues
 from .common import redraw_ui
+from .layers import refresh_layers
 from .properties import SEVERITY_ICONS, FieldError, field_issues, placement_from_props
 from .source import refresh_summary
 
@@ -64,10 +65,12 @@ def run_checks(context: bpy.types.Context) -> list[Issue]:
     """Summarise the source collection and check it against the placement.
 
     Image rules see the active build profile, so a lossy image remedy warns in a
-    lossless build.
+    lossless build. Also refreshes every layer's cached range and status
+    (``layers.refresh_layers``), read from the evaluated meshes.
     """
     props = context.scene.geotools
     summary = refresh_summary(context)
+    refresh_layers(context.scene)
     assert summary is not None
     profile = active_rusty_tiles_profile(props)
     bad_fields = field_issues(props)

@@ -1,22 +1,40 @@
 """The layer registry in Blender: storage helpers, operators and the layers UIList.
 
 The registry is ``scene.geotools.layers`` (``properties.GeoToolsLayer``). A FACE
-or CORNER layer lives in the mesh attribute ``gt_<name>`` on every mesh of the
-source collection; a TEXTURE layer lives in one float image per object, listed
-in ``GeoToolsLayer.images`` and saved as OpenEXR in ``//geotools_layers/``.
-See docs/design/m3-layers.md.
+or CORNER layer lives in a mesh attribute of every source object: its
+``source_attribute``, or ``gt_<name>`` when that is empty
+(``core.layers.effective_attribute_name``). A TEXTURE layer lives in one float
+image per object, listed in ``GeoToolsLayer.images`` and saved as OpenEXR in
+``//geotools_layers/``. See docs/design/m3-layers.md.
 
-Every bake and tool goes through these helpers. They never loop over faces or
-corners in Python: values move with ``foreach_get``/``foreach_set`` and numpy.
-The attribute helpers need Object Mode (an Edit Mode mesh keeps its own copy of
-the data) and raise ``RuntimeError`` otherwise.
+Reading and writing
+-------------------
+Values are READ from the mesh the exporter publishes: each source object's
+evaluated mesh, with its modifiers and Geometry Nodes applied, or its original
+mesh when the active build profile's Apply Modifiers is off
+(:func:`layer_meshes`). So a Geometry Nodes "Store Named Attribute" can compute
+a layer, with no bake. :func:`update_value_range`, :func:`layer_status`,
+``blender.presentation`` and the export all read this way.
+
+Values are WRITTEN to the original mesh (:func:`write_layer`,
+:func:`ensure_attribute`, Create Empty Attributes), for manual layers and tools.
+Modifiers carry the attribute to the evaluated mesh like any other.
+
+Panels never read meshes: :func:`cached_status` shows what the last
+:func:`refresh_layer` found, which the layer operators, Run Checks and Publish
+call.
+
+Nothing loops over faces or corners in Python: values move with
+``foreach_get``/``foreach_set`` and numpy. The attribute helpers need Object
+Mode (an Edit Mode mesh keeps its own copy of the data) and raise
+``RuntimeError`` otherwise.
 """
 
 from __future__ import annotations
 
 import logging
 import math
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 import bpy
@@ -31,6 +49,7 @@ from ..core.layers import (
     LayerSpec,
     Origin,
     attribute_name,
+    effective_attribute_name,
     fill_value,
     format_categories,
     format_nodata,
@@ -66,6 +85,8 @@ IMAGE_MISSING = "layer-image-missing"
 IMAGE_UNSAVED = "layer-image-unsaved"
 UV_MAP_MISSING = "layer-uv-map-missing"
 NO_SOURCE = "layer-no-source"
+EDIT_MODE = "layer-edit-mode"
+NOT_CHECKED = "layer-not-checked"
 
 _ATTRIBUTE_TYPES: dict[DataType, str] = {
     DataType.FLOAT: "FLOAT",
@@ -75,6 +96,14 @@ _ATTRIBUTE_TYPES: dict[DataType, str] = {
 }
 
 DOMAIN_ICONS = {"FACE": "FACESEL", "CORNER": "VERTEXSEL", "TEXTURE": "TEXTURE"}
+
+_DOMAIN_LABELS = {Domain.FACE: "Face", Domain.CORNER: "Face Corner"}
+_TYPE_LABELS = {
+    DataType.FLOAT: "Float",
+    DataType.INT: "Integer",
+    DataType.BOOLEAN: "Boolean",
+    DataType.CATEGORY: "Integer",
+}
 
 
 def attribute_type(data_type: DataType) -> str:
@@ -106,6 +135,7 @@ def spec_from_props(item: GeoToolsLayer) -> LayerSpec:
         value_min=parse_number(item.value_min),
         value_max=parse_number(item.value_max),
         provenance=parse_provenance(item.provenance),
+        source_attribute=item.source_attribute,
     )
 
 
@@ -128,6 +158,7 @@ def write_props(item: GeoToolsLayer, spec: LayerSpec) -> None:
     item.value_min = format_number(spec.value_min)
     item.value_max = format_number(spec.value_max)
     item.provenance = format_provenance(spec.provenance)
+    item.source_attribute = spec.source_attribute
 
 
 def find_layer(scene: bpy.types.Scene, name: str) -> GeoToolsLayer | None:
@@ -197,7 +228,10 @@ def source_objects(scene: bpy.types.Scene) -> list[bpy.types.Object]:
 
 
 def source_meshes(scene: bpy.types.Scene) -> list[bpy.types.Mesh]:
-    """The distinct meshes of :func:`source_objects`, in the same order."""
+    """The distinct ORIGINAL meshes of :func:`source_objects`, in the same order.
+
+    For writing; layer values are read with :func:`layer_meshes`.
+    """
     seen: set[int] = set()
     meshes = []
     for obj in source_objects(scene):
@@ -206,6 +240,60 @@ def source_meshes(scene: bpy.types.Scene) -> list[bpy.types.Mesh]:
             seen.add(pointer)
             meshes.append(obj.data)
     return meshes
+
+
+def apply_modifiers(scene: bpy.types.Scene) -> bool:
+    """The active build profile's Apply Modifiers; True without a profile."""
+    props = scene.geotools
+    index = props.build_profile_index
+    if 0 <= index < len(props.build_profiles):
+        return bool(props.build_profiles[index].apply_modifiers)
+    return True
+
+
+def evaluated_depsgraph(scene: bpy.types.Scene) -> bpy.types.Depsgraph:
+    """An up-to-date evaluated depsgraph of ``scene``."""
+    context = bpy.context
+    if context.scene == scene and context.view_layer is not None:
+        return context.evaluated_depsgraph_get()
+    depsgraph = scene.view_layers[0].depsgraph
+    depsgraph.update()
+    return depsgraph
+
+
+def layer_meshes(
+    scene: bpy.types.Scene,
+    objects: Iterable[bpy.types.Object] | None = None,
+    *,
+    apply: bool | None = None,
+    depsgraph: bpy.types.Depsgraph | None = None,
+) -> Iterator[tuple[bpy.types.Object, bpy.types.Mesh]]:
+    """Each source object (or each of ``objects``) and the mesh its layer values are read from.
+
+    That is the mesh the exporter publishes: the object's evaluated mesh, with
+    its modifiers and Geometry Nodes applied, or with ``apply`` False (default:
+    :func:`apply_modifiers`) its original mesh. The evaluated mesh is the
+    depsgraph's own (``evaluated_get(depsgraph).data``), not a copy: read it
+    before the depsgraph is evaluated again. Objects that share a mesh and have
+    no modifiers share the evaluated mesh too, so callers can skip a mesh they
+    have seen by its ``as_pointer()``.
+
+    An object in Edit Mode is yielded with its evaluated mesh like the others;
+    callers check ``obj.data.is_editmode`` first, since the attributes of an
+    edited mesh are not current until it leaves Edit Mode.
+    """
+    if objects is None:
+        objects = source_objects(scene)
+    if apply is None:
+        apply = apply_modifiers(scene)
+    if not apply:
+        for obj in objects:
+            yield obj, obj.data
+        return
+    if depsgraph is None:
+        depsgraph = evaluated_depsgraph(scene)
+    for obj in objects:
+        yield obj, obj.evaluated_get(depsgraph).data
 
 
 # --- attributes ----------------------------------------------------------------------------
@@ -242,7 +330,9 @@ def _check_editable(mesh: bpy.types.Mesh) -> None:
 def ensure_attribute(
     mesh: bpy.types.Mesh, spec: LayerSpec, *, issues: list[Issue] | None = None
 ) -> bpy.types.Attribute:
-    """The layer's ``gt_<name>`` attribute on ``mesh``, created if needed.
+    """The layer's attribute (``effective_attribute_name``) on ``mesh``, created if needed.
+
+    ``mesh`` is an original mesh: writes never go to an evaluated one.
 
     A new attribute is filled with ``core.layers.fill_value`` (no-data, or NaN
     for a float layer without one). An existing attribute with the wrong domain
@@ -251,7 +341,7 @@ def ensure_attribute(
     """
     domain = _attribute_domain(spec)
     _check_editable(mesh)
-    name = attribute_name(spec)
+    name = effective_attribute_name(spec)
     wanted = attribute_type(spec.data_type)
     attr = mesh.attributes.get(name)
     if attr is not None:
@@ -277,7 +367,7 @@ def ensure_attribute(
 
 def attribute_problem(mesh: bpy.types.Mesh, spec: LayerSpec) -> str | None:
     """Why ``mesh`` does not hold the layer: "missing", "mismatch", or None if it does."""
-    attr = mesh.attributes.get(attribute_name(spec))
+    attr = mesh.attributes.get(effective_attribute_name(spec))
     if attr is None:
         return "missing"
     if attr.domain != Domain(spec.domain).value or attr.data_type != attribute_type(spec.data_type):
@@ -288,12 +378,13 @@ def attribute_problem(mesh: bpy.types.Mesh, spec: LayerSpec) -> str | None:
 def read_layer(mesh: bpy.types.Mesh, spec: LayerSpec) -> np.ndarray:
     """The layer's values on ``mesh``: float32, int32 or bool, one per face or corner.
 
+    ``mesh`` may be an original or an evaluated mesh (see :func:`layer_meshes`).
     Raises ``KeyError`` if the attribute is missing and ``ValueError`` if it has
     the wrong domain or type.
     """
     domain = _attribute_domain(spec)
     _check_object_mode(mesh)
-    name = attribute_name(spec)
+    name = effective_attribute_name(spec)
     problem = attribute_problem(mesh, spec)
     if problem == "missing":
         raise KeyError(f"Mesh {mesh.name!r} has no attribute {name!r}")
@@ -320,7 +411,8 @@ def write_layer(
 ) -> None:
     """Store ``values`` (one per face or corner) in the layer's attribute on ``mesh``.
 
-    The attribute is created or replaced with :func:`ensure_attribute`. Raises
+    ``mesh`` is an original mesh. The attribute is created or replaced with
+    :func:`ensure_attribute`. Raises
     ``ValueError`` before changing anything if ``values`` is not 1-D with one
     value per element, or if an INT or CATEGORY layer gets non-finite floats.
     """
@@ -358,13 +450,17 @@ def _finite_range(values: np.ndarray, nodata: float | None) -> tuple[float, floa
 
 
 def update_value_range(
-    scene: bpy.types.Scene, item: GeoToolsLayer
+    scene: bpy.types.Scene,
+    item: GeoToolsLayer,
+    *,
+    depsgraph: bpy.types.Depsgraph | None = None,
 ) -> tuple[float | None, float | None]:
     """Work out the range of the values present and store it in ``value_min``/``value_max``.
 
-    Reads the ``gt_<name>`` attribute of every source mesh that holds the layer
-    (or, for a TEXTURE layer, the first channel of its images), ignoring NaN,
-    inf and no-data. Both are None (stored as "") if no value is left. Raises
+    Reads the layer's attribute from the mesh of every source object that holds
+    it, evaluated unless Apply Modifiers is off (:func:`layer_meshes`), or, for
+    a TEXTURE layer, the first channel of its images, ignoring NaN, inf and
+    no-data. Both are None (stored as "") if no value is left. Raises
     ``RuntimeError`` if a source mesh is in Edit Mode.
 
     Also caches the automatic ramp range (``core.ramps.auto_range`` of the same
@@ -384,7 +480,14 @@ def update_value_range(
             values.append(pixels[:: image.channels])
             ranges.append(_finite_range(values[-1], nodata))
     else:
-        for mesh in source_meshes(scene):
+        objects = source_objects(scene)
+        for obj in objects:
+            _check_object_mode(obj.data)
+        seen: set[int] = set()
+        for _obj, mesh in layer_meshes(scene, objects, depsgraph=depsgraph):
+            if mesh.as_pointer() in seen:
+                continue
+            seen.add(mesh.as_pointer())
             if attribute_problem(mesh, spec) is None:
                 values.append(read_layer(mesh, spec))
                 ranges.append(_finite_range(values[-1], nodata))
@@ -404,10 +507,16 @@ def update_value_range(
     return low, high
 
 
-def remove_attribute(mesh: bpy.types.Mesh, name: str) -> bool:
-    """Remove the layer's ``gt_<name>`` attribute from ``mesh``; False if it had none."""
+def remove_attribute(mesh: bpy.types.Mesh, layer: LayerSpec | str) -> bool:
+    """Remove a layer's attribute from the original ``mesh``; False if it had none.
+
+    ``layer`` is a spec (its effective attribute name) or a layer name (``gt_<name>``).
+    """
     _check_editable(mesh)
-    attr = mesh.attributes.get(attribute_name(name))
+    name = (
+        effective_attribute_name(layer) if isinstance(layer, LayerSpec) else attribute_name(layer)
+    )
+    attr = mesh.attributes.get(name)
     if attr is None:
         return False
     mesh.attributes.remove(attr)
@@ -499,11 +608,14 @@ def image_is_saved(image: bpy.types.Image) -> bool:
 
 
 def remove_layer_data(scene: bpy.types.Scene, item: GeoToolsLayer) -> tuple[int, int]:
-    """Delete a layer's ``gt_<name>`` attributes from the source meshes and its images.
+    """Delete a layer's attributes from the original source meshes, and its images.
 
     Image files on disk are kept. Returns the number of attributes and images removed.
     """
-    attributes = sum(remove_attribute(mesh, item.name) for mesh in source_meshes(scene))
+    attributes = 0
+    if item.domain != Domain.TEXTURE.value:
+        spec = spec_from_props(item)
+        attributes = sum(remove_attribute(mesh, spec) for mesh in source_meshes(scene))
     images = {e.image.as_pointer(): e.image for e in item.images if e.image is not None}
     item.images.clear()
     for image in images.values():
@@ -514,33 +626,54 @@ def remove_layer_data(scene: bpy.types.Scene, item: GeoToolsLayer) -> tuple[int,
 # --- status -----------------------------------------------------------------------------
 
 
-def layer_status(scene: bpy.types.Scene, item: GeoToolsLayer) -> list[Issue]:
-    """Problems with a registry entry and its data on the source.
-
-    Validation errors first, then, per source object: a missing attribute
-    (``layer-attribute-missing``, warning: not baked yet) or one with the wrong
-    domain or type (``layer-attribute-mismatch``, error); for TEXTURE layers a
-    missing image (``layer-image-missing``), an image that would be lost on
-    reopening (``layer-image-unsaved``), or a missing UV map
-    (``layer-uv-map-missing``). Loops over objects, never over mesh elements.
-    """
-    spec = spec_from_props(item)
-    issues = validate(spec, other_layer_names(scene, item))
-    if scene.geotools.source_collection is None:
-        issues.append(
-            Issue(Severity.INFO, NO_SOURCE, "Set a source collection to hold the layer's data.")
+def _missing_message(obj: bpy.types.Object, spec: LayerSpec, name: str, apply: bool) -> str:
+    domain = Domain(spec.domain)
+    kind = f"{_DOMAIN_LABELS[domain]} {_TYPE_LABELS[DataType(spec.data_type)]}"
+    if not apply:
+        return (
+            f"{obj.name} has no {name} attribute ({kind}). Apply Modifiers is off, so only "
+            "the mesh itself counts: create the attribute (Details, Create Empty "
+            "Attributes), or turn Apply Modifiers on."
         )
-        return issues
+    return (
+        f"{obj.name} has no {name} attribute ({kind}) after its modifiers. Add a "
+        f"Geometry Nodes Store Named Attribute that writes {name}, or create the "
+        "attribute (Details, Create Empty Attributes)."
+    )
+
+
+def _data_status(
+    scene: bpy.types.Scene,
+    item: GeoToolsLayer,
+    spec: LayerSpec,
+    depsgraph: bpy.types.Depsgraph | None = None,
+) -> list[Issue]:
+    """The issues of :func:`layer_status` that need the source's data."""
+    if scene.geotools.source_collection is None:
+        return [
+            Issue(Severity.INFO, NO_SOURCE, "Set a source collection to hold the layer's data.")
+        ]
     objects = source_objects(scene)
     if Domain(spec.domain) is Domain.TEXTURE:
-        issues.extend(_image_status(item, spec, objects))
-        return issues
+        return _image_status(item, spec, objects)
 
-    name = attribute_name(spec)
+    issues: list[Issue] = []
+    name = effective_attribute_name(spec)
     wanted = f"{Domain(spec.domain).value} {attribute_type(spec.data_type)}"
+    apply = apply_modifiers(scene)
+    editing = [o for o in objects if o.data.is_editmode]
+    for obj in editing:
+        issues.append(
+            Issue(
+                Severity.WARNING,
+                EDIT_MODE,
+                f"{obj.name} is in Edit Mode; its layer data is checked in Object Mode.",
+                obj.name,
+            )
+        )
+    readable = [o for o in objects if not o.data.is_editmode]
     seen: set[int] = set()
-    for obj in objects:
-        mesh = obj.data
+    for obj, mesh in layer_meshes(scene, readable, apply=apply, depsgraph=depsgraph):
         if mesh.as_pointer() in seen:
             continue
         seen.add(mesh.as_pointer())
@@ -550,7 +683,7 @@ def layer_status(scene: bpy.types.Scene, item: GeoToolsLayer) -> list[Issue]:
                 Issue(
                     Severity.WARNING,
                     ATTRIBUTE_MISSING,
-                    f"{obj.name} has no {name} attribute yet.",
+                    _missing_message(obj, spec, name, apply),
                     obj.name,
                 )
             )
@@ -566,6 +699,130 @@ def layer_status(scene: bpy.types.Scene, item: GeoToolsLayer) -> list[Issue]:
                 )
             )
     return issues
+
+
+def layer_status(
+    scene: bpy.types.Scene,
+    item: GeoToolsLayer,
+    *,
+    depsgraph: bpy.types.Depsgraph | None = None,
+) -> list[Issue]:
+    """Problems with a registry entry and its data on the source.
+
+    Validation errors first, then, per source object: for FACE and CORNER
+    layers, on the mesh the values are read from (evaluated unless Apply
+    Modifiers is off, see :func:`layer_meshes`), a missing attribute
+    (``layer-attribute-missing``, warning: not computed yet) or one with the
+    wrong domain or type (``layer-attribute-mismatch``, error), and an object
+    in Edit Mode (``layer-edit-mode``, warning: not checked); for TEXTURE
+    layers a missing image (``layer-image-missing``), an image that would be
+    lost on reopening (``layer-image-unsaved``), or a missing UV map
+    (``layer-uv-map-missing``). Loops over objects, never over mesh elements,
+    but evaluates the depsgraph: panels use :func:`cached_status` instead.
+    """
+    spec = spec_from_props(item)
+    issues = validate(spec, other_layer_names(scene, item))
+    return issues + _data_status(scene, item, spec, depsgraph)
+
+
+def status_key(scene: bpy.types.Scene, item: GeoToolsLayer) -> str:
+    """What the data checks of a layer depend on, besides the meshes themselves.
+
+    A cached status whose key differs is out of date (the layer's domain, type,
+    attribute, UV map, the source collection or Apply Modifiers changed).
+    """
+    spec = spec_from_props(item)
+    collection = scene.geotools.source_collection
+    attribute = "" if spec.domain is Domain.TEXTURE else effective_attribute_name(spec)
+    return "\x1f".join(
+        (
+            spec.domain.value,
+            spec.data_type.value,
+            attribute,
+            item.uv_map if spec.domain is Domain.TEXTURE else "",
+            collection.name_full if collection is not None else "",
+            "apply" if apply_modifiers(scene) else "original",
+        )
+    )
+
+
+def _store_status(item: GeoToolsLayer, key: str, issues: list[Issue]) -> None:
+    item.status_issues.clear()
+    for issue in issues:
+        entry = item.status_issues.add()
+        entry.severity = Severity(issue.severity).name
+        entry.code = issue.code
+        entry.message = issue.message
+        entry.subject = issue.subject or ""
+    item.status_key = key
+
+
+def refresh_status(
+    scene: bpy.types.Scene,
+    item: GeoToolsLayer,
+    *,
+    depsgraph: bpy.types.Depsgraph | None = None,
+) -> list[Issue]:
+    """:func:`layer_status`, caching its data issues on the layer for :func:`cached_status`."""
+    spec = spec_from_props(item)
+    data = _data_status(scene, item, spec, depsgraph)
+    _store_status(item, status_key(scene, item), data)
+    return validate(spec, other_layer_names(scene, item)) + data
+
+
+def refresh_layer(
+    scene: bpy.types.Scene,
+    item: GeoToolsLayer,
+    *,
+    depsgraph: bpy.types.Depsgraph | None = None,
+) -> list[Issue]:
+    """Refresh a layer's cached range and status from the source; returns its status.
+
+    The range (:func:`update_value_range`) is kept as it was while a source
+    mesh is in Edit Mode; the status then says so.
+    """
+    if depsgraph is None and apply_modifiers(scene):
+        depsgraph = evaluated_depsgraph(scene)
+    if not any(o.data.is_editmode for o in source_objects(scene)):
+        update_value_range(scene, item, depsgraph=depsgraph)
+    return refresh_status(scene, item, depsgraph=depsgraph)
+
+
+def refresh_layers(scene: bpy.types.Scene, *, depsgraph: bpy.types.Depsgraph | None = None) -> None:
+    """:func:`refresh_layer` for every layer (Run Checks and Publish call this)."""
+    if not len(scene.geotools.layers):
+        return
+    if depsgraph is None and apply_modifiers(scene):
+        depsgraph = evaluated_depsgraph(scene)
+    for item in scene.geotools.layers:
+        refresh_layer(scene, item, depsgraph=depsgraph)
+
+
+def cached_status(scene: bpy.types.Scene, item: GeoToolsLayer) -> list[Issue]:
+    """The status to draw: validation now, the data issues of the last refresh.
+
+    Cheap, reads no mesh: for panels. A layer never refreshed, or whose
+    :func:`status_key` changed since, gets one ``layer-not-checked`` info.
+    """
+    spec = spec_from_props(item)
+    issues = validate(spec, other_layer_names(scene, item))
+    if scene.geotools.source_collection is None:
+        return issues + [
+            Issue(Severity.INFO, NO_SOURCE, "Set a source collection to hold the layer's data.")
+        ]
+    if item.status_key != status_key(scene, item):
+        return issues + [
+            Issue(
+                Severity.INFO,
+                NOT_CHECKED,
+                "Not checked yet: Update the values or Run Checks.",
+                item.name,
+            )
+        ]
+    return issues + [
+        Issue(Severity[e.severity], e.code, e.message, e.subject or None)
+        for e in item.status_issues
+    ]
 
 
 def _image_status(
@@ -612,6 +869,14 @@ def _image_status(
 
 
 # --- operators -------------------------------------------------------------------------------
+
+
+def _refresh_quietly(scene: bpy.types.Scene, item: GeoToolsLayer) -> None:
+    """:func:`refresh_layer` after an operator changed a layer; a failure only logs."""
+    try:
+        refresh_layer(scene, item)
+    except (RuntimeError, ValueError, KeyError):
+        log.exception("could not refresh layer %s", item.name)
 
 
 def _active_layer(context: bpy.types.Context) -> GeoToolsLayer | None:
@@ -677,6 +942,7 @@ class GEOTOOLS_OT_layer_add(bpy.types.Operator):
         # Not ensure_layer: a new CATEGORY layer has no categories yet.
         write_props(item, LayerSpec(name, Domain(self.domain), DataType(self.data_type)))
         props.layers_index = len(props.layers) - 1
+        _refresh_quietly(context.scene, item)
         redraw_ui(context)
         return {"FINISHED"}
 
@@ -690,8 +956,9 @@ class GEOTOOLS_OT_layer_remove(bpy.types.Operator):
 
     delete_data: BoolProperty(
         name="Delete Attributes and Images",
-        description="Also delete the layer's gt_<name> attributes from the source meshes "
-        "and its images. Image files on disk are kept",
+        description="Also delete the layer's attribute (gt_<name>, or its source attribute) "
+        "from the source meshes, and its images. Image files on disk are kept. Attributes "
+        "made by modifiers are not touched",
         default=False,
         options={"SKIP_SAVE"},
     )
@@ -737,7 +1004,8 @@ class GEOTOOLS_OT_layer_remove(bpy.types.Operator):
 
 
 class GEOTOOLS_OT_layer_rename(bpy.types.Operator):
-    """Rename the selected layer and its gt_<name> attributes on the source meshes"""
+    """Rename the selected layer and its gt_<name> attributes on the source meshes.
+    A layer with its own source attribute keeps that attribute"""
 
     bl_idname = "geotools.layer_rename"
     bl_label = "Rename Layer"
@@ -767,7 +1035,7 @@ class GEOTOOLS_OT_layer_rename(bpy.types.Operator):
         if errors:
             self.report({"ERROR"}, errors[0].message)
             return {"CANCELLED"}
-        meshes = source_meshes(scene)
+        meshes = source_meshes(scene) if not item.source_attribute.strip() else []
         old_attr, new_attr = attribute_name(old), attribute_name(new)
         taken = [m.name for m in meshes if new_attr in m.attributes]
         if taken:
@@ -784,6 +1052,7 @@ class GEOTOOLS_OT_layer_rename(bpy.types.Operator):
                 attr.name = new_attr
                 renamed += 1
         item.name = new
+        _refresh_quietly(scene, item)
         self.report(
             {"INFO"},
             f"Renamed layer {old} to {new} ({renamed} attribute{'s' * (renamed != 1)})",
@@ -793,8 +1062,9 @@ class GEOTOOLS_OT_layer_rename(bpy.types.Operator):
 
 
 class GEOTOOLS_OT_layer_create_attributes(bpy.types.Operator):
-    """Create the selected layer's gt_<name> attribute on every source mesh, filled with no-data.
-    An attribute with the wrong domain or type is replaced"""
+    """Create the selected layer's attribute (gt_<name>, or its source attribute) on every
+    source mesh, filled with no-data, to fill by hand or with a tool. An attribute with the
+    wrong domain or type is replaced. A layer computed by Geometry Nodes does not need this"""
 
     bl_idname = "geotools.layer_create_attributes"
     bl_label = "Create Attributes"
@@ -834,8 +1104,9 @@ class GEOTOOLS_OT_layer_create_attributes(bpy.types.Operator):
         except RuntimeError as ex:
             self.report({"ERROR"}, f"Cannot create attributes: {ex}")
             return {"CANCELLED"}
-        name = attribute_name(spec)
+        name = effective_attribute_name(spec)
         meshes = f"{created} mesh{'es' * (created != 1)}"
+        _refresh_quietly(scene, item)
         if issues:
             self.report(
                 {"WARNING"},
@@ -881,7 +1152,9 @@ class GEOTOOLS_OT_layer_set_categories(bpy.types.Operator):
 
 
 class GEOTOOLS_OT_layer_update_range(bpy.types.Operator):
-    """Work out the range of the selected layer's values on the source, ignoring no-data"""
+    """Read the selected layer's values from the source (with modifiers applied, unless the
+    build profile says otherwise): work out their range, ignoring no-data, and check where
+    they are missing"""
 
     bl_idname = "geotools.layer_update_range"
     bl_label = "Update Range"
@@ -898,6 +1171,7 @@ class GEOTOOLS_OT_layer_update_range(bpy.types.Operator):
         except RuntimeError as ex:
             self.report({"ERROR"}, f"Cannot work out the range: {ex}")
             return {"CANCELLED"}
+        refresh_status(context.scene, item)
         if low is None:
             self.report({"WARNING"}, f"Layer {item.name} holds no values yet")
         else:

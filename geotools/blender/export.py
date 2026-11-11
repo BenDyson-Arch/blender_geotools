@@ -6,9 +6,11 @@ nothing loops over vertices, loops or faces in Python.
 What is exported
 ----------------
 * Every mesh object in the collection and its children, sorted by name. The
-  EVALUATED mesh is exported (modifiers and Geometry Nodes applied), with the
-  evaluated world matrix baked into the positions in float64 before the cast to
-  float32. Normals use the inverse transpose. A negative determinant (a mirror)
+  EVALUATED mesh is exported (modifiers and Geometry Nodes applied), or, with
+  ``apply_modifiers=False`` (the build profile's Apply Modifiers off), the
+  object's original mesh data, as Blender's own glTF exporter does. Either way
+  the evaluated world matrix is baked into the positions in float64 before the
+  cast to float32. Normals use the inverse transpose. A negative determinant (a mirror)
   reverses the triangle winding and the tangent handedness, so faces still
   point the way their normals do.
 * Triangles come from ``mesh.loop_triangles``. They are grouped by material,
@@ -53,7 +55,8 @@ entry is then ``"evaluated:" + digest of the evaluated topology``, so later
 milestones know to transfer values by position rather than by index, and a
 stale map is still detected when the evaluated topology changes. Comparing the
 whole topology rather than the polygon count also catches modifiers that keep
-the count but reorder or rewire polygons.
+the count but reorder or rewire polygons. Without Apply Modifiers the exported
+mesh is the original, so every entry is the plain digest.
 
 Images
 ------
@@ -92,16 +95,19 @@ presentation (``blender.presentation``) in place of the user's colours, without
 changing the user's materials, images or colour attributes. Only what is
 written changes:
 
-* ``COLOR_0`` target: COLOR_0 is read from the ``gt_present`` byte colour
-  attribute instead of the render colour attribute. It is read from the
-  evaluated mesh, so modifiers carry it like any other corner attribute
-  (Subdivision interpolates it). If a modifier drops it (some Geometry Nodes
-  trees do) and the evaluated topology is the original's, it is read from the
-  original mesh, whose corners are then the same; otherwise the export fails
-  with an ``ExportError`` naming the object, since no corner of the evaluated
-  mesh can be matched to a colour. REPLACE writes every material with a white
-  base colour factor and no base-colour texture, so COLOR_0 shows as it is;
-  MULTIPLY keeps the materials, and COLOR_0 multiplies their base colour.
+* ``COLOR_0`` target: COLOR_0 is the presentation's own colours
+  (``Presentation.colors``) instead of the render colour attribute. They are
+  worked out at publish time from the layer's values on the very meshes
+  exported (``blender.presentation.build_presentation``), one 8-bit sRGB
+  colour per face or per corner of each object, and converted to linear
+  floats here. No colour attribute has to survive the modifiers, so a layer
+  computed by Geometry Nodes that change the topology presents like any
+  other. An object without colours gets the no-data colour; colours whose
+  count is not the exported mesh's faces or corners are an ``ExportError``
+  (the meshes changed since the presentation was built). REPLACE writes every
+  material with a white base colour factor and no base-colour texture, so
+  COLOR_0 shows as it is; MULTIPLY keeps the materials, and COLOR_0
+  multiplies their base colour.
 * ``BASE_COLOR`` and ``EMISSIVE`` targets (TEXTURE layers): each object gets its
   own copy of each of its materials, with the object's 8-bit presentation
   image in that slot (sampling the layer's UV map), so a material shared by
@@ -113,8 +119,9 @@ written changes:
   keeps the base colour factor and COLOR_0 (BASE_COLOR) or the whole material
   (EMISSIVE, factor 1).
 
-Without a presentation, ``gt_present`` is never published: COLOR_0 then skips
-it even when it is the render or active colour attribute.
+``gt_present``, the colour attribute the Write Colours button paints for a
+viewport preview, is never published: COLOR_0 skips it even when it is the
+render or active colour attribute, and a COLOR_0 presentation does not read it.
 """
 
 from __future__ import annotations
@@ -143,6 +150,7 @@ from ..core.gltf_writer import (
 )
 from ..core.images import ImageRemedy, RemedyKind, scaled_size
 from ..core.presentation import PRESENT_ATTRIBUTE, Blend, Target
+from ..core.ramps import srgb_bytes_to_linear
 from . import nodes
 from .properties import image_remedy
 
@@ -165,13 +173,18 @@ _SUFFIXES = {"image/png": (".png",), "image/jpeg": (".jpg", ".jpeg")}
 class Presentation:
     """A layer presentation to publish instead of the user's colours.
 
-    Made by ``blender.presentation.write_presentation``; see the module docstring.
+    Made by ``blender.presentation.build_presentation``; see the module docstring.
     """
 
     target: Target
     blend: Blend
-    attribute: str = PRESENT_ATTRIBUTE
-    """COLOR_0 target: the byte colour attribute COLOR_0 is read from."""
+    colors: Mapping[str, np.ndarray] = field(default_factory=dict)
+    """COLOR_0 target: object name -> ``(N, 4) uint8`` sRGB colours, one per face
+    (``domain`` FACE) or per corner (CORNER) of the mesh the object exports."""
+    domain: str = "FACE"
+    """COLOR_0 target: what the rows of ``colors`` are, FACE or CORNER."""
+    nodata_rgba: tuple[int, int, int, int] = (0, 0, 0, 255)
+    """COLOR_0 target: the colour of an object missing from ``colors``."""
     images: Mapping[str, bpy.types.Image] = field(default_factory=dict)
     """BASE_COLOR and EMISSIVE targets: object name -> its 8-bit presentation image."""
     uv_map: str = ""
@@ -180,6 +193,8 @@ class Presentation:
     def __post_init__(self) -> None:
         object.__setattr__(self, "target", Target(self.target))
         object.__setattr__(self, "blend", Blend(self.blend))
+        if self.domain not in ("FACE", "CORNER"):
+            raise ValueError(f"presentation colours are FACE or CORNER, not {self.domain!r}")
 
     @property
     def per_object(self) -> bool:
@@ -194,6 +209,7 @@ def extract_scene(
     *,
     remedies: list[dict] | None = None,
     presentation: Presentation | None = None,
+    apply_modifiers: bool = True,
 ) -> tuple[SceneExport, dict[str, str]]:
     """The collection's mesh objects as a ``SceneExport``, plus object name ->
     topology digest (prefixed ``"evaluated:"`` when polygon indices refer to the
@@ -202,7 +218,9 @@ def extract_scene(
     With ``remedies``, one dict per image written with a remedy is appended to
     it: the image, the remedy tag, and the file, format and size written.
     With ``presentation``, that layer presentation is published in place of the
-    user's colours (see "Presentation" in the module docstring)."""
+    user's colours (see "Presentation" in the module docstring). With
+    ``apply_modifiers`` False the original meshes are exported, without their
+    modifiers."""
     objects = sorted((o for o in collection.all_objects if o.type == "MESH"), key=lambda o: o.name)
     _sync_edit_mode(context, objects)
     depsgraph = context.evaluated_depsgraph_get()
@@ -211,7 +229,9 @@ def extract_scene(
     groups: dict[tuple[int | None, _Layout], list[_Chunk]] = {}
     topology: dict[str, str] = {}
     for index, obj in enumerate(objects):
-        topology[obj.name] = _extract_object(obj, index, depsgraph, materials, groups, presentation)
+        topology[obj.name] = _extract_object(
+            obj, index, depsgraph, materials, groups, presentation, apply_modifiers
+        )
 
     def order(key: tuple[int | None, _Layout]) -> tuple:
         material, layout = key
@@ -300,13 +320,27 @@ def _topology_arrays(mesh: bpy.types.Mesh) -> tuple[np.ndarray, np.ndarray, int]
     return _loop_totals(mesh), _corner_verts(mesh), len(mesh.vertices)
 
 
+def _same_arrays(a: tuple, b: tuple) -> bool:
+    return a[2] == b[2] and np.array_equal(a[0], b[0]) and np.array_equal(a[1], b[1])
+
+
+def same_topology(original: bpy.types.Mesh, evaluated: bpy.types.Mesh) -> bool:
+    """True if ``evaluated`` has ``original``'s topology: the same polygon sizes,
+    corner vertices and vertex count, so polygon and corner indices match."""
+    if evaluated == original:
+        return True
+    if len(evaluated.polygons) != len(original.polygons):
+        return False
+    return _same_arrays(_topology_arrays(original), _topology_arrays(evaluated))
+
+
 def mesh_topology_digest(original: bpy.types.Mesh, evaluated: bpy.types.Mesh) -> str:
     """The topology entry for one object; see the module docstring."""
     orig = _topology_arrays(original)
     if evaluated is original:
         return topology_digest(*orig)
     ev = _topology_arrays(evaluated)
-    if orig[2] == ev[2] and np.array_equal(orig[0], ev[0]) and np.array_equal(orig[1], ev[1]):
+    if _same_arrays(orig, ev):
         return topology_digest(*orig)
     return EVALUATED_PREFIX + topology_digest(*ev)
 
@@ -978,22 +1012,16 @@ class _Chunk:
 
 
 class _ObjectData:
-    """Lazily read attributes of one evaluated mesh, in world space.
-
-    ``original`` is the object's own mesh when the evaluated topology is the
-    same (corners match one to one), else None; a presentation colour missing
-    from the evaluated mesh is read from it.
-    """
+    """Lazily read attributes of one exported mesh (evaluated or original), in world space."""
 
     def __init__(
         self,
         obj: bpy.types.Object,
         mesh: bpy.types.Mesh,
         presentation: Presentation | None = None,
-        original: bpy.types.Mesh | None = None,
     ) -> None:
         self.obj, self.mesh = obj, mesh
-        self.presentation, self.original = presentation, original
+        self.presentation = presentation
         self.tri_loops, self.tri_poly = _triangles(mesh)
         self.tri_verts = _corner_verts(mesh)[self.tri_loops]
         face_material = _attribute(mesh, "material_index", "FACE", "value", 1, np.int32)
@@ -1061,7 +1089,7 @@ class _ObjectData:
         if presentation is None:
             return self._render_color()
         if presentation.target is Target.COLOR_0:
-            return self._present_color(presentation.attribute)
+            return self._present_color(presentation)
         if presentation.blend is Blend.REPLACE:
             return None
         return self._render_color()
@@ -1081,22 +1109,22 @@ class _ObjectData:
             return None
         return self._color_data(attr)
 
-    def _present_color(self, name: str) -> tuple[np.ndarray, str]:
-        for mesh in (self.mesh, self.original):
-            attr = None if mesh is None else mesh.color_attributes.get(name)
-            if attr is not None and attr.domain in ("POINT", "CORNER"):
-                return self._color_data(attr)
-        raise ExportError(
-            f"Object {self.obj.name!r}: the presentation colours ({name}) are missing"
-            + (
-                ""
-                if self.original is not None or name not in self.obj.original.data.attributes
-                else ": its modifiers change the topology and drop the attribute, so no "
-                "corner of the result can be matched to a colour. Apply the modifiers, or "
-                "bake the layer onto the evaluated topology, then publish the variant again"
+    def _present_color(self, presentation: Presentation) -> tuple[np.ndarray, str]:
+        """The presentation's colours of this object as linear floats, and their domain."""
+        domain = presentation.domain
+        count = len(self.mesh.polygons) if domain == "FACE" else len(self.mesh.loops)
+        rgba = presentation.colors.get(self.obj.name)
+        if rgba is None:
+            rgba = np.array([presentation.nodata_rgba], dtype=np.uint8)
+            return srgb_bytes_to_linear(rgba), "CONSTANT"
+        if rgba.shape != (count, 4):
+            what = "faces" if domain == "FACE" else "corners"
+            raise ExportError(
+                f"Object {self.obj.name!r}: the presentation has {rgba.shape[0]} colours but "
+                f"the exported mesh has {count} {what}; the mesh changed after the "
+                "presentation was built. Publish again."
             )
-            + "."
-        )
+        return srgb_bytes_to_linear(np.ascontiguousarray(rgba, dtype=np.uint8)), domain
 
     @staticmethod
     def _color_data(attr: bpy.types.Attribute) -> tuple[np.ndarray, str]:
@@ -1168,15 +1196,18 @@ def _extract_object(
     materials: _MaterialTable,
     groups: dict[tuple[int | None, _Layout], list[_Chunk]],
     presentation: Presentation | None = None,
+    apply_modifiers: bool = True,
 ) -> str:
     evaluated = obj.evaluated_get(depsgraph)
-    mesh = evaluated.to_mesh()
+    # Without Apply Modifiers, the original object's to_mesh(): a copy of its own
+    # mesh data. Transforms still come from the evaluated object.
+    owner = evaluated if apply_modifiers else obj
+    mesh = owner.to_mesh()
     try:
         digest = mesh_topology_digest(obj.data, mesh)
         if len(mesh.polygons) == 0:
             return digest
-        same_topology = not digest.startswith(EVALUATED_PREFIX)
-        data = _ObjectData(evaluated, mesh, presentation, obj.data if same_topology else None)
+        data = _ObjectData(evaluated, mesh, presentation)
         if data.tri_verts.shape[0] == 0:
             return digest
 
@@ -1184,7 +1215,7 @@ def _extract_object(
         # A texture presentation gives each object its own materials, and a white
         # one where a slot is empty.
         per_object = materials.per_object
-        slots = [s.material.original if s.material else None for s in evaluated.material_slots]
+        slots = [s.material.original if s.material else None for s in owner.material_slots]
         if slots:
             slot = np.clip(data.tri_mat, 0, len(slots) - 1)
             used = np.flatnonzero(np.bincount(slot, minlength=len(slots)))
@@ -1215,7 +1246,7 @@ def _extract_object(
             groups.setdefault((material, layout), []).append(chunk)
         return digest
     finally:
-        evaluated.to_mesh_clear()
+        owner.to_mesh_clear()
 
 
 def _chunk(
@@ -1244,7 +1275,15 @@ def _chunk(
     color_src = None
     if data.color is not None:
         values, domain = data.color
-        color_src = _Source(values, vertex if domain == "POINT" else loops)
+        if domain == "POINT":
+            index = vertex
+        elif domain == "FACE":
+            index = np.repeat(tri_poly, 3)
+        elif domain == "CONSTANT":
+            index = np.zeros(vertex.shape[0], dtype=np.int64)
+        else:
+            index = loops
+        color_src = _Source(values, index)
         sources.append(color_src)
 
     tangent_src = None
