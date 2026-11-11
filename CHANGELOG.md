@@ -105,6 +105,34 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   transform, and a report of the operation used, its accuracy and any caveats
   (ballpark operation, points outside the area of use, a missing grid, a CRS
   preset as the target).
+- GeoJSON and GeoPackage import (M8), in File > Import and the new Linked Data
+  panel after Source. Points become loose vertices, lines loose edges and
+  polygons faces (n-gons, or triangles for polygons with holes), one object
+  per layer and geometry kind, in the project frame: coordinates are shifted
+  by the project offset in binary64 and Z is kept. Feature properties become
+  FLOAT, INT, BOOLEAN or STRING attributes on the face, edge or point domain,
+  with an INT `fid`. Degenerate polygon parts are skipped, as in 0.2. Data in
+  another CRS than the project's is refused with both CRSs named; data of
+  unknown CRS can be confirmed as being in the project CRS.
+- Linked sources: each imported object keeps its file, layer, CRS, import
+  options and a fingerprint (`obj.geotools_link`). Refresh re-reads the file and
+  replaces only the mesh data, so modifiers, materials, transform and parent
+  stay, and reports features added, removed and changed by fid. Changed files
+  are detected when a `.blend` is opened and on demand, and an optional
+  auto-refresh polls the file every 2 seconds.
+- Import filters: an SQL `WHERE` clause on a GeoPackage table, run on a
+  read-only connection that may only read that table, and "within the site
+  extent" (the source collection's bounds).
+- Attribute write-back: chosen attributes go back to the GeoPackage by fid in
+  one transaction (`UPDATE`, adding columns when needed), or into the GeoJSON
+  file (rewritten, keeping unknown members and feature order). Refused if the
+  file changed since the last sync. Geometry is never written back.
+- GeoJSON and GeoPackage export (File > Export, and Export in Linked Data) from
+  the evaluated mesh, with Z and the face, edge and point attributes, in the
+  project CRS. Faces grouped by `fid` become polygons with their holes.
+  Projected GeoJSON carries the legacy `crs` member.
+- `scripts/vector_timing.py`, which times import and export of 100k polygons
+  inside Blender.
 
 ### Changed
 

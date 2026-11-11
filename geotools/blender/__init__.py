@@ -14,6 +14,7 @@ from . import (
     bake_texture,
     checks,
     layers,
+    links,
     operators,
     panels,
     preferences,
@@ -23,6 +24,7 @@ from . import (
     publish,
     remedies,
     source,
+    vectors,
 )
 
 log = logging.getLogger(__name__)
@@ -32,6 +34,8 @@ MODULES: tuple[ModuleType, ...] = (
     properties,
     operators,
     source,
+    links,
+    vectors,
     checks,
     remedies,
     profiles,

@@ -140,8 +140,7 @@ def matches(project: DataCrs | None, data: DataCrs) -> bool | None   # None = ca
   it does); lines → loose edges; points → loose vertices.
 - Attributes on the matching domain: FACE for polygons, EDGE for lines, POINT
   for points. Feature id `fid` (INT). Numbers → FLOAT or INT; booleans →
-  BOOLEAN; text → STRING if Blender 5.2 supports string attributes on that
-  domain, otherwise an INT code plus the label table in the link.
+  BOOLEAN; text → STRING (settled: see "Settled in stream 1" below).
   Tessellated polygons repeat their feature's values on every triangle.
 - Z kept when present (shifted by the project offset); 2D data gets z = 0.
 
@@ -186,6 +185,110 @@ kind, status icon: up to date, changed on disk, missing, error), Import
 buttons (GeoJSON, GeoPackage, GeoTIFF), and for the selected link: Refresh,
 Auto-refresh, filters, Write Back (GeoPackage), Export. Header status icon
 like the other panels. Keep it compact; see `scripts/ui_screenshots.py`.
+
+### Settled in stream 1 (vectors)
+
+**String attributes.** Checked in Blender 5.2.3: `mesh.attributes.new(name,
+"STRING", domain)` works on POINT, EDGE, FACE and CORNER; the values are
+UTF-8 `bytes`; they survive Geometry Nodes (Set Position) and a Triangulate
+modifier, and Named Attribute reads them. But `foreach_set` and `foreach_get`
+refuse STRING attributes ("Only boolean, int, float, and enum properties
+supported"), so they are set one element at a time: about 0.42 s per million
+elements to write and 0.15 s to read. Decision: text columns are STRING
+attributes (no INT code fallback), written element by element. This is the
+one exception to the no-loops rule, forced by the API like the per-feature
+loops above; `tests/blender/test_vectors.py::test_blender_string_attributes`
+fails when `foreach_set` starts taking strings, so the writes can be
+vectorised then. Reading back (write-back, refresh counts, export) reads one
+element per feature, never every element.
+
+**`GeoToolsLink`** (`geotools/blender/links.py`, `obj.geotools_link`), the
+interface stream 2 uses:
+
+| Field | Type | Notes |
+|---|---|---|
+| `kind` | enum `NONE`, `GEOJSON`, `GPKG`, `GEOTIFF` | `NONE` (default) means not linked |
+| `filepath` | string (FILE_PATH) | read with `bpy.path.abspath` (`links.link_path`) |
+| `layer` | string | GeoPackage table; for GeoJSON the file's stem |
+| `fid_field` | string | GeoPackage primary key; GeoJSON `id`, or `@index` (position in the file, from 0) when the ids are not distinct integers |
+| `crs` | string | `crs_match.to_text(DataCrs)` JSON |
+| `options` | string | JSON. Vectors: `core.vector.options.VectorOptions` (`kind`, `where`, `site_bbox`, `columns`). Stream 2 owns its own keys |
+| `fingerprint` | string | `core.fingerprint.Fingerprint.to_text()` JSON |
+| `last_sync` | string | UTC ISO, e.g. `2026-11-11T10:41:16Z` |
+| `auto_refresh` | bool | |
+| `status` | enum `OK`, `CHANGED`, `MISSING`, `ERROR` | |
+| `message` | string | detail of the status (added) |
+
+Helpers in `links`: `is_linked(obj)`, `linked_objects()`, `link_path(link)`,
+`mark_synced(link, fingerprint=None)` (fingerprint, last sync, status OK),
+`check_link(obj)`, `refresh_link(obj)`, `replace_mesh(obj, mesh)` (copies the
+old mesh's materials, swaps, removes the old mesh, keeps its name), and
+`register_refresher(kind, fn)`: a refresher takes the object, re-reads its file
+with the stored options, calls `replace_mesh` and returns a `RefreshResult(added,
+removed, changed, message)`; it raises `RefreshError` to refuse. Refresh,
+stale detection, the `load_post` handler and the auto-refresh timer are
+generic, so GeoTIFF only registers its refresher. The Linked Data list is
+`links.GEOTOOLS_UL_links` over `bpy.data.objects`, with the active index in
+`scene.geotools_link_index`.
+
+**`crs_match`** (`geotools/core/crs_match.py`): `DataCrs(epsg, definition,
+source)` with `.known` and `.describe()`; `project_crs(placement)` (None for
+LOCAL and ANCHOR, whose imports take coordinates as local metres with a
+warning; the project's `source` is `"project"`); `matches(project, data)`
+(codes compared when both have one, else normalised definition text; None
+when it can't tell); `mismatch_message` and `unknown_message`;
+`to_text`/`from_text`; `normalise_epsg` (EPSG:n, OGC URNs and URLs, CRS84 →
+EPSG:4326); `epsg_from_wkt` (the root `AUTHORITY`/`ID` of WKT1 or WKT2);
+`from_gpkg_srs(organization, code, definition, srs_id)` (srs_id 0 and -1 are
+unknown); and `reproject(points, data_crs, project_crs)`, which raises
+`ReprojectionUnavailable`. A CRS the user confirmed is stored with source
+`"user"`, and a refresh accepts it again without asking.
+
+**Fingerprints** (`geotools/core/fingerprint.py`): `take(path)`,
+`stat(path)` and `check(path, stored) -> (FileState, current)`, with states
+SAME, TOUCHED (stat changed, bytes the same: the new stat is stored), CHANGED
+and MISSING. A GeoPackage's `-wal` file is part of its fingerprint, because
+QGIS keeps committed edits there until a checkpoint.
+
+**Nulls and types.** FLOAT null is NaN (written back as NULL); INT, BOOLEAN
+and STRING nulls become 0, False and "". Integers outside int32, and
+GeoPackage INTEGER columns holding them, become FLOAT. BLOB columns and
+all-null properties are skipped. Source names Blender reserves (`position`,
+`material_index`, `sharp_face`, `id`, `fid` ...) are imported as
+`<name>_src`; `options.columns` maps them back for write-back and export.
+
+**Export.** Positions are world space (the object transform applied) plus the
+project offset, in binary64. Faces are grouped by their FACE `fid` (each face
+is a feature without one) and each group's boundary edges are walked into
+rings, vectorised with pointer doubling; rings wound like the group's largest
+ring are exteriors, the others holes. A group whose boundary pinches at a
+vertex is written face by face. Loose edges that join end to end become one
+line string; one EDGE `fid` with several lines is a MultiLineString. A
+GeoPackage gets one table per kind: `<layer>`, or `<layer>`,
+`<layer>_lines` and `<layer>_points` when kinds mix. A LOCAL or ANCHOR
+project writes srs_id -1 (undefined Cartesian) and says so.
+
+**Filters.** The `WHERE` clause is refused if it has `;`, comments or
+unbalanced brackets outside quotes, and runs on a `mode=ro` connection whose
+authorizer allows only SELECT, functions and reads of the layer's own table.
+"Within the site extent" stores the source collection's XY bounds, in data
+coordinates, in `options.site_bbox` at import, and refresh reuses them.
+
+**Timings** (`scripts/vector_timing.py`, desktop i7-12700KF, Blender 5.2.3):
+100k octagons, 10k with a square hole (840k vertices, 210k faces), a float,
+an int and a text column.
+
+| Step | Seconds |
+|---|---|
+| Read GeoJSON (42 MiB) | 1.08 |
+| Read GeoPackage (23 MiB) | 0.54 |
+| Mesh arrays, tessellating the 10k holes | 0.31 |
+| Blender mesh | 0.17 |
+| fid, float and int attributes | 0.00 |
+| The STRING attribute (210k elements) | 0.10 |
+| Import from GeoPackage, total | 1.12 |
+| Export: evaluated mesh to polygons | 0.56 |
+| Export: write the GeoPackage | 0.68 |
 
 ## GeoTIFF (`geotools/core/geotiff.py`, `geotools/blender/raster_io.py`)
 
