@@ -136,7 +136,7 @@ def build(
     if len(zips) == 1:
         return zips[0]
     # Split-platform build: pick this machine's zip.
-    suffix = "_" + host_platform().replace("-", "_") + ".zip"
+    suffix = "-" + host_platform().replace("-", "_") + ".zip"
     matching = [z for z in zips if z.name.endswith(suffix)]
     if len(matching) != 1:
         raise RunError(
