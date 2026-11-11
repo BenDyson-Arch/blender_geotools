@@ -66,7 +66,8 @@ def test_layers_registered() -> None:
         assert h.operator_available(idname), idname
     assert hasattr(bpy.types, "GEOTOOLS_UL_layers")
     panels = [cls.__name__ for cls in h.submodule("blender.panels").classes]
-    assert panels.index("GEOTOOLS_PT_layers") == panels.index("GEOTOOLS_PT_source") + 1, panels
+    # Source, then Linked Data (M8), then Layers.
+    assert panels.index("GEOTOOLS_PT_layers") == panels.index("GEOTOOLS_PT_source") + 2, panels
     props = h.project()
     assert "layers" in props.bl_rna.properties and "layers_index" in props.bl_rna.properties
 

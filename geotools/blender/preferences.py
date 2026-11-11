@@ -28,7 +28,7 @@ class GEOTOOLS_AddonPreferences(bpy.types.AddonPreferences):
 
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
-        draw_dependency_status(layout)
+        draw_dependency_status(layout, show_paths=True)
         box = layout.box()
         box.label(text="Preview (optional)", icon="WORLD")
         box.prop(self, "rusty_tiles_cli")

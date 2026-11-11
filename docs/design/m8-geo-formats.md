@@ -19,8 +19,10 @@ GeoTools node groups or modelling operators.
 - Coordinates are binary64 until they become Blender float32 positions,
   relative to the project frame:
   `local = (E - offset_E, N - offset_N, Z - offset_A)` for a SOURCE_CRS
-  project. LOCAL and ANCHOR projects take the data's coordinates as local
-  metres, with a warning.
+  project. Vector data in another CRS is first reprojected into the project
+  CRS, also in binary64. LOCAL and ANCHOR projects take the data's
+  coordinates as local metres, with a warning, unless the data is projected
+  and far from the origin (see "LOCAL and ANCHOR projects").
 - Performance: no Python loops over vertices. A loop over *features* is
   acceptable where a format forces it (WKB records, polygon tessellation with
   `mathutils.geometry.tessellate_polygon`), but coordinates go into
@@ -67,13 +69,132 @@ def matches(project: DataCrs | None, data: DataCrs) -> bool | None   # None = ca
     notes;
   - tile placement is unaffected: publishing still goes from the project CRS
     through rusty-tiles.
-  The hook is `reproject(points, data_crs, project_crs) -> (points, report)`.
-  It raises "not available" until the pyproj bundling lands. Rasters are
-  never reprojected: "reproject in QGIS first".
-- Packaging: pyproj wheels are bundled per platform like rusty-tiles (5–10
-  MB each). pyproj 3.8.0's Intel-mac wheel needs macOS 15, so pin a version
-  with wheels for every platform Blender 5.2 supports (3.7.2 today), or pin
-  per platform.
+  The hook is `reproject(points, data_crs, project_crs, *,
+  allow_network=False) -> (points, report)`, wired in the integration (see
+  "Reprojection wiring" below). Rasters are never reprojected: "reproject in
+  QGIS first".
+- The function behind the hook is
+  `geotools.core.reproject.reproject_points(xyz, source, target, *,
+  allow_network=False) -> (points, ReprojectionReport)`. It takes CRS strings
+  ("EPSG:nnnn", WKT or PROJ), so the hook calls it in one line. It raises
+  `ReprojectionUnavailable` without pyproj and `ReprojectionError` for a bad
+  CRS, bad input or a non-finite result. When PROJ keeps several candidate
+  operations, the report names the one it used at the centre of the data.
+  Z goes through PROJ only when both CRSs are 3D; otherwise it is passed
+  through and the report says so. 1M points take about 0.2 s.
+- A CRS preset as the project CRS: the target is used as written, so pyproj
+  follows the preset's `+towgs84` null shift, as rusty-tiles does at publish
+  time. The preset's EPSG code gives the same result only for data that is
+  already in that datum or in WGS84. GDA94 (EPSG:28356) into the MGA zone 56
+  preset goes GDA94 → WGS84 → null shift, which leaves the coordinates
+  unchanged. Into EPSG:7856, PROJ uses "GDA94 to GDA2020 (1)" (0.01 m), and
+  the two results are 1.51 m apart in Brisbane. The scene holds GDA2020/MGA
+  coordinates, and the source mesh is placed with the same null shift, so to
+  keep GDA94 vectors aligned with the mesh the hook passes `preset.epsg` as
+  the target, not the preset definition (settled in the integration).
+  `reproject_points` itself still uses a preset definition as written, and
+  its report gives the measured difference whenever the target is a preset.
+- Packaging (decided 2026-11-11): **pyproj 3.8.0** and **certifi
+  2026.10.23** are pinned under `[tool.geotools.wheels]` beside rusty-tiles,
+  one version for every platform:
+  - Blender 5.0 and later run only on Apple silicon with macOS 13 or later.
+    Blender 5.2 has no macOS x64 build at all (download.blender.org lists
+    linux-x64, windows-x64/arm64 and macos-arm64), so 3.8.0's
+    macOS-15-only Intel wheel reaches no Blender 5.2 user. The `macos-x64`
+    zip stays in `platforms` as configured, and 3.8.0 has a cp313 wheel for
+    it.
+  - On Apple silicon, 3.7.2 and 3.8.0 both need macOS 14
+    (`macosx_14_0_arm64`), and no pyproj with cp313 wheels supports macOS 13.
+    rusty-tiles' macOS wheels target macOS 15.0 in any case. So 3.7.2 would
+    gain nothing. Blender ignores the macOS version in a wheel tag when it
+    installs, so the minimum is enforced only by these tags: macOS 15 for the
+    GeoTools mac zips, set by rusty-tiles.
+  - 3.8.0 brings PROJ 9.8.1 and EPSG v12.029, against PROJ 9.5.1 and EPSG
+    v11.022 in 3.7.2.
+  - Wheels per platform zip: linux-x64 10.0 MB, windows-x64 6.7 MB,
+    macos-arm64 5.0 MB, macos-x64 6.1 MB, plus 0.1 MB of certifi.
+  - Releases are cp313 only. `fetch_wheels.py --python 3.14` (with
+    `build_extension.py --python 3.14`) is for a local Blender built against
+    another Python. Blender refuses a zip whose cp313 wheels don't match its
+    Python. CONTRIBUTING.md ("How Blender picks wheels") has the details,
+    including that Blender shares one pyproj between all extensions and
+    keeps the newest.
+
+### Reprojection wiring (integration)
+
+- `crs_match.reproject(points, data_crs, project_crs, *, allow_network=False)`
+  checks `reproject.available()` and raises `ReprojectionUnavailable` (one
+  class, `core.reproject`'s, re-exported by `crs_match`) without pyproj.
+  Otherwise it calls `reproject_points(points, source, target,
+  allow_network=...)` with:
+  - source: the data's EPSG code, else its definition;
+  - target: `crs_match.reprojection_target(project)`, which is
+    `crs_presets.for_definition(source_crs).epsg` when the project CRS is a
+    preset, and the project's definition otherwise.
+  A preset target adds a note to the report that the points went into the
+  preset's EPSG code, not through its null shift.
+- Vector import (`blender/vectors.py`): `accept_crs` returns a
+  `CrsDecision(crs, reproject)`. On a mismatch with pyproj available, every
+  coordinate of the layer goes through one call
+  (`core/vector/transform.reproject_data`): (n, 3) when every Z is present,
+  else (n, 2) with Z left missing. The "within the site extent" filter runs
+  after reprojection, so `site_bbox` is in the project CRS. Then the project
+  offset is subtracted, all in binary64.
+- The import report shows `crs_match.report_text(report)` ("Reprojected from
+  EPSG:4326 to EPSG:7856 with <operation> (accuracy 3 m)", accuracy via
+  `format_accuracy`) and the report's notes. The link keeps the data's own
+  CRS in `crs`, and `options.reprojection` holds
+  `crs_match.report_to_dict(report)`; `options.allow_grid_downloads` holds the
+  import option "Allow Grid Downloads" (off by default). Refresh reprojects
+  with the same target and network setting and says "Reprojected as at
+  import: <operation>", or what changed.
+- Without pyproj, a mismatch is refused: both CRSs named, "Reprojection is not
+  available: pyproj did not load (see Check Dependencies)", and the QGIS hint.
+- Rasters: `core/raster.check_crs` refuses any mismatch, pyproj or not.
+- Measured (pyproj 3.8.0, PROJ 9.8.1): WGS84 into the MGA zone 56 preset uses
+  "Inverse of GDA2020 to WGS 84 (2) + Map Grid of Australia zone 56"
+  (accuracy 3 m); GDA94 (EPSG:28356) uses "... + GDA94 to GDA2020 (1) + ..."
+  (0.01 m) and moves points near (502000, 6961000) about 1.5 m. The Blender
+  tests compare with pyproj's own EPSG:7856 result to a millimetre.
+
+## LOCAL and ANCHOR projects (integration)
+
+A LOCAL or ANCHOR project takes imported coordinates as local metres. That
+suits data already in small local coordinates, but projected data (UTM, MGA)
+would land hundreds of kilometres from the scene and lose float32 precision.
+`core/data_origin.py`:
+
+- `check_local_project(mode, data_crs, bounds, what)` returns the warning, or
+  raises `NeedsProjectOrigin` (a ValueError carrying a `DataOrigin`) when the
+  data's CRS is known, not geographic (`crs_match.is_geographic`: pyproj when
+  available, else the presets and a few common codes), and its extent reaches
+  beyond `LOCAL_RADIUS_M` (100 km) of the origin. Small coordinates or an
+  unknown CRS keep the warning. Vectors check the layers of one CRS together;
+  GeoTIFF passes `GeoTiffInfo.bounds()` to `raster.check_crs`.
+- `suggest_origin(data_crs, bounds) -> DataOrigin(source_crs, epsg,
+  preset_label, offset)`: the CRS is the preset's definition when a preset
+  stands in for the data's EPSG code (`crs_match.preset_for_epsg`), else
+  `EPSG:nnnn`, else the data's definition, and the project checks then say
+  whether rusty-tiles supports it; the E/N offset is the centre of the extent
+  rounded to a whole metre; A is 0.
+
+Blender (`blender/data_origin.py`): the import operators catch
+`NeedsProjectOrigin`, report the refusal and call `offer(context, request,
+refusal)`. That stores the request on `WindowManager.geotools_origin_offer`
+(not saved) and, with a window, pops up the message with a **Use This Data's
+Centre as the Project Origin** button. The Linked Data panel draws the same
+box, with a dismiss button (`geotools.dismiss_origin_offer`), so the fix is
+reachable from File > Import and from the panel. The button is
+`geotools.use_data_origin` (kind, filepath, layer, where, within_site,
+allow_grid_downloads, mode, step): it runs the import, and on
+`NeedsProjectOrigin` applies the origin (`apply_origin`: SOURCE_CRS, CRS,
+E/N, A 0, no offset file) and runs it again, restoring the placement if that
+fails. Its invoke asks for confirmation (`invoke_props_dialog`) when the
+source collection has objects (`needs_confirmation`), explaining that the
+existing scene's placement on Earth changes; run as EXEC (a script, or the
+dialog's OK) it does not ask. A follow-up operator fits Blender better than an
+import option: the file browser has closed by the time the refusal is known,
+and the dialog needs its own invoke.
 
 ## Vectors
 
@@ -99,8 +220,7 @@ def matches(project: DataCrs | None, data: DataCrs) -> bool | None   # None = ca
   it does); lines → loose edges; points → loose vertices.
 - Attributes on the matching domain: FACE for polygons, EDGE for lines, POINT
   for points. Feature id `fid` (INT). Numbers → FLOAT or INT; booleans →
-  BOOLEAN; text → STRING if Blender 5.2 supports string attributes on that
-  domain, otherwise an INT code plus the label table in the link.
+  BOOLEAN; text → STRING (settled: see "Settled in stream 1" below).
   Tessellated polygons repeat their feature's values on every triangle.
 - Z kept when present (shifted by the project offset); 2D data gets z = 0.
 
@@ -146,22 +266,226 @@ buttons (GeoJSON, GeoPackage, GeoTIFF), and for the selected link: Refresh,
 Auto-refresh, filters, Write Back (GeoPackage), Export. Header status icon
 like the other panels. Keep it compact; see `scripts/ui_screenshots.py`.
 
+### Settled in stream 1 (vectors), reconciled with stream 2
+
+**String attributes.** Checked in Blender 5.2.3: `mesh.attributes.new(name,
+"STRING", domain)` works on POINT, EDGE, FACE and CORNER; the values are
+UTF-8 `bytes`; they survive Geometry Nodes (Set Position) and a Triangulate
+modifier, and Named Attribute reads them. But `foreach_set` and `foreach_get`
+refuse STRING attributes ("Only boolean, int, float, and enum properties
+supported"), so they are set one element at a time: about 0.42 s per million
+elements to write and 0.15 s to read. Decision: text columns are STRING
+attributes (no INT code fallback), written element by element. This is the
+one exception to the no-loops rule, forced by the API like the per-feature
+loops above; `tests/blender/test_vectors.py::test_blender_string_attributes`
+fails when `foreach_set` starts taking strings, so the writes can be
+vectorised then. Reading back (write-back, refresh counts, export) reads one
+element per feature, never every element.
+
+**`GeoToolsLink`** (`geotools/blender/links.py`, `obj.geotools_link`), shared
+by vectors and GeoTIFF. Stream 2's stand-in (`blender/linked.py`, with a
+`NONE` status and a dict fingerprint) was removed in the integration:
+
+| Field | Type | Notes |
+|---|---|---|
+| `kind` | enum `NONE`, `GEOJSON`, `GPKG`, `GEOTIFF` | `NONE` (default) means not linked |
+| `filepath` | string (FILE_PATH) | read with `bpy.path.abspath` (`links.link_path`) |
+| `layer` | string | GeoPackage table; for GeoJSON and GeoTIFF the file's stem |
+| `fid_field` | string | GeoPackage primary key; GeoJSON `id`, or `@index` (position in the file, from 0) when the ids are not distinct integers |
+| `crs` | string | `crs_match.to_text(DataCrs)` JSON |
+| `options` | string | JSON. Vectors: `core.vector.options.VectorOptions` (`kind`, `where`, `site_bbox`, `columns`, `allow_grid_downloads`, `reprojection`). GeoTIFF: `mode`, `step`, `assume_project_crs` |
+| `fingerprint` | string | `core.fingerprint.Fingerprint.to_text()` JSON |
+| `last_sync` | string | UTC ISO, e.g. `2026-11-11T10:41:16Z` |
+| `auto_refresh` | bool | |
+| `status` | enum `OK`, `CHANGED`, `MISSING`, `ERROR` | |
+| `message` | string | detail of the status (added) |
+
+Helpers in `links`: `is_linked(obj)`, `linked_objects()`, `link_path(link)`,
+`mark_synced(link, fingerprint=None)` (fingerprint, last sync, status OK),
+`check_link(obj)`, `refresh_link(obj)`, `replace_mesh(obj, mesh)` (copies the
+old mesh's materials, swaps, removes the old mesh, keeps its name), and
+`register_refresher(kind, fn)`: a refresher takes the object, re-reads its file
+with the stored options, updates the object in place and returns a
+`RefreshResult(added, removed, changed, message, warnings=(), by_feature=True)`;
+it raises `RefreshError` to refuse. Vectors and DEMs build a new mesh and swap
+it in with `replace_mesh`; an orthophoto reloads its image and moves its
+plane's four corners and UVs in place (`raster_io.update_plane`), falling back
+to `replace_mesh` if the mesh is no longer one quad. A raster has no features,
+so it returns `by_feature=False` and `summary()` gives only its message; the
+Refresh operator reports `warnings` as well. `refresh_link` checks the file
+exists (MISSING), wraps failures (ERROR, object unchanged) and updates the
+fingerprint, last sync and status, so refreshers do none of that. Refresh,
+stale detection, the `load_post` handler and the auto-refresh timer are
+generic, so GeoTIFF only registers its refresher (`"GEOTIFF"` →
+`raster_io.refresh`). The Linked Data list is
+`links.GEOTOOLS_UL_links` over `bpy.data.objects`, with the active index in
+`scene.geotools_link_index`.
+
+**`crs_match`** (`geotools/core/crs_match.py`): `DataCrs(epsg, definition,
+source)` with `.known`, `.describe()` (with the preset's label) and `.label()`
+(the code alone: stream 2's short form, added to stream 1's class);
+`project_crs(placement)` (None for LOCAL and ANCHOR, whose imports follow
+"LOCAL and ANCHOR projects" above; the project's `source` is `"project"`); `matches(project, data)`
+(codes compared when both have one, else normalised definition text; None
+when it can't tell); `mismatch_message` and `unknown_message`;
+`to_text`/`from_text`; `normalise_epsg` (EPSG:n, OGC URNs and URLs, CRS84 →
+EPSG:4326); `epsg_from_wkt` (the root `AUTHORITY`/`ID` of WKT1 or WKT2);
+`from_gpkg_srs(organization, code, definition, srs_id)` (srs_id 0 and -1 are
+unknown); `preset_for_epsg`; `is_geographic`; `reprojection_target`,
+`reproject`, `report_text`, `report_to_dict` and `report_from_dict` (see
+"Reprojection wiring"); and the `SOURCE_*` constants (GeoTIFF uses
+`SOURCE_GEOTIFF`). `mismatch_message(project, data, what, reason="")` takes the
+reason GeoTools could not reproject. A CRS the user confirmed is stored with source
+`"user"`, and a refresh accepts it again without asking.
+
+**Fingerprints** (`geotools/core/fingerprint.py`): `take(path)`,
+`stat(path)` and `check(path, stored) -> (FileState, current)`, with states
+SAME, TOUCHED (stat changed, bytes the same: the new stat is stored), CHANGED
+and MISSING. A GeoPackage's `-wal` file is part of its fingerprint, because
+QGIS keeps committed edits there until a checkpoint.
+
+**Nulls and types.** FLOAT null is NaN (written back as NULL); INT, BOOLEAN
+and STRING nulls become 0, False and "". Integers outside int32, and
+GeoPackage INTEGER columns holding them, become FLOAT. BLOB columns and
+all-null properties are skipped. Source names Blender reserves (`position`,
+`material_index`, `sharp_face`, `id`, `fid` ...) are imported as
+`<name>_src`; `options.columns` maps them back for write-back and export.
+
+**Export.** Positions are world space (the object transform applied) plus the
+project offset, in binary64. Faces are grouped by their FACE `fid` (each face
+is a feature without one) and each group's boundary edges are walked into
+rings, vectorised with pointer doubling; rings wound like the group's largest
+ring are exteriors, the others holes. A group whose boundary pinches at a
+vertex is written face by face. Loose edges that join end to end become one
+line string; one EDGE `fid` with several lines is a MultiLineString. A
+GeoPackage gets one table per kind: `<layer>`, or `<layer>`,
+`<layer>_lines` and `<layer>_points` when kinds mix. A LOCAL or ANCHOR
+project writes srs_id -1 (undefined Cartesian) and says so.
+
+**Filters.** The `WHERE` clause is refused if it has `;`, comments or
+unbalanced brackets outside quotes, and runs on a `mode=ro` connection whose
+authorizer allows only SELECT, functions and reads of the layer's own table.
+"Within the site extent" stores the source collection's XY bounds, in data
+coordinates, in `options.site_bbox` at import, and refresh reuses them.
+
+**Timings** (`scripts/vector_timing.py`, desktop i7-12700KF, Blender 5.2.3):
+100k octagons, 10k with a square hole (840k vertices, 210k faces), a float,
+an int and a text column.
+
+| Step | Seconds |
+|---|---|
+| Read GeoJSON (42 MiB) | 1.08 |
+| Read GeoPackage (23 MiB) | 0.54 |
+| Mesh arrays, tessellating the 10k holes | 0.31 |
+| Blender mesh | 0.17 |
+| fid, float and int attributes | 0.00 |
+| The STRING attribute (210k elements) | 0.10 |
+| Import from GeoPackage, total | 1.12 |
+| Export: evaluated mesh to polygons | 0.56 |
+| Export: write the GeoPackage | 0.68 |
+
 ## GeoTIFF (`geotools/core/geotiff.py`, `geotools/blender/raster_io.py`)
 
-- Parse TIFF/BigTIFF tags in core: ModelPixelScale, ModelTiepoint,
-  ModelTransformation, GeoKeyDirectory, GDAL_NODATA (42113), size, samples,
-  sample format. Reject rotated or sheared transforms unless they are simple
-  to support.
-- Pixels: use Blender's image loader (OpenImageIO) when it reads the file
-  faithfully (check float32 single-band DEMs, int16, LZW/deflate/tiled).
-  Otherwise use a numpy reader for the common cases. Verify and document
-  which.
-- **DEM → mesh:** a grid mesh in the project frame (pixel centres), z from
-  band 1, nodata cells removed. Optional decimation (step n) with the
-  resulting spacing shown. Built with numpy and `foreach_set`.
-- **Orthophoto → image plane:** the image loaded as a Blender image, on a
-  plane placed and sized at its footprint, with a material that shows it.
-- Both are linked sources with Refresh, like vectors.
+Settled in work stream 2.
+
+- **Tags** (`core/geotiff.py`, standard library and numpy): the first image
+  (IFD) of a TIFF or BigTIFF, in either byte order. Size, samples per pixel,
+  bits per sample, sample format, compression, predictor, planar
+  configuration, strips or tiles; ModelPixelScale + ModelTiepoint or
+  ModelTransformation; the GeoKeyDirectory (GTModelType, GTRasterType,
+  ProjectedCSType, GeographicType, citations); GDAL_NODATA (42113).
+  `read_info` returns a `GeoTiffInfo`.
+- **Geotransform:** GDAL's `(x0, dx, 0, y0, 0, dy)` in binary64, always for
+  pixel corners. A PixelIsPoint tiepoint names a pixel centre, so it is
+  shifted by half a pixel, as GDAL does; the pixel centres then land exactly on
+  the tiepoint grid. Rotated or sheared ModelTransformations and ground
+  control points (several tiepoints) are refused, with "warp it to a north-up
+  grid in QGIS". South-up rasters (dy > 0) are fine.
+- **CRS:** ProjectedCSType or GeographicType gives `EPSG:n` (source
+  `geotiff-geokeys`). A user-defined CRS (32767) gives a `DataCrs` with no
+  code, and a file with no GeoKeys gives no CRS. Both need "Data is in the
+  project CRS" to import. Geocentric files are refused.
+- **Pixels** were checked against files from the test writer and from GDAL:
+  - Blender's image loader (OpenImageIO, libtiff) reads float32 exactly, one
+    band or more. That holds for uncompressed, deflate and LZW files, with the
+    horizontal or floating-point predictor, in strips or tiles, classic or
+    BigTIFF, in either byte order, and it keeps NaN and ±3.4e38. A 4096²
+    float32 DEM loads in about 0.2 s.
+  - Blender also reads uint8, uint16 and int16 exactly, normalised to float
+    (÷255, ÷65535, ÷32767). `denormalise` rounds them back to the exact
+    integers.
+  - These four types go through Blender. The temporary image is set to
+    Non-Color and channel-packed before its pixels are read, then removed.
+  - Blender does not read float64 (rounded to float32) or int32 and uint32
+    (low bits lost) exactly, and int8 and float16 were not checked. For those,
+    `read_band` decodes the file with numpy: uncompressed or deflate (8 and
+    32946), predictor 1, 2 or 3, strips or tiles, chunky or planar, with
+    threaded zlib (0.16 s for a 4096² deflate DEM).
+  - LZW with those types is refused, with "re-save as deflate or Float32". A
+    pure-Python LZW decoder is far too slow for a DEM. `dem_route` picks the
+    reader.
+  - Palette images are refused as DEMs.
+- **DEM → mesh** (`core/raster.dem_grid`, then `foreach_set`):
+  - one vertex per sampled pixel centre, from the top-left pixel, every *n*
+    pixels with decimation step *n*;
+  - x and y are pixel centres in binary64 minus offset E/N, z is band 1 minus
+    offset A, then float32;
+  - quads, counter-clockwise from above (mirrored for south-up rasters);
+  - faces touching a nodata or non-finite sample are dropped, and so are
+    vertices no face uses;
+  - one UV map, `UVMap`, spans the raster's pixel-edge extent (u = (col +
+    0.5) / width, v = 1 − (row + 0.5) / height), so an orthophoto with the
+    same extent maps onto it exactly;
+  - the operator shows the resulting spacing and vertex count for the selected
+    file;
+  - positions and corner indices are written through the `position` and
+    `.corner_vert` attributes, which Blender copies in one go. The
+    `vertices`/`loops` `foreach_set` path is 180 to 380 times slower (1.8 s
+    and 4.6 s against 0.01 s each at 4096²), and is kept only as a fallback.
+  - Timing on the desktop (i7-12700KF) for a 4096² float32 DEM, deflate or LZW:
+    16.8 M vertices, 16.8 M faces, 3.5 s in all (read 0.2 s, grid 1.1 s, mesh
+    2.0 s, of which `calc_edges` is 1.3 s).
+- **Orthophoto → image plane:** the image is a Blender image linked to the
+  file, not packed, so the `.blend` stays small and Refresh is
+  `Image.reload()`. Pack it yourself (File > External Data) to carry it in the
+  `.blend`. One quad sits over the pixel-edge footprint at local z = 0, with
+  UVs 0..1. Its material is a Principled BSDF with the image as base colour,
+  roughness 1 and no specular; the alpha is linked when the file has an alpha
+  band.
+- **Automatic mode:** one band (or grey plus alpha) of floats or 16/32-bit
+  integers is a DEM; anything else, including 8-bit grey, is an orthophoto.
+  "As" overrides it.
+- **CRS check** (`core/raster.check_crs`, on `crs_match`):
+  - The CRS must match the project CRS. A mismatch is refused with a message
+    that names both CRSs and suggests QGIS (Raster > Projections > Warp).
+  - An unknown CRS needs "Data is in the project CRS".
+  - LOCAL and ANCHOR projects import unshifted, with a warning, unless the
+    raster is projected and far from the origin: then `NeedsProjectOrigin`
+    (see "LOCAL and ANCHOR projects").
+  - Rasters are never reprojected, even with pyproj.
+- **Link:** `GeoToolsLink` kind GEOTIFF:
+  - `options` is `{"mode": "DEM"|"ORTHO", "step": n, "assume_project_crs":
+    bool}`;
+  - `crs` holds `crs_match.to_text` of the file's CRS (no code and no
+    definition when the GeoKeys give none) and `layer` the file's stem;
+  - the fingerprint and `last_sync` are set on import and on refresh.
+- **Refresh** (reconciled in the integration): `raster_io.refresh(obj) ->
+  RefreshResult` is registered for `GEOTIFF` in `links`' refresher registry,
+  so the Linked Data panel's Refresh, stale detection, `load_post` and
+  auto-refresh treat GeoTIFFs like vectors.
+  - It re-reads with the stored options against the scene's current
+    placement.
+  - A DEM gets a new mesh, swapped in with `links.replace_mesh` (mesh name
+    and data materials kept, old mesh removed). An orthophoto's image is
+    reloaded and its plane's corners move in place. Modifiers, object
+    materials, transform, parent and collections are untouched.
+  - It raises `RefreshError` with the message of a `RasterError`,
+    `GeoTiffError` or `NeedsProjectOrigin`; `links.refresh_link` sets MISSING
+    or ERROR, and OK with a new fingerprint on success.
+  - The import (`import_geotiff`) still returns stream 2's `RefreshReport`
+    (`message`, `warnings`, `seconds`) for the operator report.
+- **File > Import** has "GeoTIFF (.tif, .tiff)" (`geotools.import_geotiff`).
+  The sidebar button is in the Linked Data panel (stream 1).
 
 ## Work streams
 
@@ -171,6 +495,11 @@ like the other panels. Keep it compact; see `scripts/ui_screenshots.py`.
 2. **GeoTIFF:** `core/geotiff.py`, `blender/raster_io.py`, DEM and
    orthophoto import, linked refresh. It uses stream 1's `GeoToolsLink` and
    `crs_match` interfaces as written above. If stream 1 hasn't landed, create
-   them as specified and expect a merge.
+   them as specified and expect a merge. (Done: its stand-ins were replaced
+   by stream 1's modules in `feat/m8-integration`.)
 3. **Recipe:** docs and an example `.blend` (draping, offsetting by depth or
    level, extruding volumes), after stream 1.
+
+The integration branch (`feat/m8-integration`) merged streams 1 and 2 on top
+of the vertex-bake removal and the pyproj bundle, reconciled the shared API
+(above), wired vector reprojection and added the LOCAL/ANCHOR rule.

@@ -7,8 +7,14 @@ geotools/wheels/ (see scripts/fetch_wheels.py), then runs Blender's
 ``extension validate`` and ``extension build --split-platforms``.
 The repository manifest is never modified.
 
+Every pin in ``[tool.geotools.wheels]`` must have exactly one wheel for each
+platform that is built, and every wheel must load in the target CPython
+(``--python``, default 3.13 for Blender 5.2 LTS). Blender derives the zip's
+``python_versions`` from the wheel tags and refuses to install it in a Blender
+with another Python, so a release is always built for 3.13.
+
 Usage:
-    python scripts/build_extension.py [--blender PATH] [--out DIR] [--no-wheels]
+    python scripts/build_extension.py [--blender PATH] [--out DIR] [--no-wheels] [--python X.Y]
 
 Stdlib only (Python 3.11+).
 """
@@ -25,10 +31,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fetch_wheels import (
+    BLENDER_PYTHON,
     REPO_ROOT,
     WHEELS_DIR,
+    Config,
     FetchError,
+    WheelName,
     check_wheel,
+    parse_python,
+    python_label,
     read_config,
 )
 
@@ -61,40 +72,67 @@ def stage_source(staging: Path) -> None:
     )
 
 
-def bundled_wheels(pin: str, configured: list[str]) -> tuple[list[Path], list[str]]:
-    """Return the wheels in geotools/wheels and the Blender platforms they cover."""
-    wheels = sorted(WHEELS_DIR.glob("*.whl")) if WHEELS_DIR.is_dir() else []
-    if not wheels:
+def bundled_wheels(
+    config: Config, python: tuple[int, int] = BLENDER_PYTHON
+) -> tuple[list[Path], list[str]]:
+    """Return the wheels in geotools/wheels and the Blender platforms they cover.
+
+    A platform is built when any platform wheel covers it; it must then have one
+    wheel of every pin (a pure ``any`` wheel covers every platform).
+    """
+    paths = sorted(WHEELS_DIR.glob("*.whl")) if WHEELS_DIR.is_dir() else []
+    if not paths:
         raise BuildError(
             f"no wheels in {WHEELS_DIR}; run scripts/fetch_wheels.py first, "
-            "or pass --no-wheels for a build without rusty-tiles"
+            "or pass --no-wheels for a build without the bundled libraries"
         )
-    covered: set[str] = set()
-    for path in wheels:
+    wheels: list[tuple[Path, WheelName]] = []
+    for path in paths:
         try:
-            wheel = check_wheel(path, pin)
+            wheels.append((path, check_wheel(path, config.pins, python)))
         except (FetchError, ValueError) as ex:
-            raise BuildError(f"stale or invalid wheel: {ex}; re-run scripts/fetch_wheels.py")
-        covered |= wheel.blender_platforms
+            hint = ""
+            if python == BLENDER_PYTHON:
+                hint = " (wheels fetched with --python for a local Blender need the same --python here)"
+            raise BuildError(f"stale or invalid wheel: {ex}; re-run scripts/fetch_wheels.py{hint}")
+
+    covered: set[str] = set()
+    for _path, wheel in wheels:
+        if not wheel.is_pure:
+            covered |= wheel.blender_platforms
     covered.discard("any")
     if not covered:
         raise BuildError(
             f"the wheels in {WHEELS_DIR} are all platform independent; nothing to split"
         )
-    unexpected = sorted(covered - set(configured))
+    unexpected = sorted(covered - set(config.platforms))
     if unexpected:
         raise BuildError(
             f"wheels cover platform(s) {', '.join(unexpected)} that are not in "
             "[tool.geotools] platforms; re-run scripts/fetch_wheels.py"
         )
-    platforms = [p for p in configured if p in covered]
-    missing = [p for p in configured if p not in covered]
+    platforms = [p for p in config.platforms if p in covered]
+
+    problems: list[str] = []
+    for platform in platforms:
+        for dist, pin in config.pins.items():
+            matching = [w.filename for _p, w in wheels if w.name == dist and w.covers(platform)]
+            if not matching:
+                problems.append(f"{platform}: no {dist} {pin} wheel")
+            elif len(matching) > 1:
+                # Blender would pick one by version and file name alone, not by Python tag.
+                problems.append(f"{platform}: more than one {dist} wheel ({', '.join(matching)})")
+    if problems:
+        raise BuildError(
+            "incomplete wheel set; re-run scripts/fetch_wheels.py:\n  " + "\n  ".join(problems)
+        )
+    missing = [p for p in config.platforms if p not in covered]
     if missing:
         print(
             f"note: no wheels for {', '.join(missing)}; building for {', '.join(platforms)} only",
             file=sys.stderr,
         )
-    return wheels, platforms
+    return paths, platforms
 
 
 def inject_manifest(manifest: Path, platforms: list[str], wheel_names: list[str]) -> None:
@@ -162,7 +200,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--no-wheels",
         action="store_true",
-        help="build without rusty-tiles wheels and without a platforms restriction",
+        help="build without the bundled wheels and without a platforms restriction",
+    )
+    parser.add_argument(
+        "--python",
+        type=parse_python,
+        default=BLENDER_PYTHON,
+        metavar="X.Y",
+        help=f"CPython the bundled wheels must load in (default {python_label(BLENDER_PYTHON)}, "
+        "Blender 5.2 LTS); another version builds a zip for a local Blender only",
     )
     args = parser.parse_args(argv)
     sys.stdout.reconfigure(line_buffering=True)
@@ -183,15 +229,24 @@ def main(argv: list[str] | None = None) -> int:
             platforms: list[str] = []
             print("building without wheels (no platforms restriction)")
         else:
-            pin, configured = read_config()
-            wheels, platforms = bundled_wheels(pin, configured)
+            config = read_config()
+            wheels, platforms = bundled_wheels(config, args.python)
             (staging / "wheels").mkdir()
             for path in wheels:
                 shutil.copy2(path, staging / "wheels" / path.name)
             inject_manifest(staging / MANIFEST_NAME, platforms, [w.name for w in wheels])
-            print(f"rusty-tiles {pin} wheels for {', '.join(platforms)}:")
+            pins = ", ".join(f"{d} {v}" for d, v in config.pins.items())
+            print(
+                f"{pins} wheels (CPython {python_label(args.python)}) for {', '.join(platforms)}:"
+            )
             for path in wheels:
                 print(f"  {path.name}")
+            if args.python != BLENDER_PYTHON:
+                print(
+                    f"warning: built for CPython {python_label(args.python)}; "
+                    "for a local Blender only, never a release",
+                    file=sys.stderr,
+                )
 
         out_dir = args.out.expanduser().resolve()
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -220,7 +275,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print("built:")
     for path in produced:
-        print(f"  {os.path.relpath(path, Path.cwd()) if path.is_relative_to(Path.cwd()) else path}")
+        shown = os.path.relpath(path, Path.cwd()) if path.is_relative_to(Path.cwd()) else path
+        print(f"  {shown} ({path.stat().st_size / 1e6:.1f} MB)")
     return 0
 
 

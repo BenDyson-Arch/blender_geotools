@@ -1,6 +1,6 @@
 # Contributing to GeoTools
 
-GeoTools is a Blender 5.2+ extension that bundles rusty-tiles. Read
+GeoTools is a Blender 5.2+ extension that bundles rusty-tiles and pyproj. Read
 [docs/ROADMAP.md](docs/ROADMAP.md) first. It holds the plan and the decisions
 behind it.
 
@@ -14,7 +14,7 @@ behind it.
 | `geotools/blender/` | The `bpy` glue: operators, panels and preferences. |
 | `geotools/publish/` | The publish job (bpy-free): staging layout and lock, the worker thread that writes the GLB and runs rusty-tiles, the build record, and the preview helper. |
 | `geotools/analysis/`, `geotools/bake/` | Empty, reserved for later milestones. |
-| `geotools/wheels/` | Fetched rusty-tiles wheels. Ignored by git, never committed. |
+| `geotools/wheels/` | Fetched wheels (rusty-tiles, pyproj, certifi). Ignored by git, never committed. |
 | `scripts/` | Wheel fetching, extension build, the Blender test runner and the sidebar screenshot tool. |
 | `tests/core/` | pytest tests for `geotools/core`. They run without Blender. |
 | `tests/blender/` | Tests that run inside Blender. |
@@ -39,8 +39,11 @@ Blender tests.
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
-pip install pytest numpy ruff
+pip install pytest numpy ruff pyproj==3.8.0   # pyproj at the pin in pyproject.toml
 ```
+
+Without pyproj the reprojection tests (`tests/core/test_reproject.py`) are
+skipped; everything else runs.
 
 Lint and format:
 
@@ -49,26 +52,39 @@ ruff check .
 ruff format --check .
 ```
 
-## Fetching the rusty-tiles wheels
+## Fetching the wheels
 
-The pin is `rusty-tiles` under `[tool.geotools]` in `pyproject.toml`, and the
-target platforms are listed beside it. `scripts/fetch_wheels.py` puts one wheel
-per platform in `geotools/wheels/`. It empties that directory first, and checks
-each wheel's name, version and Python tags against the pin and Blender's Python.
+The extension bundles three wheels, each pinned to one exact version under
+`[tool.geotools.wheels]` in `pyproject.toml`:
 
-Once rusty-tiles 0.4.0 is on PyPI, download the wheels for every platform:
+| Pin | What for |
+|---|---|
+| `rusty-tiles` | Tiling, validation and placement (native, `cp310-abi3`). |
+| `pyproj` | Reprojecting imported vector points (M8). PROJ and its `proj.db` are inside the wheel; no GDAL. Native, one wheel per CPython (`cp313-cp313`). |
+| `certifi` | pyproj's only dependency (pure Python). |
+
+The target platforms are `platforms` under `[tool.geotools]`.
+`scripts/fetch_wheels.py` puts one wheel of every pin per platform in
+`geotools/wheels/` (a pure `py3-none-any` wheel counts for every platform). It
+empties that directory first, and checks each wheel's name, version and Python
+tags against the pins and the target CPython.
+
+Once rusty-tiles 0.4.0 is on PyPI, download every wheel for every platform:
 
 ```sh
 python scripts/fetch_wheels.py
 ```
 
-This uses `pip download`, so pip settings such as `PIP_INDEX_URL` apply.
+This uses `pip download` from the running Python, or `uvx pip` if that Python
+has no pip, so pip settings such as `PIP_INDEX_URL` apply.
 
-Until then, copy wheels from a local directory, for example a rusty-tiles
-`dist/` folder:
+`--from-dir` copies wheels from a local directory instead. `--from-dir DIR`
+takes every pin from `DIR`; `--from-dir NAME=DIR` takes one pin from `DIR` and
+downloads the others. Until rusty-tiles is on PyPI, take it from a local
+directory, for example a rusty-tiles `dist/` folder:
 
 ```sh
-python scripts/fetch_wheels.py --from-dir /path/to/rusty-tiles/dist --platform linux-x64
+python scripts/fetch_wheels.py --from-dir rusty-tiles=/path/to/rusty-tiles/dist --platform linux-x64
 ```
 
 `--platform` takes any of `linux-x64`, `windows-x64`, `macos-arm64` and
@@ -78,6 +94,47 @@ fetches every platform in `pyproject.toml`.
 A locally built Linux wheel is often tagged `linux_x86_64` rather than
 `manylinux`. The script warns about this. Such a wheel is fine for local builds,
 but do not ship it.
+
+### A local Blender on another Python
+
+Official Blender 5.2 runs CPython 3.13, and releases are built for exactly
+that. Some Linux distributions build Blender against the system Python (Arch's
+Blender 5.2.3 runs 3.14). rusty-tiles is `abi3` and loads in either, but pyproj
+is not. Blender reads the Python versions from the wheel tags and refuses a zip
+with `cp313` wheels on 3.14 ("This Python version (3.14) isn't compatible
+with (3.13)"). For such a Blender, fetch and build for its Python:
+
+```sh
+python scripts/fetch_wheels.py --from-dir rusty-tiles=DIR --platform linux-x64 --python 3.14
+python scripts/build_extension.py --python 3.14      # run_blender_tests.py passes this itself
+```
+
+Both scripts warn that the result is for local use only. A build without
+`--python` refuses `cp314` wheels, so a release can't pick them up by mistake.
+
+### How Blender picks wheels
+
+When it installs or enables an extension, Blender
+(`addons_core/bl_pkg/bl_extension_ops.py` and
+`modules/_bpy_internal/extensions/wheel_manager.py` in 5.2):
+
+1. Keeps the wheels for this system. The platform tag must be `any`, the
+   exact platform, or the same architecture: `manylinux*_x86_64` on Linux,
+   `macosx_*_arm64` (or `universal2`) on macOS. The glibc and macOS versions
+   in the tag are **ignored**, so the wheel tags decide the real minimum OS.
+   The Python tag must be this exact `cpXY`, `cpXY-abi3` with XY no newer than
+   ours, or `py3`.
+2. Before that, derives the zip's `python_versions` from the wheel tags
+   (`abi3` and `py3` count as any 3.x) and refuses the extension on another
+   Python.
+3. De-duplicates across **all** enabled extensions by distribution name,
+   keeping the highest version (then the file name), and installs the result
+   into one shared `extensions/.local/lib/pythonX.Y/site-packages`. If another
+   extension bundles a newer pyproj, GeoTools runs with that one. The About
+   panel shows the version that actually loaded.
+
+Since step 3 ignores the Python tag, a zip must never hold two wheels of one
+pin for the same platform. `build_extension.py` refuses that.
 
 ## Building
 
@@ -89,7 +146,8 @@ The script:
 
 1. copies `geotools/` to `.build/staging/geotools`;
 2. adds `platforms` and `wheels` to the staged manifest from the wheels in
-   `geotools/wheels/`;
+   `geotools/wheels/`, after checking that every pin has exactly one wheel for
+   each platform it builds;
 3. runs `blender --command extension validate`;
 4. runs `blender --command extension build --split-platforms`;
 5. validates each zip.
@@ -98,8 +156,12 @@ It writes one zip per platform to `dist/`, named
 `geotools-<version>-<platform>.zip`, for example
 `geotools-0.3.0-dev-linux_x64.zip`. If only some platforms have wheels, it
 builds only those and says so. Use `--out DIR` to write elsewhere. Use
-`--no-wheels` for a single zip without rusty-tiles. The repository manifest is
-never changed.
+`--no-wheels` for a single zip without the bundled libraries, and `--python X.Y`
+for a local Blender that is not on CPython 3.13 (see above). The repository
+manifest is never changed.
+
+A platform zip carries about 10 MB of pyproj on Linux, 6.7 MB on Windows,
+5.0 MB on macOS arm64 and 6.1 MB on macOS x64, on top of rusty-tiles.
 
 `--blender` defaults to `blender` on `PATH`.
 
@@ -118,12 +180,16 @@ builds the zip, installs it into a temporary profile, runs `tests/blender/` and
 cleans up:
 
 ```sh
-# Without rusty-tiles bundled (builds with --no-wheels)
+# Without rusty-tiles and pyproj bundled (builds with --no-wheels)
 python scripts/run_blender_tests.py --expect missing
 
-# With the fetched wheels bundled; checks the pinned version loads
+# With the fetched wheels bundled; checks the pinned versions load
 python scripts/run_blender_tests.py --expect available
 ```
+
+With `--expect available` it asks the Blender for its Python version and builds
+for it, so on a Blender running 3.14 fetch the wheels with `--python 3.14`
+first.
 
 Use `--blender PATH` (or `$BLENDER`) to pick a Blender, `-k NAME` to run some
 tests, and `--keep` to keep the temporary profile for debugging.
@@ -138,10 +204,12 @@ own.
 CI (`.github/workflows/ci.yml`) runs on pull requests and on pushes to `main`
 and `develop`. It has three jobs:
 
-- `core`: ruff and pytest.
+- `core`: ruff and pytest, with pyproj installed at the pin so the reprojection
+  tests run.
 - `blender`: an official, checksum-pinned Blender 5.2 LTS runs the Blender
   tests with `--expect missing`, then uploads the zip.
-- `blender-wheel`: the same with the PyPI wheel. It doesn't gate until
+- `blender-wheel`: the same with the PyPI wheels (rusty-tiles, pyproj,
+  certifi). It doesn't gate until
   rusty-tiles 0.4.0 is on PyPI; to make it gate, set the repository variable
   `RUSTY_TILES_WHEEL_GATING` to `true` and add it to the required checks of
   the `main` and `develop` rulesets.
@@ -215,7 +283,8 @@ does the rest.
    `git tag -a v0.3.0 -m "GeoTools 0.3.0" && git push origin v0.3.0`.
 5. The release workflow checks that the tag matches the manifest, is on
    `main` and has a changelog section. It then fetches the pinned wheels for
-   every platform from PyPI, builds the four split zips, tests the Linux zip in
+   every platform from PyPI (for CPython 3.13), builds the four split zips,
+   checks each holds a rusty-tiles, pyproj and certifi wheel, tests the Linux zip in
    official Blender, and publishes a GitHub release with the zips and
    `SHA256SUMS`. A plain version becomes the latest release; a suffixed one is
    a prerelease.
@@ -226,13 +295,18 @@ If the workflow fails after creating the draft release, fix the cause and
 re-run the failed jobs: it reuses the draft. A version that was published needs
 a new version number, since release tags cannot be moved.
 
-## Bumping the rusty-tiles pin
+## Bumping a pin
 
-1. Change `rusty-tiles` under `[tool.geotools]` in `pyproject.toml`.
+1. Change the version under `[tool.geotools.wheels]` in `pyproject.toml`. For
+   pyproj, check that the new version has a `cp313` wheel for every platform
+   in `platforms` (on PyPI, "Download files"), and look at its macOS tags:
+   Blender does not check them (see "How Blender picks wheels"). For a native
+   pin, also check `PIP_PLATFORM_TAGS` in `scripts/fetch_wheels.py`.
 2. Run `python scripts/fetch_wheels.py` again. `build_extension.py` refuses to
-   build with wheels that do not match the pin.
-3. Build, install, and check that the GeoTools panel reports the new version.
+   build with wheels that do not match the pins.
+3. Build, install, and check that the About panel reports the new version.
 4. Add a line to the changelog.
 
 If a new Blender release changes its Python version, also update
-`BLENDER_PYTHON` in `scripts/fetch_wheels.py`.
+`BLENDER_PYTHON` in `scripts/fetch_wheels.py`, and `PYTHON_VERSION` in the
+workflows.

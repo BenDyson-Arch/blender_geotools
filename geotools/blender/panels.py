@@ -6,6 +6,8 @@ The panels follow the workflow top to bottom, and each header shows its state
 - Project: where the source sits on Earth, and Verify Placement.
   - CRS Details: the preset's definition and datum note.
 - Source: the source collection, ingest and summary.
+- Linked Data: GeoJSON, GeoPackage and GeoTIFF files linked to objects
+  (``links_ui``).
 - Layers: the layer registry and the selected layer at a glance, with the
   attribute a face or corner layer is read from (a Geometry Nodes output,
   for one).
@@ -44,7 +46,7 @@ from ..core.layers import (
     parse_number,
     validate,
 )
-from . import bake_texture, presentation, publish
+from . import bake_texture, links_ui, presentation, publish
 from .common import draw_dependency_status, extension_version
 from .layers import (
     ATTRIBUTE_MISSING,
@@ -781,7 +783,13 @@ class GEOTOOLS_PT_about(_GeoToolsPanel, bpy.types.Panel):
     bl_options = {"DEFAULT_CLOSED"}
 
     def draw_header(self, context: bpy.types.Context) -> None:
-        header_status(self.layout, DONE if deps.probe_rusty_tiles().available else ERROR)
+        if not deps.probe_rusty_tiles().available:
+            state = ERROR
+        elif not deps.probe_pyproj().available:
+            state = WARNING  # everything but reprojecting imports still works
+        else:
+            state = DONE
+        header_status(self.layout, state)
 
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
@@ -794,6 +802,7 @@ classes = (
     GEOTOOLS_PT_project,
     GEOTOOLS_PT_project_crs,
     GEOTOOLS_PT_source,
+    *links_ui.classes,
     GEOTOOLS_PT_layers,
     GEOTOOLS_PT_layers_bake,
     GEOTOOLS_PT_layers_display,
