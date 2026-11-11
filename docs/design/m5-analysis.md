@@ -127,12 +127,12 @@ cursor, chosen in the panel.
 
 **The CRS lookup.** `site.crs_input(definition)` is the only place the
 project's CRS text becomes pyproj input. It passes the EPSG code when one is
-known (`crs_presets.epsg_code`: a preset's code, or a plain `EPSG:nnnn`), and
-otherwise the definition as written. For the MGA presets that means
+known (`crs_catalog.epsg_code`: a plain `EPSG:nnnn`, as the EPSG picker
+stores, or the code a saved preset's PROJ string stood for before it is
+migrated), and otherwise the definition as written. For MGA zone 56 that is
 `EPSG:7856`, whose geodetic CRS is GDA2020, so latitudes and longitudes are
-labelled GDA2020. The projection is the same as the preset's PROJ string, and
-a test checks the two give identical readings. When the presets give way to
-plain EPSG codes from a picker, nothing else changes.
+labelled GDA2020. A test checks a saved preset string and its code give
+identical readings.
 
 ## Coordinates and measurement
 

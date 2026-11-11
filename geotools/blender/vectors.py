@@ -37,7 +37,7 @@ from mathutils.geometry import tessellate_polygon
 from ..core import crs_match, fingerprint
 from ..core import reproject as core_reproject
 from ..core.crs_match import DataCrs
-from ..core.data_origin import NeedsProjectOrigin, check_local_project
+from ..core.data_origin import NeedsProjectOrigin, check_local_project, offer_project_crs
 from ..core.fingerprint import FileState, Fingerprint
 from ..core.placement import Placement, PlacementMode
 from ..core.vector import geojson, gpkg
@@ -108,6 +108,26 @@ def project_frame(scene: bpy.types.Scene) -> Frame:
             raise ImportRefused("Set the project CRS first (Project panel)")
         return Frame(tuple(placement.source_offset), project, placement)  # type: ignore[arg-type]
     return Frame((0.0, 0.0, 0.0), None, placement)
+
+
+def offer_crs_if_unset(
+    scene: bpy.types.Scene, kind: str, path: Path, layers: list[str], where: str
+) -> None:
+    """A SOURCE_CRS project with no CRS yet: raise ``NeedsProjectOrigin`` offering the
+    data's CRS (``data_origin.offer_project_crs``). Returns otherwise."""
+    props = scene.geotools
+    if props.placement_mode != "SOURCE_CRS" or props.source_crs.strip():
+        return
+    try:
+        placement = placement_from_props(props)
+    except FieldError:
+        return  # project_frame refuses it
+    loaded = [read_source(kind, path, layer, where) for layer in layers]
+    crs_texts = {crs_match.to_text(d.crs) for d in loaded}
+    if not loaded or len(crs_texts) != 1:
+        return
+    what = path.name if kind == "GEOJSON" else f"{path.name} ({', '.join(layers)})"
+    offer_project_crs(loaded[0].crs, data_bounds(loaded), placement.source_offset, what)
 
 
 @dataclass(frozen=True, slots=True)
@@ -350,6 +370,7 @@ def import_vectors(
     ValueError or OSError, before any object is made.
     """
     scene = context.scene
+    offer_crs_if_unset(scene, kind, path, layers, where)
     frame = project_frame(scene)
     # Before reading: a write during the import then shows as a change on disk.
     print_ = fingerprint.take(path)

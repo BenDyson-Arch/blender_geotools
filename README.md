@@ -17,11 +17,12 @@ panel header shows a tick when that step is done, a circle when it still needs
 setting up, or a warning or error icon:
 
 1. **Project:** place the project on Earth: local metres, a WGS84 anchor with a
-   heading, or a source CRS with an E/N/A offset and a height offset. GDA2020
-   MGA and NZTM are presets, shown by name; the PROJ definition and the datum
-   note are in **CRS Details** and the tooltip. Offsets are stored at full
-   double precision. **Verify Placement** asks rusty-tiles where the source
-   lands on Earth, or why it refuses the CRS, before any build.
+   heading, or a source CRS with an E/N/A offset and a height offset. The CRS
+   field searches every EPSG code the bundled rusty-tiles resolves, by code or
+   name, near the site first, and shows the datum operation and its stated
+   accuracy, or why rusty-tiles refuses the CRS (WKT and PROJ text work too).
+   Offsets are stored at full double precision. **Verify Placement** asks
+   rusty-tiles where the source lands on Earth before any build.
 2. **Source:** pick the source collection, or import a GLB, glTF, OBJ or PLY
    into one. A summary shows its objects, faces and size.
 3. **Linked Data:** import GeoJSON, GeoPackage and GeoTIFF files into the
@@ -124,12 +125,14 @@ There are no releases yet, so you have to build the zip yourself. You need
 Python 3.11 or later and Blender 5.2:
 
 ```sh
-python3 scripts/fetch_wheels.py --from-dir rusty-tiles=DIR   # DIR holds rusty-tiles 0.4.0 wheels; pyproj comes from PyPI
+python3 scripts/fetch_wheels.py --from-dir rusty-tiles=DIR   # DIR holds a rusty-tiles wheel; pyproj comes from PyPI
 python3 scripts/build_extension.py --blender /path/to/blender
 ```
 
-The zips are written to `dist/`, one per platform. Once rusty-tiles 0.4.0 is on
-PyPI, `fetch_wheels.py` will download every wheel without `--from-dir`. A
+GeoTools needs rusty-tiles 0.4.1 or later (its EPSG allow-list). Until 0.4.1
+is released, build the wheel from rusty-tiles' `develop` branch (it still
+reports version 0.4.0, the pin). The zips are written to `dist/`, one per
+platform. Once rusty-tiles 0.4.1 is on PyPI, `fetch_wheels.py` will download every wheel without `--from-dir`. A
 Blender that doesn't run Python 3.13 (some Linux distribution builds) needs
 `--python` on both commands. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for details.

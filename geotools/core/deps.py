@@ -24,6 +24,11 @@ MODULE_NAME = "rusty_tiles"
 DIST_NAME = "rusty-tiles"
 """Distribution name of the rusty-tiles wheel."""
 
+CRS_FUNCTIONS = ("supported_epsg_codes", "resolve_source_crs")
+"""rusty-tiles functions GeoTools needs (0.4.1): the EPSG picker and the CRS check."""
+
+MINIMUM_RUSTY_TILES = "0.4.1"
+
 PYPROJ_MODULE = "pyproj"
 """Import name of pyproj."""
 
@@ -99,6 +104,9 @@ def reset_cache() -> None:
     _cached = None
     _cached_pyproj = None
     importlib.invalidate_caches()
+    from . import crs_catalog  # its EPSG list and names come from these libraries
+
+    crs_catalog.reset_cache()
 
 
 def _import(module_name: str) -> ModuleType | str:
@@ -117,11 +125,23 @@ def _import(module_name: str) -> ModuleType | str:
 
 
 def _probe() -> DependencyStatus:
-    """Import rusty-tiles and read its version, catching any load failure."""
+    """Import rusty-tiles and read its version, catching any load failure.
+
+    A wheel without :data:`CRS_FUNCTIONS` (rusty-tiles 0.4.0) is not available.
+    """
     module = _import(MODULE_NAME)
     if isinstance(module, str):
         return DependencyStatus(False, error=module)
-    return DependencyStatus(True, version=_version(module))
+    version = _version(module)
+    missing = [name for name in CRS_FUNCTIONS if not callable(getattr(module, name, None))]
+    if missing:
+        return DependencyStatus(
+            False,
+            version=version,
+            error=f"rusty-tiles {version or '(unknown version)'} has no "
+            f"{' or '.join(missing)}; GeoTools needs rusty-tiles {MINIMUM_RUSTY_TILES} or later",
+        )
+    return DependencyStatus(True, version=version)
 
 
 def _probe_pyproj() -> DependencyStatus:

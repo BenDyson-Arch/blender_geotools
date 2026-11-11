@@ -180,9 +180,9 @@ def test_verify_placement_reports_unsupported_crs() -> None:
     p = h.submodule("blender.properties")
     props = h.project()
     props.placement_mode = "SOURCE_CRS"
-    props.source_crs = "EPSG:2193"
-    p.write_number(props, "source_offset_e", 1757000.0)
-    p.write_number(props, "source_offset_n", 5920000.0)
+    props.source_crs = "EPSG:27700"  # British National Grid: needs a grid, refused
+    p.write_number(props, "source_offset_e", 530000.0)
+    p.write_number(props, "source_offset_n", 180000.0)
     error = _verify()
     assert error and "Placement failed" in error, error
     assert props.probe_status == "FAILED"
@@ -193,7 +193,7 @@ def test_verify_placement_reports_unsupported_crs() -> None:
     calls = h.draw(panel)
     assert any(icon == "ERROR" for _t, icon in h.labels(calls)), calls
     assert h.draw_header(panel) == "CANCEL"  # the probe failed for this placement
-    print(f"    EPSG:2193 error: {props.probe_error}")
+    print(f"    EPSG:27700 error: {props.probe_error}")
 
 
 def test_verify_placement_without_mesh() -> None:
@@ -291,7 +291,7 @@ def test_panels_order_and_draw() -> None:
         "GEOTOOLS_PT_layers": ["Bake", "Display", "Details"],
         "GEOTOOLS_PT_checks": ["Images"],
         "GEOTOOLS_PT_publish": ["Build Settings", "Last Build"],
-        "GEOTOOLS_PT_analysis": ["Sun", "Sun Hours", "Shadow Study", "Coordinates"],
+        "GEOTOOLS_PT_analysis": ["Sun", "Sun Hours", "Shadow Study", "Coordinates", "Presets"],
     }, children
     for cls in panels.classes:
         assert cls.is_registered, cls

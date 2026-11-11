@@ -39,16 +39,12 @@ def _has_pyproj() -> bool:
     return h.submodule("core.reproject").available()
 
 
-def _preset():
-    return h.submodule("core.crs_presets").get("MGA2020_56")
-
-
 def _project(mode: str = "SOURCE_CRS") -> None:
     h.reset_scene()
     h.submodule("blender.data_origin").clear_offer(bpy.context)
     props = h.project()
     props.placement_mode = mode
-    props.source_crs = _preset().definition
+    props.source_crs = "EPSG:7856"
     props.source_offset_e = repr(E0)
     props.source_offset_n = repr(N0)
     props.source_offset_a = repr(A0)
@@ -113,7 +109,6 @@ def test_wgs84_geojson_into_an_mga56_project_is_reprojected() -> None:
         report = options["reprojection"]
         assert report["source"] == "EPSG:4326" and report["target"] == "EPSG:7856", report
         assert report["operation"] and "network" in report
-        assert any("preset" in note for note in report["notes"]), report
         assert options["allow_grid_downloads"] is False
 
 
@@ -216,7 +211,7 @@ def test_projected_geojson_in_a_local_project_offers_its_centre() -> None:
             assert result == {"FINISHED"}, error
             props = h.project()
             assert props.placement_mode == "SOURCE_CRS"
-            assert props.source_crs == _preset().definition  # the preset for EPSG:7856
+            assert props.source_crs == "EPSG:7856"
             read = h.submodule("blender.properties").read_number
             centre = (E0 + 15.0, N0 + 15.0, 0.0)  # the extent is E0..E0+30, N0..N0+30
             assert tuple(read(props, f"source_offset_{k}") for k in "ena") == centre
@@ -281,3 +276,30 @@ def test_local_project_keeps_small_or_unknown_data() -> None:
         assert _positions(bpy.data.objects["far"].data)[:, 0].min() == np.float32(E0)
     assert h.project().placement_mode == "LOCAL"
     assert h.submodule("blender.data_origin").pending_offer(bpy.context) is None
+
+
+def test_a_project_without_a_crs_is_offered_the_datas() -> None:
+    data_origin = h.submodule("blender.data_origin")
+    _project()
+    props = h.project()
+    props.source_crs = ""
+    props.source_offset_e = props.source_offset_n = props.source_offset_a = "0"
+    with _tmpdir() as tmp:
+        path = vf.write_geojson(tmp / "dig.geojson", vf.contexts(2))  # EPSG:7856
+        result, error = h.call_op(bpy.ops.geotools.import_geojson, filepath=str(path))
+        assert result == {"ERROR_REPORTED"} and not bpy.data.objects
+        assert "no CRS yet" in error and "EPSG:7856" in error, error
+        pending = data_origin.pending_offer(bpy.context)
+        assert pending["origin"]["set_offset"] is True  # a zero offset: the data's centre
+        calls = h.draw(h.submodule("blender.links_ui").GEOTOOLS_PT_linked_data)
+        assert ("operator", "geotools.use_data_origin", "ORIENTATION_GLOBAL") in calls
+        result, error = h.call_op(bpy.ops.geotools.use_data_origin, **pending["request"])
+        assert result == {"FINISHED"}, error
+        assert props.source_crs == "EPSG:7856"
+        read = h.submodule("blender.properties").read_number
+        assert tuple(read(props, f"source_offset_{k}") for k in "ena") == (
+            E0 + 15.0,
+            N0 + 15.0,
+            0.0,
+        )
+        assert "dig" in bpy.data.objects

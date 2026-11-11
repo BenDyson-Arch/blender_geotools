@@ -23,14 +23,6 @@ Behaviour:
 - The report names the operation PROJ used, at the centre of the data, and its
   accuracy; ballpark operations and points outside the operation's area of use
   are noted.
-
-A GeoTools CRS preset (:mod:`geotools.core.crs_presets`) given as the target
-here is used as written: pyproj follows that PROJ definition, including its
-``+towgs84`` null shift, and the report says how far the preset's EPSG code
-would put the points instead (GDA94 into the MGA zone 56 preset is not the same
-as GDA94 into EPSG:7856). Imports do not hit that case: the hook
-:func:`geotools.core.crs_match.reproject` passes the preset's EPSG code, the
-datum the scene's coordinates are in (see ``crs_match.reprojection_target``).
 """
 
 from __future__ import annotations
@@ -44,7 +36,7 @@ from typing import Any
 
 import numpy as np
 
-from . import crs_presets, deps
+from . import deps
 
 _UNAVAILABLE_DESCRIPTION = "unavailable until proj_trans is called"
 
@@ -152,7 +144,6 @@ def reproject_points(
         operation, accuracy, area = _operation_used(transformer, points, vertical)
         outside = _outside_area(pyproj, source_crs, points, area) if area is not None else 0
         grid_notes = _missing_grid_notes(pyproj, source_crs, target_crs, accuracy)
-        preset_notes = _preset_notes(pyproj, target, source_crs, points, out)
 
     ballpark = "ballpark" in operation.lower()
     if ballpark:
@@ -181,7 +172,6 @@ def reproject_points(
             "operation for them."
         )
     notes.extend(grid_notes)
-    notes.extend(preset_notes)
 
     report = ReprojectionReport(
         source=source,
@@ -317,47 +307,6 @@ def _outside_area(pyproj: Any, source_crs: Any, points: np.ndarray, area: Any) -
         in_lon = (lon >= area.west) | (lon <= area.east)
     inside = in_lon & (lat >= area.south) & (lat <= area.north)
     return int(np.count_nonzero(~inside & np.isfinite(lon) & np.isfinite(lat)))
-
-
-def _preset_notes(
-    pyproj: Any, target: str, source_crs: Any, points: np.ndarray, out: np.ndarray
-) -> list[str]:
-    """For a GeoTools preset target: say so, and compare with the preset's EPSG code.
-
-    The preset's EPSG code is never substituted; the comparison only tells the
-    user how far apart the two choices put this data.
-    """
-    preset = crs_presets.for_definition(target)
-    if preset is None:
-        return []
-    notes = [
-        (
-            f"The target is the GeoTools preset {preset.label}: a PROJ definition with a "
-            "+towgs84 null shift. pyproj follows that definition, as rusty-tiles does when "
-            "it places the tileset."
-        )
-    ]
-    try:
-        alternative = pyproj.Transformer.from_crs(source_crs, preset.epsg, always_xy=True)
-        ax, ay = alternative.transform(
-            np.ascontiguousarray(points[:, 0]),
-            np.ascontiguousarray(points[:, 1]),
-            errcheck=False,
-        )
-        shift = np.hypot(np.asarray(ax) - out[:, 0], np.asarray(ay) - out[:, 1])
-        largest = float(np.nanmax(shift)) if len(shift) else 0.0
-    except (pyproj.exceptions.ProjError, ValueError, TypeError):  # only advisory
-        return notes
-    if not math.isfinite(largest):
-        return notes
-    if largest < 0.001:
-        notes.append(f"Into {preset.epsg} the result would be the same (within 1 mm).")
-    else:
-        notes.append(
-            f"Into {preset.epsg} instead, PROJ would use a direct datum transformation "
-            f"and the points would land up to {largest:.3f} m away from these positions."
-        )
-    return notes
 
 
 def format_accuracy(accuracy_m: float | None) -> str:

@@ -12,8 +12,10 @@ from types import ModuleType
 from ..core import deps
 from . import (
     analysis,
+    analysis_presets,
     bake_texture,
     checks,
+    crs_picker,
     data_origin,
     glb_export,
     layers,
@@ -37,6 +39,7 @@ log = logging.getLogger(__name__)
 MODULES: tuple[ModuleType, ...] = (
     preferences,
     properties,
+    crs_picker,
     operators,
     source,
     links,
@@ -53,6 +56,7 @@ MODULES: tuple[ModuleType, ...] = (
     bake_texture,
     analysis,
     sun_hours,
+    analysis_presets,
     panels,  # last: the sidebar draws what the modules above register
 )
 

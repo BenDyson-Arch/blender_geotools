@@ -26,6 +26,7 @@ from bpy.props import (
     StringProperty,
 )
 
+from ..core import crs_catalog
 from ..core import images as core_images
 from ..core.images import ImageRemedy, RemedyKind
 from ..core.issues import Issue, Severity
@@ -33,6 +34,7 @@ from ..core.layers import Aggregation, DataType, Domain, Origin
 from ..core.placement import Placement, PlacementMode, Vec3
 from ..core.presentation import Blend, Target
 from ..core.ramps import DEFAULT_PALETTE, PALETTES
+from . import crs_picker
 
 # --- binary64 number fields ------------------------------------------------------
 
@@ -143,6 +145,9 @@ def placement_from_props(props: "GeoToolsProject") -> Placement:
 
     Only the active mode's fields are read; the others keep their defaults.
     Raises :class:`FieldError` (a ``ValueError``) if one of them is not a number.
+    A GeoTools preset's PROJ string is read as its EPSG code once rusty-tiles
+    resolves that code to the same definition (``crs_catalog.current_definition``;
+    ``crs_picker`` then writes it back).
     """
     mode = placement_mode(props)
     if mode is PlacementMode.ANCHOR:
@@ -157,7 +162,7 @@ def placement_from_props(props: "GeoToolsProject") -> Placement:
         n = {f.attr: read_number(props, f.attr) for f in SOURCE_CRS_FIELDS}
         return Placement(
             mode=mode,
-            source_crs=props.source_crs.strip(),
+            source_crs=crs_catalog.current_definition(props.source_crs.strip()),
             source_offset=(n["source_offset_e"], n["source_offset_n"], n["source_offset_a"]),
             height_offset=n["height_offset"],
         )
@@ -731,7 +736,20 @@ class GeoToolsProject(bpy.types.PropertyGroup):
     source_crs: StringProperty(
         name="CRS",
         description="Horizontal CRS of the source coordinates: an EPSG code such as "
-        '"EPSG:32756", WKT or a PROJ definition. Presets fill it in',
+        '"EPSG:7856" (search by code or name), WKT or a PROJ definition',
+        search=crs_picker.search_crs,
+        search_options={"SUGGESTION"},
+        update=crs_picker.crs_changed,
+    )
+    crs_near_site: BoolProperty(
+        name="Near This Site",
+        description="List only the EPSG codes whose area of use holds the project's location "
+        "(when it has one). Off: every code, the ones near the site first",
+        default=True,
+    )
+    crs_migrated_from: StringProperty(
+        name="Migrated From",
+        description="The GeoTools preset PROJ string this project's EPSG code replaced",
     )
     offset_file: StringProperty(
         name="Offset File", description="Offset file the source offset was read from"

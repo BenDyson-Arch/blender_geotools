@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .crs_match import DataCrs, matches, project_crs
-from .data_origin import Bounds, check_local_project
+from .data_origin import Bounds, check_local_project, offer_project_crs
 from .geotiff import GeoTiffInfo
 from .placement import Placement, PlacementMode, Vec3
 
@@ -51,7 +51,9 @@ def check_crs(
     a warning, unless the raster is in a known projected CRS and ``bounds`` (its
     extent) reach far from the origin: then
     :class:`~geotools.core.data_origin.NeedsProjectOrigin` (a ValueError) is
-    raised, carrying the raster's CRS and centre as a project origin.
+    raised, carrying the raster's CRS and centre as a project origin. A
+    SOURCE_CRS project with no CRS is offered the raster's the same way
+    (``data_origin.offer_project_crs``).
     """
     mode = PlacementMode(placement.mode)
     data_label = data.label() if data is not None else "no CRS"
@@ -60,6 +62,7 @@ def check_crs(
         return CrsCheck((0.0, 0.0, 0.0), (warning,))
     project = project_crs(placement)
     if project is None:
+        offer_project_crs(data, bounds, placement.source_offset, name)
         raise RasterError("Set the project CRS first (Project panel)")
     result = matches(project, data) if data is not None else None
     offset = tuple(float(v) for v in placement.source_offset)

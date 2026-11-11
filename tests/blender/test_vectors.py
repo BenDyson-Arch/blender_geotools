@@ -38,9 +38,8 @@ def _project(mode: str = "SOURCE_CRS") -> None:
     h.reset_scene()
     props = h.project()
     if mode == "SOURCE_CRS":
-        preset = h.submodule("core.crs_presets").get("MGA2020_56")
         props.placement_mode = "SOURCE_CRS"
-        props.source_crs = preset.definition
+        props.source_crs = "EPSG:7856"
         props.source_offset_e = repr(E0)
         props.source_offset_n = repr(N0)
         props.source_offset_a = repr(A0)

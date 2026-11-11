@@ -420,9 +420,8 @@ def inner_main(argv: list[str]) -> None:
         modifier.node_group = group
 
     def place(props) -> None:
-        presets = mod("core.crs_presets")
         props.placement_mode = "SOURCE_CRS"
-        props.source_crs = presets.get("MGA2020_56").definition
+        props.source_crs = "EPSG:7856"
         props.source_offset_e = "502000.0"
         props.source_offset_n = "6961000.0"
         props.source_offset_a = "12.0"
