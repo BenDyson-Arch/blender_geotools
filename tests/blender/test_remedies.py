@@ -1,11 +1,12 @@
 """Image remedies: checks, the Checks panel buttons, export and an end-to-end publish.
 
 The oversize fixture is a real PNG just over rusty-tiles' 32 MiB limit (3400 x
-3400 noise, 34.9 MiB), written in under a second, so the limit itself is not
-lowered for the main cases. Two cases do lower ``core.gltf_writer.MAX_IMAGE_BYTES``
-through :func:`_limit`, a test-only patch of the module constant: a JPEG still
-over the limit, and a downscale whose PNG is still over it and falls back to
-JPEG. Building those at the real limit would need far larger fixtures.
+3400 noise, 33 to 35 MiB depending on the zlib build), written in under a
+second, so the limit itself is not lowered for the main cases. Two cases do
+lower ``core.gltf_writer.MAX_IMAGE_BYTES`` through :func:`_limit`, a test-only
+patch of the module constant: a JPEG still over the limit, and a downscale
+whose PNG is still over it and falls back to JPEG. Building those at the real
+limit would need far larger fixtures.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ import bpy
 import numpy as np
 
 MIB = 1 << 20
-NOISE_EDGE = 3400  # 34.9 MiB as noise PNG: just over the limit
+NOISE_EDGE = 3400  # 33 to 35 MiB as noise PNG: just over the limit
 
 
 # --- helpers -----------------------------------------------------------------------
@@ -222,7 +223,9 @@ def test_oversize_png_remedies_and_lossless_warning() -> None:
         buttons = [icon for kind, idname, icon in calls if idname == "geotools.set_image_remedy"]
         assert buttons == ["IMAGE_RGB", "FULLSCREEN_EXIT"], calls
         calls = h.draw(panels.GEOTOOLS_PT_checks_images)
-        assert ("label", f"{NOISE_EDGE}x{NOISE_EDGE} PNG, 34.9 MiB", "NONE") in calls, calls
+        # The encoded size depends on the zlib build, so read it from the file.
+        size = f"{path.stat().st_size / MIB:.1f} MiB"
+        assert ("label", f"{NOISE_EDGE}x{NOISE_EDGE} PNG, {size}", "NONE") in calls, calls
         assert ("template_list", "GEOTOOLS_UL_images", "NONE") in calls
 
         before = _state(image)
