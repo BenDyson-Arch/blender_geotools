@@ -54,7 +54,8 @@ The plan is in [docs/ROADMAP.md](docs/ROADMAP.md).
   attributes to texture space.
 - M4: GLB export with object and layer metadata (`EXT_mesh_features`,
   `EXT_structural_metadata`).
-- M5: analysis tools rebuilt on the bake engine.
+- M5: analysis: georeferenced sun, archaeoastronomy, 3D hydrology,
+  measurement, and a library of Geometry Nodes analysis presets.
 - M6: texture painting and cleanup.
 - M7: open output tiles in Blender and check their quality.
 - M8: GeoJSON, GeoPackage and GeoTIFF import and export.
