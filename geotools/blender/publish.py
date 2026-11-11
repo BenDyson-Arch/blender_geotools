@@ -29,7 +29,7 @@ import bpy
 from bpy.app.handlers import persistent
 from bpy.props import EnumProperty, FloatProperty, IntProperty, StringProperty
 
-from ..core import deps
+from ..core import deps, sysmem
 from ..core.issues import Severity
 from ..publish import preview as pv
 from ..publish import staging as st
@@ -149,6 +149,10 @@ def resolve_output(path_text: str) -> Path:
 
 def _apply_events(status_: GeoToolsPublishStatus, job: BuildJob) -> None:
     for event in job.poll_events():
+        if event.state.name != status_.state:
+            # A new job step (e.g. validation) starts with no rusty-tiles phase.
+            status_.phase = ""
+            status_.done, status_.total = 0, -1
         status_.state = event.state.name
         if event.phase is not None and event.phase != status_.phase:
             status_.phase = event.phase
@@ -360,7 +364,7 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
                 memory_budget_bytes=(
                     int(profile.memory_budget_gib * 2**30)
                     if profile.memory_budget_gib > 0
-                    else None
+                    else sysmem.auto_memory_budget(sysmem.available_memory_bytes())
                 ),
                 force=profile.overwrite,
                 validate=profile.validate,
@@ -422,7 +426,15 @@ class GEOTOOLS_OT_cancel_publish(bpy.types.Operator):
         job.cancel()
         status_ = status(context)
         if status_ is not None:
-            status_.message = "Cancelling..."
+            if status_.state == "WRITING" or status_.phase in {"", "conversion", "capture"}:
+                # rusty-tiles 0.4.0 checks for cancel only at progress events, and
+                # reading the source sends none (rusty-tiles #335).
+                status_.message = (
+                    "Cancelling: rusty-tiles stops once it has read the source, "
+                    "which can take about a minute on large sources"
+                )
+            else:
+                status_.message = "Cancelling..."
         self.report({"INFO"}, "Cancelling the publish")
         redraw_ui(context)
         return {"FINISHED"}

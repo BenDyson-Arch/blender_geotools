@@ -9,7 +9,7 @@ from pathlib import Path
 
 import bpy
 
-from ..core import crs_presets, deps
+from ..core import crs_presets, deps, sysmem
 from ..core.issues import Severity
 from .common import draw_dependency_status, extension_version
 from .properties import (
@@ -291,7 +291,18 @@ class GEOTOOLS_PT_build_profiles(_GeoToolsPanel, bpy.types.Panel):
         col.use_property_decorate = False
         col.prop(profile, "profile")
         col.prop(profile, "jobs", text="Jobs (0 = Auto)")
-        col.prop(profile, "memory_budget_gib", text="Memory GiB (0 = Default)")
+        col.prop(profile, "memory_budget_gib", text="Memory GiB (0 = Auto)")
+        if profile.memory_budget_gib <= 0:
+            available = sysmem.available_memory_bytes()
+            budget = sysmem.auto_memory_budget(available)
+            if budget is None:
+                col.label(text="Auto: rusty-tiles default (memory unknown)", icon="INFO")
+            else:
+                col.label(
+                    text=f"Auto: {budget / sysmem.GIB:.1f} GiB of "
+                    f"{available / sysmem.GIB:.1f} GiB available",
+                    icon="INFO",
+                )
         col.prop(profile, "output_path")
         col.prop(profile, "overwrite")
         col.prop(profile, "validate")

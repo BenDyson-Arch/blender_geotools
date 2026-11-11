@@ -235,7 +235,8 @@ class GeoToolsBuildProfile(bpy.types.PropertyGroup):
     )
     memory_budget_gib: FloatProperty(
         name="Memory Budget",
-        description="Memory budget in GiB, 0 for the rusty-tiles default",
+        description="Memory budget for rusty-tiles in GiB. 0 for Auto: 60% of the memory "
+        "available when publishing starts, minus 4 GiB for Blender",
         default=0.0,
         min=0.0,
         soft_max=256.0,

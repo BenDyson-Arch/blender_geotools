@@ -39,6 +39,10 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   `mesh_to_tileset` on a worker thread with progress and cancel, validated, and
   recorded in `<output>.geotools/build.json`. A failed or cancelled rebuild
   leaves the previous archive untouched.
+- An automatic rusty-tiles memory budget when a build profile's memory is 0:
+  60% of the memory available at publish time minus 4 GiB for Blender, shown in
+  the profile. rusty-tiles' own default (at most 4 GiB) runs its coarse-level
+  stage one job at a time on a workstation.
 - Face map (`facemap.npz`): every rusty-tiles leaf triangle's
   `(source_primitive, source_triangle)` back to its Blender object and polygon.
 - Optional local preview through the rusty-tiles CLI and a Cesium runtime set in
