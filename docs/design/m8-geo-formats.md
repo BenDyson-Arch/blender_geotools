@@ -138,20 +138,99 @@ like the other panels. Keep it compact; see `scripts/ui_screenshots.py`.
 
 ## GeoTIFF (`geotools/core/geotiff.py`, `geotools/blender/raster_io.py`)
 
-- Parse TIFF/BigTIFF tags in core: ModelPixelScale, ModelTiepoint,
-  ModelTransformation, GeoKeyDirectory, GDAL_NODATA (42113), size, samples,
-  sample format. Reject rotated or sheared transforms unless they are simple
-  to support.
-- Pixels: use Blender's image loader (OpenImageIO) when it reads the file
-  faithfully (check float32 single-band DEMs, int16, LZW/deflate/tiled).
-  Otherwise use a numpy reader for the common cases. Verify and document
-  which.
-- **DEM → mesh:** a grid mesh in the project frame (pixel centres), z from
-  band 1, nodata cells removed. Optional decimation (step n) with the
-  resulting spacing shown. Built with numpy and `foreach_set`.
-- **Orthophoto → image plane:** the image loaded as a Blender image, on a
-  plane placed and sized at its footprint, with a material that shows it.
-- Both are linked sources with Refresh, like vectors.
+Settled in work stream 2.
+
+- **Tags** (`core/geotiff.py`, standard library and numpy): the first image
+  (IFD) of a TIFF or BigTIFF, in either byte order. Size, samples per pixel,
+  bits per sample, sample format, compression, predictor, planar
+  configuration, strips or tiles; ModelPixelScale + ModelTiepoint or
+  ModelTransformation; the GeoKeyDirectory (GTModelType, GTRasterType,
+  ProjectedCSType, GeographicType, citations); GDAL_NODATA (42113).
+  `read_info` returns a `GeoTiffInfo`.
+- **Geotransform:** GDAL's `(x0, dx, 0, y0, 0, dy)` in binary64, always for
+  pixel corners. A PixelIsPoint tiepoint names a pixel centre, so it is
+  shifted by half a pixel, as GDAL does; the pixel centres then land exactly on
+  the tiepoint grid. Rotated or sheared ModelTransformations and ground
+  control points (several tiepoints) are refused, with "warp it to a north-up
+  grid in QGIS". South-up rasters (dy > 0) are fine.
+- **CRS:** ProjectedCSType or GeographicType gives `EPSG:n` (source
+  `geotiff-geokeys`). A user-defined CRS (32767) gives a `DataCrs` with no
+  code, and a file with no GeoKeys gives no CRS. Both need "Data is in the
+  project CRS" to import. Geocentric files are refused.
+- **Pixels** were checked against files from the test writer and from GDAL:
+  - Blender's image loader (OpenImageIO, libtiff) reads float32 exactly, one
+    band or more. That holds for uncompressed, deflate and LZW files, with the
+    horizontal or floating-point predictor, in strips or tiles, classic or
+    BigTIFF, in either byte order, and it keeps NaN and ±3.4e38. A 4096²
+    float32 DEM loads in about 0.2 s.
+  - Blender also reads uint8, uint16 and int16 exactly, normalised to float
+    (÷255, ÷65535, ÷32767). `denormalise` rounds them back to the exact
+    integers.
+  - These four types go through Blender. The temporary image is set to
+    Non-Color and channel-packed before its pixels are read, then removed.
+  - Blender does not read float64 (rounded to float32) or int32 and uint32
+    (low bits lost) exactly, and int8 and float16 were not checked. For those,
+    `read_band` decodes the file with numpy: uncompressed or deflate (8 and
+    32946), predictor 1, 2 or 3, strips or tiles, chunky or planar, with
+    threaded zlib (0.16 s for a 4096² deflate DEM).
+  - LZW with those types is refused, with "re-save as deflate or Float32". A
+    pure-Python LZW decoder is far too slow for a DEM. `dem_route` picks the
+    reader.
+  - Palette images are refused as DEMs.
+- **DEM → mesh** (`core/raster.dem_grid`, then `foreach_set`):
+  - one vertex per sampled pixel centre, from the top-left pixel, every *n*
+    pixels with decimation step *n*;
+  - x and y are pixel centres in binary64 minus offset E/N, z is band 1 minus
+    offset A, then float32;
+  - quads, counter-clockwise from above (mirrored for south-up rasters);
+  - faces touching a nodata or non-finite sample are dropped, and so are
+    vertices no face uses;
+  - one UV map, `UVMap`, spans the raster's pixel-edge extent (u = (col +
+    0.5) / width, v = 1 − (row + 0.5) / height), so an orthophoto with the
+    same extent maps onto it exactly;
+  - the operator shows the resulting spacing and vertex count for the selected
+    file;
+  - positions and corner indices are written through the `position` and
+    `.corner_vert` attributes, which Blender copies in one go. The
+    `vertices`/`loops` `foreach_set` path is 180 to 380 times slower (1.8 s
+    and 4.6 s against 0.01 s each at 4096²), and is kept only as a fallback.
+  - Timing on the desktop (i7-12700KF) for a 4096² float32 DEM, deflate or LZW:
+    16.8 M vertices, 16.8 M faces, 3.5 s in all (read 0.2 s, grid 1.1 s, mesh
+    2.0 s, of which `calc_edges` is 1.3 s).
+- **Orthophoto → image plane:** the image is a Blender image linked to the
+  file, not packed, so the `.blend` stays small and Refresh is
+  `Image.reload()`. Pack it yourself (File > External Data) to carry it in the
+  `.blend`. One quad sits over the pixel-edge footprint at local z = 0, with
+  UVs 0..1. Its material is a Principled BSDF with the image as base colour,
+  roughness 1 and no specular; the alpha is linked when the file has an alpha
+  band.
+- **Automatic mode:** one band (or grey plus alpha) of floats or 16/32-bit
+  integers is a DEM; anything else, including 8-bit grey, is an orthophoto.
+  "As" overrides it.
+- **CRS check** (`core/raster.check_crs`, on `crs_match`):
+  - The CRS must match the project CRS. A mismatch is refused with a message
+    that names both CRSs and suggests QGIS (Raster > Projections > Warp).
+  - An unknown CRS needs "Data is in the project CRS".
+  - LOCAL and ANCHOR projects import unshifted, with a warning.
+  - Rasters are never reprojected.
+- **Link:** `GeoToolsLink` kind GEOTIFF:
+  - `options` is `{"mode": "DEM"|"ORTHO", "step": n, "assume_project_crs":
+    bool}`;
+  - `crs` holds the EPSG code (or the citation);
+  - the fingerprint and `last_sync` are set on import and on refresh.
+- **Refresh:** `raster_io.refresh(obj, link) -> RefreshReport` (`message`,
+  `warnings`, `seconds`; `str()` is the message), for the Linked Data
+  panel's Refresh to dispatch to when `kind == "GEOTIFF"`.
+  - It re-reads with the stored options against the scene's current
+    placement.
+  - It builds a new mesh and swaps it in, keeping the mesh name and data
+    materials, then removes the old mesh. Modifiers, object materials,
+    transform, parent and collections are untouched. An orthophoto's image is
+    reloaded.
+  - It raises `ValueError` (`RasterError` or `GeoTiffError`) with a message,
+    and sets the link status to MISSING or ERROR. On success the status is OK.
+- **File > Import** has "GeoTIFF (.tif, .tiff)" (`geotools.import_geotiff`).
+  The sidebar button is in the Linked Data panel (stream 1).
 
 ## Work streams
 
