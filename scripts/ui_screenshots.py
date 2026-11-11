@@ -20,8 +20,10 @@ It writes, in ``--out``:
 The demo scene is a 200 m terrain grid in GDA2020 / MGA zone 56 with a FACE
 layer (``slope``, computed by a Geometry Nodes modifier), a CATEGORY layer
 (``landcover``) and a TEXTURE layer (``shade``, baked from ``slope`` with
-Cycles), a build profile whose variant is ``slope``, checks run, and a
-synthetic GeoJSON of four contexts imported as linked data.
+Cycles), a build profile whose variant is ``slope``, checks run, and two
+linked sources in the Linked Data panel: a synthetic DEM GeoTIFF of the same
+terrain (written with the test fixture writer, ``tests/blender/_geotiff.py``)
+and a GeoJSON of four contexts.
 
 Usage:
     python3 scripts/ui_screenshots.py --out /tmp/shots
@@ -70,6 +72,7 @@ def host_main(argv: list[str] | None = None) -> int:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from run_blender_tests import (
         RunError,
+        blender_python,
         build,
         find_blender,
         install,
@@ -120,7 +123,10 @@ def host_main(argv: list[str] | None = None) -> int:
             wheels = any(
                 (Path(__file__).resolve().parents[1] / "geotools" / "wheels").glob("*.whl")
             )
-            zip_path = build(blender, tmp / "dist", wheels and not args.no_wheels, env)
+            with_wheels = wheels and not args.no_wheels
+            # Wheels fetched with --python for this Blender's CPython build only for it.
+            python = blender_python(blender, env) if with_wheels else None
+            zip_path = build(blender, tmp / "dist", with_wheels, env, python)
         ext_id = str(zip_manifest(zip_path)["id"])
         install(blender, zip_path, ext_id, env, user_resources)
 
@@ -489,11 +495,28 @@ def inner_main(argv: list[str]) -> None:
         profile.output_path = bpy.path.abspath("//site.3tz")  # beside the temporary demo.blend
         profile.variant_layer = "slope"
         run_op(bpy.ops.geotools.run_checks)
+        linked_dem()
         linked_contexts()
         if "gt_present" in mesh.color_attributes:
             mesh.color_attributes.active_color = mesh.color_attributes["gt_present"]
         bpy.ops.object.select_all(action="DESELECT")
         bpy.context.view_layer.objects.active = None
+
+    def linked_dem() -> None:
+        """The terrain as a 4 m DEM GeoTIFF in MGA zone 56, imported as linked data."""
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tests" / "blender"))
+        import _geotiff
+
+        cols = np.arange(50)
+        x, y = np.meshgrid(-100.0 + 4.0 * (cols + 0.5), 100.0 - 4.0 * (cols + 0.5))
+        z = 12.0 + 9 * np.sin(x / 23) * np.cos(y / 31) + 4 * np.sin((x + y) / 11)
+        spec = _geotiff.GeoTiffSpec(origin=(501900.0, 6961100.0), pixel_size=(4.0, 4.0))
+        path = Path(bpy.path.abspath("//terrain_dem.tif"))
+        _geotiff.write_geotiff(path, z.astype(np.float32), spec, compression="deflate")
+        run_op(bpy.ops.geotools.import_geotiff, filepath=str(path))
+        dem = bpy.data.objects.get("terrain_dem")
+        if dem is not None:
+            dem.hide_set(True)  # the source terrain stays in view
 
     def linked_contexts() -> None:
         """A small synthetic GeoJSON of excavation contexts, imported as linked data."""

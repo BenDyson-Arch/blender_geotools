@@ -19,8 +19,10 @@ GeoTools node groups or modelling operators.
 - Coordinates are binary64 until they become Blender float32 positions,
   relative to the project frame:
   `local = (E - offset_E, N - offset_N, Z - offset_A)` for a SOURCE_CRS
-  project. LOCAL and ANCHOR projects take the data's coordinates as local
-  metres, with a warning.
+  project. Vector data in another CRS is first reprojected into the project
+  CRS, also in binary64. LOCAL and ANCHOR projects take the data's
+  coordinates as local metres, with a warning, unless the data is projected
+  and far from the origin (see "LOCAL and ANCHOR projects").
 - Performance: no Python loops over vertices. A loop over *features* is
   acceptable where a format forces it (WKB records, polygon tessellation with
   `mathutils.geometry.tessellate_polygon`), but coordinates go into
@@ -67,9 +69,10 @@ def matches(project: DataCrs | None, data: DataCrs) -> bool | None   # None = ca
     notes;
   - tile placement is unaffected: publishing still goes from the project CRS
     through rusty-tiles.
-  The hook is `reproject(points, data_crs, project_crs) -> (points, report)`.
-  It raises "not available" until the pyproj bundling lands. Rasters are
-  never reprojected: "reproject in QGIS first".
+  The hook is `reproject(points, data_crs, project_crs, *,
+  allow_network=False) -> (points, report)`, wired in the integration (see
+  "Reprojection wiring" below). Rasters are never reprojected: "reproject in
+  QGIS first".
 - The function behind the hook is
   `geotools.core.reproject.reproject_points(xyz, source, target, *,
   allow_network=False) -> (points, ReprojectionReport)`. It takes CRS strings
@@ -87,9 +90,10 @@ def matches(project: DataCrs | None, data: DataCrs) -> bool | None   # None = ca
   unchanged. Into EPSG:7856, PROJ uses "GDA94 to GDA2020 (1)" (0.01 m), and
   the two results are 1.51 m apart in Brisbane. The scene holds GDA2020/MGA
   coordinates, and the source mesh is placed with the same null shift, so to
-  keep GDA94 vectors aligned with the mesh the hook should pass
-  `preset.epsg` as the target, not the preset definition. The report gives
-  the measured difference whenever the target is a preset.
+  keep GDA94 vectors aligned with the mesh the hook passes `preset.epsg` as
+  the target, not the preset definition (settled in the integration).
+  `reproject_points` itself still uses a preset definition as written, and
+  its report gives the measured difference whenever the target is a preset.
 - Packaging (decided 2026-11-11): **pyproj 3.8.0** and **certifi
   2026.10.23** are pinned under `[tool.geotools.wheels]` beside rusty-tiles,
   one version for every platform:
@@ -115,6 +119,82 @@ def matches(project: DataCrs | None, data: DataCrs) -> bool | None   # None = ca
     Python. CONTRIBUTING.md ("How Blender picks wheels") has the details,
     including that Blender shares one pyproj between all extensions and
     keeps the newest.
+
+### Reprojection wiring (integration)
+
+- `crs_match.reproject(points, data_crs, project_crs, *, allow_network=False)`
+  checks `reproject.available()` and raises `ReprojectionUnavailable` (one
+  class, `core.reproject`'s, re-exported by `crs_match`) without pyproj.
+  Otherwise it calls `reproject_points(points, source, target,
+  allow_network=...)` with:
+  - source: the data's EPSG code, else its definition;
+  - target: `crs_match.reprojection_target(project)`, which is
+    `crs_presets.for_definition(source_crs).epsg` when the project CRS is a
+    preset, and the project's definition otherwise.
+  A preset target adds a note to the report that the points went into the
+  preset's EPSG code, not through its null shift.
+- Vector import (`blender/vectors.py`): `accept_crs` returns a
+  `CrsDecision(crs, reproject)`. On a mismatch with pyproj available, every
+  coordinate of the layer goes through one call
+  (`core/vector/transform.reproject_data`): (n, 3) when every Z is present,
+  else (n, 2) with Z left missing. The "within the site extent" filter runs
+  after reprojection, so `site_bbox` is in the project CRS. Then the project
+  offset is subtracted, all in binary64.
+- The import report shows `crs_match.report_text(report)` ("Reprojected from
+  EPSG:4326 to EPSG:7856 with <operation> (accuracy 3 m)", accuracy via
+  `format_accuracy`) and the report's notes. The link keeps the data's own
+  CRS in `crs`, and `options.reprojection` holds
+  `crs_match.report_to_dict(report)`; `options.allow_grid_downloads` holds the
+  import option "Allow Grid Downloads" (off by default). Refresh reprojects
+  with the same target and network setting and says "Reprojected as at
+  import: <operation>", or what changed.
+- Without pyproj, a mismatch is refused: both CRSs named, "Reprojection is not
+  available: pyproj did not load (see Check Dependencies)", and the QGIS hint.
+- Rasters: `core/raster.check_crs` refuses any mismatch, pyproj or not.
+- Measured (pyproj 3.8.0, PROJ 9.8.1): WGS84 into the MGA zone 56 preset uses
+  "Inverse of GDA2020 to WGS 84 (2) + Map Grid of Australia zone 56"
+  (accuracy 3 m); GDA94 (EPSG:28356) uses "... + GDA94 to GDA2020 (1) + ..."
+  (0.01 m) and moves points near (502000, 6961000) about 1.5 m. The Blender
+  tests compare with pyproj's own EPSG:7856 result to a millimetre.
+
+## LOCAL and ANCHOR projects (integration)
+
+A LOCAL or ANCHOR project takes imported coordinates as local metres. That
+suits data already in small local coordinates, but projected data (UTM, MGA)
+would land hundreds of kilometres from the scene and lose float32 precision.
+`core/data_origin.py`:
+
+- `check_local_project(mode, data_crs, bounds, what)` returns the warning, or
+  raises `NeedsProjectOrigin` (a ValueError carrying a `DataOrigin`) when the
+  data's CRS is known, not geographic (`crs_match.is_geographic`: pyproj when
+  available, else the presets and a few common codes), and its extent reaches
+  beyond `LOCAL_RADIUS_M` (100 km) of the origin. Small coordinates or an
+  unknown CRS keep the warning. Vectors check the layers of one CRS together;
+  GeoTIFF passes `GeoTiffInfo.bounds()` to `raster.check_crs`.
+- `suggest_origin(data_crs, bounds) -> DataOrigin(source_crs, epsg,
+  preset_label, offset)`: the CRS is the preset's definition when a preset
+  stands in for the data's EPSG code (`crs_match.preset_for_epsg`), else
+  `EPSG:nnnn`, else the data's definition, and the project checks then say
+  whether rusty-tiles supports it; the E/N offset is the centre of the extent
+  rounded to a whole metre; A is 0.
+
+Blender (`blender/data_origin.py`): the import operators catch
+`NeedsProjectOrigin`, report the refusal and call `offer(context, request,
+refusal)`. That stores the request on `WindowManager.geotools_origin_offer`
+(not saved) and, with a window, pops up the message with a **Use This Data's
+Centre as the Project Origin** button. The Linked Data panel draws the same
+box, with a dismiss button (`geotools.dismiss_origin_offer`), so the fix is
+reachable from File > Import and from the panel. The button is
+`geotools.use_data_origin` (kind, filepath, layer, where, within_site,
+allow_grid_downloads, mode, step): it runs the import, and on
+`NeedsProjectOrigin` applies the origin (`apply_origin`: SOURCE_CRS, CRS,
+E/N, A 0, no offset file) and runs it again, restoring the placement if that
+fails. Its invoke asks for confirmation (`invoke_props_dialog`) when the
+source collection has objects (`needs_confirmation`), explaining that the
+existing scene's placement on Earth changes; run as EXEC (a script, or the
+dialog's OK) it does not ask. A follow-up operator fits Blender better than an
+import option: the file browser has closed by the time the refusal is known,
+and the dialog needs its own invoke.
 
 ## Vectors
 
@@ -186,7 +266,7 @@ buttons (GeoJSON, GeoPackage, GeoTIFF), and for the selected link: Refresh,
 Auto-refresh, filters, Write Back (GeoPackage), Export. Header status icon
 like the other panels. Keep it compact; see `scripts/ui_screenshots.py`.
 
-### Settled in stream 1 (vectors)
+### Settled in stream 1 (vectors), reconciled with stream 2
 
 **String attributes.** Checked in Blender 5.2.3: `mesh.attributes.new(name,
 "STRING", domain)` works on POINT, EDGE, FACE and CORNER; the values are
@@ -202,17 +282,18 @@ fails when `foreach_set` starts taking strings, so the writes can be
 vectorised then. Reading back (write-back, refresh counts, export) reads one
 element per feature, never every element.
 
-**`GeoToolsLink`** (`geotools/blender/links.py`, `obj.geotools_link`), the
-interface stream 2 uses:
+**`GeoToolsLink`** (`geotools/blender/links.py`, `obj.geotools_link`), shared
+by vectors and GeoTIFF. Stream 2's stand-in (`blender/linked.py`, with a
+`NONE` status and a dict fingerprint) was removed in the integration:
 
 | Field | Type | Notes |
 |---|---|---|
 | `kind` | enum `NONE`, `GEOJSON`, `GPKG`, `GEOTIFF` | `NONE` (default) means not linked |
 | `filepath` | string (FILE_PATH) | read with `bpy.path.abspath` (`links.link_path`) |
-| `layer` | string | GeoPackage table; for GeoJSON the file's stem |
+| `layer` | string | GeoPackage table; for GeoJSON and GeoTIFF the file's stem |
 | `fid_field` | string | GeoPackage primary key; GeoJSON `id`, or `@index` (position in the file, from 0) when the ids are not distinct integers |
 | `crs` | string | `crs_match.to_text(DataCrs)` JSON |
-| `options` | string | JSON. Vectors: `core.vector.options.VectorOptions` (`kind`, `where`, `site_bbox`, `columns`). Stream 2 owns its own keys |
+| `options` | string | JSON. Vectors: `core.vector.options.VectorOptions` (`kind`, `where`, `site_bbox`, `columns`, `allow_grid_downloads`, `reprojection`). GeoTIFF: `mode`, `step`, `assume_project_crs` |
 | `fingerprint` | string | `core.fingerprint.Fingerprint.to_text()` JSON |
 | `last_sync` | string | UTC ISO, e.g. `2026-11-11T10:41:16Z` |
 | `auto_refresh` | bool | |
@@ -224,24 +305,37 @@ Helpers in `links`: `is_linked(obj)`, `linked_objects()`, `link_path(link)`,
 `check_link(obj)`, `refresh_link(obj)`, `replace_mesh(obj, mesh)` (copies the
 old mesh's materials, swaps, removes the old mesh, keeps its name), and
 `register_refresher(kind, fn)`: a refresher takes the object, re-reads its file
-with the stored options, calls `replace_mesh` and returns a `RefreshResult(added,
-removed, changed, message)`; it raises `RefreshError` to refuse. Refresh,
+with the stored options, updates the object in place and returns a
+`RefreshResult(added, removed, changed, message, warnings=(), by_feature=True)`;
+it raises `RefreshError` to refuse. Vectors and DEMs build a new mesh and swap
+it in with `replace_mesh`; an orthophoto reloads its image and moves its
+plane's four corners and UVs in place (`raster_io.update_plane`), falling back
+to `replace_mesh` if the mesh is no longer one quad. A raster has no features,
+so it returns `by_feature=False` and `summary()` gives only its message; the
+Refresh operator reports `warnings` as well. `refresh_link` checks the file
+exists (MISSING), wraps failures (ERROR, object unchanged) and updates the
+fingerprint, last sync and status, so refreshers do none of that. Refresh,
 stale detection, the `load_post` handler and the auto-refresh timer are
-generic, so GeoTIFF only registers its refresher. The Linked Data list is
+generic, so GeoTIFF only registers its refresher (`"GEOTIFF"` →
+`raster_io.refresh`). The Linked Data list is
 `links.GEOTOOLS_UL_links` over `bpy.data.objects`, with the active index in
 `scene.geotools_link_index`.
 
 **`crs_match`** (`geotools/core/crs_match.py`): `DataCrs(epsg, definition,
-source)` with `.known` and `.describe()`; `project_crs(placement)` (None for
-LOCAL and ANCHOR, whose imports take coordinates as local metres with a
-warning; the project's `source` is `"project"`); `matches(project, data)`
+source)` with `.known`, `.describe()` (with the preset's label) and `.label()`
+(the code alone: stream 2's short form, added to stream 1's class);
+`project_crs(placement)` (None for LOCAL and ANCHOR, whose imports follow
+"LOCAL and ANCHOR projects" above; the project's `source` is `"project"`); `matches(project, data)`
 (codes compared when both have one, else normalised definition text; None
 when it can't tell); `mismatch_message` and `unknown_message`;
 `to_text`/`from_text`; `normalise_epsg` (EPSG:n, OGC URNs and URLs, CRS84 →
 EPSG:4326); `epsg_from_wkt` (the root `AUTHORITY`/`ID` of WKT1 or WKT2);
 `from_gpkg_srs(organization, code, definition, srs_id)` (srs_id 0 and -1 are
-unknown); and `reproject(points, data_crs, project_crs)`, which raises
-`ReprojectionUnavailable`. A CRS the user confirmed is stored with source
+unknown); `preset_for_epsg`; `is_geographic`; `reprojection_target`,
+`reproject`, `report_text`, `report_to_dict` and `report_from_dict` (see
+"Reprojection wiring"); and the `SOURCE_*` constants (GeoTIFF uses
+`SOURCE_GEOTIFF`). `mismatch_message(project, data, what, reason="")` takes the
+reason GeoTools could not reproject. A CRS the user confirmed is stored with source
 `"user"`, and a refresh accepts it again without asking.
 
 **Fingerprints** (`geotools/core/fingerprint.py`): `take(path)`,
@@ -365,24 +459,31 @@ Settled in work stream 2.
   - The CRS must match the project CRS. A mismatch is refused with a message
     that names both CRSs and suggests QGIS (Raster > Projections > Warp).
   - An unknown CRS needs "Data is in the project CRS".
-  - LOCAL and ANCHOR projects import unshifted, with a warning.
-  - Rasters are never reprojected.
+  - LOCAL and ANCHOR projects import unshifted, with a warning, unless the
+    raster is projected and far from the origin: then `NeedsProjectOrigin`
+    (see "LOCAL and ANCHOR projects").
+  - Rasters are never reprojected, even with pyproj.
 - **Link:** `GeoToolsLink` kind GEOTIFF:
   - `options` is `{"mode": "DEM"|"ORTHO", "step": n, "assume_project_crs":
     bool}`;
-  - `crs` holds the EPSG code (or the citation);
+  - `crs` holds `crs_match.to_text` of the file's CRS (no code and no
+    definition when the GeoKeys give none) and `layer` the file's stem;
   - the fingerprint and `last_sync` are set on import and on refresh.
-- **Refresh:** `raster_io.refresh(obj, link) -> RefreshReport` (`message`,
-  `warnings`, `seconds`; `str()` is the message), for the Linked Data
-  panel's Refresh to dispatch to when `kind == "GEOTIFF"`.
+- **Refresh** (reconciled in the integration): `raster_io.refresh(obj) ->
+  RefreshResult` is registered for `GEOTIFF` in `links`' refresher registry,
+  so the Linked Data panel's Refresh, stale detection, `load_post` and
+  auto-refresh treat GeoTIFFs like vectors.
   - It re-reads with the stored options against the scene's current
     placement.
-  - It builds a new mesh and swaps it in, keeping the mesh name and data
-    materials, then removes the old mesh. Modifiers, object materials,
-    transform, parent and collections are untouched. An orthophoto's image is
-    reloaded.
-  - It raises `ValueError` (`RasterError` or `GeoTiffError`) with a message,
-    and sets the link status to MISSING or ERROR. On success the status is OK.
+  - A DEM gets a new mesh, swapped in with `links.replace_mesh` (mesh name
+    and data materials kept, old mesh removed). An orthophoto's image is
+    reloaded and its plane's corners move in place. Modifiers, object
+    materials, transform, parent and collections are untouched.
+  - It raises `RefreshError` with the message of a `RasterError`,
+    `GeoTiffError` or `NeedsProjectOrigin`; `links.refresh_link` sets MISSING
+    or ERROR, and OK with a new fingerprint on success.
+  - The import (`import_geotiff`) still returns stream 2's `RefreshReport`
+    (`message`, `warnings`, `seconds`) for the operator report.
 - **File > Import** has "GeoTIFF (.tif, .tiff)" (`geotools.import_geotiff`).
   The sidebar button is in the Linked Data panel (stream 1).
 
@@ -394,6 +495,11 @@ Settled in work stream 2.
 2. **GeoTIFF:** `core/geotiff.py`, `blender/raster_io.py`, DEM and
    orthophoto import, linked refresh. It uses stream 1's `GeoToolsLink` and
    `crs_match` interfaces as written above. If stream 1 hasn't landed, create
-   them as specified and expect a merge.
+   them as specified and expect a merge. (Done: its stand-ins were replaced
+   by stream 1's modules in `feat/m8-integration`.)
 3. **Recipe:** docs and an example `.blend` (draping, offsetting by depth or
    level, extruding volumes), after stream 1.
+
+The integration branch (`feat/m8-integration`) merged streams 1 and 2 on top
+of the vertex-bake removal and the pyproj bundle, reconciled the shared API
+(above), wired vector reprojection and added the LOCAL/ANCHOR rule.

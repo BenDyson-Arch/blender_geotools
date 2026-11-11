@@ -24,7 +24,18 @@ setting up, or a warning or error icon:
    lands on Earth, or why it refuses the CRS, before any build.
 2. **Source:** pick the source collection, or import a GLB, glTF, OBJ or PLY
    into one. A summary shows its objects, faces and size.
-3. **Layers:** named values per face, face corner or texel. The panel shows the
+3. **Linked Data:** import GeoJSON, GeoPackage and GeoTIFF files into the
+   project frame (also in File > Import), and export meshes back to GeoJSON or
+   GeoPackage with Z (File > Export). Vectors become points, edges and faces
+   with their attributes; a GeoTIFF DEM becomes a height mesh and an
+   orthophoto an image on a plane. Vector data in another CRS is reprojected
+   with the bundled pyproj and the report says how; rasters must already be in
+   the project CRS. Each object stays linked to its file: **Refresh** re-reads
+   it in place (keeping modifiers and materials), changed files are flagged,
+   and GeoPackage and GeoJSON attributes can be written back. Projected data
+   imported into a local or anchor project offers to use the data's centre as
+   the project origin.
+4. **Layers:** named values per face, face corner or texel. The panel shows the
    selected layer at a glance (label, units, attribute, value range, what is
    missing). A face or corner layer reads its attribute (`gt_<name>`, or the
    name typed in **Attribute**) from the evaluated mesh, so a Geometry Nodes
@@ -32,9 +43,9 @@ setting up, or a warning or error icon:
    texture layer with a Cycles bake; **Display** sets its colour ramp or
    category colours for a variant tileset; **Details** holds no-data, origin,
    aggregation and notes.
-4. **Checks:** run the checks against rusty-tiles' mesh input rules, with
+5. **Checks:** run the checks against rusty-tiles' mesh input rules, with
    one-click, opt-in fixes for oversize or 16-bit images.
-5. **Publish:** pick a build profile and its output, optionally a **Variant**
+6. **Publish:** pick a build profile and its output, optionally a **Variant**
    layer, and press **Publish**. It writes `site.3tz`, or `site.<layer>.3tz`
    for a variant, with the source collection's modifiers and Geometry Nodes
    applied (unless **Apply Modifiers** is off), with progress and cancel. Each build also writes the source GLB, a
@@ -44,7 +55,7 @@ setting up, or a warning or error icon:
    local **Preview** if the rusty-tiles CLI and a Cesium runtime are set in
    preferences. A 10M-triangle textured scene publishes in about 20 minutes on
    a 20-core desktop.
-6. **About** (closed by default): the extension and rusty-tiles versions.
+7. **About** (closed by default): the extension, rusty-tiles and pyproj versions.
 
 ## Coming next
 
@@ -58,7 +69,8 @@ The plan is in [docs/ROADMAP.md](docs/ROADMAP.md).
   measurement, and a library of Geometry Nodes analysis presets.
 - M6: texture painting and cleanup.
 - M7: open output tiles in Blender and check their quality.
-- M8: GeoJSON, GeoPackage and GeoTIFF import and export.
+- M8 (under way): GeoJSON, GeoPackage and GeoTIFF import and export are in;
+  the draping and extrusion recipes and vector publishing are next.
 - M9: queryable metadata without retiling (needs rusty-tiles 0.5).
 - M10: large sites and texture-only rebuilds.
 
@@ -68,8 +80,8 @@ The plan is in [docs/ROADMAP.md](docs/ROADMAP.md).
 - Linux x64, Windows x64, macOS arm64 or macOS x64.
 - On macOS, macOS 15 or later. The rusty-tiles wheels are built for that.
 
-Nothing else. rusty-tiles is bundled in the extension zip, so there is no
-pyproj, GDAL or other package to install.
+Nothing else. rusty-tiles and pyproj (with PROJ, no GDAL) are bundled in the
+extension zip, so there is no package to install.
 
 ## Install
 
