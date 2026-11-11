@@ -28,6 +28,7 @@ from bpy.props import (
 from ..core import images as core_images
 from ..core.images import ImageRemedy, RemedyKind
 from ..core.issues import Issue, Severity
+from ..core.layers import Aggregation, DataType, Domain, Origin
 from ..core.placement import Placement, PlacementMode, Vec3
 
 # --- binary64 number fields ------------------------------------------------------
@@ -347,6 +348,130 @@ class GeoToolsImageInfo(bpy.types.PropertyGroup):
     bit_depth: IntProperty(default=0)  # 0 if not known
 
 
+# --- layers ---------------------------------------------------------------------------
+# The registry of docs/design/m3-layers.md. ``blender.layers.spec_from_props`` is
+# the only place a ``core.layers.LayerSpec`` is built from these properties.
+
+LAYER_DOMAIN_ITEMS = (
+    (Domain.FACE.value, "Face", "One value per face, in the gt_<name> attribute"),
+    (Domain.CORNER.value, "Corner", "One value per face corner, in the gt_<name> attribute"),
+    (Domain.TEXTURE.value, "Texture", "One value per texel, in a float image per object"),
+)
+
+LAYER_DATA_TYPE_ITEMS = (
+    (DataType.FLOAT.value, "Float", "A real number (32-bit float)"),
+    (DataType.INT.value, "Integer", "A whole number (32-bit integer)"),
+    (DataType.BOOLEAN.value, "Boolean", "True or false"),
+    (DataType.CATEGORY.value, "Category", "An integer index into the layer's category labels"),
+)
+
+LAYER_ORIGIN_ITEMS = (
+    (Origin.GEONODES.value, "Geometry Nodes", "Baked from a Geometry Nodes output"),
+    (Origin.ANALYSIS.value, "Analysis", "Written by a GeoTools analysis tool"),
+    (Origin.MANUAL.value, "Manual", "Made or edited by hand"),
+)
+
+LAYER_AGGREGATION_DEFAULT = "DEFAULT"
+"""The ``aggregation`` item that means ``None``: the default for the data type."""
+
+LAYER_AGGREGATION_ITEMS = (
+    (
+        LAYER_AGGREGATION_DEFAULT,
+        "Default",
+        "Area-weighted mean for float and integer layers, mode for boolean and category layers",
+    ),
+    (Aggregation.AREA_MEAN.value, "Area Mean", "Coarse levels take the area-weighted mean"),
+    (Aggregation.MIN.value, "Minimum", "Coarse levels take the minimum (for booleans: all)"),
+    (Aggregation.MAX.value, "Maximum", "Coarse levels take the maximum (for booleans: any)"),
+    (Aggregation.MODE.value, "Mode", "Coarse levels take the most common value"),
+    (Aggregation.NONE.value, "None", "Coarse levels carry no value"),
+)
+
+
+class GeoToolsLayerImage(bpy.types.PropertyGroup):
+    """The image that holds a TEXTURE layer on one object."""
+
+    object: PointerProperty(name="Object", type=bpy.types.Object)
+    image: PointerProperty(name="Image", type=bpy.types.Image)
+
+
+class GeoToolsLayer(bpy.types.PropertyGroup):
+    """One layer of the registry; mirrors ``core.layers.LayerSpec``.
+
+    ``name`` is the built-in PropertyGroup name: the layer's identifier. Rename
+    a layer with ``geotools.layer_rename``, which renames its attributes too.
+    Later work streams add their settings here (e.g. a ``presentation``
+    PointerProperty); register their PropertyGroups before this class.
+    """
+
+    label: StringProperty(name="Label", description="Display name; empty to show the layer name")
+    domain: EnumProperty(name="Domain", items=LAYER_DOMAIN_ITEMS, default=Domain.FACE.value)
+    data_type: EnumProperty(name="Type", items=LAYER_DATA_TYPE_ITEMS, default=DataType.FLOAT.value)
+    units: StringProperty(name="Units", description='Units of the values, e.g. "deg", "m", "h"')
+    nodata: StringProperty(
+        name="No-Data",
+        description="Value that means no data, stored as text so the full double precision "
+        "is kept. Empty for none (float layers then use NaN)",
+        default="",
+    )
+    origin: EnumProperty(name="Origin", items=LAYER_ORIGIN_ITEMS, default=Origin.MANUAL.value)
+    aggregation: EnumProperty(
+        name="Aggregation",
+        description="How coarse levels reduce the layer (recorded for queryable tiles)",
+        items=LAYER_AGGREGATION_ITEMS,
+        default=LAYER_AGGREGATION_DEFAULT,
+    )
+    description: StringProperty(name="Description")
+    categories: StringProperty(
+        name="Categories",
+        description="Category labels, one per line: line i is the label of value i",
+        default="",
+    )
+    # The range of the values present (binary64 text, empty if not known), set by
+    # whoever writes the values or by blender.layers.update_value_range.
+    value_min: StringProperty(
+        name="Minimum",
+        description="Smallest value present, ignoring no-data. Stored as text so the full "
+        "double precision is kept; empty if not known",
+        default="",
+    )
+    value_max: StringProperty(
+        name="Maximum",
+        description="Largest value present, ignoring no-data. Stored as text so the full "
+        "double precision is kept; empty if not known",
+        default="",
+    )
+    provenance: StringProperty(
+        name="Provenance",
+        description='What made the layer, as JSON: {"tool", "parameters", '
+        '"geotools_version"}. Empty for a manual layer',
+        default="",
+    )
+
+    # TEXTURE layers ------------------------------------------------------------
+    images: CollectionProperty(type=GeoToolsLayerImage)
+    uv_map: StringProperty(
+        name="UV Map", description="UV map of the images; empty for the active render UV map"
+    )
+    resolution: IntProperty(
+        name="Resolution",
+        description="Width and height of each object's image, in pixels",
+        default=1024,
+        min=1,
+        soft_min=64,
+        max=16_384,
+        subtype="PIXEL",
+    )
+    margin: IntProperty(
+        name="Margin",
+        description="Gutter around UV islands, in pixels",
+        default=8,
+        min=0,
+        soft_max=64,
+        subtype="PIXEL",
+    )
+
+
 PLACEMENT_MODE_ITEMS = (
     ("LOCAL", "Local", "Local metres, not placed on Earth"),
     ("ANCHOR", "Anchor", "Local metres placed rigidly at a WGS84 point"),
@@ -425,12 +550,18 @@ class GeoToolsProject(bpy.types.PropertyGroup):
     build_profiles: CollectionProperty(type=GeoToolsBuildProfile)
     build_profile_index: IntProperty(name="Active Build Profile", default=0)
 
+    # Layers (see blender.layers) ------------------------------------------------
+    layers: CollectionProperty(type=GeoToolsLayer)
+    layers_index: IntProperty(name="Active Layer", default=0)
+
 
 classes = (
     GeoToolsIssue,
     GeoToolsBuildProfile,
     GeoToolsImageRemedy,
     GeoToolsImageInfo,
+    GeoToolsLayerImage,
+    GeoToolsLayer,
     GeoToolsProject,
 )
 

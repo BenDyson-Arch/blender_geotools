@@ -12,6 +12,7 @@ from types import ModuleType
 from ..core import deps
 from . import (
     checks,
+    layers,
     operators,
     panels,
     preferences,
@@ -32,6 +33,7 @@ MODULES: tuple[ModuleType, ...] = (
     checks,
     remedies,
     profiles,
+    layers,
     publish,
     panels,
 )

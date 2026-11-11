@@ -17,6 +17,7 @@ switch back to plain EPSG codes.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 
@@ -75,3 +76,20 @@ def get(preset_id: str) -> CrsPreset | None:
 def for_definition(definition: str) -> CrsPreset | None:
     """The preset whose definition is exactly ``definition``, if any."""
     return _BY_DEFINITION.get(definition.strip())
+
+
+_EPSG_RE = re.compile(r"\s*EPSG:(\d+)\s*", re.IGNORECASE)
+
+
+def epsg_code(definition: str | None) -> str | None:
+    """``"EPSG:nnnn"`` for a preset's definition or a plain EPSG code; else None.
+
+    Recorded in build.json beside the definition itself, which stays the fallback.
+    """
+    if not definition:
+        return None
+    preset = for_definition(definition)
+    if preset is not None:
+        return preset.epsg
+    match = _EPSG_RE.fullmatch(definition)
+    return f"EPSG:{int(match.group(1))}" if match else None

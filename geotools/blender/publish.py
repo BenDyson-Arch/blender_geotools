@@ -36,6 +36,7 @@ from ..publish import staging as st
 from ..publish.job import BuildJob, BuildRequest, JobState
 from .checks import count_issues, describe_counts, run_checks, store_issues
 from .common import ADDON_PACKAGE, extension_version, redraw_ui
+from .layers import layer_records
 from .properties import FieldError, placement_from_props
 
 log = logging.getLogger(__name__)
@@ -269,6 +270,20 @@ def _extract_scene(context, collection, image_dir: Path, remedies: list[dict]):
     return export.extract_scene(context, collection, image_dir, remedies=remedies)
 
 
+def blend_path_for_record(filepath: str | None = None, is_dirty: bool | None = None) -> Path | None:
+    """The saved ``.blend`` whose hash build.json records, or None.
+
+    None when the file was never saved or has changed since (``is_dirty``): the
+    file on disk would then not match the scene that was published. The
+    arguments default to ``bpy.data.filepath`` and ``bpy.data.is_dirty``.
+    """
+    filepath = bpy.data.filepath if filepath is None else filepath
+    is_dirty = bpy.data.is_dirty if is_dirty is None else is_dirty
+    if not filepath or is_dirty:
+        return None
+    return Path(filepath)
+
+
 def _extra_record(context: bpy.types.Context, profile_name: str, collection_name: str) -> dict:
     return {
         "geotools_version": extension_version(),
@@ -301,6 +316,8 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
         if is_running():
             self.report({"ERROR"}, "A publish is already running; cancel it or wait")
             return {"CANCELLED"}
+        # Before anything below writes to the scene (store_issues does).
+        blend_path = blend_path_for_record()
         props = context.scene.geotools
         if props.source_collection is None:
             self.report({"ERROR"}, "Cannot publish: set or ingest a source collection first")
@@ -356,6 +373,7 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
             if remedies:
                 # Which file each remedy wrote (a downscale may fall back to JPEG).
                 extra_record["image_remedies"] = remedies
+            layer_records_, invalid_layers = layer_records(context.scene)
             request = BuildRequest(
                 output=output,
                 placement_kwargs=placement_kwargs,
@@ -370,6 +388,8 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
                 validate=profile.validate,
                 topology=dict(topology),
                 extra_record=extra_record,
+                layers=layer_records_,
+                blend_path=blend_path,
             )
             job = BuildJob(scene_export, request, lock=lock)
         except Exception as ex:
@@ -399,8 +419,13 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
         notes = [f"{warnings} check warning{'s' * (warnings != 1)}"] if warnings else []
         if remedies:
             notes.append(f"{len(remedies)} image{'s' * (len(remedies) != 1)} remedied")
+        if invalid_layers:
+            notes.append(
+                f"layer{'s' * (len(invalid_layers) != 1)} {', '.join(invalid_layers)} not "
+                "recorded: fix them in the Layers panel"
+            )
         note = f" ({', '.join(notes)})" if notes else ""
-        self.report({"INFO"}, f"Publishing {output.name}{note}")
+        self.report({"WARNING" if invalid_layers else "INFO"}, f"Publishing {output.name}{note}")
         redraw_ui(context)
         return {"FINISHED"}
 

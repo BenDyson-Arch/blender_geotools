@@ -230,6 +230,9 @@ def test_publish_end_to_end() -> None:
         return
     h.reset_scene()
     _textured_grid(6)
+    layers = h.submodule("core.layers")
+    slope = layers.LayerSpec("slope", layers.Domain.FACE, layers.DataType.FLOAT, units="deg")
+    h.submodule("blender.layers").ensure_layer(bpy.context.scene, slope)
     with _tmpdir() as tmp:
         output = tmp / "site.3tz"
         profile = _add_profile(str(output))
@@ -250,7 +253,13 @@ def test_publish_end_to_end() -> None:
 
         staging = tmp / "site.geotools"
         record = json.loads((staging / "build.json").read_text())
-        assert record["schema"] == 1
+        assert record["schema"] == 2
+        assert record["layers"] == [layers.to_record(slope)]
+        assert record["source"] == {
+            "glb_sha256": record["source_glb"]["sha256"],
+            "blend_sha256": None,  # never saved
+        }
+        assert record["placement"]["crs_epsg"] is None
         assert record["output"] == str(output)
         assert record["settings"]["profile"] == "fast"
         assert record["placement"]["anchor"] == [153.02, -27.47, 10.0]

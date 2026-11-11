@@ -1,7 +1,10 @@
 """View3D sidebar panels, category "GeoTools".
 
-Order: Project (with a Verify sub-panel), Source, Checks (with an Images
-sub-panel), Build Profiles, Publish (defined in publish.py), and About last. Panels draw cached state only; operators do the work.
+Order: Project (with a Verify sub-panel), Source, Layers, Checks (with an
+Images sub-panel), Build Profiles, Publish (defined in publish.py), and About
+last. Panels draw cached state only; operators do the work. The exception is
+the Layers panel's status, which ``layers.layer_status`` works out per object
+(never per face) while drawing.
 """
 
 import textwrap
@@ -11,9 +14,12 @@ import bpy
 
 from ..core import crs_presets, deps, sysmem
 from ..core.issues import Severity
+from ..core.layers import default_aggregation, validate
 from .common import draw_dependency_status, extension_version
+from .layers import layer_status, other_layer_names, spec_from_props
 from .properties import (
     ANCHOR_FIELDS,
+    LAYER_AGGREGATION_DEFAULT,
     SEVERITY_ICONS,
     SOURCE_CRS_FIELDS,
     FieldError,
@@ -24,6 +30,8 @@ from .properties import (
 )
 from .publish import GEOTOOLS_PT_publish
 from .remedies import describe_image, draw_remedy_buttons
+
+_SEVERITY_ORDER = {Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2}
 
 
 class _GeoToolsPanel:
@@ -170,6 +178,123 @@ class GEOTOOLS_PT_source(_GeoToolsPanel, bpy.types.Panel):
             col.label(text=f"Max  {_format_bounds(props.summary_bounds_max)}")
         else:
             col.label(text="No meshes", icon="ERROR")
+
+
+# --- Layers --------------------------------------------------------------------------
+
+LAYER_STATUS_ROWS = 6
+"""Issues the Layers panel lists before summarising the rest."""
+
+
+def _draw_layer_status(layout: bpy.types.UILayout, context: bpy.types.Context, item) -> None:
+    issues = sorted(
+        layer_status(context.scene, item), key=lambda i: _SEVERITY_ORDER[Severity(i.severity)]
+    )
+    box = layout.box()
+    if not issues:
+        box.label(text="Stored on every source object", icon="CHECKMARK")
+        return
+    for issue in issues[:LAYER_STATUS_ROWS]:
+        col = box.column(align=True)
+        col.alert = issue.severity is Severity.ERROR
+        _wrapped(col, issue.message, icon=SEVERITY_ICONS[Severity(issue.severity).name])
+    if len(issues) > LAYER_STATUS_ROWS:
+        box.label(text=f"... and {len(issues) - LAYER_STATUS_ROWS} more")
+
+
+class GEOTOOLS_PT_layers(_GeoToolsPanel, bpy.types.Panel):
+    """The layer registry: named values per face, corner or texel of the source."""
+
+    bl_idname = "GEOTOOLS_PT_layers"
+    bl_label = "Layers"
+
+    def draw(self, context: bpy.types.Context) -> None:
+        layout = self.layout
+        props = context.scene.geotools
+        row = layout.row()
+        row.template_list("GEOTOOLS_UL_layers", "", props, "layers", props, "layers_index", rows=3)
+        col = row.column(align=True)
+        col.operator("geotools.layer_add", text="", icon="ADD")
+        col.operator("geotools.layer_remove", text="", icon="REMOVE")
+
+        if not 0 <= props.layers_index < len(props.layers):
+            if not len(props.layers):
+                layout.label(text="No layers yet", icon="INFO")
+            return
+        item = props.layers[props.layers_index]
+        row = layout.row(align=True)
+        row.label(text=item.name, icon="RNA")
+        row.operator("geotools.layer_rename", text="", icon="GREASEPENCIL")
+
+        col = layout.column()
+        col.use_property_split = True
+        col.use_property_decorate = False
+        col.prop(item, "label")
+        col.prop(item, "domain")
+        col.prop(item, "data_type")
+        col.prop(item, "units")
+        spec = spec_from_props(item)
+        issues = validate(spec, other_layer_names(context.scene, item))
+        nodata = col.row()
+        nodata.alert = any(i.code == "layer-nodata-invalid" for i in issues)
+        nodata.prop(item, "nodata")
+        col.prop(item, "origin")
+        agg = col.row()
+        agg.alert = any(i.code == "layer-aggregation-invalid" for i in issues)
+        agg.prop(item, "aggregation")
+        if item.aggregation == LAYER_AGGREGATION_DEFAULT:
+            text = f"Default: {_aggregation_label(item, spec.data_type)}"
+            col.label(text=text, icon="INFO")
+        col.prop(item, "description")
+
+        box = layout.box()
+        header = box.row()
+        header.label(text="Value Range")
+        header.operator("geotools.layer_update_range", text="", icon="FILE_REFRESH")
+        values = box.column(align=True)
+        values.alert = any(i.code == "layer-range-invalid" for i in issues)
+        values.prop(item, "value_min")
+        values.prop(item, "value_max")
+        provenance = spec.provenance
+        if provenance is not None:
+            if any(i.code == "layer-provenance-invalid" for i in issues):
+                box.label(text="Provenance is not valid JSON", icon="ERROR")
+            else:
+                version = provenance.get("geotools_version") or "unknown version"
+                box.label(text=f"Made by {provenance['tool']} (GeoTools {version})", icon="INFO")
+
+        if item.data_type == "CATEGORY":
+            box = layout.box()
+            header = box.row()
+            header.label(text="Categories")
+            header.operator("geotools.layer_set_categories", text="", icon="GREASEPENCIL")
+            labels = spec.categories
+            if not labels:
+                box.label(text="None set", icon="ERROR")
+            sub = box.column(align=True)
+            for value, label in enumerate(labels[:16]):
+                sub.label(text=f"{value}  {label}")
+            if len(labels) > 16:
+                sub.label(text=f"... and {len(labels) - 16} more")
+
+        if item.domain == "TEXTURE":
+            col = layout.column()
+            col.use_property_split = True
+            col.use_property_decorate = False
+            col.prop(item, "uv_map")
+            col.prop(item, "resolution")
+            col.prop(item, "margin")
+            count = sum(1 for entry in item.images if entry.image is not None)
+            col.label(text=f"{count} image{'s' * (count != 1)}", icon="IMAGE_DATA")
+        else:
+            layout.operator("geotools.layer_create_attributes", icon="ADD")
+
+        _draw_layer_status(layout, context, item)
+
+
+def _aggregation_label(item, data_type: str) -> str:
+    value = default_aggregation(data_type).value
+    return item.bl_rna.properties["aggregation"].enum_items[value].name
 
 
 # --- Checks --------------------------------------------------------------------------
@@ -328,6 +453,7 @@ classes = (
     GEOTOOLS_PT_project,
     GEOTOOLS_PT_project_verify,
     GEOTOOLS_PT_source,
+    GEOTOOLS_PT_layers,
     GEOTOOLS_PT_checks,
     GEOTOOLS_PT_checks_images,
     GEOTOOLS_PT_build_profiles,

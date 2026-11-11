@@ -6,6 +6,7 @@ the others substitute a fake rusty-tiles module.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 import time
@@ -15,11 +16,19 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from geotools.core import crs_presets
 from geotools.core.facemap import load_face_map
 from geotools.core.gltf_writer import MaterialData, PrimitiveData, SceneExport
+from geotools.core.layers import DataType, Domain, LayerSpec, from_record, to_record
 from geotools.publish import job as job_mod
 from geotools.publish import staging as st
-from geotools.publish.job import BuildJob, BuildRequest, JobState, ProgressEvent
+from geotools.publish.job import (
+    RECORD_SCHEMA,
+    BuildJob,
+    BuildRequest,
+    JobState,
+    ProgressEvent,
+)
 
 try:
     import rusty_tiles
@@ -288,6 +297,61 @@ def test_events_and_warnings(tmp_path: Path, monkeypatch) -> None:
     assert record["warnings"] == {"count": 1, "first": ["something odd"]}
     validation = json.loads((st.staging_dir_for(out) / "validation.json").read_text())
     assert "payloads" not in validation and validation["payload_rows"] == 1
+    assert record["schema"] == RECORD_SCHEMA == 2
+    assert record["layers"] == []
+
+
+def test_layers_are_recorded(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(job_mod, "_rusty_tiles", fake_rt)
+    specs = [
+        LayerSpec("slope", Domain.FACE, DataType.FLOAT, units="deg", nodata=-9999.0),
+        LayerSpec("cover", Domain.CORNER, DataType.CATEGORY, categories=("a", "b"), nodata=-1),
+        LayerSpec("lit", Domain.TEXTURE, DataType.BOOLEAN),
+    ]
+    out = tmp_path / "site.3tz"
+    job = BuildJob(grid_scene(), request(out, layers=[to_record(s) for s in specs]))
+    run(job)
+    assert job.state is JobState.DONE, job.error
+    record = json.loads((st.staging_dir_for(out) / "build.json").read_text())
+    assert record["layers"] == [to_record(s) for s in specs]
+    assert [from_record(r).name for r in record["layers"]] == ["slope", "cover", "lit"]
+    assert record["layers"][0]["attribute"] == "gt_slope"
+
+
+def test_source_hashes_and_crs_epsg(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(job_mod, "_rusty_tiles", fake_rt)
+    blend = tmp_path / "site.blend"
+    blend.write_bytes(b"BLENDER-v502" + bytes(range(256)) * 5000)
+    preset = crs_presets.PRESETS[0]
+    placement = {
+        "source_crs": preset.definition,
+        "source_axes": "y-up",
+        "source_offset": (500000.0, 6961000.0, 10.0),
+        "height_offset": 0.0,
+    }
+    out = tmp_path / "site.3tz"
+    job = BuildJob(grid_scene(), request(out, blend_path=blend, placement_kwargs=placement))
+    run(job)
+    assert job.state is JobState.DONE, job.error
+    staging = st.staging_dir_for(out)
+    record = json.loads((staging / "build.json").read_text())
+    glb = hashlib.sha256((staging / "source.glb").read_bytes()).hexdigest()
+    assert record["source"] == {
+        "glb_sha256": glb,
+        "blend_sha256": hashlib.sha256(blend.read_bytes()).hexdigest(),
+    }
+    assert record["source"]["glb_sha256"] == job.result.glb_sha256
+    assert record["placement"]["crs_epsg"] == preset.epsg
+    assert record["placement"]["source_crs"] == preset.definition  # the fallback, unchanged
+    assert "hash_blend" in record["phase_seconds"]
+
+    # An unreadable .blend is recorded as null, not a failed build.
+    out2 = tmp_path / "other.3tz"
+    job = BuildJob(grid_scene(), request(out2, blend_path=tmp_path / "gone.blend"))
+    run(job)
+    assert job.state is JobState.DONE, job.error
+    record = json.loads((st.staging_dir_for(out2) / "build.json").read_text())
+    assert record["source"]["blend_sha256"] is None
 
 
 # --- with rusty-tiles ----------------------------------------------------------------------
@@ -322,7 +386,7 @@ def test_publish_success_and_record(tmp_path: Path) -> None:
     assert not images.exists()
 
     record = json.loads(result.record_path.read_text())
-    assert record["schema"] == 1
+    assert record["schema"] == 2
     assert record["output"] == str(out)
     assert record["output_bytes"] == out.stat().st_size
     assert record["source_glb"]["sha256"] == result.glb_sha256
@@ -334,7 +398,8 @@ def test_publish_success_and_record(tmp_path: Path) -> None:
         "force": False,
         "validate": True,
     }
-    assert record["placement"] == {"anchor": [153.02, -27.47, 10.0]}
+    assert record["placement"] == {"anchor": [153.02, -27.47, 10.0], "crs_epsg": None}
+    assert record["source"] == {"glb_sha256": result.glb_sha256, "blend_sha256": None}
     assert record["rusty_tiles_version"] == "0.4.0"
     assert record["geotools"] == {"geotools_version": "test", "build_profile": "Test"}
     assert record["started_utc"].endswith("Z") and record["finished_utc"].endswith("Z")
@@ -391,6 +456,8 @@ def test_source_crs_summary(tmp_path: Path) -> None:
     record = json.loads((staging / "build.json").read_text())
     assert record["validation"] == {"requested": False, "ok": None}
     assert "validation" not in record["phase_seconds"]
+    assert record["placement"]["source_crs"] == "EPSG:32756"
+    assert record["placement"]["crs_epsg"] == "EPSG:32756"
 
 
 @rusty

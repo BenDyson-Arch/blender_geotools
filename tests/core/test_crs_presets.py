@@ -49,3 +49,14 @@ def test_preset_lands_where_expected(
     assert result.ok, result.error
     got_lon, got_lat, _ = result.origin_lon_lat_height
     assert abs(got_lon - lon) < 0.01 and abs(got_lat - lat) < 0.01, result
+
+
+def test_epsg_code() -> None:
+    for preset in crs_presets.PRESETS:
+        assert crs_presets.epsg_code(preset.definition) == preset.epsg
+        assert crs_presets.epsg_code(f" {preset.definition}\n") == preset.epsg
+    assert crs_presets.epsg_code("EPSG:32756") == "EPSG:32756"
+    assert crs_presets.epsg_code(" epsg:4326 ") == "EPSG:4326"
+    assert crs_presets.epsg_code("EPSG:032756") == "EPSG:32756"
+    for other in ("", None, "+proj=utm +zone=56 +south", "EPSG:", "EPSG:abc", "ESRI:102100"):
+        assert crs_presets.epsg_code(other) is None, other
