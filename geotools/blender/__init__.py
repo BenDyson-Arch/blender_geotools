@@ -17,6 +17,7 @@ from . import (
     operators,
     panels,
     preferences,
+    presentation,
     profiles,
     properties,
     publish,
@@ -35,6 +36,7 @@ MODULES: tuple[ModuleType, ...] = (
     remedies,
     profiles,
     layers,
+    presentation,
     publish,
     panels,
     bake_vertex,  # after panels: its sub-panel needs GEOTOOLS_PT_layers
