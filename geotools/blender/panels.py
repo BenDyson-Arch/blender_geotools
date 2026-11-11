@@ -1,7 +1,7 @@
 """View3D sidebar panels, category "GeoTools".
 
-Order: Project (with a Verify sub-panel), Source, Checks, Build Profiles,
-Publish (defined in publish.py), and About last. Panels draw cached state only; operators do the work.
+Order: Project (with a Verify sub-panel), Source, Checks (with an Images
+sub-panel), Build Profiles, Publish (defined in publish.py), and About last. Panels draw cached state only; operators do the work.
 """
 
 import textwrap
@@ -23,6 +23,7 @@ from .properties import (
     placement_from_props,
 )
 from .publish import GEOTOOLS_PT_publish
+from .remedies import describe_image, draw_remedy_buttons
 
 
 class _GeoToolsPanel:
@@ -204,6 +205,52 @@ class GEOTOOLS_PT_checks(_GeoToolsPanel, bpy.types.Panel):
             box = layout.box()
             _wrapped(box, item.message, icon=SEVERITY_ICONS[item.severity])
             box.label(text=f"Code: {item.code}")
+            draw_remedy_buttons(box, item.code, item.subject)
+
+
+class GEOTOOLS_PT_checks_images(_GeoToolsPanel, bpy.types.Panel):
+    """Source images as last summarised, with their remedy."""
+
+    bl_idname = "GEOTOOLS_PT_checks_images"
+    bl_label = "Images"
+    bl_parent_id = "GEOTOOLS_PT_checks"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context: bpy.types.Context) -> None:
+        layout = self.layout
+        props = context.scene.geotools
+        if not props.summary_valid:
+            layout.label(text="Run Checks to list the source images")
+            return
+        if not len(props.summary_images):
+            layout.label(text="The source uses no images")
+            return
+        layout.template_list(
+            "GEOTOOLS_UL_images", "", props, "summary_images", props, "summary_images_index", rows=3
+        )
+        if not 0 <= props.summary_images_index < len(props.summary_images):
+            return
+        item = props.summary_images[props.summary_images_index]
+        image = bpy.data.images.get(item.name)
+        box = layout.box()
+        box.label(text=describe_image(item))
+        if image is None:
+            box.label(text="The image no longer exists; run Checks again", icon="ERROR")
+            return
+        remedy = image.geotools_remedy
+        col = box.column(align=True)
+        col.enabled = image.library is None
+        col.prop(remedy, "kind", text="Remedy")
+        if remedy.kind in {"JPEG", "DOWNSCALE"}:
+            col.prop(remedy, "quality")
+        if remedy.kind == "DOWNSCALE":
+            col.prop(remedy, "max_edge")
+        if image.library is not None:
+            box.label(
+                text="Linked image; make it local to choose a remedy", icon="LIBRARY_DATA_DIRECT"
+            )
+        elif remedy.kind != "NONE":
+            box.label(text="Only the published copy changes", icon="INFO")
 
 
 # --- Build profiles --------------------------------------------------------------------
@@ -271,6 +318,7 @@ classes = (
     GEOTOOLS_PT_project_verify,
     GEOTOOLS_PT_source,
     GEOTOOLS_PT_checks,
+    GEOTOOLS_PT_checks_images,
     GEOTOOLS_PT_build_profiles,
     GEOTOOLS_PT_publish,
     GEOTOOLS_PT_about,

@@ -10,33 +10,29 @@ more.
 
 ## State
 
-The rebuild is at milestone M1 (project and georeference). In the 3D Viewport
-sidebar (**GeoTools** tab) the extension can:
+The rebuild has reached milestone M2 (publish). In the 3D Viewport sidebar
+(**GeoTools** tab) the extension can:
 
 - **Place the project:** local metres, a WGS84 anchor with a heading, or a
-  source CRS with a E/N/A offset and a height offset. Offsets
-  and coordinates are stored at full double precision.
-- **Ingest a source mesh:** GLB, glTF, OBJ or PLY goes into a source
-  collection. An offset file next to the source is picked up automatically.
-- **Run checks:** the source is checked against rusty-tiles' mesh input rules
-  (shape keys, alpha blending, image formats, coordinate range and precision,
-  and the placement itself).
-- **Verify placement:** rusty-tiles is run on a single triangle spanning the
-  source bounds and reports where the source lands on Earth, as WGS84
-  longitude, latitude and ellipsoidal height. A CRS the bundled rusty-tiles
-  can't handle (for example EPSG:2193) fails here, before any build.
-- **Store build profiles:** profile, jobs, memory budget and output path, for
-  publishing in M2.
-- **Report versions:** the extension and bundled rusty-tiles versions, with a
-  **Check Dependencies** button.
-
-It does not publish tilesets yet.
+  source CRS with an E/N/A offset and a height offset. GDA2020 MGA and NZTM are
+  available as presets. Offsets are stored at full double precision.
+- **Ingest a source mesh:** GLB, glTF, OBJ or PLY goes into a source collection.
+- **Run checks** against rusty-tiles' mesh input rules, with one-click,
+  opt-in fixes for oversize or 16-bit images.
+- **Verify placement:** rusty-tiles reports where the source lands on Earth, or
+  why it refuses the CRS, before any build.
+- **Publish** the source collection (modifiers and Geometry Nodes applied) to a
+  validated `.3tz` with progress and cancel. Each build writes the source GLB,
+  a face map from output triangles back to Blender faces, and a build record
+  next to the archive. A 10M-triangle textured scene publishes in about 20
+  minutes on a 20-core desktop.
+- **Preview** the output locally if the rusty-tiles CLI and a Cesium runtime are
+  set in preferences.
 
 ## Coming next
 
 The plan is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
-- M2: publish from Blender to a validated `.3tz`. First release, 0.3.0.
 - M3: layers, and baking Geometry Nodes and attributes to vertex or texture
   space.
 - M4: analysis tools rebuilt on the bake engine.

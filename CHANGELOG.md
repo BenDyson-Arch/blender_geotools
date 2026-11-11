@@ -34,6 +34,19 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   bounds and shows the WGS84 origin, or why the CRS is refused.
 - Build profiles (profile, jobs, memory budget, output path), stored for
   publishing.
+- Publish: the source collection's evaluated meshes are written to one
+  deterministic GLB that rusty-tiles' strict mesh input admits, tiled with
+  `mesh_to_tileset` on a worker thread with progress and cancel, validated, and
+  recorded in `<output>.geotools/build.json`. A failed or cancelled rebuild
+  leaves the previous archive untouched.
+- Face map (`facemap.npz`): every rusty-tiles leaf triangle's
+  `(source_primitive, source_triangle)` back to its Blender object and polygon.
+- Optional local preview through the rusty-tiles CLI and a Cesium runtime set in
+  preferences.
+- Opt-in image remedies for images rusty-tiles 0.4.0 refuses (over 32 MiB
+  encoded, over 16384 px, 16-bit): re-encode as JPEG, downscale, or convert to
+  8-bit, applied only to the exported copy. Unsaved generated or painted images
+  publish with their current pixels.
 - CRS presets for GDA2020 MGA zones 46–59 and NZTM2000 as PROJ definitions the
   bundled rusty-tiles accepts, each stating its datum assumption.
 

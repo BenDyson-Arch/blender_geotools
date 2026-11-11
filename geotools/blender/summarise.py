@@ -32,9 +32,11 @@ from collections.abc import Iterable
 import bpy
 import numpy as np
 
+from ..core.images import encoded_bit_depth
 from ..core.placement import Vec3
 from ..core.preflight import ImageSummary, MaterialSummary, ObjectSummary, SceneSummary
 from .nodes import alpha_clip_nodes, blend_mode, from_node, output_node, upstream
+from .properties import image_remedy
 
 # Shader nodes the GLB writer can express when they sit upstream of the
 # material output: core PBR through one Principled BSDF, image textures on a UV
@@ -97,7 +99,7 @@ def world_bounds(obj: bpy.types.Object) -> tuple[Vec3, Vec3]:
 # --- materials -----------------------------------------------------------------------
 
 
-def _image_summary(image: bpy.types.Image) -> ImageSummary:
+def image_summary(image: bpy.types.Image) -> ImageSummary:
     packed = image.packed_file is not None
     filepath = ""
     if image.source in {"FILE", "SEQUENCE", "TILED"} and image.filepath:
@@ -108,14 +110,18 @@ def _image_summary(image: bpy.types.Image) -> ImageSummary:
     in_memory = image.source == "GENERATED" or (image.is_dirty and image.has_data)
     exists = packed or on_disk or in_memory
     width, height = (int(v) for v in image.size[:2])
-    file_bytes = None
+    file_bytes = bit_depth = None
     used_as_is = (
         image.file_format in {"PNG", "JPEG"} and not image.is_dirty and image.source == "FILE"
     )
     if used_as_is and packed:
         file_bytes = image.packed_file.size
+        # Reading the header would copy the whole packed file; Blender decodes
+        # 16-bit PNGs (and only those, of PNG and JPEG) into a float buffer.
+        bit_depth = 16 if image.is_float else 8
     elif used_as_is and on_disk:
         file_bytes = os.path.getsize(filepath)
+        bit_depth = encoded_bit_depth(filepath)
     return ImageSummary(
         name=image.name,
         filepath=filepath,
@@ -125,6 +131,8 @@ def _image_summary(image: bpy.types.Image) -> ImageSummary:
         width=width,
         height=height,
         file_bytes=file_bytes,
+        bit_depth=bit_depth,
+        remedy=image_remedy(image),
     )
 
 
@@ -153,7 +161,7 @@ def summarise_material(material: bpy.types.Material) -> MaterialSummary:
         uses_principled=principled is not None,
         unsupported_nodes=tuple(unsupported),
         blend_mode=blend_mode(principled),
-        images=tuple(_image_summary(images[name]) for name in sorted(images)),
+        images=tuple(image_summary(images[name]) for name in sorted(images)),
     )
 
 

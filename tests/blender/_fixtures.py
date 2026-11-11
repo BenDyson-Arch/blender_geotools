@@ -37,6 +37,45 @@ def png_rgba(width: int = 2, height: int = 2, alpha: int = 128) -> bytes:
     )
 
 
+def _png(width: int, height: int, depth: int, color_type: int, rows: bytes, level: int) -> bytes:
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+    header = struct.pack(">IIBBBBB", width, height, depth, color_type, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(rows, level))
+        + chunk(b"IEND", b"")
+    )
+
+
+def png_noise(width: int, height: int, seed: int = 0) -> bytes:
+    """An 8-bit RGB PNG of uniform noise, which deflate cannot shrink.
+
+    3400 x 3400 is just over 32 MiB encoded (34.9 MiB) and takes well under a
+    second to write.
+    """
+    rng = np.random.default_rng(seed)
+    px = rng.integers(0, 256, (height, width * 3), dtype=np.uint8)
+    rows = np.concatenate([np.zeros((height, 1), np.uint8), px], axis=1).tobytes()
+    return _png(width, height, 8, 2, rows, level=1)
+
+
+def samples16(width: int = 8, height: int = 8, seed: int = 0) -> np.ndarray:
+    """The (height, width, 3) uint16 samples :func:`png16` writes, top row first."""
+    rng = np.random.default_rng(seed)
+    return rng.integers(0, 65536, (height, width, 3), dtype=np.uint32).astype(np.uint16)
+
+
+def png16(width: int = 8, height: int = 8, seed: int = 0) -> bytes:
+    """A 16-bit RGB PNG (big-endian samples), which rusty-tiles refuses."""
+    px = samples16(width, height, seed).reshape(height, width * 3).astype(">u2")
+    rows = b"".join(b"\x00" + px[r].tobytes() for r in range(height))
+    return _png(width, height, 16, 2, rows, level=6)
+
+
 def _pad(data: bytes, fill: bytes = b"\x00") -> bytes:
     return data + fill * (-len(data) % 4)
 

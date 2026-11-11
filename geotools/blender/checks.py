@@ -51,11 +51,24 @@ def describe_counts(counts: dict[Severity, int]) -> str:
     )
 
 
+def active_rusty_tiles_profile(props: bpy.types.PropertyGroup) -> str | None:
+    """The rusty-tiles profile ("fast" ... "lossless") of the active build profile."""
+    index = props.build_profile_index
+    if 0 <= index < len(props.build_profiles):
+        return props.build_profiles[index].profile.lower()
+    return None
+
+
 def run_checks(context: bpy.types.Context) -> list[Issue]:
-    """Summarise the source collection and check it against the placement."""
+    """Summarise the source collection and check it against the placement.
+
+    Image rules see the active build profile, so a lossy image remedy warns in a
+    lossless build.
+    """
     props = context.scene.geotools
     summary = refresh_summary(context)
     assert summary is not None
+    profile = active_rusty_tiles_profile(props)
     bad_fields = field_issues(props)
     if bad_fields:
         # Without valid numbers there is no Placement to check; still check the
@@ -67,9 +80,11 @@ def run_checks(context: bpy.types.Context) -> list[Issue]:
                 "Placement was not checked; fix the numbers above first.",
             )
         ]
-        issues += [i for i in preflight.check(summary, Placement()) if i not in issues]
+        issues += [
+            i for i in preflight.check(summary, Placement(), profile=profile) if i not in issues
+        ]
     else:
-        issues = preflight.check(summary, placement_from_props(props))
+        issues = preflight.check(summary, placement_from_props(props), profile=profile)
     issues.sort(key=lambda i: _SEVERITY_ORDER[Severity(i.severity)])
     return issues
 

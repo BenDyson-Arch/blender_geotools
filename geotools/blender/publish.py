@@ -258,11 +258,11 @@ def _on_load_pre(*_args: object) -> None:
 # --- operators ---------------------------------------------------------------------------
 
 
-def _extract_scene(context, collection, image_dir: Path):
+def _extract_scene(context, collection, image_dir: Path, remedies: list[dict]):
     """``export.extract_scene``; imported late so a missing exporter only fails here."""
     from . import export
 
-    return export.extract_scene(context, collection, image_dir)
+    return export.extract_scene(context, collection, image_dir, remedies=remedies)
 
 
 def _extra_record(context: bpy.types.Context, profile_name: str, collection_name: str) -> dict:
@@ -344,7 +344,14 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
             image_dir = st.images_dir_for(output)
             shutil.rmtree(image_dir, ignore_errors=True)
             image_dir.mkdir(parents=True)
-            scene_export, topology = _extract_scene(context, props.source_collection, image_dir)
+            remedies: list[dict] = []
+            scene_export, topology = _extract_scene(
+                context, props.source_collection, image_dir, remedies
+            )
+            extra_record = _extra_record(context, profile.name, props.source_collection.name)
+            if remedies:
+                # Which file each remedy wrote (a downscale may fall back to JPEG).
+                extra_record["image_remedies"] = remedies
             request = BuildRequest(
                 output=output,
                 placement_kwargs=placement_kwargs,
@@ -358,7 +365,7 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
                 force=profile.overwrite,
                 validate=profile.validate,
                 topology=dict(topology),
-                extra_record=_extra_record(context, profile.name, props.source_collection.name),
+                extra_record=extra_record,
             )
             job = BuildJob(scene_export, request, lock=lock)
         except Exception as ex:
@@ -385,7 +392,10 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
         job.start()
         _start_timer()
         warnings = counts[Severity.WARNING]
-        note = f" ({warnings} check warning{'s' * (warnings != 1)})" if warnings else ""
+        notes = [f"{warnings} check warning{'s' * (warnings != 1)}"] if warnings else []
+        if remedies:
+            notes.append(f"{len(remedies)} image{'s' * (len(remedies) != 1)} remedied")
+        note = f" ({', '.join(notes)})" if notes else ""
         self.report({"INFO"}, f"Publishing {output.name}{note}")
         redraw_ui(context)
         return {"FINISHED"}

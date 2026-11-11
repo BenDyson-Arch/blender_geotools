@@ -65,6 +65,25 @@ image, its file path and its dirty state are never touched. Float colour
 buffers are converted from linear to sRGB first; non-colour data is written
 as is. Files go into ``image_dir`` as ``<sanitised name>-<hash of the full
 name>.png``.
+
+Image remedies
+--------------
+An image with a remedy (``image.geotools_remedy``, chosen by the user in the
+Checks panel; see ``core.images``) is always written from its current pixels
+through the same kind of temporary datablock, never referenced in place:
+
+* ``JPEG``: a JPEG at the chosen quality. An image with transparency is refused,
+  since JPEG cannot hold it.
+* ``DOWNSCALE``: the temporary copy is scaled with ``Image.scale`` so its longest
+  side is the max edge, then written as PNG, or, if that PNG is over the size
+  limit, as JPEG at the chosen quality (refused with transparency).
+* ``CONVERT_8BIT``: an 8-bit PNG.
+
+The file name adds the remedy and its parameters, e.g.
+``albedo-<hash>-jpeg-q95.jpg`` or ``albedo-<hash>-downscale-4096.png``. The
+result is checked against rusty-tiles' size and edge limits straight away; a
+result still over them is an ``ExportError``, never a silent retry. The user's
+image, its file, pixels and dirty state are left alone.
 """
 
 from __future__ import annotations
@@ -75,10 +94,12 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Self
 
 import bpy
 import numpy as np
 
+from ..core import gltf_writer
 from ..core.facemap import topology_digest
 from ..core.gltf_writer import (
     ExportError,
@@ -88,7 +109,9 @@ from ..core.gltf_writer import (
     SceneExport,
     TextureRef,
 )
+from ..core.images import ImageRemedy, RemedyKind, scaled_size
 from . import nodes
+from .properties import image_remedy
 
 log = logging.getLogger(__name__)
 
@@ -106,11 +129,18 @@ _SUFFIXES = {"image/png": (".png",), "image/jpeg": (".jpg", ".jpeg")}
 
 
 def extract_scene(
-    context: bpy.types.Context, collection: bpy.types.Collection, image_dir: Path
+    context: bpy.types.Context,
+    collection: bpy.types.Collection,
+    image_dir: Path,
+    *,
+    remedies: list[dict] | None = None,
 ) -> tuple[SceneExport, dict[str, str]]:
     """The collection's mesh objects as a ``SceneExport``, plus object name ->
     topology digest (prefixed ``"evaluated:"`` when polygon indices refer to the
-    evaluated mesh; see the module docstring)."""
+    evaluated mesh; see the module docstring).
+
+    With ``remedies``, one dict per image written with a remedy is appended to
+    it: the image, the remedy tag, and the file, format and size written."""
     objects = sorted((o for o in collection.all_objects if o.type == "MESH"), key=lambda o: o.name)
     _sync_edit_mode(context, objects)
     depsgraph = context.evaluated_depsgraph_get()
@@ -126,6 +156,8 @@ def extract_scene(
         return (material is None, material or 0, layout)
 
     primitives = tuple(_merge(key[0], groups[key]) for key in sorted(groups, key=order))
+    if remedies is not None:
+        remedies.extend(materials.images.remedies)
     scene = SceneExport(
         object_names=tuple(o.name for o in objects),
         materials=tuple(info.data for info in materials.infos),
@@ -353,46 +385,97 @@ def _srgb_from_linear(c: np.ndarray) -> np.ndarray:
     return np.where(c <= 0.0031308, c * 12.92, 1.055 * np.power(c, 1.0 / 2.4) - 0.055)
 
 
-def _save_png(image: bpy.types.Image, path: Path) -> None:
-    """Write the image's current pixels as a PNG, without touching the image."""
+_SRGB_CHUNK = 1 << 20  # pixels per linear-to-sRGB step, bounds temporary memory
+
+
+def _rgba_pixels(image: bpy.types.Image) -> tuple[np.ndarray, int, int, bool]:
+    """The image's current pixels as (N, 4) float32 in [0, 1], ready for an 8-bit file.
+
+    Float colour buffers are converted from linear to sRGB; non-colour data is
+    kept as is. Returns the pixels, width, height and whether they are data.
+    For a four-channel image (all byte images) the only full-size array is the
+    one ``foreach_get`` fills: an 8K image costs 1 GiB here.
+    """
     if image.source == "TILED":
         raise ExportError(f"Image {image.name!r} is a UDIM tile set, which glTF cannot hold.")
-    width, height = image.size
+    width, height = (int(v) for v in image.size[:2])
     channels = image.channels
     if width == 0 or height == 0 or channels == 0:
         raise ExportError(f"Image {image.name!r} has no pixels (is its file missing?).")
     px = np.empty(width * height * channels, dtype=np.float32)
     image.pixels.foreach_get(px)
     px = px.reshape(-1, channels)
-    rgba = np.ones((px.shape[0], 4), dtype=np.float32)
-    if channels >= 3:
-        rgba[:, :3] = px[:, :3]
+    if channels == 4:
+        rgba = px
     else:
-        rgba[:, :3] = px[:, :1]
-    if channels in (2, 4):
-        rgba[:, 3] = px[:, -1]
+        rgba = np.ones((px.shape[0], 4), dtype=np.float32)
+        if channels >= 3:
+            rgba[:, :3] = px[:, :3]
+        else:
+            rgba[:, :3] = px[:, :1]
+        if channels == 2:
+            rgba[:, 3] = px[:, -1]
     del px
     is_data = bool(image.colorspace_settings.is_data)
     if image.is_float and not is_data:
-        rgba[:, :3] = _srgb_from_linear(rgba[:, :3])
+        for start in range(0, rgba.shape[0], _SRGB_CHUNK):
+            block = rgba[start : start + _SRGB_CHUNK, :3]
+            block[...] = _srgb_from_linear(block)
     np.clip(rgba, 0.0, 1.0, out=rgba)
-    alpha = bool((rgba[:, 3] < 1.0).any())
-    tmp = bpy.data.images.new(
-        "GeoTools export", width, height, alpha=alpha, float_buffer=False, is_data=is_data
-    )
-    try:
-        tmp.pixels.foreach_set(rgba.ravel())
-        tmp.filepath_raw = str(path)
-        tmp.file_format = "PNG"
-        tmp.save()
-    finally:
-        bpy.data.images.remove(tmp)
+    return rgba, width, height, is_data
+
+
+def _has_alpha(rgba: np.ndarray) -> bool:
+    return bool((rgba[:, 3] < 1.0).any())
+
+
+class _TempImage:
+    """A temporary 8-bit datablock holding pixels, removed again on exit."""
+
+    def __init__(self, rgba: np.ndarray, width: int, height: int, alpha: bool, is_data: bool):
+        self.image = bpy.data.images.new(
+            "GeoTools export", width, height, alpha=alpha, float_buffer=False, is_data=is_data
+        )
+        try:
+            self.image.pixels.foreach_set(rgba.ravel())
+        except BaseException:
+            self.close()
+            raise
+
+    def save(self, path: Path, file_format: str, quality: int | None = None) -> None:
+        self.image.filepath_raw = str(path)
+        self.image.file_format = file_format
+        if quality is None:
+            self.image.save()
+        else:
+            self.image.save(quality=quality)
+
+    def close(self) -> None:
+        if self.image is not None:
+            bpy.data.images.remove(self.image)
+            self.image = None
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+
+def _save_png(image: bpy.types.Image, path: Path) -> None:
+    """Write the image's current pixels as a PNG, without touching the image."""
+    rgba, width, height, is_data = _rgba_pixels(image)
+    alpha = _has_alpha(rgba)
+    with _TempImage(rgba, width, height, alpha, is_data) as tmp:
+        del rgba
+        tmp.save(path, "PNG")
 
 
 class _ImageTable:
     def __init__(self, image_dir: Path) -> None:
         self.image_dir = image_dir
         self.data: list[ImageData] = []
+        self.remedies: list[dict] = []
         self._index: dict[str, int] = {}
 
     def add(self, image: bpy.types.Image) -> int:
@@ -408,6 +491,9 @@ class _ImageTable:
         return (self.image_dir / f"{_sanitise(image.name)}-{digest}{suffix}").resolve()
 
     def _export(self, image: bpy.types.Image) -> ImageData:
+        remedy = image_remedy(image)
+        if remedy.active:
+            return self._remediate(image, remedy)
         clean = not image.is_dirty and image.source == "FILE"
         packed = image.packed_file is not None
         if clean and not packed and image.file_format in ("PNG", "JPEG"):
@@ -427,6 +513,98 @@ class _ImageTable:
         target = self._target(image, ".png")
         _save_png(image, target)
         return ImageData(name=image.name, path=target, mime_type="image/png")
+
+    def _remediate(self, image: bpy.types.Image, remedy: ImageRemedy) -> ImageData:
+        """Write the image's current pixels with its remedy applied, then check the file."""
+        name = image.name
+        tag = remedy.tag()
+        rgba, width, height, is_data = _rgba_pixels(image)
+        alpha = _has_alpha(rgba)
+        if remedy.kind is RemedyKind.JPEG and alpha:
+            raise ExportError(
+                f"Image {name!r} has transparency, which JPEG cannot hold; choose Downscale "
+                "for it instead, which keeps PNG while it fits."
+            )
+        out_w, out_h = width, height
+        with _TempImage(
+            rgba, width, height, alpha and remedy.kind is not RemedyKind.JPEG, is_data
+        ) as tmp:
+            del rgba
+            if remedy.kind is RemedyKind.JPEG:
+                target = self._target(image, f"-{tag}.jpg")
+                tmp.save(target, "JPEG", remedy.quality)
+                mime = "image/jpeg"
+            else:
+                if remedy.kind is RemedyKind.DOWNSCALE:
+                    out_w, out_h = scaled_size(width, height, remedy.max_edge)
+                    if (out_w, out_h) != (width, height):
+                        tmp.image.scale(out_w, out_h)
+                target = self._target(image, f"-{tag}.png")
+                tmp.save(target, "PNG")
+                mime = "image/png"
+                too_big = target.stat().st_size > gltf_writer.MAX_IMAGE_BYTES
+                if remedy.kind is RemedyKind.DOWNSCALE and too_big:
+                    if alpha:
+                        raise ExportError(
+                            f"Image {name!r} is still over "
+                            f"{_mib(gltf_writer.MAX_IMAGE_BYTES)} as a {out_w}x{out_h} PNG and "
+                            "has transparency, so it cannot fall back to JPEG; lower its max "
+                            "edge."
+                        )
+                    target.unlink()
+                    target = self._target(image, f"-{tag}-q{remedy.quality}.jpg")
+                    tmp.save(target, "JPEG", remedy.quality)
+                    mime = "image/jpeg"
+        self._check_remedied(name, remedy, target, out_w, out_h)
+        size = target.stat().st_size
+        log.info(
+            "image %r: %s, wrote %s (%dx%d, %s, %d bytes)",
+            name,
+            remedy.describe(width, height),
+            target.name,
+            out_w,
+            out_h,
+            mime,
+            size,
+        )
+        self.remedies.append(
+            {
+                "image": name,
+                "remedy": tag,
+                "file": target.name,
+                "mime_type": mime,
+                "width": out_w,
+                "height": out_h,
+                "bytes": size,
+            }
+        )
+        return ImageData(name=name, path=target, mime_type=mime)
+
+    @staticmethod
+    def _check_remedied(
+        name: str, remedy: ImageRemedy, path: Path, width: int, height: int
+    ) -> None:
+        limit = gltf_writer.MAX_IMAGE_BYTES
+        size = path.stat().st_size
+        if size > limit:
+            hint = {
+                RemedyKind.JPEG: "lower its JPEG quality or choose Downscale",
+                RemedyKind.DOWNSCALE: "lower its max edge or JPEG quality",
+                RemedyKind.CONVERT_8BIT: "choose Re-encode as JPEG or Downscale",
+            }[remedy.kind]
+            raise ExportError(
+                f"Image {name!r} is still {_mib(size)} {remedy.describe()} ({path.name}), "
+                f"over rusty-tiles' {_mib(limit)} limit; {hint}."
+            )
+        if max(width, height) > gltf_writer.MAX_IMAGE_EDGE:
+            raise ExportError(
+                f"Image {name!r} is {width}x{height} {remedy.describe()}, over rusty-tiles' "
+                f"{gltf_writer.MAX_IMAGE_EDGE} pixels a side; choose Downscale."
+            )
+
+
+def _mib(size: int) -> str:
+    return f"{size / (1 << 20):.1f} MiB"
 
 
 @dataclass(frozen=True, slots=True)
