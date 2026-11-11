@@ -6,21 +6,23 @@ The panels follow the workflow top to bottom, and each header shows its state
 - Project: where the source sits on Earth, and Verify Placement.
   - CRS Details: the preset's definition and datum note.
 - Source: the source collection, ingest and summary.
-- Layers: the layer registry and the selected layer at a glance.
-  - Bake: from Geometry Nodes (face and corner layers) or with Cycles
-    (texture layers).
+- Layers: the layer registry and the selected layer at a glance, with the
+  attribute a face or corner layer is read from (a Geometry Nodes output,
+  for one).
+  - Bake: a Cycles bake into a texture layer's images (texture layers only).
   - Display: the colours of the layer's variant tileset.
   - Details: no-data, origin, aggregation and the other rarely changed fields.
 - Checks: preflight issues and their fixes.
   - Images: the source images and their remedies.
 - Publish: build profiles, output, variant and the Publish button.
-  - Build Settings: rusty-tiles quality, threads and memory.
+  - Build Settings: Apply Modifiers, rusty-tiles quality, threads and memory.
   - Last Build: what the last publish wrote, and Preview.
 - About: version and dependencies.
 
-Registration order is the sidebar order. Panels draw cached state only;
-operators do the work. The exceptions are per-object (never per-face) lookups:
-``layers.layer_status`` and the modifier count of the Bake sub-panel.
+Registration order is the sidebar order. Panels draw cached state only and
+never evaluate a mesh; operators do the work. A layer's status is
+``layers.cached_status``, which the layer operators, Run Checks and Publish
+refresh.
 """
 
 from __future__ import annotations
@@ -33,14 +35,22 @@ from ..core import crs_presets, deps, sysmem
 from ..core.display import format_count, format_gib, format_range, format_size
 from ..core.display import plural as plural_text
 from ..core.issues import Severity
-from ..core.layers import DataType, Domain, default_aggregation, parse_number, validate
-from . import bake_texture, bake_vertex, presentation, publish
+from ..core.layers import (
+    DataType,
+    Domain,
+    attribute_name,
+    default_aggregation,
+    parse_number,
+    validate,
+)
+from . import bake_texture, presentation, publish
 from .common import draw_dependency_status, extension_version
 from .layers import (
     ATTRIBUTE_MISSING,
     DOMAIN_ICONS,
     IMAGE_MISSING,
-    layer_status,
+    NOT_CHECKED,
+    cached_status,
     other_layer_names,
     spec_from_props,
 )
@@ -98,15 +108,20 @@ def _active_layer(context: bpy.types.Context):
     return None
 
 
-_NOT_BAKED = {ATTRIBUTE_MISSING, IMAGE_MISSING}
+_NOT_FILLED = {ATTRIBUTE_MISSING, IMAGE_MISSING}
 
 
 def layer_state(scene: bpy.types.Scene, item) -> str:
-    """A layer's header state: ERROR, WARNING, TODO (not baked yet) or DONE."""
-    issues = layer_status(scene, item)
+    """A layer's header state from its cached status: ERROR, WARNING, TODO (no
+    values yet, or not checked yet) or DONE."""
+    issues = cached_status(scene, item)
     state = _worst(issues)
+    if state == ERROR:
+        return state
+    if any(i.code == NOT_CHECKED for i in issues):
+        return TODO
     if state == WARNING and all(
-        i.code in _NOT_BAKED for i in issues if _severity(i) is Severity.WARNING
+        i.code in _NOT_FILLED for i in issues if _severity(i) is Severity.WARNING
     ):
         return TODO
     return state
@@ -354,12 +369,23 @@ class GEOTOOLS_PT_layers(_GeoToolsPanel, bpy.types.Panel):
         item = _active_layer(context)
         if item is None:
             if not len(props.layers):
-                wrapped(layout, context, "No layers yet. Add one to bake values into.", "INFO")
+                wrapped(
+                    layout,
+                    context,
+                    "No layers yet. Add one to publish values per face, corner or texel.",
+                    "INFO",
+                )
             return
 
         col = split_column(layout)
         col.prop(item, "label", placeholder=item.name)
         col.prop(item, "units", placeholder="None")
+        if item.domain != Domain.TEXTURE.value:
+            row = col.row()
+            row.alert = "layer-attribute-invalid" in {
+                i.code for i in validate(spec_from_props(item), ())
+            }
+            row.prop(item, "source_attribute", placeholder=attribute_name(item.name))
         if item.data_type == DataType.CATEGORY.value:
             count = len(spec_from_props(item).categories)
             row = col.row()
@@ -369,18 +395,19 @@ class GEOTOOLS_PT_layers(_GeoToolsPanel, bpy.types.Panel):
         else:
             value = info_row(col, "Values", _values_text(item))
             value.operator("geotools.layer_update_range", text="", icon="FILE_REFRESH")
-        _draw_layer_status(layout, context, layer_status(context.scene, item))
+        _draw_layer_status(layout, context, cached_status(context.scene, item))
 
 
 def _bake_state(context: bpy.types.Context, item) -> str:
     if context.scene.geotools.source_collection is None:
         return TODO
-    issues = layer_status(context.scene, item)
-    return TODO if any(i.code in _NOT_BAKED for i in issues) else DONE
+    issues = cached_status(context.scene, item)
+    return TODO if any(i.code in _NOT_FILLED | {NOT_CHECKED} for i in issues) else DONE
 
 
 class GEOTOOLS_PT_layers_bake(_GeoToolsPanel, bpy.types.Panel):
-    """Fill the selected layer: from Geometry Nodes, or a Cycles bake for a texture layer."""
+    """Fill the selected texture layer with a Cycles bake. Face and corner layers need no
+    bake: they read their attribute from the evaluated mesh."""
 
     bl_idname = "GEOTOOLS_PT_layers_bake"
     bl_label = "Bake"
@@ -388,7 +415,8 @@ class GEOTOOLS_PT_layers_bake(_GeoToolsPanel, bpy.types.Panel):
 
     @classmethod
     def poll(cls, context: bpy.types.Context) -> bool:
-        return _active_layer(context) is not None
+        item = _active_layer(context)
+        return item is not None and item.domain == Domain.TEXTURE.value
 
     def draw_header(self, context: bpy.types.Context) -> None:
         item = _active_layer(context)
@@ -402,10 +430,7 @@ class GEOTOOLS_PT_layers_bake(_GeoToolsPanel, bpy.types.Panel):
         if context.scene.geotools.source_collection is None:
             wrapped(self.layout, context, "Choose a source collection first.", "INFO")
             return
-        if item.domain == Domain.TEXTURE.value:
-            bake_texture.draw_bake(self.layout, context, item)
-        else:
-            bake_vertex.draw_bake(self.layout, context, item)
+        bake_texture.draw_bake(self.layout, context, item)
 
 
 class GEOTOOLS_PT_layers_display(_GeoToolsPanel, bpy.types.Panel):
@@ -682,6 +707,7 @@ class GEOTOOLS_PT_publish_settings(_GeoToolsPanel, bpy.types.Panel):
         if profile is None:
             return
         col = split_column(self.layout)
+        col.prop(profile, "apply_modifiers")
         col.prop(profile, "profile")
         col.prop(profile, "jobs")
         col.prop(profile, "memory_budget_gib", text="Memory GiB")

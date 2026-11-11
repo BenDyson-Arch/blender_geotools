@@ -27,6 +27,7 @@ import numpy as np
 from .issues import Issue, Severity
 
 __all__ = [
+    "ATTRIBUTE_NAME_MAX_BYTES",
     "ATTRIBUTE_PREFIX",
     "NAME_MAX_LENGTH",
     "RESERVED_NAMES",
@@ -40,6 +41,7 @@ __all__ = [
     "default_aggregation",
     "display_name",
     "effective_aggregation",
+    "effective_attribute_name",
     "fill_value",
     "format_categories",
     "format_nodata",
@@ -105,6 +107,10 @@ class LayerSpec:
     # analysis tools (see make_provenance); None for manual layers. A dict makes
     # the spec unhashable; specs are compared, never hashed.
     provenance: Mapping[str, object] | None = None
+    # FACE and CORNER layers: the mesh attribute that holds the values, e.g. the
+    # name a Geometry Nodes "Store Named Attribute" writes. Empty for the default
+    # ``gt_<name>``; see effective_attribute_name.
+    source_attribute: str = ""
 
 
 ATTRIBUTE_PREFIX = "gt_"
@@ -139,9 +145,23 @@ _INT32_MIN, _INT32_MAX = -(2**31), 2**31 - 1
 
 
 def attribute_name(spec_or_name: LayerSpec | str) -> str:
-    """``"gt_" + name``: the mesh attribute that holds a FACE or CORNER layer."""
+    """``"gt_" + name``: the default mesh attribute of a FACE or CORNER layer."""
     name = spec_or_name.name if isinstance(spec_or_name, LayerSpec) else spec_or_name
     return ATTRIBUTE_PREFIX + name
+
+
+def effective_attribute_name(spec: LayerSpec) -> str:
+    """The mesh attribute a FACE or CORNER layer is read from and written to.
+
+    ``spec.source_attribute`` if it is set (not blank), else the default
+    :func:`attribute_name`, ``gt_<name>``.
+    """
+    source = spec.source_attribute
+    return source if source.strip() else attribute_name(spec)
+
+
+ATTRIBUTE_NAME_MAX_BYTES = 63
+"""Longest attribute name Blender stores, in UTF-8 bytes."""
 
 
 def display_name(spec: LayerSpec) -> str:
@@ -355,10 +375,36 @@ def validate(spec: LayerSpec, existing_names: object = ()) -> list[Issue]:
                     )
                 )
 
+    issues.extend(_source_attribute_issues(spec, subject))
     issues.extend(_nodata_issues(spec, data_type, subject))
     issues.extend(_range_issues(spec, subject))
     issues.extend(_provenance_issues(spec, subject))
     return issues
+
+
+def _source_attribute_issues(spec: LayerSpec, subject: str | None) -> list[Issue]:
+    source = spec.source_attribute
+    if not source.strip() or Domain(spec.domain) is Domain.TEXTURE:
+        return []
+    reason = None
+    if source != source.strip():
+        reason = "must not start or end with a space"
+    elif source.startswith("."):
+        reason = "must not start with a dot (Blender keeps those names for itself)"
+    elif source.startswith(ATTRIBUTE_PREFIX) and source[len(ATTRIBUTE_PREFIX) :] in RESERVED_NAMES:
+        reason = "is reserved: GeoTools uses it itself"
+    elif len(source.encode("utf-8")) > ATTRIBUTE_NAME_MAX_BYTES:
+        reason = f"is longer than Blender's {ATTRIBUTE_NAME_MAX_BYTES} bytes"
+    if reason is None:
+        return []
+    return [
+        Issue(
+            Severity.ERROR,
+            "layer-attribute-invalid",
+            f"Layer {spec.name!r}: the attribute name {source!r} {reason}.",
+            subject,
+        )
+    ]
 
 
 def _range_issues(spec: LayerSpec, subject: str | None) -> list[Issue]:
@@ -457,14 +503,17 @@ def to_record(spec: LayerSpec) -> dict[str, object]:
     """JSON-safe description of a layer for build.json, in a stable key order.
 
     ``aggregation`` is the effective one (the default when the spec has none), so
-    a record states what applies. ``categories`` is a list of
+    a record states what applies; ``attribute`` likewise is the effective
+    attribute name (:func:`effective_attribute_name`), null for TEXTURE layers. ``categories`` is a list of
     ``{"value": i, "label": label}``. Non-finite numbers (an invalid spec) are
     written as null.
     """
     return {
         "name": spec.name,
         "label": spec.label,
-        "attribute": attribute_name(spec) if Domain(spec.domain) is not Domain.TEXTURE else None,
+        "attribute": (
+            effective_attribute_name(spec) if Domain(spec.domain) is not Domain.TEXTURE else None
+        ),
         "domain": Domain(spec.domain).value,
         "data_type": DataType(spec.data_type).value,
         "units": spec.units,
@@ -499,7 +548,8 @@ def _categories_from_record(items: object) -> tuple[str, ...]:
 def from_record(d: dict[str, object]) -> LayerSpec:
     """The :class:`LayerSpec` of a :func:`to_record` record.
 
-    ``attribute`` is derived from the name and ignored. ``categories`` may be the
+    ``attribute`` becomes ``source_attribute`` unless it is the default
+    ``gt_<name>`` (or null). ``categories`` may be the
     ``{"value", "label"}`` objects or plain labels. Raises ``KeyError`` or
     ``ValueError`` for a record that is not a layer record.
     """
@@ -510,8 +560,10 @@ def from_record(d: dict[str, object]) -> LayerSpec:
 
     aggregation = d.get("aggregation")
     provenance = d.get("provenance")
+    attribute = d.get("attribute")
+    name = str(d["name"])
     return LayerSpec(
-        name=str(d["name"]),
+        name=name,
         domain=Domain(d["domain"]),
         data_type=DataType(d["data_type"]),
         units=str(d.get("units", "")),
@@ -524,4 +576,7 @@ def from_record(d: dict[str, object]) -> LayerSpec:
         value_min=number("value_min"),
         value_max=number("value_max"),
         provenance=None if provenance is None else dict(provenance),  # type: ignore[call-overload]
+        source_attribute=(
+            "" if attribute is None or attribute == attribute_name(name) else str(attribute)
+        ),
     )

@@ -61,16 +61,6 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   `//geotools_layers/`. A Layers panel after Source adds, renames and removes
   layers (optionally with their attributes and images), creates their
   attributes, works out their value range and shows what is missing.
-- Vertex-space bake (M3): the Bake sub-panel of Layers, for a face or corner
-  layer, freezes a named attribute that a Geometry Nodes modifier outputs into
-  the layer on the source meshes. If the modifier keeps the topology,
-  the values are copied. Otherwise they are transferred by Nearest, Raycast
-  (both ways along the face normal, within a maximum distance, falling back to
-  Nearest) or Area Mean (falling back to Nearest), with Geometry Nodes
-  evaluations and numpy. Boolean and category layers take the most common
-  value instead of a mean. No-data stays no-data. The report says how many
-  faces each path filled. The bake records its provenance, updates the value
-  range, and can turn the modifier off afterwards.
 - Texture-space bake (M3): Bake Texture Layer, in the Bake sub-panel of
   Layers for a texture layer, bakes a face or corner layer, or a named
   attribute of the evaluated mesh, into a texture layer's float images on the source UVs with a
@@ -93,14 +83,14 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   Layers shows a layer through a colour ramp (viridis, magma, cividis, turbo,
   diverging red-blue, greys) over a set or automatic (2nd to 98th percentile)
   range, or one colour per category, with a no-data colour. Face and corner
-  layers go into COLOR_0 through a `gt_present` byte colour attribute; texture
-  layers into an 8-bit base-colour or emissive texture. Replace shows the ramp
+  layers go into COLOR_0; texture layers into an 8-bit base-colour or emissive
+  texture. Replace shows the ramp
   alone and Multiply keeps the material. A build profile's Variant layer
   publishes `<output>.<layer>.3tz`, an ordinary 3D Tiles archive with its own staging directory, the same placement and checks, and a
   `variant` record in `build.json` (palette, range and legend stops, or the
   category colours). The user's materials, images and active and render colour
-  attributes are not changed, and the plain tileset never publishes
-  `gt_present`.
+  attributes are not changed. Write Colours previews COLOR_0 in a
+  `gt_present` colour attribute, which no tileset publishes.
 - Bundled pyproj 3.8.0 (PROJ 9.8.1, no GDAL) and its dependency certifi, pinned
   under `[tool.geotools.wheels]` in `pyproject.toml` beside rusty-tiles, for the
   same four platforms (5 to 10 MB per platform zip). `scripts/fetch_wheels.py`
@@ -128,9 +118,9 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
     definition and datum note are in CRS Details and the tooltip. Verify
     Placement and its result are in the Project panel.
   - Layers shows the selected layer at a glance, with its value range
-    formatted for people ("0.461 – 39.9 deg"). The vertex and texture bakes
-    are one Bake sub-panel that adapts to the layer's domain, followed by
-    Display (was Presentation) and a closed Details sub-panel. The ramp
+    formatted for people ("0.461 – 39.9 deg"). The texture bake is the Bake
+    sub-panel, shown for texture layers, followed by Display (was
+    Presentation) and a closed Details sub-panel. The ramp
     minimum and maximum show the automatic range they will use.
   - Build Profiles is merged into Publish, which is the one place to choose a
     variant: the build profile's Variant field. The Publish button names the
@@ -145,6 +135,25 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   "Import Mesh...". The RNA identifiers and operator ids are unchanged.
 - `scripts/ui_screenshots.py` screenshots the sidebar in a real Blender window
   for UI work.
+- Face and corner layers read their values from each source object's
+  evaluated mesh, with its modifiers and Geometry Nodes applied, as the export
+  does: the value range, the layer status, the presentation and the variant
+  publish. A Geometry Nodes Store Named Attribute that writes the layer's
+  attribute computes it with no bake, even when the tree changes the
+  topology. A layer's new Attribute field names that attribute (empty for
+  `gt_<name>`), so an output such as `slope` backs a layer directly. Values
+  written by tools and Create Empty Attributes still go to the original mesh.
+  A missing attribute says to add a Store Named Attribute or create it. The
+  panels show a status cached by the layer operators, Run Checks and Publish,
+  and never evaluate meshes while drawing.
+- A variant's COLOR_0 is worked out at publish time from the layer's values
+  on the exported meshes, instead of being read back from a `gt_present`
+  attribute, so no colour attribute has to survive the modifiers. Write
+  Colours still paints `gt_present` for a viewport preview where the
+  modifiers keep the topology; the export never reads it.
+- Build profiles have an Apply Modifiers option (Build Settings, on by
+  default), as in Blender's glTF exporter. Off, the export and the layer reads
+  use the original mesh data; `build.json` records the choice.
 
 ### Removed
 
@@ -155,6 +164,10 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   Nothing needs to be installed beside the extension. CRS maths will be done by
   rusty-tiles at publish time.
 - The BlenderGIS-derived code in `core/proj/`.
+- The vertex-space bake (`geotools.bake_geonodes_layer`) of M3 and its
+  attribute transfers (`core/transfer.py`): it repeated Blender's Apply
+  Modifier and Geometry Nodes sampling, and layers now read the evaluated mesh
+  directly. The texture bake is unchanged.
 
 ## [0.2.0] - 2026-06-05
 

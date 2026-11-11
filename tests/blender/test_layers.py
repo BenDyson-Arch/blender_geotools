@@ -503,6 +503,58 @@ def test_rename_renames_attributes() -> None:
     assert L.read_layer(objects[0].data, _spec("gradient")).tolist() == [1, 2, 3]
 
 
+def test_custom_source_attribute() -> None:
+    h.reset_scene()
+    L = _layers()
+    scene = bpy.context.scene
+    props = h.project()
+    objects = _source()
+    spec = _spec(source_attribute="Slope Deg")
+    item = L.ensure_layer(scene, spec)
+    assert item.source_attribute == "Slope Deg"
+    assert L.spec_from_props(item) == spec
+
+    # Reads, writes, the status and the range all use the source attribute.
+    status = L.refresh_layer(scene, item)
+    assert _codes(status) == ["layer-attribute-missing"] * 2, status
+    assert "has no Slope Deg attribute" in status[0].message
+    objects[0].data.attributes.new("Slope Deg", "FLOAT", "CORNER")
+    assert _codes(L.layer_status(scene, item)) == [
+        "layer-attribute-mismatch",
+        "layer-attribute-missing",
+    ]
+    L.write_layer(objects[0].data, spec, np.array([1.0, 2.0, 3.0], np.float32))
+    assert "gt_slope" not in objects[0].data.attributes
+    attr = objects[0].data.attributes["Slope Deg"]
+    assert (attr.domain, attr.data_type) == ("FACE", "FLOAT")
+    props.layers_index = 0
+    assert bpy.ops.geotools.layer_create_attributes() == {"FINISHED"}
+    assert "Slope Deg" in objects[1].data.attributes
+    assert L.cached_status(scene, item) == []  # the operator refreshed it
+    assert L.read_layer(objects[0].data, spec).tolist() == [1.0, 2.0, 3.0]
+    assert L.update_value_range(scene, item) == (1.0, 3.0)
+    assert L.layer_records(scene)[0][0]["attribute"] == "Slope Deg"
+
+    # Changing the attribute makes the cached status stale until the next refresh.
+    item.source_attribute = "other"
+    assert _codes(L.cached_status(scene, item)) == ["layer-not-checked"]
+    item.source_attribute = "gt_present"
+    assert "layer-attribute-invalid" in _codes(L.cached_status(scene, item))
+    alerts: list[str] = []
+    h.draw(_panel(), alerts)
+    assert "source_attribute" in alerts, alerts
+    item.source_attribute = "Slope Deg"
+
+    # Renaming the layer keeps its source attribute; removing its data deletes it.
+    assert bpy.ops.geotools.layer_rename(new_name="gradient") == {"FINISHED"}
+    item = L.find_layer(scene, "gradient")
+    assert item.source_attribute == "Slope Deg"
+    assert "Slope Deg" in objects[0].data.attributes
+    assert L.cached_status(scene, item) == []
+    assert bpy.ops.geotools.layer_remove(delete_data=True) == {"FINISHED"}
+    assert not any("Slope Deg" in obj.data.attributes for obj in objects)
+
+
 # --- publish record ---------------------------------------------------------------------------
 
 
@@ -550,14 +602,20 @@ def test_panel_draws_layers() -> None:
     # The selected layer at a glance; the rest is in Details.
     calls = h.draw(_panel())
     drawn = h.props_drawn(calls)
-    assert {"label", "units"} <= set(drawn), drawn
+    assert {"label", "units", "source_attribute"} <= set(drawn), drawn
     assert not {"domain", "data_type", "nodata", "value_min", "value_max"} & set(drawn), drawn
     assert ("operator", "geotools.layer_update_range", "FILE_REFRESH") in calls
     assert ("operator", "geotools.layer_rename", "GREASEPENCIL") in calls
     assert ("Not known", "NONE") in list(h.labels(calls)), calls
-    assert "has no gt_slope attribute yet" in h.label_text(calls), calls
-    assert h.draw_header(_panel()) == "RADIOBUT_OFF"  # not baked yet
-    assert h.draw_header(_panel("GEOTOOLS_PT_layers_bake")) == "RADIOBUT_OFF"
+    # Drawing reads no mesh: the status is what the last refresh found.
+    assert "Not checked yet" in h.label_text(calls), calls
+    assert h.draw_header(_panel()) == "RADIOBUT_OFF"
+    L.refresh_layer(scene, props.layers[0])
+    labels = h.label_text(h.draw(_panel()))
+    assert "has no gt_slope attribute" in labels and "Store Named Attribute" in labels, labels
+    assert h.draw_header(_panel()) == "RADIOBUT_OFF"  # no values yet
+    # Face and corner layers need no bake: the Bake sub-panel is for texture layers.
+    assert not _panel("GEOTOOLS_PT_layers_bake").poll(bpy.context)
 
     details = _panel("GEOTOOLS_PT_layers_details")
     assert details.poll(bpy.context)
@@ -573,7 +631,6 @@ def test_panel_draws_layers() -> None:
     labels = h.label_text(h.draw(_panel()))
     assert "Stored on every source object" in labels, labels
     assert h.draw_header(_panel()) == "CHECKMARK"
-    assert h.draw_header(_panel("GEOTOOLS_PT_layers_bake")) == "CHECKMARK"
 
     # Values are formatted for people; binary64 stays in storage.
     props.layers[0].value_min = repr(0.46055179834365845)
@@ -604,10 +661,15 @@ def test_panel_draws_layers() -> None:
 
     L.ensure_layer(scene, _spec("shade", "TEXTURE"))
     props.layers_index = 2
-    calls = h.draw(_panel("GEOTOOLS_PT_layers_bake"))
+    assert "source_attribute" not in h.props_drawn(h.draw(_panel()))
+    bake = _panel("GEOTOOLS_PT_layers_bake")
+    assert bake.poll(bpy.context)
+    calls = h.draw(bake)
     drawn = h.props_drawn(calls)
     assert {"uv_map", "resolution", "margin"} <= set(drawn), drawn
     assert ("label", "Not baked yet", "INFO") in calls, calls
+    L.refresh_layer(scene, props.layers[2])
+    assert h.draw_header(bake) == "RADIOBUT_OFF"
     calls = h.draw(details)
     assert ("operator", "geotools.layer_create_attributes", "NONE") not in calls
 

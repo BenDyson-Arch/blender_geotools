@@ -7,8 +7,10 @@ matplotlib does with its listed colormaps. No matplotlib is needed: the stop
 tables below are sampled from the published palettes.
 
 Every function returns 8-bit sRGB RGBA (``(N, 4) uint8``), ready for a byte
-colour attribute or an 8-bit PNG. Large inputs are processed in row chunks, so
-the only full-size arrays are the input and the output.
+colour attribute or an 8-bit PNG, except :func:`srgb_bytes_to_linear`, which
+turns those bytes into the linear floats glTF's COLOR_0 holds. Large inputs are
+processed in row chunks, so the only full-size arrays are the input and the
+output.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ __all__ = [
     "default_category_colours",
     "palette_stops",
     "ramp_stops",
+    "srgb_bytes_to_linear",
 ]
 
 
@@ -265,3 +268,28 @@ def ramp_stops(
         {"value": float(v), "rgba": [int(c) for c in rgba]}
         for v, rgba in zip(values.tolist(), colours, strict=True)
     ]
+
+
+def _srgb_table() -> np.ndarray:
+    c = np.arange(256, dtype=np.float64) / 255.0
+    return np.where(c < 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4).astype(np.float32)
+
+
+_SRGB_TO_LINEAR = _srgb_table()
+
+
+def srgb_bytes_to_linear(rgba: np.ndarray) -> np.ndarray:
+    """``(N, 4) uint8`` sRGB RGBA as ``(N, 4) float32`` linear RGB and alpha in [0, 1].
+
+    The same conversion Blender applies when a byte colour attribute is read
+    through its ``color`` property: the IEC 61966-2-1 curve on red, green and
+    blue, and alpha divided by 255.
+    """
+    rgba = np.asarray(rgba)
+    if rgba.dtype != np.uint8 or rgba.ndim != 2 or rgba.shape[1] != 4:
+        raise ValueError(f"expected (N, 4) uint8 colours, got {rgba.dtype} {rgba.shape}")
+    out = np.empty(rgba.shape, dtype=np.float32)
+    out[:, :3] = _SRGB_TO_LINEAR[rgba[:, :3]]
+    out[:, 3] = rgba[:, 3]
+    out[:, 3] *= np.float32(1.0 / 255.0)
+    return out

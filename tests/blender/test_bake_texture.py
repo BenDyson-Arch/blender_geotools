@@ -166,10 +166,8 @@ def test_registered_and_panel_draws() -> None:
     assert ("operator", "geotools.check_layer_uvs", "UV") in calls
     assert {"uv_map", "resolution", "margin"} <= set(h.props_drawn(calls))
     assert ("label", "Not baked yet", "INFO") in calls
-    h.project().layers_index = 0  # the FACE layer: the same panel bakes from Geometry Nodes
-    calls = h.draw(panel)
-    assert ("operator", "geotools.bake_texture_layer", "RENDER_STILL") not in calls
-    assert ("operator", "geotools.bake_geonodes_layer", "NODETREE") in calls
+    h.project().layers_index = 0  # the FACE layer reads its attribute: no bake panel
+    assert not panel.poll(bpy.context)
     h.reset_scene()
 
 

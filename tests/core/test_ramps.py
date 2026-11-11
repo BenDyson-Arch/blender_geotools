@@ -16,6 +16,7 @@ from geotools.core.ramps import (
     default_category_colours,
     palette_stops,
     ramp_stops,
+    srgb_bytes_to_linear,
 )
 
 
@@ -177,3 +178,18 @@ def test_ramp_stops_match_apply_ramp() -> None:
     assert [s["value"] for s in flat] == [4.0, 4.0, 4.0]
     with pytest.raises(ValueError):
         ramp_stops("greys", 0.0, 1.0, 1)
+
+
+def test_srgb_bytes_to_linear() -> None:
+    rgba = np.array([[0, 10, 128, 255], [255, 255, 255, 0], [188, 1, 2, 51]], dtype=np.uint8)
+    linear = srgb_bytes_to_linear(rgba)
+    assert linear.dtype == np.float32 and linear.shape == (3, 4)
+    c = rgba[:, :3] / 255.0
+    want = np.where(c < 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+    np.testing.assert_allclose(linear[:, :3], want, rtol=1e-6, atol=1e-7)
+    np.testing.assert_allclose(linear[:, 3], rgba[:, 3] / 255.0, rtol=1e-6)
+    assert linear[0, 0] == 0.0 and linear[1, 0] == 1.0
+    with pytest.raises(ValueError):
+        srgb_bytes_to_linear(rgba.astype(np.float32))
+    with pytest.raises(ValueError):
+        srgb_bytes_to_linear(rgba[:, :3])
