@@ -173,3 +173,14 @@ def test_project_panel_flags_invalid_numbers() -> None:
     alerts: list[str] = []
     h.draw(panel, alerts)
     assert alerts == ["source_offset_n"], alerts
+
+
+def test_crs_preset_sets_source_crs() -> None:
+    h.reset_scene()
+    props = h.project()
+    presets = h.submodule("core.crs_presets")
+    assert bpy.ops.geotools.apply_crs_preset(preset="MGA2020_56") == {"FINISHED"}
+    assert props.placement_mode == "SOURCE_CRS"
+    assert props.source_crs == presets.get("MGA2020_56").definition
+    placement = _props().placement_from_props(props)
+    assert placement.source_crs == presets.get("MGA2020_56").definition

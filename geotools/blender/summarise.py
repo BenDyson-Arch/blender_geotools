@@ -32,8 +32,11 @@ from collections.abc import Iterable
 import bpy
 import numpy as np
 
+from ..core.images import encoded_bit_depth
 from ..core.placement import Vec3
 from ..core.preflight import ImageSummary, MaterialSummary, ObjectSummary, SceneSummary
+from .nodes import alpha_clip_nodes, blend_mode, from_node, output_node, upstream
+from .properties import image_remedy
 
 # Shader nodes the GLB writer can express when they sit upstream of the
 # material output: core PBR through one Principled BSDF, image textures on a UV
@@ -96,88 +99,40 @@ def world_bounds(obj: bpy.types.Object) -> tuple[Vec3, Vec3]:
 # --- materials -----------------------------------------------------------------------
 
 
-def _from_node(socket: bpy.types.NodeSocket) -> bpy.types.Node | None:
-    """The node feeding ``socket``, skipping reroutes and muted links."""
-    seen = 0
-    while socket.is_linked and seen < 64:
-        link = next((lk for lk in socket.links if not lk.is_muted), None)
-        if link is None:
-            return None
-        node = link.from_node
-        if node.bl_idname != "NodeReroute":
-            return node
-        socket = node.inputs[0]
-        seen += 1
-    return None
-
-
-def _math(node: bpy.types.Node | None, *operations: str) -> bool:
-    return node is not None and node.bl_idname == "ShaderNodeMath" and node.operation in operations
-
-
-def _alpha_clip_nodes(principled: bpy.types.Node) -> list[bpy.types.Node]:
-    """The Math nodes of an alpha-clip pattern feeding Alpha, or ``[]``."""
-    first = _from_node(principled.inputs["Alpha"])
-    if _math(first, "ROUND", "GREATER_THAN"):
-        return [first]
-    if (
-        _math(first, "SUBTRACT")
-        and not first.inputs[0].is_linked
-        and abs(first.inputs[0].default_value - 1.0) < 1e-6
-    ):
-        second = _from_node(first.inputs[1])
-        if _math(second, "LESS_THAN"):
-            return [first, second]
-    return []
-
-
-def blend_mode(principled: bpy.types.Node | None) -> str:
-    """``OPAQUE``, ``CLIP`` or ``BLEND``; see the module docstring."""
-    if principled is None:
-        return "OPAQUE"
-    alpha = principled.inputs["Alpha"]
-    if not alpha.is_linked or _from_node(alpha) is None:
-        return "OPAQUE" if alpha.default_value >= 1.0 else "BLEND"
-    return "CLIP" if _alpha_clip_nodes(principled) else "BLEND"
-
-
-def _output_node(tree: bpy.types.NodeTree) -> bpy.types.Node | None:
-    for target in ("ALL", "EEVEE", "CYCLES"):
-        node = tree.get_output_node(target)
-        if node is not None:
-            return node
-    return None
-
-
-def _upstream(start: bpy.types.Node) -> list[bpy.types.Node]:
-    """``start`` and every node linked into it, directly or not (unmuted links)."""
-    found: dict[str, bpy.types.Node] = {start.name: start}
-    stack = [start]
-    while stack:
-        node = stack.pop()
-        for socket in node.inputs:
-            for link in socket.links:
-                if link.is_muted:
-                    continue
-                src = link.from_node
-                if src.name not in found:
-                    found[src.name] = src
-                    stack.append(src)
-    return list(found.values())
-
-
-def _image_summary(image: bpy.types.Image) -> ImageSummary:
+def image_summary(image: bpy.types.Image) -> ImageSummary:
     packed = image.packed_file is not None
     filepath = ""
     if image.source in {"FILE", "SEQUENCE", "TILED"} and image.filepath:
         filepath = os.path.normpath(bpy.path.abspath(image.filepath, library=image.library))
-    exists = packed or (bool(filepath) and os.path.isfile(filepath))
+    on_disk = bool(filepath) and os.path.isfile(filepath)
+    # Generated and painted images are exportable too: the exporter saves their
+    # current pixels as PNG.
+    in_memory = image.source == "GENERATED" or (image.is_dirty and image.has_data)
+    exists = packed or on_disk or in_memory
+    width, height = (int(v) for v in image.size[:2])
+    file_bytes = bit_depth = None
+    used_as_is = (
+        image.file_format in {"PNG", "JPEG"} and not image.is_dirty and image.source == "FILE"
+    )
+    if used_as_is and packed:
+        file_bytes = image.packed_file.size
+        # Reading the header would copy the whole packed file; Blender decodes
+        # 16-bit PNGs (and only those, of PNG and JPEG) into a float buffer.
+        bit_depth = 16 if image.is_float else 8
+    elif used_as_is and on_disk:
+        file_bytes = os.path.getsize(filepath)
+        bit_depth = encoded_bit_depth(filepath)
     return ImageSummary(
         name=image.name,
         filepath=filepath,
         file_format=image.file_format,
         packed=packed,
         exists=exists,
+        width=width,
+        height=height,
+        file_bytes=file_bytes,
+        bit_depth=bit_depth,
+        remedy=image_remedy(image),
     )
 
 
@@ -185,14 +140,14 @@ def summarise_material(material: bpy.types.Material) -> MaterialSummary:
     tree = material.node_tree
     if tree is None:
         return MaterialSummary(name=material.name, uses_principled=False)
-    output = _output_node(tree)
+    output = output_node(tree)
     if output is None:
         return MaterialSummary(name=material.name, uses_principled=False)
-    surface = _from_node(output.inputs["Surface"])
+    surface = from_node(output.inputs["Surface"])
     principled = surface if surface and surface.bl_idname == "ShaderNodeBsdfPrincipled" else None
 
-    nodes = _upstream(output)
-    allowed = {n.name for n in _alpha_clip_nodes(principled)} if principled else set()
+    nodes = upstream(output)
+    allowed = {n.name for n in alpha_clip_nodes(principled)} if principled else set()
     unsupported = sorted(
         {n.bl_idname for n in nodes if n.bl_idname not in SUPPORTED_NODES and n.name not in allowed}
     )
@@ -206,7 +161,7 @@ def summarise_material(material: bpy.types.Material) -> MaterialSummary:
         uses_principled=principled is not None,
         unsupported_nodes=tuple(unsupported),
         blend_mode=blend_mode(principled),
-        images=tuple(_image_summary(images[name]) for name in sorted(images)),
+        images=tuple(image_summary(images[name]) for name in sorted(images)),
     )
 
 

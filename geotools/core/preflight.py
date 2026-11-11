@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from .images import NO_REMEDY, ImageRemedy, RemedyKind, is_lossless_profile
 from .issues import Issue, Severity
 from .placement import Placement, PlacementMode, Vec3
 
@@ -46,7 +47,14 @@ class ImageSummary:
     filepath: str  # absolute, "" if none
     file_format: str  # Blender image.file_format, e.g. "PNG", "JPEG", "OPEN_EXR"
     packed: bool
-    exists: bool  # file exists on disk (or packed)
+    exists: bool  # pixels are available: file on disk, packed, generated or painted
+    width: int = 0
+    height: int = 0
+    file_bytes: int | None = None  # size of the PNG/JPEG file used as is, if any
+    # Bits per decoded channel of the PNG/JPEG file used as is, if known; None
+    # when the exporter writes the pixels itself (always 8-bit).
+    bit_depth: int | None = None
+    remedy: ImageRemedy = NO_REMEDY  # the user's stored choice, never inferred
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,8 +97,13 @@ class SceneSummary:
         return (_vec(lo), _vec(hi))
 
 
-def check(scene: SceneSummary, placement: Placement) -> list[Issue]:
-    """Every problem found, errors first. Includes ``placement.validate()``."""
+def check(scene: SceneSummary, placement: Placement, *, profile: str | None = None) -> list[Issue]:
+    """Every problem found, errors first. Includes ``placement.validate()``.
+
+    ``profile`` is the rusty-tiles build profile ("fast", "balanced", "quality"
+    or "lossless") the scene is about to be published with, if known. It only
+    adds warnings, e.g. for a lossy image remedy in a lossless build.
+    """
     issues = list(placement.validate())
     issues += _scene_issues(scene, placement)
     meshes = [o for o in scene.objects if o.type == "MESH"]
@@ -105,7 +118,7 @@ def check(scene: SceneSummary, placement: Placement) -> list[Issue]:
             )
     for obj in meshes:
         issues += _object_issues(obj)
-    issues += _material_issues(meshes)
+    issues += _material_issues(meshes, profile)
     # sorted() is stable, so issues keep their discovery order within a severity.
     return sorted(issues, key=lambda i: _SEVERITY_ORDER[i.severity])
 
@@ -232,7 +245,7 @@ def _object_issues(obj: ObjectSummary) -> list[Issue]:
     return issues
 
 
-def _material_issues(meshes: list[ObjectSummary]) -> list[Issue]:
+def _material_issues(meshes: list[ObjectSummary], profile: str | None = None) -> list[Issue]:
     """Material and image rules, each material and image reported once."""
     issues = []
     seen_materials: set[str] = set()
@@ -246,7 +259,7 @@ def _material_issues(meshes: list[ObjectSummary]) -> list[Issue]:
             for image in material.images:
                 if image.name not in seen_images:
                     seen_images.add(image.name)
-                    issues += _one_image(image)
+                    issues += _one_image(image, profile)
     return issues
 
 
@@ -284,17 +297,42 @@ def _one_material(material: MaterialSummary) -> list[Issue]:
     return issues
 
 
-def _one_image(image: ImageSummary) -> list[Issue]:
+def _one_image(image: ImageSummary, profile: str | None = None) -> list[Issue]:
     name = image.name
+    issues = _image_limits(image)
     if not image.exists and not image.packed:
         where = f" at {image.filepath}" if image.filepath else ""
-        return [
+        issues.append(
             _error(
                 "image-missing",
                 f"Image {name} is missing{where} and not packed.",
                 name,
             )
-        ]
+        )
+        return issues
+    remedy = image.remedy
+    if remedy.active:
+        if not any(i.code in _REMEDIED_CODES and i.severity is Severity.WARNING for i in issues):
+            issues.append(
+                _warn(
+                    "image-remedy",
+                    f"Image {name} is published from a copy "
+                    f"{remedy.describe(image.width, image.height)}.",
+                    name,
+                )
+            )
+        if remedy.lossy and is_lossless_profile(profile):
+            issues.append(
+                _warn(
+                    "image-remedy-lossy",
+                    f"Image {name} is {_lossy_phrase(remedy)}, so the lossless build "
+                    "profile does not publish it losslessly.",
+                    name,
+                )
+            )
+        return issues
+    if issues:
+        return issues
     if image.file_format.upper() not in IMAGE_FORMATS:
         return [
             _warn(
@@ -304,6 +342,18 @@ def _one_image(image: ImageSummary) -> list[Issue]:
             )
         ]
     return []
+
+
+# Image limit codes a remedy can turn from an error into a warning.
+_REMEDIED_CODES = frozenset(
+    ("image-too-large", "image-16-bit", "image-file-too-large", "image-png-size")
+)
+
+
+def _lossy_phrase(remedy: ImageRemedy) -> str:
+    if remedy.kind is RemedyKind.JPEG:
+        return f"re-encoded as lossy JPEG quality {remedy.quality}"
+    return f"downscaled, and written as lossy JPEG quality {remedy.quality} if still too big"
 
 
 def _error(code: str, message: str, subject: str | None = None) -> Issue:
@@ -320,3 +370,119 @@ def _length(metres: float) -> str:
 
 def _vec(a: np.ndarray) -> Vec3:
     return (float(a[0]), float(a[1]), float(a[2]))
+
+
+def _image_limits(image: ImageSummary) -> list[Issue]:
+    """rusty-tiles refuses images over 16384 px a side, 32 MiB encoded or 16-bit.
+
+    Without a remedy these are errors whose message names the remedy to choose.
+    A remedy that removes the cause turns its error into a warning that names
+    the remedy; one that does not leaves the error.
+    """
+    from .gltf_writer import MAX_IMAGE_BYTES, MAX_IMAGE_EDGE
+
+    name = image.name
+    remedy = image.remedy
+    kind = remedy.kind
+    does = remedy.describe(image.width, image.height)
+    limit_mib = MAX_IMAGE_BYTES / (1 << 20)
+    issues = []
+
+    if max(image.width, image.height) > MAX_IMAGE_EDGE:
+        size = f"Image {name} is {image.width}x{image.height}"
+        if kind is RemedyKind.DOWNSCALE and remedy.max_edge <= MAX_IMAGE_EDGE:
+            issues.append(
+                _warn(
+                    "image-too-large",
+                    f"{size}, over the {MAX_IMAGE_EDGE} pixels a side rusty-tiles accepts, "
+                    f"so publishing uses a copy {does}.",
+                    name,
+                )
+            )
+        else:
+            issues.append(
+                _error(
+                    "image-too-large",
+                    f"{size}; rusty-tiles accepts at most {MAX_IMAGE_EDGE} pixels a side, "
+                    "so choose Downscale for it in the Checks panel.",
+                    name,
+                )
+            )
+
+    sixteen_bit = image.bit_depth is not None and image.bit_depth != 8
+    if sixteen_bit:
+        depth = f"Image {name} is {image.bit_depth}-bit per channel"
+        if remedy.active:
+            issues.append(
+                _warn(
+                    "image-16-bit",
+                    f"{depth}, which rusty-tiles refuses, so publishing uses a copy {does}"
+                    f"{'' if kind is RemedyKind.CONVERT_8BIT else ' at 8 bits'}.",
+                    name,
+                )
+            )
+        else:
+            issues.append(
+                _error(
+                    "image-16-bit",
+                    f"{depth}; rusty-tiles accepts 8-bit images only, so choose Convert to "
+                    "8-bit for it in the Checks panel.",
+                    name,
+                )
+            )
+
+    if image.file_bytes is not None and image.file_bytes > MAX_IMAGE_BYTES:
+        mib = image.file_bytes / (1 << 20)
+        size = f"Image {name} is {mib:.1f} MiB"
+        # 16 to 8 bits halves the samples; the export checks the real size.
+        halved = kind is RemedyKind.CONVERT_8BIT and sixteen_bit
+        if kind in (RemedyKind.JPEG, RemedyKind.DOWNSCALE):
+            issues.append(
+                _warn(
+                    "image-file-too-large",
+                    f"{size}, over the {limit_mib:g} MiB per encoded image rusty-tiles "
+                    f"accepts, so publishing uses a copy {does}.",
+                    name,
+                )
+            )
+        elif halved and image.file_bytes * 8 / image.bit_depth <= MAX_IMAGE_BYTES:
+            issues.append(
+                _warn(
+                    "image-file-too-large",
+                    f"{size}, over the {limit_mib:g} MiB rusty-tiles accepts, and publishing "
+                    "uses a copy converted to an 8-bit PNG, expected to fit and checked then.",
+                    name,
+                )
+            )
+        else:
+            issues.append(
+                _error(
+                    "image-file-too-large",
+                    f"{size}; rusty-tiles accepts at most {limit_mib:g} MiB per encoded "
+                    "image, so choose Re-encode as JPEG or Downscale for it in the Checks "
+                    "panel.",
+                    name,
+                )
+            )
+    elif image.file_bytes is None and image.width * image.height * 4 > MAX_IMAGE_BYTES:
+        size = f"{image.width}x{image.height}"
+        if kind in (RemedyKind.JPEG, RemedyKind.DOWNSCALE):
+            issues.append(
+                _warn(
+                    "image-png-size",
+                    f"Image {name} is written by GeoTools at {size}, where a PNG can exceed "
+                    f"rusty-tiles' {limit_mib:g} MiB limit, so publishing uses a copy {does}.",
+                    name,
+                )
+            )
+        else:
+            issues.append(
+                _warn(
+                    "image-png-size",
+                    f"Image {name} is converted to PNG at {size}, which can exceed "
+                    f"rusty-tiles' {limit_mib:g} MiB limit per image; choose Re-encode as "
+                    "JPEG or Downscale for it in the Checks panel to be sure.",
+                    name,
+                )
+            )
+    return issues

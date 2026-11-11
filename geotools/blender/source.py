@@ -6,7 +6,7 @@ import bpy
 from bpy.props import EnumProperty, StringProperty
 
 from ..core import offsets
-from ..core.preflight import SceneSummary
+from ..core.preflight import ImageSummary, SceneSummary
 from .common import redraw_ui
 from .properties import apply_source_offset, format_vec
 from .summarise import summarise_collection
@@ -66,7 +66,32 @@ def store_summary(props: bpy.types.PropertyGroup, summary: SceneSummary) -> None
     bounds = summary.bounds()
     props.summary_bounds_min = format_vec(bounds[0]) if bounds else ""
     props.summary_bounds_max = format_vec(bounds[1]) if bounds else ""
+    store_images(props, source_images(summary))
     props.summary_valid = True
+
+
+def source_images(summary: SceneSummary) -> list[ImageSummary]:
+    """Each image the source meshes' materials use, once, sorted by name."""
+    found: dict[str, ImageSummary] = {}
+    for obj in summary.objects:
+        if obj.type != "MESH":
+            continue
+        for material in obj.materials:
+            for image in material.images:
+                found.setdefault(image.name, image)
+    return [found[name] for name in sorted(found)]
+
+
+def store_images(props: bpy.types.PropertyGroup, images: list[ImageSummary]) -> None:
+    props.summary_images.clear()
+    for image in images:
+        item = props.summary_images.add()
+        item.name = image.name
+        item.width, item.height = image.width, image.height
+        item.file_format = image.file_format
+        item.file_bytes = -1.0 if image.file_bytes is None else float(image.file_bytes)
+        item.bit_depth = image.bit_depth or 0
+    props.summary_images_index = min(props.summary_images_index, max(len(images) - 1, 0))
 
 
 def refresh_summary(context: bpy.types.Context) -> SceneSummary | None:

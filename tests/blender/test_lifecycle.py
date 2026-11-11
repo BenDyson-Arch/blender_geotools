@@ -16,6 +16,7 @@ def _assert_fully_unregistered(classes: list[type]) -> None:
     assert not h.operator_available("geotools.check_dependencies")
     assert not h.operator_available("geotools.ingest_source")
     assert not hasattr(bpy.types.Scene, "geotools"), "Scene.geotools left behind"
+    assert not hasattr(bpy.types.Image, "geotools_remedy"), "Image.geotools_remedy left behind"
 
 
 def _assert_fully_registered(classes: list[type]) -> None:

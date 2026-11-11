@@ -10,7 +10,17 @@ import logging
 from types import ModuleType
 
 from ..core import deps
-from . import checks, operators, panels, preferences, profiles, properties, source
+from . import (
+    checks,
+    operators,
+    panels,
+    preferences,
+    profiles,
+    properties,
+    publish,
+    remedies,
+    source,
+)
 
 log = logging.getLogger(__name__)
 
@@ -20,7 +30,9 @@ MODULES: tuple[ModuleType, ...] = (
     operators,
     source,
     checks,
+    remedies,
     profiles,
+    publish,
     panels,
 )
 

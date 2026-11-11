@@ -25,6 +25,8 @@ from bpy.props import (
     StringProperty,
 )
 
+from ..core import images as core_images
+from ..core.images import ImageRemedy, RemedyKind
 from ..core.issues import Issue, Severity
 from ..core.placement import Placement, PlacementMode, Vec3
 
@@ -224,7 +226,7 @@ PROFILE_ITEMS = (
 
 
 class GeoToolsBuildProfile(bpy.types.PropertyGroup):
-    """Settings for one build. Stored only; publishing (M2) uses them."""
+    """Settings for one build, and a summary of its last publish."""
 
     # ``name`` is the built-in PropertyGroup name, shown in the list.
     profile: EnumProperty(name="Profile", items=PROFILE_ITEMS, default="BALANCED")
@@ -233,7 +235,8 @@ class GeoToolsBuildProfile(bpy.types.PropertyGroup):
     )
     memory_budget_gib: FloatProperty(
         name="Memory Budget",
-        description="Memory budget in GiB, 0 for the rusty-tiles default",
+        description="Memory budget for rusty-tiles in GiB. 0 for Auto: 60% of the memory "
+        "available when publishing starts, minus 4 GiB for Blender",
         default=0.0,
         min=0.0,
         soft_max=256.0,
@@ -243,6 +246,105 @@ class GeoToolsBuildProfile(bpy.types.PropertyGroup):
     output_path: StringProperty(
         name="Output", description="Where the .3tz archive is written", subtype="FILE_PATH"
     )
+    overwrite: BoolProperty(
+        name="Overwrite",
+        description="Replace an existing archive at the output path. The old one is kept "
+        "if the build fails or is cancelled",
+        default=False,
+    )
+    validate: BoolProperty(
+        name="Validate",
+        description="Validate the archive with rusty-tiles after building",
+        default=True,
+    )
+
+    # Last successful publish, written by geotools.publish (never while drawing).
+    last_output: StringProperty(name="Last Output", subtype="FILE_PATH")
+    last_record: StringProperty(name="Last Build Record", subtype="FILE_PATH")
+    last_build_utc: StringProperty(name="Last Build Time")
+    last_seconds: FloatProperty(name="Last Build Seconds", default=0.0)
+    last_validation: EnumProperty(
+        name="Last Validation",
+        items=(
+            ("NONE", "Not Run", "Validation was off or skipped"),
+            ("OK", "Passed", "rusty-tiles validated the archive"),
+            ("FAILED", "Failed", "rusty-tiles validation failed; see the build record"),
+        ),
+        default="NONE",
+    )
+    # Text, not IntProperty: counts can pass 2**31 on very large sources.
+    last_triangles: StringProperty(name="Last Triangles")
+    last_tiles: StringProperty(name="Last Tiles")
+
+
+# --- image remedies -------------------------------------------------------------------
+
+REMEDY_ITEMS = (
+    ("NONE", "None", "Publish the image as it is"),
+    (
+        "JPEG",
+        "JPEG",
+        (
+            "Publish a JPEG copy at the chosen quality. Lossy: small next to the fast, "
+            "balanced and quality profiles' own compression, but it defeats the lossless "
+            "profile"
+        ),
+    ),
+    (
+        "DOWNSCALE",
+        "Downscale",
+        (
+            "Publish a copy scaled down to the max edge, as PNG, or as JPEG at the chosen "
+            "quality if the PNG is still over 32 MiB"
+        ),
+    ),
+    ("CONVERT_8BIT", "8-bit", "Publish an 8-bit PNG copy of a 16-bit image"),
+)
+
+
+class GeoToolsImageRemedy(bpy.types.PropertyGroup):
+    """How GeoTools makes an image publishable (``image.geotools_remedy``).
+
+    Stored on the image so it follows renames, save and reload, and appending
+    into another file. It is only read when exporting: the image itself, its
+    file and its pixels are never changed.
+    """
+
+    kind: EnumProperty(name="Remedy", items=REMEDY_ITEMS, default="NONE")
+    quality: IntProperty(
+        name="JPEG Quality",
+        description="JPEG quality of the published copy (and of the downscale JPEG fallback)",
+        default=core_images.JPEG_QUALITY_DEFAULT,
+        min=core_images.JPEG_QUALITY_MIN,
+        max=core_images.JPEG_QUALITY_MAX,
+    )
+    max_edge: IntProperty(
+        name="Max Edge",
+        description="Longest side of the downscaled copy, in pixels",
+        default=core_images.DOWNSCALE_FALLBACK_EDGE,
+        min=core_images.DOWNSCALE_MIN_EDGE,
+        max=16_384,
+        subtype="PIXEL",
+    )
+
+
+def image_remedy(image: bpy.types.Image) -> ImageRemedy:
+    """The remedy stored on ``image``, or none."""
+    props = getattr(image, "geotools_remedy", None)
+    if props is None or props.kind == "NONE":
+        return core_images.NO_REMEDY
+    return ImageRemedy(RemedyKind(props.kind), quality=props.quality, max_edge=props.max_edge)
+
+
+class GeoToolsImageInfo(bpy.types.PropertyGroup):
+    """One source image as the last summary saw it, for the Images panel."""
+
+    # ``name`` is the image's name.
+    width: IntProperty()
+    height: IntProperty()
+    file_format: StringProperty()
+    file_bytes: FloatProperty(default=-1.0)  # the file used as is, -1 if none
+    bit_depth: IntProperty(default=0)  # 0 if not known
 
 
 PLACEMENT_MODE_ITEMS = (
@@ -302,6 +404,8 @@ class GeoToolsProject(bpy.types.PropertyGroup):
     summary_vertices: IntProperty(default=0)
     summary_bounds_min: StringProperty(default="")  # format_vec text, "" if no mesh
     summary_bounds_max: StringProperty(default="")
+    summary_images: CollectionProperty(type=GeoToolsImageInfo)
+    summary_images_index: IntProperty(default=0)
 
     # Checks ---------------------------------------------------------------------
     issues: CollectionProperty(type=GeoToolsIssue)
@@ -322,7 +426,13 @@ class GeoToolsProject(bpy.types.PropertyGroup):
     build_profile_index: IntProperty(name="Active Build Profile", default=0)
 
 
-classes = (GeoToolsIssue, GeoToolsBuildProfile, GeoToolsProject)
+classes = (
+    GeoToolsIssue,
+    GeoToolsBuildProfile,
+    GeoToolsImageRemedy,
+    GeoToolsImageInfo,
+    GeoToolsProject,
+)
 
 _register_classes, _unregister_classes = bpy.utils.register_classes_factory(classes)
 
@@ -330,9 +440,12 @@ _register_classes, _unregister_classes = bpy.utils.register_classes_factory(clas
 def register() -> None:
     _register_classes()
     bpy.types.Scene.geotools = PointerProperty(type=GeoToolsProject)
+    bpy.types.Image.geotools_remedy = PointerProperty(type=GeoToolsImageRemedy)
 
 
 def unregister() -> None:
+    if hasattr(bpy.types.Image, "geotools_remedy"):
+        del bpy.types.Image.geotools_remedy
     if hasattr(bpy.types.Scene, "geotools"):
         del bpy.types.Scene.geotools
     _unregister_classes()

@@ -7,6 +7,7 @@ import dataclasses
 import numpy as np
 import pytest
 
+from geotools.core.images import ImageRemedy, RemedyKind
 from geotools.core.issues import Severity
 from geotools.core.placement import Placement, PlacementMode
 from geotools.core.preflight import (
@@ -388,3 +389,182 @@ def test_every_message_is_one_plain_sentence() -> None:
         assert issue.message[0].isupper() or issue.message[0].isdigit() or issue.subject
         assert issue.message.endswith(".")
         assert ". " not in issue.message.rstrip(".")
+
+
+def test_image_limits() -> None:
+    from geotools.core.preflight import ImageSummary, _image_limits
+
+    ok = ImageSummary("a", "/a.jpg", "JPEG", False, True, 8192, 8192, 20 << 20)
+    assert _image_limits(ok) == []
+    big_edge = ImageSummary("b", "/b.png", "PNG", False, True, 16385, 16, 1000)
+    assert [i.code for i in _image_limits(big_edge)] == ["image-too-large"]
+    big_file = ImageSummary("c", "/c.png", "PNG", False, True, 8192, 8192, 40 << 20)
+    assert [i.code for i in _image_limits(big_file)] == ["image-file-too-large"]
+    converted = ImageSummary("d", "", "OPEN_EXR", False, True, 8192, 8192, None)
+    assert [i.code for i in _image_limits(converted)] == ["image-png-size"]
+
+
+# --- image remedies --------------------------------------------------------------------
+
+MIB = 1 << 20
+JPEG95 = ImageRemedy(RemedyKind.JPEG)
+DOWN = ImageRemedy(RemedyKind.DOWNSCALE, max_edge=4096)
+TO_8BIT = ImageRemedy(RemedyKind.CONVERT_8BIT)
+
+
+def image_issues(image: ImageSummary, profile: str | None = None):
+    material = MaterialSummary("m", True, images=(image,))
+    return check(scene(with_material(material)), LOCAL, profile=profile)
+
+
+def pairs(issues) -> list[tuple[str, str]]:
+    return [(i.code, Severity(i.severity).name) for i in issues]
+
+
+def big_png(**changes) -> ImageSummary:
+    base = ImageSummary("big", "/x/big.png", "PNG", False, True, 8192, 8192, 120 * MIB, 8)
+    return dataclasses.replace(base, **changes)
+
+
+def test_check_profile_is_an_optional_keyword() -> None:
+    plain = check(scene(mesh()), LOCAL)
+    assert plain == check(scene(mesh()), LOCAL, profile=None)
+    assert plain == check(scene(mesh()), LOCAL, profile="lossless")
+    with pytest.raises(TypeError):
+        check(scene(mesh()), LOCAL, "lossless")  # keyword only
+
+
+def test_oversize_without_remedy_is_an_error_naming_the_remedies() -> None:
+    issues = image_issues(big_png())
+    assert pairs(issues) == [("image-file-too-large", "ERROR")]
+    assert "120.0 MiB" in issues[0].message
+    assert "choose Re-encode as JPEG or Downscale" in issues[0].message
+    assert issues[0].subject == "big"
+
+
+@pytest.mark.parametrize(
+    ("remedy", "needle"),
+    [(JPEG95, "re-encoded as JPEG quality 95"), (DOWN, "downscaled to 4096x4096 as PNG")],
+)
+def test_oversize_with_remedy_is_a_warning_naming_it(remedy, needle) -> None:
+    issues = image_issues(big_png(remedy=remedy), profile="balanced")
+    assert pairs(issues) == [("image-file-too-large", "WARNING")]
+    assert needle in issues[0].message, issues[0].message
+
+
+def test_convert_8bit_does_not_fix_an_oversize_8_bit_png() -> None:
+    issues = image_issues(big_png(remedy=TO_8BIT))
+    assert ("image-file-too-large", "ERROR") in pairs(issues)
+
+
+def test_sixteen_bit_without_and_with_remedy() -> None:
+    deep = big_png(file_bytes=20 * MIB, bit_depth=16)
+    issues = image_issues(deep)
+    assert pairs(issues) == [("image-16-bit", "ERROR")]
+    assert "choose Convert to 8-bit" in issues[0].message
+    for remedy in (TO_8BIT, JPEG95, DOWN):  # every remedy writes 8 bits
+        issues = image_issues(dataclasses.replace(deep, remedy=remedy))
+        assert pairs(issues) == [("image-16-bit", "WARNING")], (remedy, pairs(issues))
+
+
+def test_sixteen_bit_and_oversize() -> None:
+    deep = big_png(file_bytes=50 * MIB, bit_depth=16)
+    assert pairs(image_issues(deep)) == [
+        ("image-16-bit", "ERROR"),
+        ("image-file-too-large", "ERROR"),
+    ]
+    # Halved to about 25 MiB at 8 bits: expected to fit, checked at export.
+    assert pairs(image_issues(dataclasses.replace(deep, remedy=TO_8BIT))) == [
+        ("image-16-bit", "WARNING"),
+        ("image-file-too-large", "WARNING"),
+    ]
+    huge = dataclasses.replace(deep, file_bytes=80 * MIB, remedy=TO_8BIT)
+    assert ("image-file-too-large", "ERROR") in pairs(image_issues(huge))
+    assert pairs(image_issues(dataclasses.replace(huge, remedy=JPEG95))) == [
+        ("image-16-bit", "WARNING"),
+        ("image-file-too-large", "WARNING"),
+    ]
+
+
+def test_8_bit_depth_is_fine() -> None:
+    assert image_issues(big_png(file_bytes=1 * MIB, bit_depth=8)) == []
+    assert image_issues(big_png(file_bytes=1 * MIB, bit_depth=None)) == []
+
+
+def test_too_many_pixels_needs_downscale() -> None:
+    wide = big_png(width=20000, height=100, file_bytes=MIB)
+    issues = image_issues(wide)
+    assert pairs(issues) == [("image-too-large", "ERROR")]
+    assert "choose Downscale" in issues[0].message
+    # JPEG keeps the size, so the error stays; it still says what JPEG does.
+    jpeg = pairs(image_issues(dataclasses.replace(wide, remedy=JPEG95)))
+    assert jpeg == [("image-too-large", "ERROR"), ("image-remedy", "WARNING")]
+    down = image_issues(dataclasses.replace(wide, remedy=ImageRemedy("DOWNSCALE", max_edge=16384)))
+    assert pairs(down) == [("image-too-large", "WARNING")]
+    assert "16384x82" in down[0].message
+
+
+def test_converted_png_size_warning_with_and_without_remedy() -> None:
+    exr = ImageSummary("h", "/x/h.exr", "OPEN_EXR", False, True, 8192, 8192, None)
+    issues = image_issues(exr)
+    assert pairs(issues) == [("image-png-size", "WARNING")]
+    assert "Re-encode as JPEG or Downscale" in issues[0].message
+    issues = image_issues(dataclasses.replace(exr, remedy=JPEG95))
+    assert pairs(issues) == [("image-png-size", "WARNING")]
+    assert "JPEG quality 95" in issues[0].message
+
+
+def test_a_remedy_on_a_fine_image_is_never_silent() -> None:
+    small = big_png(file_bytes=MIB, remedy=ImageRemedy("JPEG", quality=92))
+    issues = image_issues(small)
+    assert pairs(issues) == [("image-remedy", "WARNING")]
+    assert "JPEG quality 92" in issues[0].message
+    # A remedied EXR is not "converted to PNG": the remedy says what is written.
+    exr = ImageSummary("e", "/x/e.exr", "OPEN_EXR", False, True, 64, 64, None, remedy=JPEG95)
+    assert pairs(image_issues(exr)) == [("image-remedy", "WARNING")]
+
+
+@pytest.mark.parametrize(
+    ("remedy", "profile", "lossy_warning"),
+    [
+        (JPEG95, "lossless", True),
+        (JPEG95, "LOSSLESS", True),
+        (DOWN, "lossless", True),
+        (TO_8BIT, "lossless", False),
+        (JPEG95, "fast", False),
+        (JPEG95, "balanced", False),
+        (JPEG95, "quality", False),
+        (JPEG95, None, False),
+    ],
+)
+def test_lossless_profile_warns_about_lossy_remedies(remedy, profile, lossy_warning) -> None:
+    image = big_png(bit_depth=16, remedy=remedy) if remedy is TO_8BIT else big_png(remedy=remedy)
+    issues = image_issues(image, profile=profile)
+    codes_ = [i.code for i in issues]
+    assert ("image-remedy-lossy" in codes_) is lossy_warning, codes_
+    assert all(i.severity is Severity.WARNING or i.code == "image-file-too-large" for i in issues)
+
+
+def test_missing_image_with_remedy_is_still_missing() -> None:
+    gone = ImageSummary("g", "/x/g.png", "PNG", False, False, remedy=JPEG95)
+    assert pairs(image_issues(gone)) == [("image-missing", "ERROR")]
+
+
+def test_remedy_messages_are_one_plain_sentence() -> None:
+    images = (
+        big_png(name="a", bit_depth=16, file_bytes=50 * MIB),
+        big_png(name="b", bit_depth=16, file_bytes=50 * MIB, remedy=TO_8BIT),
+        big_png(name="c", remedy=JPEG95),
+        big_png(name="d", remedy=DOWN, width=20000),
+        big_png(name="e", file_bytes=MIB, remedy=JPEG95),
+        ImageSummary("f", "/x/f.exr", "OPEN_EXR", False, True, 8192, 8192, None),
+        ImageSummary("g", "/x/g.exr", "OPEN_EXR", False, True, 8192, 8192, None, remedy=DOWN),
+        big_png(name="h", width=20000),
+    )
+    material = MaterialSummary("m", True, images=images)
+    issues = check(scene(with_material(material)), LOCAL, profile="lossless")
+    assert len(issues) >= 12, pairs(issues)
+    for issue in issues:
+        assert issue.message.startswith("Image "), issue.message
+        assert issue.message.endswith("."), issue.message
+        assert ". " not in issue.message.rstrip("."), issue.message

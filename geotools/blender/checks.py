@@ -2,7 +2,7 @@
 
 import bpy
 
-from ..core import deps, preflight, probe
+from ..core import crs_presets, deps, preflight, probe
 from ..core.issues import Issue, Severity
 from ..core.placement import Placement
 from .common import redraw_ui
@@ -51,11 +51,24 @@ def describe_counts(counts: dict[Severity, int]) -> str:
     )
 
 
+def active_rusty_tiles_profile(props: bpy.types.PropertyGroup) -> str | None:
+    """The rusty-tiles profile ("fast" ... "lossless") of the active build profile."""
+    index = props.build_profile_index
+    if 0 <= index < len(props.build_profiles):
+        return props.build_profiles[index].profile.lower()
+    return None
+
+
 def run_checks(context: bpy.types.Context) -> list[Issue]:
-    """Summarise the source collection and check it against the placement."""
+    """Summarise the source collection and check it against the placement.
+
+    Image rules see the active build profile, so a lossy image remedy warns in a
+    lossless build.
+    """
     props = context.scene.geotools
     summary = refresh_summary(context)
     assert summary is not None
+    profile = active_rusty_tiles_profile(props)
     bad_fields = field_issues(props)
     if bad_fields:
         # Without valid numbers there is no Placement to check; still check the
@@ -67,9 +80,11 @@ def run_checks(context: bpy.types.Context) -> list[Issue]:
                 "Placement was not checked; fix the numbers above first.",
             )
         ]
-        issues += [i for i in preflight.check(summary, Placement()) if i not in issues]
+        issues += [
+            i for i in preflight.check(summary, Placement(), profile=profile) if i not in issues
+        ]
     else:
-        issues = preflight.check(summary, placement_from_props(props))
+        issues = preflight.check(summary, placement_from_props(props), profile=profile)
     issues.sort(key=lambda i: _SEVERITY_ORDER[Severity(i.severity)])
     return issues
 
@@ -193,6 +208,42 @@ class GEOTOOLS_UL_issues(bpy.types.UIList):
         layout.label(text=item.message, icon=SEVERITY_ICONS.get(item.severity, "INFO"))
 
 
-classes = (GEOTOOLS_OT_run_checks, GEOTOOLS_OT_verify_placement, GEOTOOLS_UL_issues)
+def _preset_items(_self, _context):
+    return [(p.id, p.label, f"{p.epsg}. {p.note}") for p in crs_presets.PRESETS]
+
+
+class GEOTOOLS_OT_apply_crs_preset(bpy.types.Operator):
+    """Set the source CRS to a definition the bundled rusty-tiles accepts"""
+
+    bl_idname = "geotools.apply_crs_preset"
+    bl_label = "CRS Preset"
+    bl_options = {"REGISTER", "UNDO"}
+    bl_property = "preset"
+
+    preset: bpy.props.EnumProperty(name="Preset", items=_preset_items)
+
+    def invoke(self, context, _event):
+        context.window_manager.invoke_search_popup(self)
+        return {"RUNNING_MODAL"}
+
+    def execute(self, context):
+        preset = crs_presets.get(self.preset)
+        if preset is None:
+            self.report({"ERROR"}, f"Unknown CRS preset {self.preset!r}")
+            return {"CANCELLED"}
+        props = context.scene.geotools
+        props.placement_mode = "SOURCE_CRS"
+        props.source_crs = preset.definition
+        self.report({"INFO"}, f"Source CRS set to {preset.label}. {preset.note}")
+        redraw_ui(context)
+        return {"FINISHED"}
+
+
+classes = (
+    GEOTOOLS_OT_run_checks,
+    GEOTOOLS_OT_verify_placement,
+    GEOTOOLS_OT_apply_crs_preset,
+    GEOTOOLS_UL_issues,
+)
 
 register, unregister = bpy.utils.register_classes_factory(classes)

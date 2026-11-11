@@ -12,7 +12,8 @@ behind it.
 | `geotools/blender_manifest.toml` | The extension manifest. `platforms` and `wheels` are added at build time; do not add them here. |
 | `geotools/core/` | Pure Python and numpy. Never imports `bpy`, so it can be tested with plain pytest. |
 | `geotools/blender/` | The `bpy` glue: operators, panels and preferences. |
-| `geotools/analysis/`, `geotools/bake/`, `geotools/publish/` | Empty, reserved for later milestones. |
+| `geotools/publish/` | The publish job (bpy-free): staging layout and lock, the worker thread that writes the GLB and runs rusty-tiles, the build record, and the preview helper. |
+| `geotools/analysis/`, `geotools/bake/` | Empty, reserved for later milestones. |
 | `geotools/wheels/` | Fetched rusty-tiles wheels. Ignored by git, never committed. |
 | `scripts/` | Wheel fetching, extension build and the Blender test runner. |
 | `tests/core/` | pytest tests for `geotools/core`. They run without Blender. |
@@ -125,7 +126,12 @@ python scripts/run_blender_tests.py --expect available
 ```
 
 Use `--blender PATH` (or `$BLENDER`) to pick a Blender, `-k NAME` to run some
-tests, and `--keep` to keep the temporary profile for debugging. Blender's
+tests, and `--keep` to keep the temporary profile for debugging.
+
+The preview tests (core and Blender) need a rusty-tiles CLI and a Cesium 1.146
+`Build/Cesium` folder, which are not bundled. Point
+`GEOTOOLS_TEST_RUSTY_TILES_CLI` and `GEOTOOLS_TEST_CESIUM` at them to run those
+tests; without them they are skipped. Blender's
 Python has no pytest, so `tests/blender/run_suite.py` is a small runner of its
 own.
 
