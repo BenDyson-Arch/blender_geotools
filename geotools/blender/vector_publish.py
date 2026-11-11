@@ -22,6 +22,7 @@ from dataclasses import dataclass
 
 import bpy
 
+from ..core import crs_catalog
 from ..core.issues import Issue, Severity
 from ..core.vector.model import Kind
 from ..publish import vector as pv
@@ -69,6 +70,10 @@ def vector_issues(context: bpy.types.Context, profile: bpy.types.PropertyGroup) 
         pv.placement_kwargs(frame.placement)
     except (vectors.ImportRefused, ValueError) as ex:
         issues.append(Issue(Severity.ERROR, "vector-placement", str(ex)))
+    else:
+        if frame.project is not None:
+            refused = crs_catalog.check_issues(frame.placement.source_crs)
+            issues += [i for i in refused if i.severity == Severity.ERROR]
     return issues
 
 

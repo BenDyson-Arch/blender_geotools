@@ -1,8 +1,8 @@
 """Vector publish (M8): a build profile of format Vectors, end to end.
 
 A small synthetic GeoJSON layer in GDA2020 / MGA zone 56 (the project CRS is
-the GeoTools preset, a PROJ definition with ``+towgs84`` that the bundled
-rusty-tiles 0.4.0 accepts) is imported as a linked object, raised by a stock
+EPSG:7856, which rusty-tiles 0.4.1's allow-list resolves) is imported as a
+linked object, raised by a stock
 Geometry Nodes modifier, published with ``vector_to_3tz``, validated, and
 republished with ``reuse_tileset`` after an edit and a refresh.
 """
@@ -46,8 +46,7 @@ def _project(mode: str = "SOURCE_CRS") -> None:
     props = h.project()
     props.placement_mode = mode
     if mode == "SOURCE_CRS":
-        preset = h.submodule("core.crs_presets").get("MGA2020_56")
-        props.source_crs = preset.definition
+        props.source_crs = "EPSG:7856"
         props.source_offset_e = repr(E0)
         props.source_offset_n = repr(N0)
         props.source_offset_a = repr(A0)
@@ -207,15 +206,16 @@ def test_vector_publish_end_to_end_with_reuse() -> None:
         job = _finish()
         assert job.state.name == "DONE", job.error
 
-        preset = h.submodule("core.crs_presets").get("MGA2020_56")
         record = _record(output)
         assert record["output_type"] == "vector"
-        # The preset's PROJ definition, passed explicitly (0.4.0 refuses EPSG:7856).
+        # The plain EPSG code, passed explicitly, and its datum operation (rusty-tiles 0.4.1).
+        operation = record["placement"].pop("crs_operation")
         assert record["placement"] == {
-            "source_crs": preset.definition,
+            "source_crs": "EPSG:7856",
             "height_offset": 0.0,
             "crs_epsg": "EPSG:7856",
         }
+        assert operation["operationId"] == "EPSG:8450" and operation["accuracyMetres"] == 3.0
         assert record["validation"]["ok"] is True
         assert record["geotools"]["vector_collection"] == "Vectors"
         assert record["geotools"]["apply_modifiers"] is True
@@ -229,7 +229,7 @@ def test_vector_publish_end_to_end_with_reuse() -> None:
             "no previous archive",
         )
         for layer in record["report_summary"]["layers"]:
-            assert layer["sourceCrs"] == preset.definition
+            assert layer["sourceCrs"] == "EPSG:7856" and layer["crsOperation"] == operation
         assert profile.last_features == "5" and profile.last_validation == "OK"
         assert profile.last_triangles == "" and profile.last_tiles
 

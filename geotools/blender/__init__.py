@@ -14,6 +14,7 @@ from . import (
     analysis,
     bake_texture,
     checks,
+    crs_picker,
     data_origin,
     glb_export,
     layers,
@@ -36,6 +37,7 @@ log = logging.getLogger(__name__)
 MODULES: tuple[ModuleType, ...] = (
     preferences,
     properties,
+    crs_picker,
     operators,
     source,
     links,

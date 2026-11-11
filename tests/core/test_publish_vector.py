@@ -14,7 +14,6 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from geotools.core import crs_presets
 from geotools.core.crs_match import DataCrs
 from geotools.core.placement import Placement, PlacementMode
 from geotools.core.vector import gpkg
@@ -33,8 +32,7 @@ rusty = pytest.mark.skipif(rusty_tiles is None, reason="needs the rusty-tiles wh
 
 # An invented site in GDA2020 / MGA zone 56 (synthetic numbers).
 E0, N0, A0 = 502_000.0, 6_961_000.0, 10.0
-MGA56 = crs_presets.get("MGA2020_56")
-assert MGA56 is not None
+MGA56 = "EPSG:7856"
 
 
 def contexts(n: int = 6, *, shift: float = 0.0, depth: float = 0.0) -> VectorData:
@@ -61,7 +59,7 @@ def contexts(n: int = 6, *, shift: float = 0.0, depth: float = 0.0) -> VectorDat
 
 
 def project() -> DataCrs:
-    return DataCrs(MGA56.epsg, MGA56.definition, "project")
+    return DataCrs(MGA56, MGA56, "project")
 
 
 def source(data: VectorData | None = None, *, reuse: bool = True, **options) -> pv.VectorSource:
@@ -69,7 +67,7 @@ def source(data: VectorData | None = None, *, reuse: bool = True, **options) -> 
     placement = pv.placement_kwargs(
         Placement(
             mode=PlacementMode.SOURCE_CRS,
-            source_crs=MGA56.definition,
+            source_crs=MGA56,
             source_offset=(E0, N0, A0),
             height_offset=0.0,
         )
@@ -104,18 +102,19 @@ def run(job: BuildJob, timeout: float = 120.0):
 
 
 def test_placement_kwargs_pass_the_project_crs_as_written() -> None:
-    preset = Placement(
+    # The plain EPSG code (rusty-tiles 0.4.1's allow-list), never re-read from the
+    # GeoPackage.
+    epsg = Placement(
         mode=PlacementMode.SOURCE_CRS,
-        source_crs=MGA56.definition,
+        source_crs=" EPSG:7856 ",
         source_offset=(E0, N0, A0),
         height_offset=-1.25,
     )
-    # The preset's PROJ definition, which the bundled 0.4.0 accepts; never the
-    # EPSG code the GeoPackage declares.
-    assert pv.placement_kwargs(preset) == {"source_crs": MGA56.definition, "height_offset": -1.25}
-    # A plain EPSG code passes through unchanged (rusty-tiles 0.4.1's allow-list).
-    epsg = Placement(mode=PlacementMode.SOURCE_CRS, source_crs=" EPSG:7856 ")
-    assert pv.placement_kwargs(epsg) == {"source_crs": "EPSG:7856", "height_offset": 0.0}
+    assert pv.placement_kwargs(epsg) == {"source_crs": "EPSG:7856", "height_offset": -1.25}
+    # WKT or PROJ text passes through as typed.
+    proj = "+proj=tmerc +lon_0=151 +ellps=GRS80 +towgs84=0,0,0 +units=m"
+    custom = Placement(mode=PlacementMode.SOURCE_CRS, source_crs=proj)
+    assert pv.placement_kwargs(custom) == {"source_crs": proj, "height_offset": 0.0}
     assert pv.placement_kwargs(Placement(mode=PlacementMode.LOCAL)) == {"source_crs": "local"}
 
 
@@ -244,7 +243,7 @@ def test_vector_job_writes_tiles_and_records(tmp_path: Path, monkeypatch) -> Non
     assert job.state is JobState.DONE, job.error
     assert [e.state for e in events if e.message][:2] == [JobState.WRITING, JobState.TILING]
     (call,) = calls
-    assert call["source_crs"] == MGA56.definition and call["height_offset"] == 0.0
+    assert call["source_crs"] == MGA56 and call["height_offset"] == 0.0
     assert call["layers"] == ["contexts"] and call["reuse_tileset"] is None
     assert call["reproducible"] is True and call["force"] is True
 
@@ -253,7 +252,7 @@ def test_vector_job_writes_tiles_and_records(tmp_path: Path, monkeypatch) -> Non
     assert not (staging / st.WORK_DIR).exists()
     record = json.loads((staging / st.RECORD_NAME).read_text())
     assert record["output_type"] == "vector"
-    assert record["placement"]["source_crs"] == MGA56.definition
+    assert record["placement"]["source_crs"] == MGA56
     assert record["placement"]["crs_epsg"] == "EPSG:7856"
     assert record["vectors"]["tables"][0]["features"] == 6
     assert record["vectors"]["crs"] == "EPSG:7856"
@@ -334,8 +333,8 @@ def test_vector_request_needs_a_3tz(tmp_path: Path) -> None:
 
 @rusty
 def test_vector_job_real_rusty_tiles_with_reuse(tmp_path: Path) -> None:
-    """A preset CRS (PROJ with +towgs84) is passed explicitly, the archive validates,
-    and an attribute edit republishes incrementally."""
+    """The project's EPSG code is passed explicitly, its datum operation is recorded,
+    the archive validates, and an attribute edit republishes incrementally."""
     out = tmp_path / "contexts.3tz"
     job = BuildJob(None, request(out, source()))
     run(job)
@@ -345,7 +344,10 @@ def test_vector_job_real_rusty_tiles_with_reuse(tmp_path: Path) -> None:
     record = json.loads((staging / st.RECORD_NAME).read_text())
     assert record["report_summary"]["features"] == 6
     (layer,) = record["report_summary"]["layers"]
-    assert layer["sourceCrs"] == MGA56.definition and layer["heightOffset"] == 0.0
+    assert layer["sourceCrs"] == MGA56 and layer["heightOffset"] == 0.0
+    operation = record["placement"]["crs_operation"]
+    assert operation["operationId"] == "EPSG:8450" and operation["accuracyMetres"] == 3.0
+    assert layer["crsOperation"] == operation
     assert record["vectors"]["reuse"]["used"] is False
 
     # Republish unchanged: everything is reused.

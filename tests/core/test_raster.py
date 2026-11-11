@@ -13,9 +13,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "blender"))
 
 import _geotiff as gw
 
-from geotools.core import crs_match, crs_presets, fingerprint, raster
+from geotools.core import crs_match, fingerprint, raster
 from geotools.core import geotiff as gt
 from geotools.core.crs_match import DataCrs
+from geotools.core.crs_migration import PRESET_CODES
 from geotools.core.data_origin import NeedsProjectOrigin
 from geotools.core.placement import Placement, PlacementMode
 
@@ -171,17 +172,17 @@ def test_footprint_is_the_pixel_edges(tmp_path: Path) -> None:
 
 # --- CRS ------------------------------------------------------------------------------
 
-MGA56 = crs_presets.get("MGA2020_56")
+MGA56_PRESET = next(text for text, code in PRESET_CODES.items() if code == "EPSG:7856")
 
 
 def _project(crs: str, offset=OFFSET) -> Placement:
     return Placement(mode=PlacementMode.SOURCE_CRS, source_crs=crs, source_offset=offset)
 
 
-def test_project_crs_from_a_preset() -> None:
-    project = crs_match.project_crs(_project(MGA56.definition))
+def test_project_crs_from_a_saved_preset() -> None:
+    project = crs_match.project_crs(_project(MGA56_PRESET))
     assert project.epsg == "EPSG:7856"
-    assert project.definition == MGA56.definition
+    assert project.definition == MGA56_PRESET
     assert crs_match.project_crs(Placement()) is None
 
 
@@ -202,13 +203,13 @@ def test_rasters_are_never_reprojected_even_with_pyproj(monkeypatch: pytest.Monk
     monkeypatch.setattr(crs_match._reproject, "available", lambda: True)
     with pytest.raises(raster.RasterError, match=r"does not reproject rasters.*QGIS"):
         raster.check_crs(
-            _project(MGA56.definition), DataCrs("EPSG:28356", None, "geotiff-geokeys"), "d.tif"
+            _project("EPSG:7856"), DataCrs("EPSG:28356", None, "geotiff-geokeys"), "d.tif"
         )
 
 
 def test_check_crs_match_returns_the_offset() -> None:
     check = raster.check_crs(
-        _project(MGA56.definition), DataCrs("EPSG:7856", None, "geotiff-geokeys"), "d.tif"
+        _project("EPSG:7856"), DataCrs("EPSG:7856", None, "geotiff-geokeys"), "d.tif"
     )
     assert check.offset == OFFSET and check.warnings == ()
 
@@ -216,7 +217,7 @@ def test_check_crs_match_returns_the_offset() -> None:
 def test_check_crs_mismatch_is_refused() -> None:
     with pytest.raises(raster.RasterError, match=r"EPSG:4326.*EPSG:7856.*QGIS"):
         raster.check_crs(
-            _project(MGA56.definition), DataCrs("EPSG:4326", None, "geotiff-geokeys"), "d.tif"
+            _project("EPSG:7856"), DataCrs("EPSG:4326", None, "geotiff-geokeys"), "d.tif"
         )
 
 
@@ -265,7 +266,7 @@ def test_check_crs_local_and_anchor_refuse_projected_data(mode: PlacementMode) -
             bounds=(512_345.0, 6_961_765.0, 512_379.0, 6_961_789.0),
         )
     origin = caught.value.origin
-    assert origin.source_crs == MGA56.definition and origin.epsg == "EPSG:7856"
+    assert origin.source_crs == "EPSG:7856" and origin.epsg == "EPSG:7856"
     assert origin.offset == (512_362.0, 6_961_777.0, 0.0)
     assert isinstance(caught.value, ValueError)  # the importers' ValueError handling holds
     # An unknown CRS keeps the warning, however large the coordinates.
@@ -277,7 +278,14 @@ def test_check_crs_local_and_anchor_refuse_projected_data(mode: PlacementMode) -
 
 def test_check_crs_needs_a_project_crs() -> None:
     with pytest.raises(raster.RasterError, match="project CRS first"):
-        raster.check_crs(_project(""), DataCrs("EPSG:7856", None, "user"), "d.tif")
+        raster.check_crs(_project(""), None, "d.tif")
+
+
+def test_check_crs_offers_the_rasters_crs_to_a_project_without_one() -> None:
+    with pytest.raises(NeedsProjectOrigin, match="no CRS yet") as caught:
+        raster.check_crs(_project(""), DataCrs("EPSG:7856", None, "geotiff-geokeys"), "d.tif")
+    origin = caught.value.origin
+    assert origin.source_crs == "EPSG:7856" and not origin.set_offset  # OFFSET is kept
 
 
 # --- fingerprints ---------------------------------------------------------------------

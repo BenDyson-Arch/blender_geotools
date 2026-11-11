@@ -9,10 +9,8 @@ and geometry kind) and tiles that file.
 
 The CRS rusty-tiles uses is always passed as ``source_crs``
 (:func:`placement_kwargs`), never read from the GeoPackage: the project's
-``source_crs`` is exactly what the mesh publish passes, so a CRS preset (a PROJ
-definition with ``+towgs84``, for the bundled 0.4.0 wheel) or a plain EPSG code
-(once rusty-tiles 0.4.1 resolves its allow-list) both work unchanged, whatever
-``gpkg_spatial_ref_sys`` says.
+``source_crs`` is exactly what the mesh publish passes (the EPSG picker's plain
+``EPSG:nnnn``, or WKT or PROJ text), whatever ``gpkg_spatial_ref_sys`` says.
 
 Heights: the GeoPackage holds Z in the project CRS's height (local z plus the
 offset's A), and rusty-tiles adds ``height_offset``, the same rule as the mesh
@@ -207,6 +205,7 @@ def summarise_vector_report(report: Mapping[str, Any]) -> dict[str, object]:
                 "features",
                 "invalidFeatures",
                 "sourceCrs",
+                "crsOperation",
                 "heightMode",
                 "heightOffset",
             )

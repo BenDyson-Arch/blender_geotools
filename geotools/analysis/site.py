@@ -58,7 +58,7 @@ from typing import Any
 
 import numpy as np
 
-from ..core import crs_presets, deps
+from ..core import crs_catalog, deps
 from ..core.placement import Placement, PlacementMode, Vec3
 
 __all__ = [
@@ -94,13 +94,12 @@ def available() -> bool:
 def crs_input(definition: str) -> str:
     """The project CRS as pyproj is given it: the EPSG code when one is known.
 
-    A GeoTools preset (:mod:`geotools.core.crs_presets`) stands in for an EPSG
-    code, so its code is used, which also names the preset's real datum (GDA2020
-    for MGA). A plain ``EPSG:nnnn`` is normalised. Anything else (WKT, a PROJ
-    string) is passed as written. When the presets give way to plain EPSG codes,
-    this stays correct unchanged.
+    A plain ``EPSG:nnnn``, which the EPSG picker stores, is normalised. A
+    saved GeoTools preset's PROJ string not yet migrated
+    (:mod:`geotools.core.crs_migration`) stands in for its EPSG code, which also names the preset's real datum (GDA2020 for MGA).
+    Anything else (WKT, a PROJ string) is passed as written.
     """
-    return crs_presets.epsg_code(definition) or (definition or "").strip()
+    return crs_catalog.epsg_code(definition) or (definition or "").strip()
 
 
 def float32_resolution(local: Vec3 | np.ndarray) -> float:

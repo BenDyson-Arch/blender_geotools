@@ -250,12 +250,30 @@ def test_crs_mismatch_is_refused() -> None:
     assert "EPSG:28356" in error and "EPSG:7856" in error and "QGIS" in error, error
 
 
-def test_crs_preset_definition_matches_its_epsg_code() -> None:
-    preset = h.submodule("core.crs_presets").get("MGA2020_56")
-    _project(preset.definition)
+def test_a_saved_crs_preset_matches_its_epsg_code() -> None:
+    codes = h.submodule("core.crs_migration").PRESET_CODES
+    _project(next(text for text, code in codes.items() if code == "EPSG:7856"))
     with _tmpdir() as tmp:
         result, error, _obj = _import(_write(tmp / "a.tif", gw.dem(4, 4)))
     assert result == {"FINISHED"}, error
+
+
+def test_a_project_without_a_crs_is_offered_the_rasters() -> None:
+    data_origin = h.submodule("blender.data_origin")
+    _project(crs="")  # the offset is set: only the CRS is offered
+    with _tmpdir() as tmp:
+        path = _write(tmp / "a.tif", gw.dem(4, 4))
+        result, error, obj = _import(path)
+        assert result == {"ERROR_REPORTED"} and obj is None
+        assert "no CRS yet" in error and "EPSG:7856" in error, error
+        pending = data_origin.pending_offer(bpy.context)
+        assert pending is not None and pending["origin"]["set_offset"] is False
+        result, error = h.call_op(bpy.ops.geotools.use_data_origin, **pending["request"])
+        assert result == {"FINISHED"}, error
+    props = h.project()
+    assert props.placement_mode == "SOURCE_CRS" and props.source_crs == "EPSG:7856"
+    read = h.submodule("blender.properties").read_number
+    assert tuple(read(props, f"source_offset_{k}") for k in "ena") == OFFSET  # kept
 
 
 def test_unknown_crs_needs_confirming() -> None:
@@ -429,7 +447,6 @@ def test_geotiff_stale_detection_and_auto_refresh() -> None:
 
 def test_projected_raster_in_a_local_or_anchor_project_offers_its_centre() -> None:
     data_origin = h.submodule("blender.data_origin")
-    preset = h.submodule("core.crs_presets").get("MGA2020_56")
     for mode in ("LOCAL", "ANCHOR"):
         _project(mode=mode)
         z = gw.dem(12, 17)
@@ -451,7 +468,7 @@ def test_projected_raster_in_a_local_or_anchor_project_offers_its_centre() -> No
             assert result == {"FINISHED"}, error
             props = h.project()
             assert props.placement_mode == "SOURCE_CRS"
-            assert props.source_crs == preset.definition  # the preset for EPSG:7856
+            assert props.source_crs == "EPSG:7856"
             # Pixel edges: 512345 to 512379 E, 6961765 to 6961789 N.
             centre = (512_362.0, 6_961_777.0, 0.0)
             read = h.submodule("blender.properties").read_number
@@ -483,7 +500,9 @@ def test_use_data_origin_asks_first_when_there_is_a_source() -> None:
         text = h.label_text(calls)
         assert "changes how the existing scene is placed on Earth" in text, text
         assert "'Site' (1 object)" in text and "from Local" in text, text
-        assert "EPSG:7856 (GDA2020 / MGA zone 56)" in text, text
+        # The CRS's name comes from the EPSG catalogue, which needs rusty-tiles and pyproj.
+        named = h.CONFIG.expect == "available"
+        assert ("EPSG:7856 (GDA2020 / MGA zone 56)" if named else "to EPSG:7856,") in text, text
         # Confirmed (EXEC, as the dialog's OK button runs it): the import goes ahead.
         result, error = h.call_op(
             bpy.ops.geotools.use_data_origin, **data_origin.pending_offer(bpy.context)["request"]

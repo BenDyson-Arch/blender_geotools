@@ -155,9 +155,8 @@ def _texture(name: str, objects, size: int = 4) -> dict[str, np.ndarray]:
 
 def _mga56() -> None:
     props = h.project()
-    preset = h.submodule("core.crs_presets").get("MGA2020_56")
     props.placement_mode = "SOURCE_CRS"
-    props.source_crs = preset.definition
+    props.source_crs = "EPSG:7856"
     p = h.submodule("blender.properties")
     p.write_number(props, "source_offset_e", 502_000.25)
     p.write_number(props, "source_offset_n", 6_961_000.123456789)

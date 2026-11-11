@@ -16,7 +16,7 @@ import json
 import re
 from dataclasses import dataclass
 
-from . import crs_presets
+from . import crs_catalog
 from . import reproject as _reproject
 from .placement import Placement, PlacementMode
 from .reproject import ReprojectionReport, ReprojectionUnavailable
@@ -50,11 +50,11 @@ class DataCrs:
         return self.describe()
 
     def describe(self) -> str:
-        """A name for messages: the EPSG code (with the preset's label when one stands in
-        for it), else the start of the definition."""
+        """A name for messages: the EPSG code (with its name from the EPSG catalogue),
+        else the start of the definition."""
         if self.epsg:
-            preset = preset_for_epsg(self.epsg)
-            return f"{self.epsg} ({preset.label})" if preset else self.epsg
+            name = crs_catalog.name(self.epsg)
+            return f"{self.epsg} ({name})" if name else self.epsg
         if self.definition and self.definition.strip():
             text = " ".join(self.definition.split())
             return text if len(text) <= 60 else text[:57] + "..."
@@ -64,18 +64,13 @@ class DataCrs:
 def reprojection_target(project: DataCrs) -> str:
     """The CRS text vector points are reprojected into, for the project CRS ``project``.
 
-    A project whose CRS is a GeoTools preset holds coordinates in the preset's
-    datum (GDA2020 for the MGA presets), and its mesh is placed with the
-    preset's ``+towgs84`` null shift at publish time. Points are therefore
-    reprojected into the preset's EPSG code, so PROJ applies the real datum
-    shift (GDA94 to GDA2020 moves about 1.5 m in Brisbane), not into the
-    preset's PROJ string, which would treat both datums as WGS84 and not move
-    GDA94 data at all. Any other project CRS is used as written.
+    The EPSG code when the project has one, else its definition. A saved
+    preset's PROJ string not migrated yet (``crs_catalog.epsg_code``) is
+    therefore reprojected into the code it stood for, so PROJ applies the real
+    datum shift (GDA94 to GDA2020 moves about 1.5 m in Brisbane), not into the
+    PROJ string's null ``+towgs84``, which would not move GDA94 data at all.
     """
-    preset = crs_presets.for_definition(project.definition or "")
-    if preset is not None:
-        return preset.epsg
-    return project.definition or project.epsg or ""
+    return project.epsg or project.definition or ""
 
 
 def _source_text(data_crs: DataCrs) -> str:
@@ -106,21 +101,6 @@ def reproject(
     out, report = _reproject.reproject_points(
         points, _source_text(data_crs), target, allow_network=allow_network
     )
-    preset = crs_presets.for_definition(project_crs.definition or "")
-    if preset is not None:
-        note = (
-            f"The project CRS is the preset {preset.label}: the points were reprojected into "
-            f"{preset.epsg}, the datum the scene's coordinates are in, not through the "
-            "preset's +towgs84 null shift."
-        )
-        report = ReprojectionReport(
-            source=report.source,
-            target=report.target,
-            operation=report.operation,
-            accuracy_m=report.accuracy_m,
-            network=report.network,
-            notes=(*report.notes, note),
-        )
     return out, report
 
 
@@ -173,7 +153,7 @@ def project_crs(placement: Placement) -> DataCrs | None:
     if not definition:
         return None
     return DataCrs(
-        epsg=normalise_epsg(definition) or crs_presets.epsg_code(definition),
+        epsg=normalise_epsg(definition) or crs_catalog.epsg_code(definition),
         definition=definition,
         source=SOURCE_PROJECT,
     )
@@ -341,12 +321,6 @@ def _normal_text(text: str) -> str:
     return " ".join(text.split()).lower()
 
 
-def preset_for_epsg(epsg: str | None) -> crs_presets.CrsPreset | None:
-    """The GeoTools CRS preset that stands in for ``epsg``, if there is one."""
-    code = normalise_epsg(epsg) if epsg else None
-    return next((p for p in crs_presets.PRESETS if p.epsg == code), None) if code else None
-
-
 # EPSG codes of common geographic (degree) CRSs, for when pyproj cannot be asked.
 _GEOGRAPHIC = frozenset(
     f"EPSG:{code}" for code in (4326, 4979, 4283, 4939, 7844, 7843, 4167, 4258, 4269, 4617, 4019)
@@ -356,8 +330,8 @@ _GEOGRAPHIC = frozenset(
 def is_geographic(crs: DataCrs) -> bool | None:
     """True for a geographic CRS (degrees), False for a projected one, None if unknown.
 
-    Asks pyproj when it is available; otherwise GeoTools' presets are
-    projected, a few common geographic codes are known, and the rest is None.
+    Asks pyproj when it is available; otherwise a few common geographic codes
+    are known, and the rest is None.
     """
     if not crs.known:
         return None
@@ -375,6 +349,4 @@ def is_geographic(crs: DataCrs) -> bool | None:
                 return False
     if crs.epsg in _GEOGRAPHIC:
         return True
-    if preset_for_epsg(crs.epsg) is not None or crs_presets.for_definition(crs.definition or ""):
-        return False
     return None

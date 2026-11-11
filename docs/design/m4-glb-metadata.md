@@ -232,7 +232,7 @@ so a northing keeps its millimetres); arrays are `{"@list": [...]}`.
 | `geotools:version` | GeoTools version that wrote the file |
 | `geotools:placement` | `local`, `anchor` or `source_crs` |
 | `geotools:axes`, `geotools:units` | `y-up`, `metre`: the model coordinates |
-| `geotools:crs` | `EPSG:nnnn` for a preset or an EPSG code (`crs_presets.epsg_code`) |
+| `geotools:crs` | `EPSG:nnnn` for an EPSG code (`crs_catalog.epsg_code`) |
 | `geotools:crsDefinition` | the definition rusty-tiles was given (EPSG code, PROJ or WKT) |
 | `geotools:sourceOffset` | E, N, A of the source offset |
 | `geotools:heightOffset` | metres added to height plus A for the ellipsoidal height |
