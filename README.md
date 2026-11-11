@@ -14,7 +14,7 @@ The rebuild is at milestone M1 (project and georeference). In the 3D Viewport
 sidebar (**GeoTools** tab) the extension can:
 
 - **Place the project:** local metres, a WGS84 anchor with a heading, or a
-  source CRS with a Metashape-style E/N/A offset and a height offset. Offsets
+  source CRS with a E/N/A offset and a height offset. Offsets
   and coordinates are stored at full double precision.
 - **Ingest a source mesh:** GLB, glTF, OBJ or PLY goes into a source
   collection. An offset file next to the source is picked up automatically.

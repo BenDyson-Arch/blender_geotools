@@ -1,4 +1,4 @@
-"""Tests for geotools.core.metashape: the rusty-tiles offset-file rule."""
+"""Tests for geotools.core.offsets: the rusty-tiles offset-file rule."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from geotools.core.metashape import (
+from geotools.core.offsets import (
     OFFSET_FILE_MAX_BYTES,
     OffsetFileError,
     find_offset_file,
@@ -14,7 +14,7 @@ from geotools.core.metashape import (
     read_offset_file,
 )
 
-# The two real Metashape files from rusty-tiles' own tests, byte for byte.
+# The two offset files from rusty-tiles' own tests, byte for byte.
 MGAL = "E: 14812000\nN: -1384000\nA: 100\n"
 POHNPEI = "E: 17620600\nN: 768700\nA: 70\n"
 

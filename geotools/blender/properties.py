@@ -163,7 +163,7 @@ def placement_from_scene(scene: bpy.types.Scene) -> Placement:
 
 
 def apply_source_offset(props: "GeoToolsProject", offset: Vec3, path: str = "") -> None:
-    """Switch to SOURCE_CRS and store an offset, e.g. from a Metashape file.
+    """Switch to SOURCE_CRS and store an offset, e.g. from an offset file.
 
     The CRS is left as it is: an offset file does not say which CRS it is in.
     """

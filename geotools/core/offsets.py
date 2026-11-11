@@ -1,4 +1,8 @@
-"""Metashape offset files. CONTRACT (M1).
+"""E/N/A offset files: the rusty-tiles `--source-offset-file` format.
+
+These files are written by hand; no photogrammetry tool exports one. They hold
+the shift that was subtracted from the coordinates on export (for example the
+shift typed into Metashape's export dialog), which rusty-tiles adds back.
 
 The rule is rusty-tiles' own ``--source-offset-file`` rule (``parse_offset_file`` in
 its ``mesh_large/source_crs.rs``), reproduced exactly so a file GeoTools accepts is
@@ -27,7 +31,7 @@ _NUMBER = re.compile(r"[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
 
 
 class OffsetFileError(ValueError):
-    """The file is not a valid Metashape offset file."""
+    """The file is not a valid E/N/A offset file."""
 
 
 def parse_offset_text(text: str) -> Vec3:

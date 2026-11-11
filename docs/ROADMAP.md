@@ -106,7 +106,9 @@ GeoTools creates tilesets; it no longer imports them.
     rusty-tiles is called with `source_axes = y-up`;
   - or a local anchor and orientation for unreferenced scenes.
 - Ingest a source mesh with Blender's GLB, OBJ or PLY importers, and read a
-  Metashape `offset.txt`.
+  hand-written E/N/A offset file (rusty-tiles' `--source-offset-file` format).
+  Photogrammetry tools don't export one; the shift entered at export time is
+  typed in or kept in such a file.
 - A source collection, build profiles, and a check of the scene against
   rusty-tiles' input rules.
 - **Exit:** a Metashape export is placed correctly, and its CRS and offsets

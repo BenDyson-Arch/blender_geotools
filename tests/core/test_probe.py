@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from geotools.core import probe as probe_module
-from geotools.core.metashape import find_offset_file, read_offset_file
+from geotools.core.offsets import find_offset_file, read_offset_file
 from geotools.core.placement import Placement, PlacementMode, blender_to_gltf
 from geotools.core.preflight import ObjectSummary, SceneSummary, check
 from geotools.core.probe import PlacementProbe, probe_placement, write_probe_glb
@@ -263,10 +263,10 @@ def rusty_tiles():
     return pytest.importorskip("rusty_tiles")
 
 
-def write_metashape_export(
+def write_shifted_export(
     folder: Path, offset_text: str, size: tuple[float, float, float], seed: int
 ) -> Path:
-    """A Metashape-style GLB: glTF Y-up, relative to the offset, plus its offset file.
+    """A shifted export: glTF Y-up GLB relative to the offset, plus an offset file.
 
     ``size`` is the (east, north, height) extent in source units.
     """
@@ -305,10 +305,10 @@ EXPORTS = [
 
 
 @pytest.mark.parametrize(("crs", "offset_text", "size", "height_offset"), EXPORTS)
-def test_m1_exit_metashape_export_is_placed_like_rusty_tiles(
+def test_m1_exit_shifted_export_is_placed_like_rusty_tiles(
     rusty_tiles, tmp_path: Path, crs: str, offset_text: str, size, height_offset: float
 ) -> None:
-    source = write_metashape_export(tmp_path, offset_text, size, seed=len(crs))
+    source = write_shifted_export(tmp_path, offset_text, size, seed=len(crs))
 
     # The reference: rusty-tiles reading the export as its CLI would.
     offset_file = tmp_path / "site_offset.txt"
@@ -367,7 +367,7 @@ def test_m1_exit_metashape_export_is_placed_like_rusty_tiles(
 
 def test_offset_round_trips_into_the_report(rusty_tiles) -> None:
     text = "E: 502000.125\nN: 6961000.0625\nA: -3.5\n"
-    from geotools.core.metashape import parse_offset_text
+    from geotools.core.offsets import parse_offset_text
 
     offset = parse_offset_text(text)
     placement = Placement(

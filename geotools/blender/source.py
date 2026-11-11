@@ -1,11 +1,11 @@
-"""Source collection: ingest a mesh, read a Metashape offset file, summarise."""
+"""Source collection: ingest a mesh, read an offset file, summarise."""
 
 from pathlib import Path
 
 import bpy
 from bpy.props import EnumProperty, StringProperty
 
-from ..core import metashape
+from ..core import offsets
 from ..core.preflight import SceneSummary
 from .common import redraw_ui
 from .properties import apply_source_offset, format_vec
@@ -112,12 +112,12 @@ def detect_offset(props: bpy.types.PropertyGroup, source: Path) -> tuple[set[str
     Returns the report level and a sentence for the operator report ("" if no
     file was found).
     """
-    found = metashape.find_offset_file(source)
+    found = offsets.find_offset_file(source)
     if found is None:
         return {"INFO"}, ""
     try:
-        offset = metashape.read_offset_file(found)
-    except (metashape.OffsetFileError, OSError) as ex:
+        offset = offsets.read_offset_file(found)
+    except (offsets.OffsetFileError, OSError) as ex:
         return {"WARNING"}, f"Found {found.name} but could not read it: {ex}"
     apply_source_offset(props, offset, str(found))
     message = f"Offset read from {found.name}; placement set to Source CRS."
@@ -193,7 +193,7 @@ class GEOTOOLS_OT_ingest_source(bpy.types.Operator):
 
 
 class GEOTOOLS_OT_load_offset_file(bpy.types.Operator):
-    """Read a Metashape offset file (E, N, A) into the source offset"""
+    """Read an E/N/A offset file into the source offset"""
 
     bl_idname = "geotools.load_offset_file"
     bl_label = "Load Offset File"
@@ -211,7 +211,7 @@ class GEOTOOLS_OT_load_offset_file(bpy.types.Operator):
             source = context.scene.geotools.source_filepath
             if source:
                 source_path = Path(bpy.path.abspath(source))
-                found = metashape.find_offset_file(source_path)
+                found = offsets.find_offset_file(source_path)
                 self.filepath = str(found) if found else str(source_path.parent) + "/"
         context.window_manager.fileselect_add(self)
         return {"RUNNING_MODAL"}
@@ -222,8 +222,8 @@ class GEOTOOLS_OT_load_offset_file(bpy.types.Operator):
             return {"CANCELLED"}
         path = Path(bpy.path.abspath(self.filepath))
         try:
-            offset = metashape.read_offset_file(path)
-        except metashape.OffsetFileError as ex:
+            offset = offsets.read_offset_file(path)
+        except offsets.OffsetFileError as ex:
             self.report({"ERROR"}, f"{path.name} is not a valid offset file: {ex}")
             return {"CANCELLED"}
         except OSError as ex:

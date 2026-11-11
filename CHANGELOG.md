@@ -26,7 +26,8 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   CRS with E/N/A source offset and height offset, stored as binary64 text so
   large offsets keep full precision.
 - Source ingest for GLB, glTF, OBJ and PLY into a source collection, with
-  Metashape offset files detected next to the source or loaded by hand.
+  E/N/A offset files (rusty-tiles' `--source-offset-file` format, written by
+  hand) detected next to the source or loaded explicitly.
 - Checks of the source against rusty-tiles' mesh input rules, listed by
   severity in the sidebar.
 - Verify Placement, which runs rusty-tiles on one triangle spanning the source
