@@ -486,6 +486,116 @@ Settled in work stream 2.
 - **File > Import** has "GeoTIFF (.tif, .tiff)" (`geotools.import_geotiff`).
   The sidebar button is in the Linked Data panel (stream 1).
 
+## Recipe: draping contexts (stream 3)
+
+Settled in `feat/m8-recipes-vector-publish`. Docs, an example and no GeoTools
+modelling code: [docs/recipes/drape-contexts.md](../recipes/drape-contexts.md).
+
+- **Example:** `scripts/make_example_drape.py` (run with `blender --background
+  --factory-startup --python ...`) writes `examples/drape-contexts/`: a
+  synthetic 60 m terrain (`terrain.ply` in local metres with
+  `terrain_offset.txt`), nine invented contexts in EPSG:32631 at round numbers
+  (`contexts.geojson`, 2D, RFC 7946 winding, legacy `crs` member) with
+  `depth_top` and `depth_bottom` in metres below the surface, and
+  `drape-contexts.blend` (about 0.5 MB, under 1 MB with the other files). The
+  script registers GeoTools from the checkout, imports the GeoJSON with the
+  real operator, and stores the link as `//contexts.geojson`, so the example
+  works wherever it is checked out. The committed files are its output.
+- **Drape** (group "Drape on Terrain", on the linked `contexts` object):
+  Subdivide Mesh (level 3), Object Info (Relative) of the terrain, Raycast from
+  (x, y, 10000) down 20000 m, Set Position to Hit Position where Is Hit, then
+  Set Position with Offset (0, 0, -Named Attribute). The attribute name is a
+  group input. Face values reach vertices by Blender's domain interpolation,
+  exact here because imported features share no vertices.
+- **Volumes** (group "Context Volumes", on `contexts.volumes`): Object Info of
+  the draped tops, Extrude Mesh (Faces, Offset Combine XYZ (0, 0, -1) linked,
+  Offset Scale `depth_bottom - depth_top`), Flip Faces, Join Geometry with the
+  tops, Merge by Distance 0.5 mm. Found while testing: Extrude Mesh's Offset is
+  an implicit normal field, so an unlinked default value is ignored and the
+  extrusion goes along the normal; and extruding against the normals leaves
+  walls and bases inward, hence Flip Faces before the join. The result is
+  closed (every edge has two faces) and its signed volume is the sum of area
+  times thickness. A separate object keeps the tops exportable: a closed group
+  of faces has no boundary, so `polygons_from_faces` drops it.
+- **Tests** (`tests/blender/test_drape_example.py`): the committed example is
+  under 3 MB, synthetic and within 30 m of the invented centre; the script runs
+  in a subprocess Blender; the opened .blend drapes to within 1 cm of the
+  terrain minus `depth_top`; the volumes are closed and within 0.5% of the
+  expected volume; the GeoPackage export has absolute Z; an edit of the
+  GeoJSON (a deeper context and one moved 1 m) shows as changed, refreshes
+  with 2 changed features, and re-drapes, with the volumes following; and,
+  with rusty-tiles bundled, the Contexts profile publishes, validates and
+  republishes with reuse.
+
+## Vector publish
+
+Settled in `feat/m8-recipes-vector-publish`.
+
+- **Where:** a build profile Format **Vectors** (`output_type` `VECTOR`, suffix
+  `.3tz`) with a **Vectors** collection (`vector_collection`). Every mesh object
+  in it (and its child collections), sorted by name, is one GeoPackage table per
+  geometry kind (`publish.vector.table_names`: the object name with
+  non-identifier characters as `_`, `_lines`/`_points` for those kinds unless
+  the name already ends so, `_2` ... for clashes; stable, since reuse keys
+  features by layer and source id). No source collection is needed, and the
+  mesh checks do not run. Variants are refused.
+- **Geometry:** the same reader as Export Vectors (`vectors.mesh_input`): the
+  evaluated mesh unless the profile's Apply Modifiers is off (then the original
+  mesh data, with the evaluated transform), world space plus the project offset
+  in binary64, with source column names restored for linked objects. Edit-mode
+  changes are synced first, as for the mesh publish.
+- **The job** (`publish/job.py`, `_build_vector`, bpy-free; the request's
+  `vector` is a `publish.vector.VectorSource`): writes `work/vectors.gpkg` with
+  `gpkg.write_layer` (project CRS in `gpkg_spatial_ref_sys`, srs_id -1 for
+  LOCAL), then `vector_to_3tz(gpkg, output, force, layers, reuse_tileset,
+  callback, source_crs, height_offset, jobs, skip_invalid, reproducible=True)`
+  on the worker thread, with the mesh publish's progress events, cancel and
+  validation.
+- **CRS:** `source_crs` is always passed, never left to the GeoPackage:
+  `publish.vector.placement_kwargs` gives the project's own `source_crs` text
+  (the same string the mesh publish passes) and its `height_offset`.
+  - With a GeoTools preset this is the PROJ definition with `+towgs84`, which
+    the bundled 0.4.0 accepts. The GeoPackage declares EPSG:7856, which 0.4.0
+    would refuse (and a 3D horizontal CRS needs an explicit `height_offset`
+    anyway).
+  - When the presets become plain EPSG codes (rusty-tiles 0.4.1's allow-list,
+    the EPSG picker), the code passes through unchanged. Nothing here depends on
+    the preset table.
+  - LOCAL publishes `source_crs="local"` (local metres). ANCHOR is refused:
+    rusty-tiles places vectors by CRS and has no anchor for them.
+- **Heights:** the GeoPackage has absolute Z (local z + A), and rusty-tiles adds
+  `height_offset`: ellipsoidal = z + A + height offset, as for meshes.
+- **Reuse:** with Incremental (`vector_reuse`, on by default) and an archive at
+  the output, the job copies it to `work/previous.3tz` and passes that as
+  `reuse_tileset`. rusty-tiles refuses the output itself as a baseline ("vector
+  output aliases source or reused archive"). It also refuses a baseline built
+  with other settings or another encoder, with an error starting "previous ...";
+  the job then builds afresh and records why (`vectors.reuse.refused`). Any
+  other failure fails the job, and the previous archive stays. Measured with
+  0.4.0: an unchanged republish reports `rebuiltContents` 0.
+- **Record:** build.json schema 2 with `output_type` `"vector"`, `placement`
+  (`source_crs`, `height_offset`, `crs_epsg`), `source.gpkg_sha256`,
+  `settings` (force, validate, jobs, skip_invalid, reproducible), `vectors`
+  (path, sha256, bytes, CRS label, tables with object, kind and feature count,
+  `reuse`: requested, used, reason or refused, and rusty-tiles' reuse counts),
+  `report_summary` (features, tiles, leaf tiles, skipped, each layer's CRS and
+  height rule) and `validation`. `vectors.gpkg` and `report.json` are promoted
+  into the staging directory beside `build.json`. `geotools` names the
+  vector collection and objects.
+- **UI:** Format has a third button, Vectors. The Publish panel shows the
+  Vectors collection instead of Variant; Build Settings shows Apply Modifiers,
+  Incremental, Skip Invalid and Threads; Last Build shows Features instead of
+  Triangles; the profile list says "Vectors". Preview works on the `.3tz` as
+  for meshes.
+- **Tests:** `tests/core/test_publish_vector.py` (placement keywords, table
+  names, GeoPackage in binary64, the job with a fake rusty-tiles: reuse copy,
+  refusal fallback, failure keeps the archive; and with the real wheel: the
+  MGA preset validates, an unchanged republish reuses everything, other LOD
+  settings fall back) and `tests/blender/test_vector_publish.py` (UI, refusals,
+  an end-to-end publish of a linked layer raised by a Geometry Nodes modifier,
+  validated, refreshed and republished with reuse, Apply Modifiers off, and a
+  LOCAL project).
+
 ## Work streams
 
 1. **Vectors:** `core/crs_match.py`, `core/vector/*`, import/export
@@ -497,7 +607,9 @@ Settled in work stream 2.
    them as specified and expect a merge. (Done: its stand-ins were replaced
    by stream 1's modules in `feat/m8-integration`.)
 3. **Recipe:** docs and an example `.blend` (draping, offsetting by depth or
-   level, extruding volumes), after stream 1.
+   level, extruding volumes), after stream 1. (Done, with vector publish, in
+   `feat/m8-recipes-vector-publish`: see "Recipe: draping contexts" and
+   "Vector publish" above.)
 
 The integration branch (`feat/m8-integration`) merged streams 1 and 2 on top
 of the vertex-bake removal and the pyproj bundle, reconciled the shared API

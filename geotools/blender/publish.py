@@ -7,7 +7,9 @@ touches ``bpy``. This module is the main-thread side:
    every layer's range and status from the evaluated meshes), builds a
    variant's presentation, extracts the scene with ``export.extract_scene``
    (main thread; the evaluated meshes unless the build profile's Apply
-   Modifiers is off) and starts one job per session;
+   Modifiers is off) and starts one job per session. A Vectors profile (M8)
+   instead reads its vector collection (``vector_publish.prepare``) and the
+   job tiles it with ``vector_to_3tz``;
 2. a ``bpy.app.timers`` function (:func:`update_from_job`) drains the job's
    events into the window manager's ``geotools_publish`` status, redraws the
    sidebar and, when the job ends, stores the result on the build profile;
@@ -44,6 +46,7 @@ from .layers import layer_records
 from .presentation import build_presentation, variant_issues
 from .properties import OUTPUT_SUFFIXES, FieldError, placement_from_props
 from .ui import info_row, wrapped
+from .vector_publish import is_vector
 
 log = logging.getLogger(__name__)
 
@@ -197,6 +200,10 @@ def _store_result(session: _Session) -> None:
     summary = result.report_summary
     if result.output.suffix == ".glb":
         summary = {"triangles": result.triangles, "tiles": ""}
+    vector = "features" in summary and not result.triangles
+    profile.last_features = str(summary.get("features", "")) if vector else ""
+    if vector:
+        summary = {**summary, "triangles": ""}
     profile.last_output = str(result.output)
     profile.last_record = str(result.record_path)
     profile.last_build_utc = _utc_now()
@@ -363,6 +370,13 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
             )
         profile = active_profile(context.scene) if context.scene is not None else None
         name = output_name(context.scene, profile) if profile is not None else None
+        if name and is_vector(profile):
+            collection = profile.vector_collection
+            what = f"the objects of {collection.name}" if collection else "the vector objects"
+            return (
+                f"Write {name} with build profile {profile.name}: {what} as vector features "
+                "(polygons, lines, points with their attributes), tiled by rusty-tiles"
+            )
         if name and is_glb(profile):
             return (
                 f"Write {name} with build profile {profile.name}: run the checks and write a "
@@ -394,10 +408,10 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
         # Before anything below writes to the scene (store_issues does).
         blend_path = blend_path_for_record()
         props = context.scene.geotools
-        if props.source_collection is None:
+        profile = active_profile(context.scene)
+        if props.source_collection is None and not is_vector(profile):
             self.report({"ERROR"}, "Cannot publish: set or ingest a source collection first")
             return {"CANCELLED"}
-        profile = active_profile(context.scene)
         if profile is None:
             self.report(
                 {"ERROR"},
@@ -410,6 +424,8 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
         except OutputPathError as ex:
             self.report({"ERROR"}, f"Cannot publish with {profile.name!r}: {ex}")
             return {"CANCELLED"}
+        if is_vector(profile):
+            return self._execute_vector(context, profile, output, blend_path)
         variant = self.layer.strip() or profile.variant_layer.strip()
         if variant:
             try:
@@ -553,6 +569,82 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
         note = f" ({', '.join(notes)})" if notes else ""
         verb = "Exporting" if glb else "Publishing"
         self.report({"WARNING" if invalid_layers else "INFO"}, f"{verb} {output.name}{note}")
+        redraw_ui(context)
+        return {"FINISHED"}
+
+    def _execute_vector(
+        self,
+        context: bpy.types.Context,
+        profile: bpy.types.PropertyGroup,
+        output: Path,
+        blend_path: Path | None,
+    ) -> set[str]:
+        """A Vectors profile: read the vector collection, then tile it on the worker."""
+        global _session
+        from . import vector_publish
+
+        if self.layer.strip() or profile.variant_layer.strip():
+            self.report({"ERROR"}, "Cannot publish: variants are for .3tz mesh profiles")
+            return {"CANCELLED"}
+        issues = vector_publish.vector_issues(context, profile)
+        if issues:
+            self.report({"ERROR"}, f"Cannot publish: {issues[0].message}")
+            return {"CANCELLED"}
+        dep = deps.probe_rusty_tiles()
+        if not dep.available:
+            self.report({"ERROR"}, f"Cannot publish: {dep.summary}")
+            return {"CANCELLED"}
+        try:
+            lock = st.StagingLock.acquire(output)
+        except (st.StagingBusyError, OSError) as ex:
+            self.report({"ERROR"}, f"Cannot publish: {ex}")
+            return {"CANCELLED"}
+        try:
+            prepared = vector_publish.prepare(context, profile)
+            apply = bool(profile.apply_modifiers)
+            collection = profile.vector_collection
+            extra_record = _extra_record(context, profile.name, "", apply)
+            del extra_record["source_collection"]
+            extra_record["vector_collection"] = collection.name if collection else None
+            extra_record["vector_objects"] = prepared.objects
+            request = BuildRequest(
+                output=output,
+                placement_kwargs=dict(prepared.placement_kwargs),
+                force=profile.overwrite,
+                validate=profile.validate,
+                extra_record=extra_record,
+                blend_path=blend_path,
+                vector=prepared.source,
+            )
+            job = BuildJob(None, request, lock=lock)
+        except vector_publish.VectorPublishError as ex:
+            lock.release()
+            self.report({"ERROR"}, f"Cannot publish: {ex}")
+            return {"CANCELLED"}
+        except Exception as ex:
+            lock.release()
+            log.exception("publish: vector extraction failed")
+            self.report({"ERROR"}, f"Cannot publish: {type(ex).__name__}: {ex}")
+            return {"CANCELLED"}
+
+        status_ = status(context)
+        if status_ is not None:
+            status_.state = "PENDING"
+            status_.phase = ""
+            status_.done, status_.total = 0, -1
+            status_.message = "Starting"
+            status_.elapsed = 0.0
+            status_.output = str(output)
+            status_.profile_name = profile.name
+        _session = _Session(job=job, scene_name=context.scene.name, profile_name=profile.name)
+        job.start()
+        _start_timer()
+        features = prepared.source.features
+        text = f"Publishing {output.name} ({features:,} feature{'s' * (features != 1)})"
+        if prepared.warnings:
+            self.report({"WARNING"}, " ".join([text + ".", *prepared.warnings]))
+        else:
+            self.report({"INFO"}, text)
         redraw_ui(context)
         return {"FINISHED"}
 
@@ -810,6 +902,8 @@ def draw_last_build(
         info_row(col, "Took", format_seconds(profile.last_seconds))
     if profile.last_triangles:
         info_row(col, "Triangles", format_count(int(profile.last_triangles)))
+    if getattr(profile, "last_features", ""):
+        info_row(col, "Features", format_count(int(profile.last_features)))
     if profile.last_tiles:
         info_row(col, "Tiles", format_count(int(profile.last_tiles)))
     glb = Path(profile.last_output).suffix == ".glb"

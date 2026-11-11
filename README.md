@@ -56,7 +56,11 @@ setting up, or a warning or error icon:
    preferences. A 10M-triangle textured scene publishes in about 20 minutes on
    a 20-core desktop. A profile whose **Format** is `.glb` exports the
    metadata GLB instead (below), through the same checks, with **Export
-   site.glb**.
+   site.glb**. A **Vectors** profile publishes the GeoJSON and GeoPackage
+   objects of a collection (draped by modifiers or not) as vector 3D Tiles,
+   and republishes only what changed. The
+   [draping recipe](docs/recipes/drape-contexts.md) drapes excavation contexts
+   on a site mesh with stock Geometry Nodes, with an example file.
 7. **About** (closed by default): the extension, rusty-tiles and pyproj versions.
 
 ### GLB with metadata
@@ -91,8 +95,8 @@ The plan is in [docs/ROADMAP.md](docs/ROADMAP.md).
   measurement, and a library of Geometry Nodes analysis presets.
 - M6: texture painting and cleanup.
 - M7: open output tiles in Blender and check their quality.
-- M8 (under way): GeoJSON, GeoPackage and GeoTIFF import and export are in;
-  the draping and extrusion recipes and vector publishing are next.
+- M8: GeoJSON, GeoPackage and GeoTIFF import and export, vector publishing,
+  and the [draping recipe](docs/recipes/drape-contexts.md) are in.
 - M9: queryable metadata without retiling (needs rusty-tiles 0.5).
 - M10: large sites and texture-only rebuilds.
 

@@ -10,6 +10,11 @@ metadata GLB instead: the job writes it with the request's ``extension``
 (``core.gltf_metadata``) into ``work/``, moves it onto the output, writes the
 face map and build.json, and never runs rusty-tiles.
 
+A vector build (a build profile of format Vectors, M8) has no SceneExport:
+the request's ``vector`` (``publish.vector.VectorSource``) is written to
+``work/vectors.gpkg`` and tiled with ``vector_to_3tz``, reusing the previous
+archive when there is one (see ``publish.vector``).
+
 Staging layout, next to the output ``<dir>/<name>.3tz`` (see ``publish.staging``
 for the full list):
     <dir>/<name>.geotools/source.glb   the exact rusty-tiles input
@@ -53,6 +58,7 @@ from ..core.crs_presets import epsg_code
 from ..core.facemap import build_face_map, save_face_map
 from ..core.gltf_writer import SceneExport, write_glb
 from . import staging as st
+from . import vector as vec
 from .staging import StagingLock, check_output, staging_dir_for
 
 __all__ = [
@@ -74,7 +80,9 @@ RECORD_SCHEMA = 2
 ``source`` (GLB and ``.blend`` hashes), ``placement.crs_epsg`` and ``variant``
 (the presented layer of a variant tileset, null for the plain one), and then
 ``output_type`` (``"3tz"`` or ``"glb"``) and, for a GLB, ``glb``: its file,
-extensions used, options and face table cost (M4)."""
+extensions used, options and face table cost (M4). Vector builds (M8) have
+``output_type`` ``"vector"`` and ``vectors``: the GeoPackage tiled, its tables
+and whether the previous archive was reused."""
 
 MAX_RECORDED_WARNINGS = 50
 
@@ -131,9 +139,13 @@ class BuildRequest:
     # and what build.json records about it (options, extensions, face table cost).
     extension: object | None = None
     glb_record: dict[str, object] = field(default_factory=dict)
+    # Vector builds (M8): the features to write and tile (publish.vector.VectorSource).
+    vector: vec.VectorSource | None = None
 
     @property
     def output_type(self) -> str:
+        if self.vector is not None:
+            return "vector"
         return "glb" if Path(self.output).suffix == ".glb" else "3tz"
 
 
@@ -311,12 +323,22 @@ def _rmtree(path: Path) -> None:
 
 class BuildJob:
     def __init__(
-        self, scene: SceneExport, request: BuildRequest, *, lock: StagingLock | None = None
+        self,
+        scene: SceneExport | None,
+        request: BuildRequest,
+        *,
+        lock: StagingLock | None = None,
     ) -> None:
         """``lock``: a held :class:`StagingLock` for the output, if the caller took
         it before extracting the scene (the Blender side does, so two sessions
         cannot overwrite each other's images). The job releases it when it ends.
-        Without one the job takes the lock itself on the worker thread."""
+        Without one the job takes the lock itself on the worker thread.
+
+        ``scene`` is None for a vector build, whose request carries ``vector``."""
+        if scene is None and request.vector is None:
+            raise ValueError("a mesh or GLB build needs the scene")
+        if request.vector is not None and Path(request.output).suffix != ".3tz":
+            raise ValueError("a vector build writes a .3tz archive")
         self._scene = scene
         self._request = request
         self._output = check_output(request.output)
@@ -532,6 +554,8 @@ class BuildJob:
 
         if request.output_type == "glb":
             return self._build_glb(work, started_utc, t_start, phase_seconds, blend_sha256)
+        if request.output_type == "vector":
+            return self._build_vector(work, started_utc, t_start, phase_seconds, blend_sha256)
 
         # 1. GLB and face map. The writer has no cancel hook; check around it.
         self._set_state(JobState.WRITING, "Writing source GLB")
@@ -741,6 +765,184 @@ class BuildJob:
             seconds=seconds,
         )
         return result, f"Exported {output.name}: {glb.triangles:,} triangles, {glb.bytes:,} bytes"
+
+    def _build_vector(
+        self,
+        work: Path,
+        started_utc: str,
+        t_start: float,
+        phase_seconds: dict[str, float],
+        blend_sha256: str | None,
+    ) -> tuple[BuildResult, str]:
+        """Vectors: write the GeoPackage, ``vector_to_3tz`` (reusing the previous
+        archive), validate, record."""
+        request = self._request
+        source = request.vector
+        assert source is not None
+        output = self._output
+
+        # 1. The GeoPackage, through the vector exporter (sqlite3; no cancel hook).
+        self._set_state(JobState.WRITING, f"Writing {source.features:,} vector features")
+        t = time.monotonic()
+        gpkg_path = work / st.VECTORS_NAME
+        tables = vec.write_source(source, gpkg_path)
+        gpkg_sha256 = _sha256_file(gpkg_path)
+        phase_seconds["write_gpkg"] = time.monotonic() - t
+        self._check_cancel()
+
+        # 2. The reuse baseline: rusty-tiles refuses the output itself as
+        # reuse_tileset, so a copy of it goes into work/.
+        previous: Path | None = None
+        reuse: dict[str, object] = {"requested": source.reuse, "used": False}
+        if source.reuse and output.is_file():
+            t = time.monotonic()
+            previous = work / st.PREVIOUS_NAME
+            shutil.copyfile(output, previous)
+            phase_seconds["copy_previous"] = time.monotonic() - t
+            self._check_cancel()
+        elif source.reuse:
+            reuse["reason"] = "no previous archive"
+
+        # 3. Tiling.
+        rt = _rusty_tiles()
+        options = dict(source.options)
+        self._set_state(JobState.TILING, f"Tiling {source.features:,} vector features")
+        t = time.monotonic()
+        try:
+            try:
+                tiled = self._vector_to_3tz(rt, gpkg_path, output, tables, options, previous)
+                reuse["used"] = previous is not None
+            except Exception as ex:
+                if previous is None or self._cancel.is_set() or not vec.is_reuse_refusal(ex):
+                    raise
+                # rusty-tiles cannot reuse this archive (another encoder or
+                # settings): say why, and build afresh.
+                reuse["refused"] = f"{type(ex).__name__}: {ex}"
+                self._events.put(
+                    ProgressEvent(
+                        state=JobState.TILING,
+                        message=f"The previous archive cannot be reused ({ex}); building afresh",
+                    )
+                )
+                tiled = self._vector_to_3tz(rt, gpkg_path, output, tables, options, None)
+        finally:
+            if previous is not None:  # a copy of the output; never kept, even on failure
+                previous.unlink(missing_ok=True)
+        phase_seconds["tiling"] = time.monotonic() - t
+        self._published = True
+        report = dict(tiled.report)
+        write_json(work / st.REPORT_NAME, report)
+        summary = vec.summarise_vector_report(report)
+        if isinstance(summary.get("reuse"), Mapping):
+            reuse["report"] = summary["reuse"]
+
+        # 4. Validation (the archive is installed: a failure is recorded).
+        validation: dict[str, object] = {"requested": request.validate, "ok": None}
+        if request.validate and self._cancel.is_set():
+            validation["skipped"] = "cancelled"
+        elif request.validate:
+            self._set_state(JobState.VALIDATING, "Validating the archive")
+            t = time.monotonic()
+            validation.update(self._validate(rt, output, work))
+            phase_seconds["validation"] = time.monotonic() - t
+        validation_ok = validation["ok"]
+
+        # 5. Record.
+        staging = self._staging
+        record_path = staging / st.RECORD_NAME
+        seconds = time.monotonic() - t_start
+        features = int(summary.get("features", source.features))  # type: ignore[arg-type]
+        placement = dict(request.placement_kwargs)
+        record = {
+            "schema": RECORD_SCHEMA,
+            "output_type": "vector",
+            "output": str(output),
+            "output_bytes": _size(output),
+            "started_utc": started_utc,
+            "finished_utc": _utc_now(),
+            "seconds": seconds,
+            "phase_seconds": phase_seconds,
+            "rusty_tiles_phase_seconds": {},
+            "rusty_tiles_version": _rusty_tiles_version(rt),
+            "geotools": dict(request.extra_record),
+            "settings": {
+                "force": request.force,
+                "validate": request.validate,
+                **{k: v for k, v in options.items() if k not in ("source_crs", "height_offset")},
+            },
+            "placement": {
+                **placement,
+                "crs_epsg": epsg_code(placement.get("source_crs")),  # type: ignore[arg-type]
+            },
+            "source": {"gpkg_sha256": gpkg_sha256, "blend_sha256": blend_sha256},
+            "layers": [dict(record) for record in request.layers],
+            "variant": None,
+            "vectors": {
+                "path": st.VECTORS_NAME,
+                "sha256": gpkg_sha256,
+                "bytes": _size(gpkg_path),
+                "crs": None if source.crs is None else source.crs.label(),
+                "tables": tables,
+                "features": source.features,
+                "reuse": reuse,
+            },
+            "report": st.REPORT_NAME,
+            "report_summary": summary,
+            "validation": validation,
+            "warnings": {"count": self._warning_count, "first": list(self._warnings)},
+            "cleanup_diagnostics": list(getattr(tiled, "cleanup_diagnostics", ()) or ()),
+        }
+        record_path.unlink(missing_ok=True)
+        for name in st.PROMOTED_FILES:
+            src = work / name
+            if src.exists():
+                os.replace(src, staging / name)
+            else:
+                (staging / name).unlink(missing_ok=True)
+        write_json(record_path, record)
+
+        result = BuildResult(
+            output=output,
+            staging_dir=staging,
+            glb_sha256="",
+            triangles=0,
+            report_summary={**summary, "features": features},
+            validation_ok=validation_ok,  # type: ignore[arg-type]
+            record_path=record_path,
+            seconds=seconds,
+        )
+        tiles = summary.get("tiles")
+        message = f"Published {output.name}: {features:,} features"
+        if tiles is not None:
+            message += f", {tiles} tiles"
+        if reuse.get("used"):
+            message += " (incremental)"
+        if validation_ok is False:
+            message += "; validation FAILED"
+        elif validation.get("skipped"):
+            message += "; validation skipped (cancelled after publishing)"
+        elif validation_ok:
+            message += ", validated"
+        return result, message
+
+    def _vector_to_3tz(
+        self,
+        rt: ModuleType,
+        gpkg_path: Path,
+        output: Path,
+        tables: list[dict[str, object]],
+        options: dict[str, object],
+        previous: Path | None,
+    ) -> Any:
+        return rt.vector_to_3tz(
+            gpkg_path,
+            output,
+            force=self._request.force,
+            layers=[str(t["table"]) for t in tables],
+            reuse_tileset=previous,
+            callback=self._callback,
+            **options,
+        )
 
     def _validate(self, rt: ModuleType, output: Path, work: Path) -> dict[str, object]:
         """Run rusty_tiles.validate; never raises except for internal bugs."""

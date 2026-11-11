@@ -16,8 +16,9 @@ The panels follow the workflow top to bottom, and each header shows its state
   - Details: no-data, origin, aggregation and the other rarely changed fields.
 - Checks: preflight issues and their fixes.
   - Images: the source images and their remedies.
-- Publish: build profiles, output, format (.3tz or the metadata .glb), variant,
-  the GLB options (Face Table, Earth-Placed) and the Publish (or Export) button.
+- Publish: build profiles, output, format (.3tz, the metadata .glb or Vectors),
+  variant (or, for Vectors, the vector collection), the GLB options (Face
+  Table, Earth-Placed) and the Publish (or Export) button.
   - Build Settings: Apply Modifiers, rusty-tiles quality, threads and memory.
   - Last Build: what the last publish wrote, and Preview (.3tz only).
 - Analysis: the sun, and coordinates and measurement (``analysis_ui``).
@@ -47,7 +48,7 @@ from ..core.layers import (
     parse_number,
     validate,
 )
-from . import analysis_ui, bake_texture, links_ui, presentation, publish
+from . import analysis_ui, bake_texture, links_ui, presentation, publish, vector_publish
 from .common import draw_dependency_status, extension_version
 from .layers import (
     ATTRIBUTE_MISSING,
@@ -672,10 +673,13 @@ class GEOTOOLS_PT_publish(_GeoToolsPanel, bpy.types.Panel):
         row.prop(profile, "output_path", text="", placeholder=f"//site{suffix}")
         col = split_column(layout)
         col.row().prop(profile, "output_type", expand=True)
-        row = col.row()
-        variant = profile.variant_layer.strip()
-        row.alert = bool(variant) and props.layers.get(variant) is None
-        row.prop_search(profile, "variant_layer", props, "layers", icon="RNA")
+        if vector_publish.is_vector(profile):
+            vector_publish.draw_profile(col, context, profile)
+        else:
+            row = col.row()
+            variant = profile.variant_layer.strip()
+            row.alert = bool(variant) and props.layers.get(variant) is None
+            row.prop_search(profile, "variant_layer", props, "layers", icon="RNA")
         row = layout.row(align=True)
         row.prop(profile, "overwrite")
         if glb:
@@ -725,6 +729,9 @@ class GEOTOOLS_PT_publish_settings(_GeoToolsPanel, bpy.types.Panel):
             return
         col = split_column(self.layout)
         col.prop(profile, "apply_modifiers")
+        if vector_publish.is_vector(profile):
+            vector_publish.draw_settings(col, context, profile)
+            return
         if publish.is_glb(profile):
             wrapped(
                 self.layout,

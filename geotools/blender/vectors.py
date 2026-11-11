@@ -684,10 +684,20 @@ def export_attributes(mesh: bpy.types.Mesh, domain: str) -> dict:
     return out
 
 
-def mesh_input(obj: bpy.types.Object, depsgraph, offset: tuple[float, float, float]):
-    """The evaluated mesh of ``obj`` in source coordinates (binary64)."""
+def mesh_input(
+    obj: bpy.types.Object,
+    depsgraph,
+    offset: tuple[float, float, float],
+    *,
+    apply_modifiers: bool = True,
+):
+    """The evaluated mesh of ``obj`` in source coordinates (binary64).
+
+    ``apply_modifiers`` False reads the original mesh data instead (the build
+    profile's Apply Modifiers option), still with the evaluated transform.
+    """
     evaluated = obj.evaluated_get(depsgraph)
-    mesh = evaluated.to_mesh()
+    mesh = evaluated.to_mesh() if apply_modifiers else obj.data
     try:
         co = np.empty(len(mesh.vertices) * 3, dtype=np.float32)
         mesh.vertices.foreach_get("co", co)
@@ -719,7 +729,8 @@ def mesh_input(obj: bpy.types.Object, depsgraph, offset: tuple[float, float, flo
         )
         return vmesh.vectors_from_mesh(result, obj.name, None)
     finally:
-        evaluated.to_mesh_clear()
+        if apply_modifiers:
+            evaluated.to_mesh_clear()
 
 
 def source_names(obj: bpy.types.Object, data: VectorData) -> VectorData:

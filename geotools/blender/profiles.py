@@ -115,6 +115,8 @@ class GEOTOOLS_UL_build_profiles(bpy.types.UIList):
         row.prop(item, "name", text="", emboss=False, icon="PRESET")
         if item.output_type == "GLB":
             row.label(text=".glb")  # the quality is a rusty-tiles setting
+        elif item.output_type == "VECTOR":
+            row.label(text="Vectors")
         else:
             row.label(text=item.bl_rna.properties["profile"].enum_items[item.profile].name)
 
