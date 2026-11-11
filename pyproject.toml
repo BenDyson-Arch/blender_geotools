@@ -3,10 +3,20 @@
 # scripts/build_extension.py.
 
 [tool.geotools]
-# The single pin for the bundled rusty-tiles wheels.
-rusty-tiles = "0.4.0"
-# Platforms the extension is built for (Blender platform names).
+# Platforms the extension is built for (Blender platform names). Each platform
+# zip carries one wheel of every pin below (a pure wheel serves them all).
 platforms = ["linux-x64", "windows-x64", "macos-arm64", "macos-x64"]
+
+[tool.geotools.wheels]
+# One exact version per bundled distribution; scripts/fetch_wheels.py fetches
+# them and scripts/build_extension.py refuses wheels that do not match.
+rusty-tiles = "0.4.0"
+# Reprojection of imported vector points (M8). PROJ is inside the wheel; no GDAL.
+# 3.8.0 has cp313 wheels for every platform above (macOS: arm64 14.0, x86_64
+# 15.0); see docs/design/m8-geo-formats.md for why 3.8.0 and not 3.7.2.
+pyproj = "3.8.0"
+# pyproj's only dependency (CA bundle for optional PROJ grid downloads).
+certifi = "2026.10.23"
 
 [tool.pytest.ini_options]
 testpaths = ["tests/core"]
