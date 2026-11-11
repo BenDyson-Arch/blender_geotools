@@ -16,6 +16,7 @@ from . import (
     operators,
     panels,
     preferences,
+    presentation,
     profiles,
     properties,
     publish,
@@ -34,6 +35,7 @@ MODULES: tuple[ModuleType, ...] = (
     remedies,
     profiles,
     layers,
+    presentation,
     publish,
     panels,
 )

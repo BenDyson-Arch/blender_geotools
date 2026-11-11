@@ -66,7 +66,8 @@ log = logging.getLogger(__name__)
 
 RECORD_SCHEMA = 2
 """``schema`` of build.json. 2 added ``layers`` (the M3 layer registry),
-``source`` (GLB and ``.blend`` hashes) and ``placement.crs_epsg``."""
+``source`` (GLB and ``.blend`` hashes), ``placement.crs_epsg`` and ``variant``
+(the presented layer of a variant tileset, null for the plain one)."""
 
 MAX_RECORDED_WARNINGS = 50
 
@@ -116,6 +117,9 @@ class BuildRequest:
     # The saved .blend the scene came from, hashed on the worker thread; None if
     # unsaved or modified since saving (the file would not match the scene).
     blend_path: Path | None = None
+    # A variant tileset's presentation (core.presentation.variant_record); None
+    # for the plain tileset.
+    variant: dict[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -590,6 +594,7 @@ class BuildJob:
             },
             "source": {"glb_sha256": glb.sha256, "blend_sha256": blend_sha256},
             "layers": [dict(record) for record in request.layers],
+            "variant": None if request.variant is None else dict(request.variant),
             "source_glb": {
                 "path": st.GLB_NAME,
                 "sha256": glb.sha256,
