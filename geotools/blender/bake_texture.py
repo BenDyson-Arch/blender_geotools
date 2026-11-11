@@ -1,7 +1,7 @@
 """Texture-space bake: an attribute into a TEXTURE layer's per-object images, with Cycles.
 
-``geotools.bake_texture_layer`` bakes a FACE or CORNER layer's ``gt_<name>``
-attribute, or any named attribute of the evaluated mesh (a Geometry Nodes
+``geotools.bake_texture_layer`` bakes a FACE or CORNER layer's attribute (``gt_<name>``
+or its source attribute), or any named attribute of the evaluated mesh (a Geometry Nodes
 output), into the layer's images on the source UVs. See section 3 of
 docs/design/m3-layers.md.
 
@@ -37,7 +37,7 @@ from ..core.layers import (
     DataType,
     Domain,
     Origin,
-    attribute_name,
+    effective_attribute_name,
     fill_value,
     format_provenance,
     make_provenance,
@@ -49,6 +49,7 @@ from .layers import (
     find_layer,
     layer_image,
     other_layer_names,
+    refresh_status,
     save_layer_image,
     source_objects,
     spec_from_props,
@@ -59,7 +60,7 @@ from .ui import big_button, split_column
 log = logging.getLogger(__name__)
 
 TOOL = "bake_texture"
-"""Provenance tool name, like the vertex bake's "bake_geonodes"."""
+"""Provenance tool name recorded on the layer."""
 TEMP_PREFIX = "GeoTools Bake"
 """Name prefix of the temporary materials, meshes and objects a bake makes."""
 
@@ -594,7 +595,8 @@ class GEOTOOLS_OT_bake_texture_layer(bpy.types.Operator):
             source = find_layer(scene, self.source_layer)
             if source is None or source.domain == Domain.TEXTURE.value:
                 return self._fail(f"No face or corner layer {self.source_layer!r}")
-            attribute, source_origin = attribute_name(source.name), source.origin
+            attribute = effective_attribute_name(spec_from_props(source))
+            source_origin = source.origin
         else:
             attribute, source_origin = self.attribute.strip(), Origin.GEONODES.value
         if not attribute:
@@ -640,6 +642,7 @@ class GEOTOOLS_OT_bake_texture_layer(bpy.types.Operator):
         )
         item.origin = source_origin
         low, high = update_value_range(scene, item)
+        refresh_status(scene, item)
         span = "no values" if low is None else f"{low:g} to {high:g}"
         message = (
             f"Baked {attribute} into {layer_name} on {len(baked)} object"

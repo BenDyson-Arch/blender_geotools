@@ -12,7 +12,6 @@ from types import ModuleType
 from ..core import deps
 from . import (
     bake_texture,
-    bake_vertex,
     checks,
     layers,
     operators,
@@ -39,7 +38,6 @@ MODULES: tuple[ModuleType, ...] = (
     layers,
     presentation,
     publish,
-    bake_vertex,
     bake_texture,
     panels,  # last: the sidebar draws what the modules above register
 )

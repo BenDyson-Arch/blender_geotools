@@ -1,10 +1,11 @@
 """Layer presentation and variant tilesets (``blender.presentation``, design section 4).
 
-Ramps into ``gt_present``, no-data and category colours, texture presentations,
-what the exporter writes for each target and blend mode (decoded from the GLB),
-the user's data left alone, and the variant publish: naming, staging, the
-build.json record and, with rusty-tiles, an end-to-end variant whose leaf
-COLOR_0 shows the ramp.
+Ramps into COLOR_0 colours and the ``gt_present`` preview, no-data and category
+colours, texture presentations, what the exporter writes for each target and
+blend mode (decoded from the GLB), the user's data left alone, layers computed
+by Geometry Nodes (also changing the topology), Apply Modifiers off, and the
+variant publish: naming, staging, the build.json record and, with
+rusty-tiles, end-to-end variants whose leaf COLOR_0 shows the ramp.
 """
 
 from __future__ import annotations
@@ -325,15 +326,23 @@ def test_face_ramp_to_gt_present() -> None:
     )
     values = np.arange(9, dtype=np.float32)
     _layers().write_layer(obj.data, _spec(name), values)
-    presentation, record = _present().write_presentation(bpy.context.scene, name)
+    presentation, record = _present().build_presentation(bpy.context.scene, name)
     assert presentation.target.value == "COLOR_0" and presentation.blend.value == "REPLACE"
 
+    # The exporter gets one colour per face, in memory; the mesh is not changed.
     expected = _ramps().apply_ramp(values, 0.0, 8.0, "magma")
-    got = _present_bytes(obj.data)
-    np.testing.assert_array_equal(got, np.repeat(expected, _loop_totals(obj.data), axis=0))
+    assert presentation.domain == "FACE" and set(presentation.colors) == {"Grid"}
+    np.testing.assert_array_equal(presentation.colors["Grid"], expected)
+    assert "gt_present" not in obj.data.attributes
     assert record["layer"] == "slope" and record["palette"] == "magma"
     assert record["range"] == {"min": 0.0, "max": 8.0, "auto_min": False, "auto_max": False}
     assert record["ramp_stops"] == _ramps().ramp_stops("magma", 0.0, 8.0, 11)
+
+    # The preview paints the same colours into gt_present, per corner.
+    preview_record, skipped = _present().write_preview(bpy.context.scene, name)
+    assert preview_record == record and skipped == []
+    got = _present_bytes(obj.data)
+    np.testing.assert_array_equal(got, np.repeat(expected, _loop_totals(obj.data), axis=0))
 
     # The operator does the same for the selected layer.
     obj.data.attributes.remove(obj.data.attributes["gt_present"])
@@ -367,11 +376,17 @@ def test_corner_ramp_nodata_and_auto_range() -> None:
         (h.submodule("core.issues").Severity.WARNING, "variant-data-missing")
     ], issues
 
-    _presentation, record = _present().write_presentation(bpy.context.scene, name)
+    presentation, record = _present().build_presentation(bpy.context.scene, name)
     low, high = _ramps().auto_range(values, nodata=-9999.0)
     assert record["range"] == {"min": low, "max": high, "auto_min": True, "auto_max": True}
     assert record["nodata_rgba"] == [255, 0, 0, 255]
+    # Bare has no values: the exporter paints it with the no-data colour.
+    assert presentation.domain == "CORNER" and set(presentation.colors) == {"Grid"}
+    assert presentation.nodata_rgba == (255, 0, 0, 255)
+    _preview_record, skipped = _present().write_preview(bpy.context.scene, name)
+    assert skipped == []
     got = _present_bytes(obj.data)
+    np.testing.assert_array_equal(presentation.colors["Grid"], got)
     np.testing.assert_array_equal(got[:2], [[255, 0, 0, 255]] * 2)
     np.testing.assert_array_equal(got[2:], _ramps().apply_ramp(values[2:], low, high, "greys"))
     np.testing.assert_array_equal(
@@ -381,7 +396,7 @@ def test_corner_ramp_nodata_and_auto_range() -> None:
     # One automatic end: the other is the user's.
     item = _layers().find_layer(bpy.context.scene, name)
     item.presentation.range_max = "200"
-    _presentation, record = _present().write_presentation(bpy.context.scene, name)
+    _presentation, record = _present().build_presentation(bpy.context.scene, name)
     assert record["range"] == {"min": low, "max": 200.0, "auto_min": True, "auto_max": False}
 
 
@@ -403,9 +418,9 @@ def test_category_colours() -> None:
     item.presentation.category_colors.add().color = (1.0, 0.0, 0.0)  # value 0
     item.presentation.category_colors.add().color = (0.0, 1.0, 0.0)  # value 1; 2 is default
     _layers().write_layer(obj.data, _spec(name), np.array([0, 1, 2, -1], dtype=np.int32))
-    _presentation, record = _present().write_presentation(bpy.context.scene, name)
+    presentation, record = _present().build_presentation(bpy.context.scene, name)
     default = _ramps().default_category_colours(3)[2]
-    per_face = _present_bytes(obj.data)[::4]
+    per_face = presentation.colors["Grid"]
     np.testing.assert_array_equal(
         per_face, [[255, 0, 0, 255], [0, 255, 0, 255], default, [0, 0, 0, 255]]
     )
@@ -417,7 +432,7 @@ def test_category_colours() -> None:
     h.project().layers_index = 0
     assert bpy.ops.geotools.layer_presentation_reset_colors() == {"FINISHED"}
     assert len(item.presentation.category_colors) == 3
-    _presentation, record = _present().write_presentation(bpy.context.scene, name)
+    _presentation, record = _present().build_presentation(bpy.context.scene, name)
     expected = _ramps().default_category_colours(3)
     assert [c["rgba"] for c in record["categories"]] == expected.tolist()
 
@@ -445,8 +460,9 @@ def test_user_colours_and_materials_unchanged() -> None:
         range_max="1",
     )
     _layers().write_layer(mesh, _spec(name), np.linspace(0, 1, len(mesh.polygons)))
-    _present().write_presentation(bpy.context.scene, name)
-    _present().write_presentation(bpy.context.scene, name)  # again: replaces in place
+    _present().build_presentation(bpy.context.scene, name)
+    _present().write_preview(bpy.context.scene, name)
+    _present().write_preview(bpy.context.scene, name)  # again: replaces in place
 
     attrs = mesh.color_attributes
     assert (attrs.default_color_name, attrs.active_color_name) == ("Paint", "Edit")
@@ -490,14 +506,18 @@ def test_replace_and_multiply_in_the_glb() -> None:
     for o in (obj, textured):
         count = len(o.data.polygons)
         _layers().write_layer(o.data, _spec(name), np.arange(count, dtype=np.float32))
-    presentation, _record = _present().write_presentation(bpy.context.scene, name)
+    presentation, _record = _present().build_presentation(bpy.context.scene, name)
+    assert "gt_present" not in obj.data.attributes  # the export does not need it
     expected_faces = _ramps().apply_ramp(np.arange(9, dtype=np.float32), 0.0, 8.0, "viridis")
 
     writer = h.submodule("core.gltf_writer")
     Presentation = _export().Presentation
     for blend in ("REPLACE", "MULTIPLY"):
         with _tmpdir() as tmp:
-            scene, _topology = _extract(Presentation("COLOR_0", blend), tmp / "images")
+            present = Presentation(
+                "COLOR_0", blend, colors=presentation.colors, domain=presentation.domain
+            )
+            scene, _topology = _extract(present, tmp / "images")
             writer.write_glb(scene, tmp / "source.glb")
             document, binary = _read_glb(tmp / "source.glb")
             materials = {m["name"]: m for m in document["materials"]}
@@ -524,14 +544,16 @@ def test_replace_and_multiply_in_the_glb() -> None:
     assert presentation.images == {}
 
 
-def _drop_attribute_tree(subdivide: bool) -> bpy.types.NodeTree:
-    tree = bpy.data.node_groups.new("Drop gt_present", "GeometryNodeTree")
+def _remove_attribute_tree(name: str, subdivide: bool = False) -> bpy.types.NodeTree:
+    """A Geometry Nodes tree that removes attribute ``name``, then optionally subdivides."""
+    tree = bpy.data.node_groups.new(f"Remove {name}", "GeometryNodeTree")
+    tree.is_modifier = True
     tree.interface.new_socket("Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
     tree.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
     group_in = tree.nodes.new("NodeGroupInput")
     group_out = tree.nodes.new("NodeGroupOutput")
     remove = tree.nodes.new("GeometryNodeRemoveAttribute")
-    remove.inputs["Name"].default_value = "gt_present"
+    remove.inputs["Name"].default_value = name
     tree.links.new(group_in.outputs[0], remove.inputs["Geometry"])
     last = remove.outputs["Geometry"]
     if subdivide:
@@ -542,7 +564,7 @@ def _drop_attribute_tree(subdivide: bool) -> bpy.types.NodeTree:
     return tree
 
 
-def test_modifiers_and_gt_present() -> None:
+def test_modifiers_and_presentation() -> None:
     h.reset_scene()
     obj = _grid(n=2)
     core = _core_layers()
@@ -552,38 +574,60 @@ def test_modifiers_and_gt_present() -> None:
         range_max="3",
     )
     _layers().write_layer(obj.data, _spec(name), np.arange(4, dtype=np.float32))
-    presentation, _record = _present().write_presentation(bpy.context.scene, name)
+    presentation, _record = _present().build_presentation(bpy.context.scene, name)
     plain, _topology = _extract(presentation)
     reference = plain.primitives[0].color
+    palette = _ramps().DEFAULT_PALETTE
+    ramp = _srgb_to_linear(_ramps().apply_ramp(np.arange(4, dtype=np.float32), 0.0, 3.0, palette))
 
-    # A Subdivision modifier carries gt_present to the evaluated mesh.
+    # A Subdivision modifier carries gt_slope to the evaluated faces, each child
+    # face keeping its parent's value; the presentation reads it there.
     sub = obj.modifiers.new("Subdivision", "SUBSURF")
     sub.levels = 1
-    scene, topology = _extract(presentation)
-    assert topology["Grid"].startswith("evaluated:")
-    color = scene.primitives[0].color
-    assert color is not None and color.shape[0] > reference.shape[0]
-    obj.modifiers.remove(sub)
-
-    # A node tree that drops it but keeps the topology: read from the original.
-    gn = obj.modifiers.new("Drop", "NODES")
-    gn.node_group = _drop_attribute_tree(subdivide=False)
     bpy.context.view_layer.update()
-    evaluated = obj.evaluated_get(bpy.context.evaluated_depsgraph_get()).to_mesh()
-    assert "gt_present" not in evaluated.attributes
-    obj.evaluated_get(bpy.context.evaluated_depsgraph_get()).to_mesh_clear()
-    scene, topology = _extract(presentation)
-    assert not topology["Grid"].startswith("evaluated:")
-    np.testing.assert_array_equal(scene.primitives[0].color, reference)
-
-    # Dropped and the topology changed: no colour can be matched, so it fails.
-    gn.node_group = _drop_attribute_tree(subdivide=True)
     try:
         _extract(presentation)
     except h.submodule("core.gltf_writer").ExportError as ex:
-        assert "modifiers change the topology" in str(ex), ex
+        assert "the mesh changed" in str(ex), ex  # built for 4 faces, 16 exported
     else:
-        raise AssertionError("expected an ExportError")
+        raise AssertionError("expected an ExportError for a stale presentation")
+    presentation, _record = _present().build_presentation(bpy.context.scene, name)
+    assert presentation.colors["Grid"].shape == (16, 4)
+    scene, topology = _extract(presentation)
+    assert topology["Grid"].startswith("evaluated:")
+    prim = scene.primitives[0]
+    assert prim.color is not None and prim.color.shape[0] > reference.shape[0]
+    evaluated = obj.evaluated_get(bpy.context.evaluated_depsgraph_get()).data
+    values = _layers().read_layer(evaluated, _spec(name))
+    np.testing.assert_array_equal(np.sort(values), np.repeat(np.arange(4, dtype=np.float32), 4))
+    # A preview cannot be painted on the original corners: skipped, not wrong.
+    _preview, skipped = _present().write_preview(bpy.context.scene, name)
+    assert skipped == ["Grid"] and "gt_present" not in obj.data.attributes
+    obj.modifiers.remove(sub)
+
+    # The export never reads gt_present: a stale or dropped preview changes nothing.
+    presentation, _record = _present().build_presentation(bpy.context.scene, name)
+    _present().write_preview(bpy.context.scene, name)
+    stale = obj.data.attributes["gt_present"]
+    stale.data.foreach_set("color_srgb", np.zeros(4 * len(obj.data.loops), np.float32))
+    gn = obj.modifiers.new("Drop", "NODES")
+    gn.node_group = _remove_attribute_tree("gt_present")
+    scene, topology = _extract(presentation)
+    assert not topology["Grid"].startswith("evaluated:")
+    np.testing.assert_array_equal(scene.primitives[0].color, reference)
+    np.testing.assert_allclose(np.unique(reference, axis=0), np.unique(ramp, axis=0), atol=2e-3)
+
+    # A modifier that drops the layer itself: no values, so no variant.
+    gn.node_group = _remove_attribute_tree("gt_slope", subdivide=True)
+    bpy.context.view_layer.update()
+    codes = [i.code for i in _present().variant_issues(bpy.context.scene, name)]
+    assert codes == ["variant-data-missing", "variant-no-data"], codes
+    try:
+        _present().build_presentation(bpy.context.scene, name)
+    except _present().PresentationError as ex:
+        assert "gt_slope" in str(ex), ex
+    else:
+        raise AssertionError("expected a PresentationError")
     obj.modifiers.remove(gn)
     for tree in list(bpy.data.node_groups):
         bpy.data.node_groups.remove(tree)
@@ -626,7 +670,7 @@ def test_texture_layer_to_base_color_and_emissive() -> None:
     name, values = _texture_layer(
         [a, b], target="BASE_COLOR", palette="greys", range_min="0", range_max="1"
     )
-    presentation, record = _present().write_presentation(bpy.context.scene, name)
+    presentation, record = _present().build_presentation(bpy.context.scene, name)
     assert set(presentation.images) == {"A", "B"}
     expected = _ramps().apply_ramp(values, 0.0, 1.0, "greys")
     for image in presentation.images.values():
@@ -722,7 +766,7 @@ def test_variant_checks() -> None:
     # All values are no-data: no automatic range.
     _layers().write_layer(obj.data, _spec(name), np.full(1, np.nan, np.float32))
     try:
-        present.write_presentation(bpy.context.scene, name)
+        present.build_presentation(bpy.context.scene, name)
     except present.PresentationError as ex:
         assert "automatic ramp range" in str(ex)
     else:
@@ -930,6 +974,29 @@ def _leaf_colors(glb: bytes) -> np.ndarray | None:
     return np.concatenate(rows) if rows else None
 
 
+def _assert_leaf_ramp(output: Path, count: int) -> None:
+    """Every leaf COLOR_0 of a REPLACE variant is a colour of the ramp of 0 to
+    ``count - 1``, and all ``count`` colours reached the tiles."""
+    ramp = _ramps().apply_ramp(np.arange(count, dtype=np.float32), 0.0, count - 1.0, "viridis")
+    palette = {tuple(c) for c in ramp[:, :3].tolist()}
+    seen: set[tuple[int, ...]] = set()
+    with zipfile.ZipFile(output) as archive:
+        for leaf in (n for n in archive.namelist() if n.endswith(".glb")):
+            glb = archive.read(leaf)
+            colors = _leaf_colors(glb)
+            if colors is None:
+                continue
+            document = json.loads(glb[20 : 20 + struct.unpack_from("<I", glb, 12)[0]])
+            for material in document["materials"]:
+                factor = material["pbrMetallicRoughness"]["baseColorFactor"]
+                assert factor == [1.0, 1.0, 1.0, 1.0], factor  # REPLACE
+            srgb = _linear_to_srgb_bytes(colors)
+            seen |= {tuple(c) for c in srgb.tolist()}
+    assert seen, "no leaf carries COLOR_0"
+    assert seen <= palette, sorted(seen - palette)[:5]
+    assert len(seen) == count, len(seen)  # every face's ramp colour reached the tiles
+
+
 def test_variant_publish_end_to_end() -> None:
     if h.CONFIG.expect != "available":
         return
@@ -952,24 +1019,216 @@ def test_variant_publish_end_to_end() -> None:
         assert record["validation"]["ok"] is True
         assert record["variant"]["layer"] == name
 
-        ramp = _ramps().apply_ramp(np.arange(16, dtype=np.float32), 0.0, 15.0, "viridis")
-        palette = {tuple(c) for c in ramp[:, :3].tolist()}
-        seen: set[tuple[int, ...]] = set()
-        with zipfile.ZipFile(output) as archive:
-            for leaf in (n for n in archive.namelist() if n.endswith(".glb")):
-                colors = _leaf_colors(archive.read(leaf))
-                if colors is None:
-                    continue
-                document = json.loads(
-                    archive.read(leaf)[
-                        20 : 20 + struct.unpack_from("<I", archive.read(leaf), 12)[0]
-                    ]
+        _assert_leaf_ramp(output, 16)
+
+
+# --- layers computed by Geometry Nodes ---------------------------------------------------------
+
+
+def _store_tree(attribute: str = "slope", subdivide: int = 1) -> bpy.types.NodeTree:
+    """A Geometry Nodes tree: Subdivide Mesh (changes the topology), then Store
+    Named Attribute ``attribute`` = the face index, as a FACE FLOAT."""
+    tree = bpy.data.node_groups.new(f"Store {attribute}", "GeometryNodeTree")
+    tree.is_modifier = True
+    tree.interface.new_socket("Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
+    tree.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+    nodes, links = tree.nodes, tree.links
+    geometry = nodes.new("NodeGroupInput").outputs[0]
+    if subdivide:
+        sub = nodes.new("GeometryNodeSubdivideMesh")
+        sub.inputs["Level"].default_value = subdivide
+        links.new(geometry, sub.inputs["Mesh"])
+        geometry = sub.outputs["Mesh"]
+    store = nodes.new("GeometryNodeStoreNamedAttribute")
+    store.data_type, store.domain = "FLOAT", "FACE"
+    store.inputs["Name"].default_value = attribute
+    links.new(geometry, store.inputs["Geometry"])
+    links.new(nodes.new("GeometryNodeInputIndex").outputs[0], store.inputs["Value"])
+    links.new(store.outputs["Geometry"], nodes.new("NodeGroupOutput").inputs[0])
+    return tree
+
+
+def _geonodes_scene() -> tuple[bpy.types.Object, str]:
+    """A 2 x 2 grid whose layer ``slope`` exists only in its Geometry Nodes
+    modifier's output: 16 faces after Subdivide Mesh, valued 0 to 15."""
+    obj = _grid(n=2)
+    obj.data.materials.append(_material("Flat", rgb=(0.3, 0.3, 0.3)))
+    core = _core_layers()
+    name = _layer(
+        {
+            "name": "slope",
+            "domain": core.Domain.FACE,
+            "data_type": core.DataType.FLOAT,
+            "source_attribute": "slope",
+        },
+        palette="viridis",
+        range_min="0",
+        range_max="15",
+    )
+    modifier = obj.modifiers.new("Slope", "NODES")
+    modifier.node_group = _store_tree("slope")
+    bpy.context.view_layer.update()
+    return obj, name
+
+
+def _clear_trees() -> None:
+    for tree in list(bpy.data.node_groups):
+        bpy.data.node_groups.remove(tree)
+
+
+def test_geometry_nodes_layer() -> None:
+    h.reset_scene()
+    _clear_trees()
+    L = _layers()
+    scene = bpy.context.scene
+    obj, name = _geonodes_scene()
+    item = L.find_layer(scene, name)
+    panel = h.submodule("blender.panels").GEOTOOLS_PT_layers
+
+    # Nothing is checked while drawing; Update Range reads the evaluated mesh.
+    assert [i.code for i in L.cached_status(scene, item)] == ["layer-not-checked"]
+    assert h.draw_header(panel) == "RADIOBUT_OFF"
+    assert bpy.ops.geotools.layer_update_range() == {"FINISHED"}
+    item = L.find_layer(scene, name)
+    assert (item.value_min, item.value_max) == ("0.0", "15.0")
+    assert (float(item.auto_min), float(item.auto_max)) == _ramps().auto_range(
+        np.arange(16, dtype=np.float32)
+    )
+    assert L.layer_status(scene, item) == [] and L.cached_status(scene, item) == []
+    assert h.draw_header(panel) == "CHECKMARK"
+    assert "Stored on every source object" in h.label_text(h.draw(panel))
+    # Nothing was baked into the mesh.
+    assert "slope" not in obj.data.attributes and "gt_slope" not in obj.data.attributes
+
+    # Without the modifier the status says how to make the attribute.
+    obj.modifiers["Slope"].show_viewport = False
+    bpy.context.view_layer.update()
+    status = L.refresh_layer(scene, item)
+    assert [i.code for i in status] == ["layer-attribute-missing"], status
+    assert "Store Named Attribute" in status[0].message and "slope" in status[0].message
+    assert h.draw_header(panel) == "RADIOBUT_OFF"
+    obj.modifiers["Slope"].show_viewport = True
+    bpy.context.view_layer.update()
+    assert L.refresh_layer(scene, item) == []
+
+    # COLOR_0: one ramp colour per evaluated face, in the exported GLB.
+    presentation, record = _present().build_presentation(scene, name)
+    assert record["range"]["min"] == 0.0 and record["range"]["max"] == 15.0
+    expected = _ramps().apply_ramp(np.arange(16, dtype=np.float32), 0.0, 15.0, "viridis")
+    np.testing.assert_array_equal(presentation.colors["Grid"], expected)
+    writer = h.submodule("core.gltf_writer")
+    with _tmpdir() as tmp:
+        export, topology = _extract(presentation, tmp / "images")
+        assert topology["Grid"].startswith("evaluated:")
+        writer.write_glb(export, tmp / "source.glb")
+        document, binary = _read_glb(tmp / "source.glb")
+        faces = 0
+        for p, prim in enumerate(export.primitives):
+            gltf_prim = document["meshes"][0]["primitives"][p]
+            color = _accessor(document, binary, gltf_prim["attributes"]["COLOR_0"])
+            indices = _accessor(document, binary, gltf_prim["indices"]).reshape(-1, 3)
+            face = prim.source_polygon  # evaluated polygon index = its stored value
+            faces = max(faces, int(face.max()) + 1)
+            for corner in range(3):
+                np.testing.assert_array_equal(
+                    _linear_to_srgb_bytes(color[indices[:, corner]]), expected[face][:, :3]
                 )
-                for material in document["materials"]:
-                    factor = material["pbrMetallicRoughness"]["baseColorFactor"]
-                    assert factor == [1.0, 1.0, 1.0, 1.0], factor  # REPLACE
-                srgb = _linear_to_srgb_bytes(colors)
-                seen |= {tuple(c) for c in srgb.tolist()}
-        assert seen, "no leaf carries COLOR_0"
-        assert seen <= palette, sorted(seen - palette)[:5]
-        assert len(seen) == 16, len(seen)  # every face's ramp colour reached the tiles
+        assert faces == 16
+    # The preview cannot be painted on the 4 original faces; the export did not need it.
+    assert bpy.ops.geotools.layer_write_presentation() == {"FINISHED"}
+    assert "gt_present" not in obj.data.attributes
+
+    # A variant publish of it validates, with every ramp colour in the tiles.
+    if h.CONFIG.expect == "available":
+        import rusty_tiles
+
+        props = h.project()
+        props.placement_mode = "ANCHOR"
+        p_ = h.submodule("blender.properties")
+        p_.write_number(props, "anchor_lon", 153.02)
+        p_.write_number(props, "anchor_lat", -27.47)
+        p_.write_number(props, "anchor_height", 10.0)
+        with _tmpdir() as tmp:
+            assert bpy.ops.geotools.build_profile_add() == {"FINISHED"}
+            profile = props.build_profiles[0]
+            profile.output_path = str(tmp / "site.3tz")
+            profile.profile = "LOSSLESS"  # COLOR_0 stays float32, as written
+            assert bpy.ops.geotools.publish(layer=name) == {"FINISHED"}
+            job = _finish()
+            assert job.state.name == "DONE", job.error
+            output = tmp / f"site.{name}.3tz"
+            assert rusty_tiles.validate(output)["ok"]
+            build = json.loads((tmp / f"site.{name}.geotools" / "build.json").read_text())
+            assert build["validation"]["ok"] is True
+            assert build["geotools"]["apply_modifiers"] is True
+            (layer,) = build["layers"]
+            assert layer["attribute"] == "slope"
+            assert (layer["value_min"], layer["value_max"]) == (0.0, 15.0)
+            assert build["source_glb"]["triangles"] == 32
+            _assert_leaf_ramp(output, 16)
+    _clear_trees()
+
+
+def test_apply_modifiers_off() -> None:
+    h.reset_scene()
+    _clear_trees()
+    L = _layers()
+    scene = bpy.context.scene
+    obj, name = _geonodes_scene()
+    export_mod = _export()
+    assert bpy.ops.geotools.build_profile_add() == {"FINISHED"}
+    profile = h.project().build_profiles[0]
+    assert profile.apply_modifiers  # the default, as in Blender's glTF exporter
+    calls = h.draw(h.submodule("blender.panels").GEOTOOLS_PT_publish_settings)
+    assert "apply_modifiers" in h.props_drawn(calls)
+
+    with _tmpdir() as tmp:
+        applied, topology = _extract(None, tmp / "a")
+        assert sum(p.indices.shape[0] for p in applied.primitives) == 32
+        assert topology["Grid"].startswith("evaluated:")
+
+        # Off: the original mesh is exported, its topology entry is the plain digest.
+        original, topology = export_mod.extract_scene(
+            bpy.context, _source(), tmp / "b", apply_modifiers=False
+        )
+        assert sum(p.indices.shape[0] for p in original.primitives) == 8
+        assert topology["Grid"] == export_mod.mesh_topology_digest(obj.data, obj.data)
+        positions = np.concatenate([p.positions for p in original.primitives])
+        assert positions.shape[0] == len(obj.data.vertices)
+        polygons = np.concatenate([p.source_polygon for p in original.primitives])
+        assert sorted(set(polygons.tolist())) == [0, 1, 2, 3]
+
+    # Layer reads follow the profile: the original mesh has no slope.
+    item = L.find_layer(scene, name)
+    profile.apply_modifiers = False
+    assert [i.code for i in L.cached_status(scene, item)] == ["layer-not-checked"]
+    status = L.refresh_layer(scene, item)
+    assert [i.code for i in status] == ["layer-attribute-missing"], status
+    assert "Apply Modifiers is off" in status[0].message
+    # Values written by hand go to the original mesh, under the source attribute.
+    L.write_layer(obj.data, _spec(name), np.array([5.0, 6.0, 7.0, 8.0], np.float32))
+    assert "slope" in obj.data.attributes and "gt_slope" not in obj.data.attributes
+    assert L.refresh_layer(scene, item) == []
+    assert L.update_value_range(scene, item) == (5.0, 8.0)
+    presentation, _record = _present().build_presentation(scene, name)
+    assert presentation.colors["Grid"].shape == (4, 4)
+    _preview, skipped = _present().write_preview(scene, name)
+    assert skipped == [] and "gt_present" in obj.data.attributes
+
+    # On again: the modifier's values replace them in what is read.
+    profile.apply_modifiers = True
+    assert [i.code for i in L.cached_status(scene, item)] == ["layer-not-checked"]
+    assert L.update_value_range(scene, item) == (0.0, 15.0)
+
+    # The publish records the choice, and exports the original without it.
+    profile.apply_modifiers = False
+    with _tmpdir() as tmp, _fake_rusty_tiles():
+        profile.output_path = str(tmp / "site.3tz")
+        assert bpy.ops.geotools.publish(layer=name) == {"FINISHED"}
+        job = _finish()
+        assert job.state.name == "DONE", job.error
+        build = json.loads((tmp / f"site.{name}.geotools" / "build.json").read_text())
+        assert build["geotools"]["apply_modifiers"] is False
+        assert build["source_glb"]["triangles"] == 8
+        assert (build["layers"][0]["value_min"], build["layers"][0]["value_max"]) == (5.0, 8.0)
+    _clear_trees()

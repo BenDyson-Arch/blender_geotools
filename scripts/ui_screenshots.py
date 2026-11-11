@@ -15,10 +15,10 @@ It writes, in ``--out``:
   ``montage``, so it needs it);
 * ``state_empty.png``, ``state_mid.png``, ``state_ready.png``: what a user
   sees with the default open and closed panels, for an empty project, one
-  half set up (placed, a source, an unbaked layer) and the full demo scene.
+  half set up (placed, a source, an empty layer) and the full demo scene.
 
 The demo scene is a 200 m terrain grid in GDA2020 / MGA zone 56 with a FACE
-layer (``slope``, baked from a Geometry Nodes modifier), a CATEGORY layer
+layer (``slope``, computed by a Geometry Nodes modifier), a CATEGORY layer
 (``landcover``) and a TEXTURE layer (``shade``, baked from ``slope`` with
 Cycles), a build profile whose variant is ``slope``, and checks run.
 
@@ -446,15 +446,7 @@ def inner_main(argv: list[str]) -> None:
         slope_modifier(obj)
         item = props.layers["slope"]
         item.origin, item.description = "GEONODES", "Surface slope from face normals"
-        bake = item.vertex_bake
-        bake.modifier, bake.attribute, bake.disable_modifier = "Slope", "slope", True
-        run_op(
-            bpy.ops.geotools.bake_geonodes_layer,
-            layer="slope",
-            modifier="Slope",
-            attribute="slope",
-            disable_modifier=True,
-        )
+        item.source_attribute = "slope"  # the modifier's Store Named Attribute
 
         cover = core.LayerSpec(
             name="landcover",
@@ -487,7 +479,7 @@ def inner_main(argv: list[str]) -> None:
         run_op(bpy.ops.geotools.layer_presentation_reset_colors)
         props.layers_index = 0
         for entry in props.layers:
-            layers.update_value_range(scene, entry)
+            layers.refresh_layer(scene, entry)
         run_op(bpy.ops.geotools.layer_write_presentation)
 
         bpy.ops.geotools.build_profile_add()

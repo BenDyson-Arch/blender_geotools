@@ -32,6 +32,37 @@ def test_attribute_name() -> None:
     assert L.ATTRIBUTE_PREFIX == "gt_"
 
 
+def test_effective_attribute_name() -> None:
+    assert L.effective_attribute_name(spec()) == "gt_slope"
+    assert L.effective_attribute_name(spec(source_attribute="   ")) == "gt_slope"
+    assert L.effective_attribute_name(spec(source_attribute="slope")) == "slope"
+    assert L.effective_attribute_name(spec(source_attribute="Slope (deg)")) == "Slope (deg)"
+
+
+@pytest.mark.parametrize("source", ["slope", "Slope (deg)", "gt_other", "material_index"])
+def test_valid_source_attributes(source: str) -> None:
+    assert L.validate(spec(source_attribute=source)) == []
+
+
+@pytest.mark.parametrize("source", [" slope", "slope ", ".corner_vert", "gt_present", "x" * 64])
+def test_invalid_source_attributes(source: str) -> None:
+    issues = L.validate(spec(source_attribute=source))
+    assert codes(issues) == ["layer-attribute-invalid"], issues
+    assert issues[0].severity is Severity.ERROR
+    # A texture layer has no attribute, so the field is ignored.
+    assert L.validate(spec(domain=Domain.TEXTURE, source_attribute=source)) == []
+
+
+def test_source_attribute_record() -> None:
+    record = L.to_record(spec(source_attribute="slope"))
+    assert record["attribute"] == "slope"
+    assert L.from_record(record).source_attribute == "slope"
+    assert L.to_record(L.from_record(record)) == record
+    # The default name round-trips as the default.
+    assert L.from_record(L.to_record(spec())).source_attribute == ""
+    assert L.from_record(dict(L.to_record(spec()), attribute=None)).source_attribute == ""
+
+
 @pytest.mark.parametrize("name", ["a", "slope", "sun_hours_2", "x" * 48, "a_"])
 def test_valid_names(name: str) -> None:
     assert L.validate(spec(name=name)) == []

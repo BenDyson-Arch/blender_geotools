@@ -3,17 +3,28 @@
 A layer's presentation (``GeoToolsLayer.presentation``) says how its values are
 made visible: a colour ramp (or one colour per category) into COLOR_0 for FACE
 and CORNER layers, or into an 8-bit base-colour or emissive texture for
-TEXTURE layers. :func:`write_presentation` turns the values into colours:
+TEXTURE layers. :func:`build_presentation` turns the values into colours:
 
-* COLOR_0: the ``gt_present`` byte colour attribute (CORNER domain) on every
-  source mesh. A mesh without the layer's attribute is painted with the
-  no-data colour. The mesh's active and render colour attributes are put back
-  as they were, so adding ``gt_present`` never changes what the user sees or
-  what the plain tileset publishes (the exporter skips ``gt_present`` without
-  a presentation).
+* COLOR_0: the layer's values are read from the mesh each source object
+  exports (evaluated, with modifiers and Geometry Nodes applied, unless the
+  build profile's Apply Modifiers is off; see ``layers.layer_meshes``) and
+  mapped to one 8-bit sRGB colour per face or corner, held in memory in
+  ``export.Presentation.colors``. Nothing is written to the meshes, so a
+  layer computed entirely by a Geometry Nodes modifier, even one that changes
+  the topology, presents like a stored one. An object whose mesh lacks the
+  layer's attribute is shown in the no-data colour.
 * BASE_COLOR and EMISSIVE: one 8-bit sRGB image per object, the same size as
   the object's float layer image, listed in ``presentation.images``. They are
   not saved: every publish of the variant writes them again.
+
+:func:`write_preview` (the Write Colours button) also paints the COLOR_0
+colours into ``gt_present``, a byte colour attribute (CORNER domain) on the
+original meshes, to look at them in the viewport. It can only do so for an
+object whose modifiers keep its topology (or with Apply Modifiers off): other
+objects have no original corner for each exported one, and are skipped. The
+mesh's active and render colour attributes are put back as they were, and
+the exporter never publishes ``gt_present``, so the preview changes neither
+what the user sees by default nor any tileset.
 
 The user's materials are never touched; ``export.extract_scene`` publishes the
 presentation in place of them (see ``export.Presentation``). Everything goes
@@ -23,7 +34,7 @@ corners or texels in Python.
 ``geotools.publish`` publishes a variant (``<stem>.<layer>.3tz``) when its
 ``layer`` property or the build profile's ``variant_layer`` names a layer. It
 runs :func:`variant_issues` with the other checks, then
-:func:`write_presentation`, and records the variant in build.json.
+:func:`build_presentation`, and records the variant in build.json.
 """
 
 from __future__ import annotations
@@ -38,7 +49,14 @@ import numpy as np
 
 from ..core.display import format_number
 from ..core.issues import Issue, Severity
-from ..core.layers import DataType, Domain, LayerSpec, parse_number, validate
+from ..core.layers import (
+    DataType,
+    Domain,
+    LayerSpec,
+    effective_attribute_name,
+    parse_number,
+    validate,
+)
 from ..core.presentation import (
     PRESENT_ATTRIBUTE,
     Blend,
@@ -50,13 +68,15 @@ from ..core.presentation import (
 )
 from ..core.ramps import apply_categories, apply_ramp, auto_range, default_category_colours
 from .common import redraw_ui
-from .export import Presentation
+from .export import Presentation, same_topology
 from .layers import (
+    apply_modifiers,
     attribute_problem,
+    evaluated_depsgraph,
     find_layer,
+    layer_meshes,
     other_layer_names,
     read_layer,
-    source_meshes,
     source_objects,
     spec_from_props,
 )
@@ -135,10 +155,12 @@ def variant_issues(scene: bpy.types.Scene, layer_name: str) -> list[Issue]:
     """Why the layer ``layer_name`` cannot be published as a variant, without reading values.
 
     Errors: the layer is missing or invalid, its target does not suit its domain,
-    the palette or range is bad, a source mesh is in Edit Mode or holds the
-    attribute with the wrong domain or type, no source mesh holds it, or (for a
-    TEXTURE layer) an object has no image or UV map. A mesh without the
-    attribute is a warning: it is painted with the no-data colour.
+    the palette or range is bad, a source mesh is in Edit Mode, an object's
+    exported mesh (evaluated unless Apply Modifiers is off) holds the attribute
+    with the wrong domain or type, none holds it, or (for a TEXTURE layer) an
+    object has no image or UV map. An object without the attribute is a
+    warning: it is shown in the no-data colour. Looks up attributes on the
+    evaluated meshes, so it evaluates the depsgraph: not for ``draw``.
     """
     item = find_layer(scene, layer_name)
     if item is None:
@@ -183,16 +205,22 @@ def variant_issues(scene: bpy.types.Scene, layer_name: str) -> list[Issue]:
         )
     if Domain(spec.domain) is Domain.TEXTURE:
         issues.extend(_texture_issues(item, spec, objects))
-    else:
-        issues.extend(_attribute_issues(scene, spec))
+    elif not editing:
+        issues.extend(_attribute_issues(scene, spec, objects))
     return issues
 
 
-def _attribute_issues(scene: bpy.types.Scene, spec: LayerSpec) -> list[Issue]:
+def _attribute_issues(
+    scene: bpy.types.Scene, spec: LayerSpec, objects: list[bpy.types.Object]
+) -> list[Issue]:
     issues: list[Issue] = []
-    meshes = source_meshes(scene)
+    name = effective_attribute_name(spec)
     held = 0
-    for mesh in meshes:
+    seen: set[int] = set()
+    for obj, mesh in layer_meshes(scene, objects):
+        if mesh.as_pointer() in seen:
+            continue
+        seen.add(mesh.as_pointer())
         problem = attribute_problem(mesh, spec)
         if problem is None:
             held += 1
@@ -201,9 +229,8 @@ def _attribute_issues(scene: bpy.types.Scene, spec: LayerSpec) -> list[Issue]:
                 Issue(
                     Severity.ERROR,
                     VARIANT_DATA_MISMATCH,
-                    f"Mesh {mesh.name}: gt_{spec.name} has the wrong domain or type for layer "
-                    f"{spec.name}.",
-                    mesh.name,
+                    f"{obj.name}: {name} has the wrong domain or type for layer {spec.name}.",
+                    obj.name,
                 )
             )
         else:
@@ -211,18 +238,18 @@ def _attribute_issues(scene: bpy.types.Scene, spec: LayerSpec) -> list[Issue]:
                 Issue(
                     Severity.WARNING,
                     VARIANT_DATA_MISSING,
-                    f"Mesh {mesh.name} has no gt_{spec.name} attribute; the variant shows it "
-                    "in the no-data colour.",
-                    mesh.name,
+                    f"{obj.name} has no {name} attribute; the variant shows it in the "
+                    "no-data colour.",
+                    obj.name,
                 )
             )
-    if meshes and not held and not any(i.severity is Severity.ERROR for i in issues):
+    if objects and not held and not any(i.severity is Severity.ERROR for i in issues):
         issues.append(
             Issue(
                 Severity.ERROR,
                 VARIANT_NO_DATA,
-                f"No source mesh holds layer {spec.name} (gt_{spec.name}); bake or create it "
-                "first.",
+                f"No source object has layer {spec.name} ({name}); store it with a Geometry "
+                "Nodes Store Named Attribute, or create it, first.",
                 spec.name,
             )
         )
@@ -285,7 +312,7 @@ def _resolve_range(
             except ValueError:
                 raise PresentationError(
                     f"Layer {spec.name} has no values to take an automatic ramp range from; "
-                    "bake it first or set the ramp minimum and maximum."
+                    "fill it first or set the ramp minimum and maximum."
                 ) from None
         low = auto_low if low is None else low
         high = auto_high if high is None else high
@@ -350,20 +377,40 @@ def write_present_attribute(mesh: bpy.types.Mesh, rgba: np.ndarray) -> None:
     mesh.update_tag()
 
 
-def _write_colour_attributes(
-    scene: bpy.types.Scene, spec: LayerSpec, settings: PresentationSettings, item
-) -> dict[str, object]:
-    meshes = source_meshes(scene)
-    for mesh in meshes:
-        if mesh.is_editmode:
-            raise PresentationError(
-                f"Mesh {mesh.name} is in Edit Mode; switch to Object Mode first."
+@dataclass(frozen=True, slots=True)
+class _ObjectColours:
+    """One source object's COLOR_0 presentation colours."""
+
+    obj: bpy.types.Object
+    mesh: bpy.types.Mesh  # the mesh the values were read from (see layers.layer_meshes)
+    rgba: np.ndarray | None  # (faces or corners, 4) uint8; None: no attribute, no-data colour
+
+
+def _object_colours(
+    scene: bpy.types.Scene,
+    spec: LayerSpec,
+    settings: PresentationSettings,
+    item,
+    depsgraph: bpy.types.Depsgraph | None,
+) -> tuple[list[_ObjectColours], dict[str, object]]:
+    """Every source object's colours, from the values on the mesh it exports, and the record."""
+    objects = source_objects(scene)
+    for obj in objects:
+        if obj.data.is_editmode:
+            raise PresentationError(f"{obj.name} is in Edit Mode; switch to Object Mode first.")
+    read: list[tuple[bpy.types.Object, bpy.types.Mesh, np.ndarray | None]] = []
+    by_mesh: dict[int, np.ndarray | None] = {}
+    for obj, mesh in layer_meshes(scene, objects, depsgraph=depsgraph):
+        pointer = mesh.as_pointer()
+        if pointer not in by_mesh:
+            by_mesh[pointer] = (
+                read_layer(mesh, spec) if attribute_problem(mesh, spec) is None else None
             )
-    values: list[np.ndarray | None] = []
-    for mesh in meshes:
-        values.append(read_layer(mesh, spec) if attribute_problem(mesh, spec) is None else None)
-    if all(v is None for v in values):
-        raise PresentationError(f"No source mesh holds layer {spec.name} (gt_{spec.name}).")
+        read.append((obj, mesh, by_mesh[pointer]))
+    if all(values is None for values in by_mesh.values()):
+        raise PresentationError(
+            f"No source object has layer {spec.name} ({effective_attribute_name(spec)})."
+        )
 
     categories = None
     value_range: tuple[float, float] | None = None
@@ -371,21 +418,30 @@ def _write_colour_attributes(
     if DataType(spec.data_type) is DataType.CATEGORY:
         categories = category_colours(item, len(spec.categories))
     else:
-        value_range, auto = _resolve_range(spec, settings, [v for v in values if v is not None])
+        present = [v for v in by_mesh.values() if v is not None]
+        value_range, auto = _resolve_range(spec, settings, present)
 
-    face = Domain(spec.domain) is Domain.FACE
-    for mesh, mesh_values in zip(meshes, values, strict=True):
-        if mesh_values is None:
-            rgba = np.empty((len(mesh.loops), 4), dtype=np.uint8)
-            rgba[:] = settings.nodata_rgba
-        else:
-            rgba = _colours(spec, settings, mesh_values, value_range, categories)
-            if face:
-                totals = np.empty(len(mesh.polygons), dtype=np.int32)
-                mesh.polygons.foreach_get("loop_total", totals)
-                rgba = np.repeat(rgba, totals, axis=0)
-        write_present_attribute(mesh, rgba)
-    return _record(spec, settings, value_range, auto, categories)
+    colours: dict[int, np.ndarray | None] = {}
+    result = []
+    for obj, mesh, values in read:
+        pointer = mesh.as_pointer()
+        if pointer not in colours:
+            colours[pointer] = (
+                None
+                if values is None
+                else _colours(spec, settings, values, value_range, categories)
+            )
+        result.append(_ObjectColours(obj, mesh, colours[pointer]))
+    return result, _record(spec, settings, value_range, auto, categories)
+
+
+def _corner_colours(mesh: bpy.types.Mesh, spec: LayerSpec, rgba: np.ndarray) -> np.ndarray:
+    """Per-face colours repeated onto the face's corners (CORNER colours as they are)."""
+    if Domain(spec.domain) is not Domain.FACE:
+        return rgba
+    totals = np.empty(len(mesh.polygons), dtype=np.int32)
+    mesh.polygons.foreach_get("loop_total", totals)
+    return np.repeat(rgba, totals, axis=0)
 
 
 def _layer_pixels(image: bpy.types.Image) -> np.ndarray:
@@ -477,21 +533,7 @@ def _record(spec, settings, value_range, auto, categories) -> dict[str, object]:
     )
 
 
-def write_presentation(
-    scene: bpy.types.Scene, layer_name: str
-) -> tuple[Presentation, dict[str, object]]:
-    """Write the colours of layer ``layer_name`` and return what the exporter needs.
-
-    Returns the ``export.Presentation`` to pass to ``extract_scene`` and the
-    ``"variant"`` record for build.json (``core.presentation.variant_record``).
-    Raises :class:`PresentationError` (or ``RuntimeError`` for a mesh in Edit
-    Mode) if the layer cannot be presented; run :func:`variant_issues` first
-    for the full list of problems.
-    """
-    item = find_layer(scene, layer_name)
-    if item is None:
-        raise PresentationError(f"There is no layer {layer_name!r}.")
-    spec = spec_from_props(item)
+def _settings_or_raise(item, spec: LayerSpec) -> PresentationSettings:
     settings = presentation_settings(item)
     problems = [
         i
@@ -502,16 +544,92 @@ def write_presentation(
     ]
     if problems:
         raise PresentationError(problems[0].message)
+    return settings
+
+
+def build_presentation(
+    scene: bpy.types.Scene,
+    layer_name: str,
+    *,
+    depsgraph: bpy.types.Depsgraph | None = None,
+) -> tuple[Presentation, dict[str, object]]:
+    """The presentation of layer ``layer_name`` for the exporter, and its record.
+
+    Returns the ``export.Presentation`` to pass to ``extract_scene`` and the
+    ``"variant"`` record for build.json (``core.presentation.variant_record``).
+    A COLOR_0 presentation carries its colours in memory, worked out from the
+    values on the meshes the export reads (evaluated, unless the build
+    profile's Apply Modifiers is off); no mesh is changed. A texture
+    presentation writes its 8-bit images. Raises :class:`PresentationError` if
+    the layer cannot be presented; run :func:`variant_issues` first for the
+    full list of problems.
+    """
+    item = find_layer(scene, layer_name)
+    if item is None:
+        raise PresentationError(f"There is no layer {layer_name!r}.")
+    spec = spec_from_props(item)
+    settings = _settings_or_raise(item, spec)
     if Domain(spec.domain) is Domain.TEXTURE:
         images, record = _write_images(scene, spec, settings, item)
         item = find_layer(scene, layer_name)  # the entry may have moved
         presentation = Presentation(
             settings.target, settings.blend, images=images, uv_map=item.uv_map
         )
-    else:
-        record = _write_colour_attributes(scene, spec, settings, item)
-        presentation = Presentation(settings.target, settings.blend)
+        return presentation, record
+    objects, record = _object_colours(scene, spec, settings, item, depsgraph)
+    presentation = Presentation(
+        settings.target,
+        settings.blend,
+        colors={o.obj.name: o.rgba for o in objects if o.rgba is not None},
+        domain=Domain(spec.domain).value,
+        nodata_rgba=settings.nodata_rgba,
+    )
     return presentation, record
+
+
+def write_preview(scene: bpy.types.Scene, layer_name: str) -> tuple[dict[str, object], list[str]]:
+    """Paint layer ``layer_name``'s presentation into the source, to look at it.
+
+    A COLOR_0 presentation goes into ``gt_present`` on each original mesh, with
+    the same colours :func:`build_presentation` gives the exporter. An object
+    whose modifiers change its topology is skipped (no original corner matches
+    each exported one); its name is returned. A texture presentation writes its
+    8-bit images, as :func:`build_presentation` does. Returns the variant
+    record and the skipped objects. Raises :class:`PresentationError`, or
+    ``RuntimeError`` for a linked mesh.
+    """
+    item = find_layer(scene, layer_name)
+    if item is None:
+        raise PresentationError(f"There is no layer {layer_name!r}.")
+    spec = spec_from_props(item)
+    settings = _settings_or_raise(item, spec)
+    if Domain(spec.domain) is Domain.TEXTURE:
+        _images, record = _write_images(scene, spec, settings, item)
+        return record, []
+    depsgraph = evaluated_depsgraph(scene) if apply_modifiers(scene) else None
+    objects, record = _object_colours(scene, spec, settings, item, depsgraph)
+    skipped: list[str] = []
+    written: set[int] = set()
+    pending: list[tuple[bpy.types.Mesh, np.ndarray]] = []
+    for entry in objects:
+        original = entry.obj.data
+        if original.as_pointer() in written:
+            continue
+        if not same_topology(original, entry.mesh):
+            skipped.append(entry.obj.name)
+            continue
+        written.add(original.as_pointer())
+        if entry.rgba is None:
+            rgba = np.empty((len(original.loops), 4), dtype=np.uint8)
+            rgba[:] = settings.nodata_rgba
+        else:
+            rgba = _corner_colours(original, spec, entry.rgba)
+        pending.append((original, rgba))
+    # Write after reading: writing an attribute re-evaluates the depsgraph,
+    # which frees the evaluated meshes read above.
+    for mesh, rgba in pending:
+        write_present_attribute(mesh, rgba)
+    return record, skipped
 
 
 # --- operators -------------------------------------------------------------------------------
@@ -534,9 +652,9 @@ def _describe(record: dict[str, object]) -> str:
 
 
 class GEOTOOLS_OT_layer_write_presentation(bpy.types.Operator):
-    """Write the selected layer's presentation colours now (the gt_present colour attribute,
-    or 8-bit images for a texture layer), to look at them before publishing a variant.
-    Publishing a variant writes them again"""
+    """Write the selected layer's presentation colours now, to look at them before publishing
+    a variant: the gt_present colour attribute (on objects whose modifiers keep their
+    topology), or 8-bit images for a texture layer. Publishing works them out again"""
 
     bl_idname = "geotools.layer_write_presentation"
     bl_label = "Write Presentation"
@@ -563,11 +681,18 @@ class GEOTOOLS_OT_layer_write_presentation(bpy.types.Operator):
             self.report({"ERROR"}, f"Cannot present {name}: {errors[0].message}")
             return {"CANCELLED"}
         try:
-            _presentation, record = write_presentation(scene, name)
+            record, skipped = write_preview(scene, name)
         except (PresentationError, RuntimeError, KeyError, ValueError) as ex:
             self.report({"ERROR"}, f"Cannot present {name}: {ex}")
             return {"CANCELLED"}
-        self.report({"INFO"}, f"Presented {name}: {_describe(record)}")
+        if skipped:
+            self.report(
+                {"WARNING"},
+                f"Presented {name}: {_describe(record)}. No preview on {', '.join(skipped)}: "
+                "its modifiers change the topology (the variant still shows it)",
+            )
+        else:
+            self.report({"INFO"}, f"Presented {name}: {_describe(record)}")
         redraw_ui(context)
         return {"FINISHED"}
 

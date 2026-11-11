@@ -3,8 +3,11 @@
 The work happens in ``publish.job.BuildJob`` on a worker thread that never
 touches ``bpy``. This module is the main-thread side:
 
-1. ``geotools.publish`` checks the scene, extracts it with
-   ``export.extract_scene`` (main thread) and starts one job per session;
+1. ``geotools.publish`` checks the scene (Run Checks, which also refreshes
+   every layer's range and status from the evaluated meshes), builds a
+   variant's presentation, extracts the scene with ``export.extract_scene``
+   (main thread; the evaluated meshes unless the build profile's Apply
+   Modifiers is off) and starts one job per session;
 2. a ``bpy.app.timers`` function (:func:`update_from_job`) drains the job's
    events into the window manager's ``geotools_publish`` status, redraws the
    sidebar and, when the job ends, stores the result on the build profile;
@@ -38,7 +41,7 @@ from ..publish.job import BuildJob, BuildRequest, JobState
 from .checks import count_issues, describe_counts, run_checks, store_issues
 from .common import ADDON_PACKAGE, extension_version, redraw_ui
 from .layers import layer_records
-from .presentation import variant_issues, write_presentation
+from .presentation import build_presentation, variant_issues
 from .properties import FieldError, placement_from_props
 from .ui import info_row, wrapped
 
@@ -266,12 +269,24 @@ def _on_load_pre(*_args: object) -> None:
 # --- operators ---------------------------------------------------------------------------
 
 
-def _extract_scene(context, collection, image_dir: Path, remedies: list[dict], presentation=None):
+def _extract_scene(
+    context,
+    collection,
+    image_dir: Path,
+    remedies: list[dict],
+    presentation=None,
+    apply_modifiers: bool = True,
+):
     """``export.extract_scene``; imported late so a missing exporter only fails here."""
     from . import export
 
     return export.extract_scene(
-        context, collection, image_dir, remedies=remedies, presentation=presentation
+        context,
+        collection,
+        image_dir,
+        remedies=remedies,
+        presentation=presentation,
+        apply_modifiers=apply_modifiers,
     )
 
 
@@ -289,7 +304,9 @@ def blend_path_for_record(filepath: str | None = None, is_dirty: bool | None = N
     return Path(filepath)
 
 
-def _extra_record(context: bpy.types.Context, profile_name: str, collection_name: str) -> dict:
+def _extra_record(
+    context: bpy.types.Context, profile_name: str, collection_name: str, apply_modifiers: bool
+) -> dict:
     return {
         "geotools_version": extension_version(),
         "blender_version": bpy.app.version_string,
@@ -297,6 +314,7 @@ def _extra_record(context: bpy.types.Context, profile_name: str, collection_name
         "scene": context.scene.name,
         "build_profile": profile_name,
         "source_collection": collection_name,
+        "apply_modifiers": apply_modifiers,
     }
 
 
@@ -407,12 +425,13 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
             image_dir.mkdir(parents=True)
             present, variant_record = None, None
             if variant:
-                present, variant_record = write_presentation(context.scene, variant)
+                present, variant_record = build_presentation(context.scene, variant)
             remedies: list[dict] = []
+            apply = bool(profile.apply_modifiers)
             scene_export, topology = _extract_scene(
-                context, props.source_collection, image_dir, remedies, present
+                context, props.source_collection, image_dir, remedies, present, apply
             )
-            extra_record = _extra_record(context, profile.name, props.source_collection.name)
+            extra_record = _extra_record(context, profile.name, props.source_collection.name, apply)
             if remedies:
                 # Which file each remedy wrote (a downscale may fall back to JPEG).
                 extra_record["image_remedies"] = remedies

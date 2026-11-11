@@ -270,6 +270,13 @@ class GeoToolsBuildProfile(bpy.types.PropertyGroup):
         description="Validate the archive with rusty-tiles after building",
         default=True,
     )
+    apply_modifiers: BoolProperty(
+        name="Apply Modifiers",
+        description="Publish each object's evaluated mesh, with its modifiers and Geometry "
+        "Nodes applied, and read layer values from it. Off: publish and read the original "
+        "mesh data",
+        default=True,
+    )
     variant_layer: StringProperty(
         name="Variant",
         description="Layer to publish as a variant tileset, <output>.<layer>.3tz, coloured "
@@ -500,7 +507,7 @@ class GeoToolsLayerPresentation(bpy.types.PropertyGroup):
     )
     category_colors: CollectionProperty(type=GeoToolsCategoryColor)
     # The 8-bit images of a texture presentation, one per object, written by
-    # blender.presentation.write_presentation (regenerated on every publish).
+    # blender.presentation.build_presentation (regenerated on every publish).
     images: CollectionProperty(type=GeoToolsLayerImage)
 
 
@@ -508,7 +515,8 @@ class GeoToolsLayer(bpy.types.PropertyGroup):
     """One layer of the registry; mirrors ``core.layers.LayerSpec``.
 
     ``name`` is the built-in PropertyGroup name: the layer's identifier. Rename
-    a layer with ``geotools.layer_rename``, which renames its attributes too.
+    a layer with ``geotools.layer_rename``, which renames its ``gt_<name>``
+    attributes too.
     Later work streams add their settings here (e.g. a ``presentation``
     PointerProperty); register their PropertyGroups before this class.
     """
@@ -573,6 +581,20 @@ class GeoToolsLayer(bpy.types.PropertyGroup):
         '"geotools_version"}. Empty for a manual layer',
         default="",
     )
+    source_attribute: StringProperty(
+        name="Attribute",
+        description="Mesh attribute that holds the values, read from the evaluated mesh: "
+        "e.g. the name a Geometry Nodes Store Named Attribute node writes. Empty for "
+        "gt_<name>",
+        default="",
+    )
+
+    # The data checks of blender.layers.layer_status, cached so panels never read
+    # meshes: refreshed by the layer operators, Run Checks and Publish.
+    # status_key says what was checked (blender.layers.status_key); it is empty
+    # before the first check.
+    status_issues: CollectionProperty(type=GeoToolsIssue)
+    status_key: StringProperty(default="")
 
     # TEXTURE layers ------------------------------------------------------------
     images: CollectionProperty(type=GeoToolsLayerImage)
