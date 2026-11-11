@@ -57,7 +57,8 @@ from .layers import (
 
 log = logging.getLogger(__name__)
 
-TOOL = "geotools.bake_texture_layer"
+TOOL = "bake_texture"
+"""Provenance tool name, like the vertex bake's "bake_geonodes"."""
 TEMP_PREFIX = "GeoTools Bake"
 """Name prefix of the temporary materials, meshes and objects a bake makes."""
 

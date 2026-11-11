@@ -71,6 +71,21 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   value instead of a mean. No-data stays no-data. The report says how many
   faces each path filled. The bake records its provenance, updates the value
   range, and can turn the modifier off afterwards.
+- Texture-space bake (M3): Bake Texture Layer, in the Texture Bake sub-panel
+  of Layers, bakes a face or corner layer, or a named attribute of the
+  evaluated mesh, into a texture layer's float images on the source UVs with a
+  one-sample Cycles emission bake and an extended gutter of `margin` pixels.
+  An attribute that only a topology-changing Geometry Nodes result has is
+  baked selected to active from a copy of that result. NaN, inf and texels no
+  triangle covers hold the layer's no-data. The images are saved as OpenEXR
+  next to the `.blend`, and the bake records its provenance and value range.
+  Materials, modifiers, render and bake settings and the selection are
+  restored afterwards, also when the bake fails.
+- The `uv-overlap` check: UV triangles that share texels, by rusty-tiles'
+  texel-ownership rule rasterised at the layer's resolution (coarsened for very
+  large meshes, and reported). It is a warning in Checks for objects with
+  texture layers, and a texture bake refuses overlapping UVs unless Bake
+  Anyway is ticked.
 - `build.json` schema 2: the layers, the SHA-256 of `source.glb` and of the
   saved `.blend` (null if unsaved or modified), and the placement's EPSG code
   when the CRS is a preset or an EPSG code.

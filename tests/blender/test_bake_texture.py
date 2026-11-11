@@ -196,7 +196,7 @@ def test_bake_face_layer_values_and_gutter() -> None:
         assert exr.is_file() and image.file_format == "OPEN_EXR"
         assert image.filepath == "//geotools_layers/slope_tex__Strip.exr"
         prov = _provenance(item)
-        assert prov["tool"] == "geotools.bake_texture_layer"
+        assert prov["tool"] == "bake_texture"
         assert prov["parameters"]["attribute"] == "gt_slope"
         assert prov["parameters"]["methods"] == {"Strip": "DIRECT"}
         assert prov["parameters"]["margin"] == MARGIN
@@ -467,5 +467,5 @@ def test_baked_images_survive_save_and_reopen() -> None:
         back = _pixels(image)
         assert np.array_equal(back, baked, equal_nan=True), np.nanmax(np.abs(back - baked))
         assert L.layer_status(scene, item) == []
-        assert _provenance(item)["tool"] == "geotools.bake_texture_layer"
+        assert _provenance(item)["tool"] == "bake_texture"
         assert not math.isnan(float(item.value_min))

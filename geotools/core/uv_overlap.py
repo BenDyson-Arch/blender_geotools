@@ -5,7 +5,8 @@ The ownership rule
 
 rusty-tiles decides texture-space ownership in ``src/mesh_large/batching.rs``
 (``shared_footprints``, ``sweep``, ``period_copies``, ``leaf_shared_triangles``;
-contract: ``docs/architecture/h28-tile-batching-contract.md``, invariant 5). Its
+contract: ``docs/architecture/h28-tile-batching-contract.md``, invariant 5; read
+at rusty-tiles develop 85157619). Its
 rule is "one triangle per texel" over decoded-UV footprints, and it is exact and
 geometric, not a raster:
 
