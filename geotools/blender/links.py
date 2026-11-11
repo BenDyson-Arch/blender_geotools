@@ -16,7 +16,8 @@ fingerprint of the file at the last sync. See docs/design/m8-geo-formats.md
   links with Auto-Refresh on and refreshes those that changed, unless the
   object is in Edit Mode.
 
-Stream 2 (GeoTIFF) registers its refresher with :func:`register_refresher`.
+Vectors (``vectors``) and GeoTIFF (``raster_io``) register their refreshers
+with :func:`register_refresher`.
 """
 
 from __future__ import annotations
@@ -169,14 +170,23 @@ def links_state(objects: list[bpy.types.Object]) -> str | None:
 
 @dataclass(frozen=True, slots=True)
 class RefreshResult:
-    """What a refresh changed, counted by feature id."""
+    """What a refresh changed.
+
+    Vector refreshers count features by fid (``by_feature``); a raster refresher
+    has no features and sets ``by_feature=False``, so :meth:`summary` gives
+    only its ``message``. ``warnings`` are reported beside the summary.
+    """
 
     added: int = 0
     removed: int = 0
     changed: int = 0
     message: str = ""
+    warnings: tuple[str, ...] = ()
+    by_feature: bool = True
 
     def summary(self, name: str) -> str:
+        if not self.by_feature:
+            return f"{name}: {self.message}" if self.message else f"{name}: refreshed"
         text = f"{name}: {self.added} added, {self.removed} removed, {self.changed} changed"
         return f"{text}. {self.message}" if self.message else text
 
@@ -186,7 +196,16 @@ class RefreshError(RuntimeError):
 
 
 Refresher = Callable[[bpy.types.Object], RefreshResult]
-"""Re-reads ``obj``'s linked file with its stored options and replaces its mesh data."""
+"""Re-reads ``obj``'s linked file with its stored options and updates ``obj`` in place.
+
+How it updates the object is up to the kind: vectors and DEMs build a new mesh
+and swap it in with :func:`replace_mesh`; an orthophoto reloads its image and
+moves its plane's four vertices in place. Either way modifiers, materials,
+transform, parent and collections must survive. :func:`refresh_link` checks
+that the file exists, catches failures (raise :class:`RefreshError` with a
+message to refuse) and updates the fingerprint, last sync and status, so a
+refresher does none of that.
+"""
 
 REFRESHERS: dict[str, Refresher] = {}
 
@@ -390,6 +409,8 @@ class GEOTOOLS_OT_link_refresh(bpy.types.Operator):
             self.report({"ERROR"}, str(ex))
             redraw_ui(context)
             return {"CANCELLED"}
+        for warning in result.warnings:
+            self.report({"WARNING"}, warning)
         self.report({"INFO"}, result.summary(obj.name))
         redraw_ui(context)
         return {"FINISHED"}

@@ -133,6 +133,22 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   Projected GeoJSON carries the legacy `crs` member.
 - `scripts/vector_timing.py`, which times import and export of 100k polygons
   inside Blender.
+- GeoTIFF import (M8), under File > Import > GeoTIFF:
+  - A DEM becomes a grid mesh at pixel centres (PixelIsArea and PixelIsPoint)
+    in the project frame. Nodata cells are removed, an optional decimation
+    step shows the resulting spacing, and the UVs span the raster extent so an
+    orthophoto of the same extent maps onto it.
+  - An orthophoto becomes a plane over its footprint, with its image linked to
+    the file.
+  - The georeference, GeoKeys and GDAL_NODATA are parsed by GeoTools. Pixels
+    go through Blender's image loader where it is exact (float32, int16,
+    uint16, uint8; any compression it reads, tiled or BigTIFF). Other sample
+    types go through a numpy reader for uncompressed and deflate files.
+  - Rotated rasters and rasters in another CRS are refused, with a pointer to
+    QGIS.
+  - Imported objects are linked to their file and can be refreshed in place,
+    keeping modifiers, materials and transform.
+  - A 4096² DEM imports in about 3.5 s.
 
 ### Changed
 

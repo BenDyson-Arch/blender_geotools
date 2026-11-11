@@ -43,10 +43,17 @@ class DataCrs:
         """True if the CRS is named by a code or a definition."""
         return bool(self.epsg or (self.definition and self.definition.strip()))
 
-    def describe(self) -> str:
-        """A short name for messages: the EPSG code, else the start of the definition."""
+    def label(self) -> str:
+        """The shortest name for messages: the EPSG code, else the start of the definition."""
         if self.epsg:
-            preset = _preset_for_epsg(self.epsg)
+            return self.epsg
+        return self.describe()
+
+    def describe(self) -> str:
+        """A name for messages: the EPSG code (with the preset's label when one stands in
+        for it), else the start of the definition."""
+        if self.epsg:
+            preset = preset_for_epsg(self.epsg)
             return f"{self.epsg} ({preset.label})" if preset else self.epsg
         if self.definition and self.definition.strip():
             text = " ".join(self.definition.split())
@@ -245,5 +252,7 @@ def _normal_text(text: str) -> str:
     return " ".join(text.split()).lower()
 
 
-def _preset_for_epsg(epsg: str) -> crs_presets.CrsPreset | None:
-    return next((p for p in crs_presets.PRESETS if p.epsg == epsg), None)
+def preset_for_epsg(epsg: str | None) -> crs_presets.CrsPreset | None:
+    """The GeoTools CRS preset that stands in for ``epsg``, if there is one."""
+    code = normalise_epsg(epsg) if epsg else None
+    return next((p for p in crs_presets.PRESETS if p.epsg == code), None) if code else None
