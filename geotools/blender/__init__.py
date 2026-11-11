@@ -15,6 +15,7 @@ from . import (
     bake_vertex,
     checks,
     layers,
+    linked,
     operators,
     panels,
     preferences,
@@ -22,6 +23,7 @@ from . import (
     profiles,
     properties,
     publish,
+    raster_io,
     remedies,
     source,
 )
@@ -31,8 +33,10 @@ log = logging.getLogger(__name__)
 MODULES: tuple[ModuleType, ...] = (
     preferences,
     properties,
+    linked,
     operators,
     source,
+    raster_io,
     checks,
     remedies,
     profiles,
