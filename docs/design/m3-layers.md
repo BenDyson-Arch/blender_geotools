@@ -284,6 +284,76 @@ Cycles.
   It must run on a 10M-triangle mesh in seconds, at a coarse rasterisation if
   needed, with the resolution reported.
 
+Settled while building stream 3 (all compatible with the above):
+
+- **Ownership rule.** rusty-tiles does not rasterise. `shared_footprints` and
+  `sweep` in `src/mesh_large/batching.rs` (contract invariant 5) call two
+  triangles shared when their decoded-UV *interiors* share area, tested
+  exactly on a 2^-56 grid: shared edges and corners never count, a zero-area
+  triangle is never shared, and a coordinate that is not finite or not below
+  8 in magnitude makes its triangle shared. On a REPEAT (period 1) or
+  MIRRORED_REPEAT (period 2) axis, `period_copies` compares the copies under
+  the axis' symmetry (`x - 1`; `2 - x` and `x - 2`), so a triangle crossing a
+  mirror line shares with itself, and a footprint wider than 1 on a period axis
+  makes every triangle of the page shared. CLAMP compares footprints where
+  they lie, also outside `[0, 1]`.
+- `core.uv_overlap.find_overlaps(uv, triangles=None, *, resolution, wrap,
+  max_samples, max_grid, max_examples)` rasterises that rule. A triangle owns
+  texel `(i, j)` when the centre `((i + 0.5) / W, (j + 0.5) / H)`, nudged by an
+  infinitesimal `(e, e^2)`, is in its open interior: each edge function is
+  positive, or zero with an inward normal pointing +x (or +y on a vertical
+  edge). Two triangles with disjoint interiors never own the same centre.
+  Edge functions are binary64 from a canonical endpoint order, so the two sides
+  of a shared edge get exactly opposite values. REPEAT folds the texel index
+  `mod W`, MIRRORED `mod 2W` mirrored. A texel owned twice (by two triangles,
+  or by one and its mirror image) is overlapping. The raster never flags what
+  rusty-tiles calls unique; it misses overlaps thinner than a texel. The
+  out-of-range and wide cases are flagged per triangle, as in rusty-tiles.
+- It returns `OverlapResult`: `width`, `height` (the grid used), `requested`,
+  `triangles`, `overlapping_texels`, `overlapping_triangles` (rusty-tiles'
+  count: every triangle when one is wide), `examples`, `out_of_range`, `wide`,
+  and `coarsened`/`ok`. The grid is halved while more than `max_samples`
+  (2^25) candidate texels or `max_grid` (2^26) texels are needed. On a
+  synthetic 10M-triangle layout it takes about 1.7 s at 1024 and 3.8 s at
+  4096 (`scripts/bench_uv_overlap.py`); 8192 and above coarsen to 4096.
+- The check uses the evaluated mesh, its loop triangles and the layer's UV map
+  (empty: the active render UV map), at the layer's `resolution`, with REPEAT
+  wrap. Issue code `uv-overlap`, subject the object; the message names the UV
+  map, the counts, the grid (and what it was coarsened from) and example face
+  indices. The Checks panel adds it as a warning for each source object and
+  each UV map a TEXTURE layer uses (nothing without TEXTURE layers, since
+  rusty-tiles records overlap but never refuses it). The **Texture Bake**
+  sub-panel also has **Check UV Overlap** (`geotools.check_layer_uvs`).
+- Operator properties: `layer` (empty for the selected one; must be TEXTURE),
+  `source_layer` (a FACE or CORNER layer, baked from `gt_<name>`), `attribute`
+  (used when `source_layer` is empty), `method` (`AUTO`, `DIRECT`,
+  `SELECTED_TO_ACTIVE`), `cage_extrusion` (0: 1% of the object's bounding-box
+  diagonal), `max_ray_distance` (0: twice the extrusion) and `bake_anyway`.
+  The operator opens a dialog with these; nothing is added to `properties.py`.
+- `AUTO` bakes an object directly when its evaluated mesh has the attribute and
+  the same face and corner counts as the original, selected-to-active when the
+  evaluated mesh has it on a different topology, and directly with all
+  modifiers off when only the original mesh has it. Selected-to-active bakes
+  from a temporary object holding `new_from_object` of the evaluated mesh onto
+  the object with all its modifiers off, so the target is the stored mesh.
+- Cycles writes 0 for NaN and inf, so the bake material emits
+  `(v, (v - v) == 0, 0)`: the value and a finite mask. Afterwards a texel with
+  mask `G > 0` gets `R / G` (exactly the value inside a face, a weighted mean
+  in the EXTEND gutter) and the others `fill_value` (no-data, or NaN). INT,
+  CATEGORY and BOOLEAN layers are rounded. The value is written to R, G and B,
+  alpha 1. The Attribute node's Color output is used, since Fac can be an ulp
+  off. One sample, CPU device, no denoising.
+- Material slots are switched to object links for the bake, so a mesh shared by
+  several objects gets each object's own image. A mesh without slots gets one
+  temporarily. Hidden objects are shown for the bake. A failed bake removes
+  the images it made and reloads the others from their files; a step that
+  cannot be restored is reported as an error.
+- Provenance: `make_provenance("bake_texture", {...})` with `attribute`,
+  `source_layer`, `method`, `methods` (per object: `DIRECT`, `ORIGINAL` or
+  `SELECTED_TO_ACTIVE`), `uv_map`, `resolution`, `margin`, `margin_type` and
+  `bake_anyway`. The layer's origin becomes the source layer's, or `GEONODES`
+  for a named attribute.
+
 ## 4. Presentation and variant tilesets
 
 `geotools/core/ramps.py` (numpy, pytest):
