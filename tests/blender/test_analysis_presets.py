@@ -298,7 +298,7 @@ def test_mga_true_north_uses_the_site_convergence() -> None:
     )
     props = h.project()
     props.placement_mode = "SOURCE_CRS"
-    props.source_crs = h.submodule("core.crs_presets").get("MGA2020_56").definition
+    props.source_crs = "EPSG:7856"
     props.source_offset_e = repr(east)
     props.source_offset_n = repr(north)
     props.source_offset_a = "250.0"
