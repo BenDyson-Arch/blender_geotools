@@ -53,7 +53,7 @@ GeoTools creates tilesets; it no longer imports them.
    Mercator. Other projected CRSs (GDA2020/GDA94 MGA, NZTM) work as PROJ
    definitions with an explicit `+towgs84` shift; GeoTools ships these as
    presets with their datum assumption stated. A verified EPSG allow-list is
-   approved for rusty-tiles 0.4.x; the presets switch to plain EPSG codes when
+   planned for rusty-tiles 0.4.1 (#337); the presets switch to plain EPSG codes when
    it ships. Coordinate epochs and grid-based datums (e.g. OSTN15) are refused.
 
 ## Upstream dependencies
@@ -66,6 +66,8 @@ GeoTools creates tilesets; it no longer imports them.
 | A. Annotate pass from `(source_primitive, source_triangle)` tables | 0.5 | addendum in the local metadata-tiling design (no GitHub issue yet) | M8 |
 | D. Custom vertex attributes in mesh input | 0.5 | same design; needs a decision on the strict-admission policy | M8 (alternative to A) |
 | B. Appearance-only rebuild | post-0.4 | [#331](https://github.com/BenDyson-Arch/rusty-tiles/issues/331) | M9 |
+| CRS allow-list: GDAL-verified EPSG codes (MGA, NZTM, ETRS89 ...) in the wheel | 0.4.1 | [#337](https://github.com/BenDyson-Arch/rusty-tiles/issues/337) | Replaces the PROJ-string CRS presets |
+| Encoded images admitted by memory budget, not a fixed 32 MiB | 0.4.1 | [#338](https://github.com/BenDyson-Arch/rusty-tiles/issues/338) | Publishing 8K PNG photogrammetry without re-encoding |
 
 ## Milestones
 
