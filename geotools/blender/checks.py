@@ -5,6 +5,7 @@ import bpy
 from ..core import crs_presets, deps, preflight, probe
 from ..core.issues import Issue, Severity
 from ..core.placement import Placement
+from .bake_texture import uv_overlap_issues
 from .common import redraw_ui
 from .properties import SEVERITY_ICONS, FieldError, field_issues, placement_from_props
 from .source import refresh_summary
@@ -85,6 +86,7 @@ def run_checks(context: bpy.types.Context) -> list[Issue]:
         ]
     else:
         issues = preflight.check(summary, placement_from_props(props), profile=profile)
+    issues += uv_overlap_issues(context)
     issues.sort(key=lambda i: _SEVERITY_ORDER[Severity(i.severity)])
     return issues
 
