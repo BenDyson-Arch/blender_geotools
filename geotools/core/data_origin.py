@@ -9,12 +9,14 @@ float32 precision. Such an import is refused, and the refusal carries a
 Blender glue offers as a one-click "Use this data's centre as the project
 origin". That switches the project to SOURCE_CRS:
 
-- the CRS is the data's: the definition of the GeoTools preset that stands in
-  for its EPSG code when there is one, otherwise ``EPSG:nnnn`` (or the data's
-  definition when it has no code), and the project checks then say whether
-  rusty-tiles supports it;
+- the CRS is the data's: ``EPSG:nnnn`` (or the data's definition when it has
+  no code), and the project checks then say whether rusty-tiles supports it;
 - the E/N offset is the centre of the data's extent, rounded to a whole metre;
 - the A offset is 0.
+
+A SOURCE_CRS project with no CRS yet is offered the data's CRS the same way
+(:func:`offer_project_crs`): the CRS only, when the project already has an
+offset, else the CRS and the data's centre.
 
 See docs/design/m8-geo-formats.md ("LOCAL and ANCHOR projects"). No ``bpy``.
 """
@@ -24,7 +26,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from .crs_match import DataCrs, is_geographic, preset_for_epsg
+from . import crs_catalog
+from .crs_match import DataCrs, is_geographic
 from .placement import PlacementMode
 
 LOCAL_RADIUS_M = 100_000.0
@@ -39,31 +42,41 @@ class DataOrigin:
     """A SOURCE_CRS placement made from one dataset: its CRS and its centre."""
 
     source_crs: str
-    """What the project's CRS becomes (a preset definition, ``EPSG:nnnn`` or WKT)."""
+    """What the project's CRS becomes (``EPSG:nnnn``, or WKT or PROJ text)."""
     epsg: str | None
-    preset_label: str | None
-    """The preset's label when ``source_crs`` is a preset's definition."""
+    crs_name: str | None
+    """The CRS's name from the EPSG catalogue (``GDA2020 / MGA zone 56``), when known."""
     offset: tuple[float, float, float]
     """(E, N, 0.0): the extent's centre in whole metres."""
+    set_offset: bool = True
+    """False to set only the CRS and keep the project's offset."""
 
     def describe(self) -> str:
         """``"EPSG:7856 (GDA2020 / MGA zone 56), offset E 502000, N 6961000, A 0"``."""
-        if self.preset_label:
-            crs = f"{self.epsg} ({self.preset_label})"
+        crs = self.crs_text()
+        if not self.set_offset:  # "EPSG:7856 (...), keeping the project's offset"
+            return f"{crs}, keeping the project's offset"
+        e, n, a = self.offset
+        return f"{crs}, offset E {e:.0f}, N {n:.0f}, A {a:.0f}"
+
+    def crs_text(self) -> str:
+        """``"EPSG:7856 (GDA2020 / MGA zone 56)"``, or the start of the definition."""
+        if self.crs_name:
+            crs = f"{self.epsg} ({self.crs_name})"
         elif self.epsg:
             crs = self.epsg
         else:
             flat = " ".join(self.source_crs.split())
             crs = flat if len(flat) <= 40 else flat[:37] + "..."
-        e, n, a = self.offset
-        return f"{crs}, offset E {e:.0f}, N {n:.0f}, A {a:.0f}"
+        return crs
 
     def to_dict(self) -> dict[str, object]:
         return {
             "source_crs": self.source_crs,
             "epsg": self.epsg,
-            "preset_label": self.preset_label,
+            "crs_name": self.crs_name,
             "offset": list(self.offset),
+            "set_offset": self.set_offset,
         }
 
     @classmethod
@@ -75,8 +88,9 @@ class DataOrigin:
             return cls(
                 source_crs=str(raw["source_crs"]),
                 epsg=raw.get("epsg") or None,
-                preset_label=raw.get("preset_label") or None,
+                crs_name=raw.get("crs_name") or None,
                 offset=(e, n, a),
+                set_offset=bool(raw.get("set_offset", True)),
             )
         except (KeyError, TypeError, ValueError):
             return None
@@ -104,18 +118,52 @@ def is_local(bounds: Bounds) -> bool:
     return farthest(bounds) <= LOCAL_RADIUS_M
 
 
+def project_definition(data_crs: DataCrs) -> str:
+    """What the project's CRS becomes for data in ``data_crs``: ``EPSG:nnnn`` or its text."""
+    if data_crs.epsg:
+        return data_crs.epsg
+    return (data_crs.definition or "").strip()
+
+
 def suggest_origin(data_crs: DataCrs, bounds: Bounds) -> DataOrigin:
     """The SOURCE_CRS placement for this data: its CRS and the centre of its extent."""
-    preset = preset_for_epsg(data_crs.epsg)
-    if preset is not None:
-        source_crs, label = preset.definition, preset.label
-    elif data_crs.epsg:
-        source_crs, label = data_crs.epsg, None
-    else:
-        source_crs, label = (data_crs.definition or "").strip(), None
+    source_crs = project_definition(data_crs)
+    label = crs_catalog.name(source_crs) or None
     x0, y0, x1, y1 = bounds
     centre = (float(round((x0 + x1) / 2.0)), float(round((y0 + y1) / 2.0)), 0.0)
     return DataOrigin(source_crs, data_crs.epsg, label, centre)
+
+
+def offer_project_crs(
+    data_crs: DataCrs | None,
+    bounds: Bounds | None,
+    project_offset: tuple[float, float, float],
+    what: str,
+) -> None:
+    """For a SOURCE_CRS project with no CRS: raise :class:`NeedsProjectOrigin` offering
+    the data's CRS, or return when there is nothing to offer.
+
+    Offered only for data in a known CRS that is not geographic (a geographic
+    project CRS reads Blender metres as degrees). A project offset of zero E and N also
+    gets the data's centre, as for a LOCAL project; any other offset is kept (as
+    is a zero offset when there is no extent to centre on).
+    """
+    if data_crs is None or not data_crs.known or is_geographic(data_crs) is True:
+        return
+    keep = any(float(v) != 0.0 for v in project_offset[:2])
+    if keep or bounds is None or not all(math.isfinite(v) for v in bounds):
+        source_crs = project_definition(data_crs)
+        label = crs_catalog.name(source_crs) or None
+        offset = tuple(float(v) for v in project_offset)
+        origin = DataOrigin(source_crs, data_crs.epsg, label, offset, set_offset=False)  # type: ignore[arg-type]
+    else:
+        origin = suggest_origin(data_crs, bounds)
+    raise NeedsProjectOrigin(
+        f"The project has no CRS yet, and {what} is in {data_crs.describe()}. Use the data's "
+        f"CRS for the project (the project then uses {origin.describe()}), or set the "
+        "project's CRS yourself.",
+        origin,
+    )
 
 
 def check_local_project(

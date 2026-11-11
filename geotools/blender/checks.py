@@ -2,11 +2,12 @@
 
 import bpy
 
-from ..core import crs_presets, deps, preflight, probe
+from ..core import crs_catalog, deps, preflight, probe
 from ..core.issues import Issue, Severity
 from ..core.placement import Placement
 from .bake_texture import uv_overlap_issues
 from .common import redraw_ui
+from .crs_picker import migrate_scene
 from .layers import refresh_layers
 from .properties import SEVERITY_ICONS, FieldError, field_issues, placement_from_props
 from .source import refresh_summary
@@ -69,6 +70,7 @@ def run_checks(context: bpy.types.Context) -> list[Issue]:
     (``layers.refresh_layers``), read from the evaluated meshes.
     """
     props = context.scene.geotools
+    migrate_scene(context.scene)
     summary = refresh_summary(context)
     refresh_layers(context.scene)
     assert summary is not None
@@ -88,10 +90,24 @@ def run_checks(context: bpy.types.Context) -> list[Issue]:
             i for i in preflight.check(summary, Placement(), profile=profile) if i not in issues
         ]
     else:
-        issues = preflight.check(summary, placement_from_props(props), profile=profile)
+        placement = placement_from_props(props)
+        issues = preflight.check(summary, placement, profile=profile)
+        issues += crs_issues(placement, issues)
     issues += uv_overlap_issues(context)
     issues.sort(key=lambda i: _SEVERITY_ORDER[Severity(i.severity)])
     return issues
+
+
+def crs_issues(placement: Placement, found: list[Issue]) -> list[Issue]:
+    """rusty-tiles' verdict on the source CRS (``crs_catalog.check_issues``).
+
+    Skipped when preflight already rejects the CRS text (missing, a bare code).
+    """
+    if placement.mode != "source_crs" or not placement.source_crs:
+        return []
+    if any(i.code.startswith("crs-") and i.severity == Severity.ERROR for i in found):
+        return []
+    return crs_catalog.check_issues(placement.source_crs)
 
 
 class GEOTOOLS_OT_run_checks(bpy.types.Operator):
@@ -213,52 +229,9 @@ class GEOTOOLS_UL_issues(bpy.types.UIList):
         layout.label(text=item.message, icon=SEVERITY_ICONS.get(item.severity, "INFO"))
 
 
-def _preset_items(_self, _context):
-    return [(p.id, p.label, f"{p.epsg}. {p.note}") for p in crs_presets.PRESETS]
-
-
-class GEOTOOLS_OT_apply_crs_preset(bpy.types.Operator):
-    """Set the source CRS to a definition the bundled rusty-tiles accepts"""
-
-    bl_idname = "geotools.apply_crs_preset"
-    bl_label = "CRS Preset"
-    bl_options = {"REGISTER", "UNDO"}
-    bl_property = "preset"
-
-    preset: bpy.props.EnumProperty(name="Preset", items=_preset_items)
-
-    @classmethod
-    def description(cls, context, properties) -> str:
-        scene = getattr(context, "scene", None)
-        preset = crs_presets.for_definition(scene.geotools.source_crs) if scene else None
-        if preset is None:
-            return cls.__doc__
-        return (
-            f"{preset.label} ({preset.epsg}). {preset.note}\n{preset.definition}\n"
-            "Click to choose another preset"
-        )
-
-    def invoke(self, context, _event):
-        context.window_manager.invoke_search_popup(self)
-        return {"RUNNING_MODAL"}
-
-    def execute(self, context):
-        preset = crs_presets.get(self.preset)
-        if preset is None:
-            self.report({"ERROR"}, f"Unknown CRS preset {self.preset!r}")
-            return {"CANCELLED"}
-        props = context.scene.geotools
-        props.placement_mode = "SOURCE_CRS"
-        props.source_crs = preset.definition
-        self.report({"INFO"}, f"Source CRS set to {preset.label}. {preset.note}")
-        redraw_ui(context)
-        return {"FINISHED"}
-
-
 classes = (
     GEOTOOLS_OT_run_checks,
     GEOTOOLS_OT_verify_placement,
-    GEOTOOLS_OT_apply_crs_preset,
     GEOTOOLS_UL_issues,
 )
 

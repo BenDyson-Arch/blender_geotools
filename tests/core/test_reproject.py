@@ -29,13 +29,12 @@ import time
 import numpy as np
 import pytest
 
-from geotools.core import crs_presets, deps, reproject
+from geotools.core import deps, reproject
 
 HAS_PYPROJ = importlib.util.find_spec("pyproj") is not None
 needs_pyproj = pytest.mark.skipif(not HAS_PYPROJ, reason="pyproj is not installed")
 
 BRISBANE = (153.0251, -27.4698)
-MGA56_PRESET = crs_presets.get("MGA2020_56").definition
 
 
 def _mga(lon: float, lat: float, zone: int) -> tuple[float, float]:
@@ -150,33 +149,6 @@ def test_gda94_to_gda2020_uses_the_direct_operation() -> None:
     de, dn = out[0, 0] - points[0, 0], out[0, 1] - points[0, 1]
     assert de > 0 and dn > 0 and 1.4 < math.hypot(de, dn) < 1.7  # ~1.5 m north-east
     np.testing.assert_allclose(out[0], [502000.5964, 6961001.3906, 5.0], rtol=0, atol=1e-3)
-
-
-@needs_pyproj
-def test_preset_proj_string_as_target() -> None:
-    # From WGS84 the preset's null shift and EPSG:7856's null-shift operation agree.
-    out, report = reproject.reproject_points(np.array([BRISBANE]), "EPSG:4326", MGA56_PRESET)
-
-    np.testing.assert_allclose(out[0], _mga(*BRISBANE, zone=56), rtol=0, atol=1e-6)
-    assert report.target == MGA56_PRESET
-    assert any("GeoTools preset GDA2020 / MGA zone 56" in n for n in report.notes)
-    assert any("Into EPSG:7856 the result would be the same" in n for n in report.notes)
-    assert report.accuracy_m is None
-
-
-@needs_pyproj
-def test_preset_target_is_not_the_preset_epsg_for_another_datum() -> None:
-    # GDA94 into the preset goes GDA94 -> WGS84 -> null shift, not GDA94 -> GDA2020,
-    # so substituting the preset's EPSG code would move the points by about 1.5 m.
-    points = np.array([[502000.0, 6961000.0]])
-
-    out, report = reproject.reproject_points(points, "EPSG:28356", MGA56_PRESET)
-    direct, _ = reproject.reproject_points(points, "EPSG:28356", "EPSG:7856")
-
-    assert "GDA94 to WGS 84" in report.operation
-    shift = float(np.hypot(*(direct[0] - out[0])))
-    assert 1.4 < shift < 1.7
-    assert any(f"up to {shift:.3f} m away" in n for n in report.notes), report.notes
 
 
 @needs_pyproj

@@ -212,9 +212,10 @@ CATEGORY), `layer-categories-missing`, `layer-nodata-invalid`,
     `bpy.data.is_dirty`), and the worker thread hashes the file. An unreadable
     file is recorded as null.
   - `"placement"` keeps the rusty-tiles keywords and gains `"crs_epsg"`:
-    `"EPSG:nnnn"` when `source_crs` is a `core.crs_presets` preset's definition
-    (`crs_presets.epsg_code`, from `for_definition(...).epsg`) or is itself
-    `EPSG:nnnn`, else null. `source_crs` stays as the fallback.
+    `"EPSG:nnnn"` when `source_crs` is `EPSG:nnnn` (`crs_catalog.epsg_code`),
+    else null. `source_crs` stays as the fallback. `"crs_operation"` (added
+    with the EPSG picker) is rusty-tiles' `crsOperation` from the conversion
+    report: the EPSG datum operation and its stated accuracy, or null.
   - `rusty_tiles_version` as before (the wheel exposes no commit).
 
 ## 2. Layers from Geometry Nodes (no vertex-space bake)

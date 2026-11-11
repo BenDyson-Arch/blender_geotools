@@ -35,7 +35,7 @@ from bpy.props import EnumProperty, FloatProperty, IntProperty, StringProperty
 
 from ..core import deps, sysmem
 from ..core.display import format_count, format_seconds
-from ..core.issues import Severity
+from ..core.issues import Issue, Severity
 from ..core.presentation import variant_output
 from ..publish import preview as pv
 from ..publish import staging as st
@@ -448,6 +448,13 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
                 variant=variant,
             )
             issues += glb_issues(context.scene, options)
+            if not options.earth_placed:  # the CRS is only recorded, never applied
+                issues = [
+                    Issue(Severity.WARNING, i.code, i.message, i.subject)
+                    if i.code == "crs-refused"
+                    else i
+                    for i in issues
+                ]
         store_issues(props, issues)
         counts = count_issues(issues)
         if counts[Severity.ERROR]:

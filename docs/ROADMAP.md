@@ -51,12 +51,16 @@ GeoTools creates tilesets; it no longer imports them.
 5. CesiumJS cannot open `.3tz` directly; publish extracted directories for
    viewers.
 6. The 0.4.0 wheel resolves EPSG codes only for WGS84 geographic, WGS84 UTM
-   and Mercator. Other projected CRSs (GDA2020/GDA94 MGA, NZTM) work as PROJ
-   definitions with an explicit `+towgs84` shift, which is why the CRS picker
-   holds only hand-written MGA and NZTM presets. 0.4.1 adds a GDAL-verified
-   allow-list ([#337](https://github.com/BenDyson-Arch/rusty-tiles/issues/337),
-   merged to rusty-tiles develop in #340): 3,211 EPSG codes resolve, each with
-   its EPSG datum operation and stated accuracy reported as `crsOperation`.
+   and Mercator. 0.4.1 adds a GDAL-verified allow-list
+   ([#337](https://github.com/BenDyson-Arch/rusty-tiles/issues/337), merged to
+   rusty-tiles develop in #340): 3,211 EPSG codes resolve, each with its EPSG
+   datum operation and stated accuracy reported as `crsOperation`, and Python
+   lists them (`supported_epsg_codes()`) and checks a definition without
+   converting (`resolve_source_crs()`, #367). GeoTools requires both (0.3.0
+   releases on rusty-tiles 0.4.1; an older wheel is reported as not available,
+   with no fallback), and its CRS field is an EPSG picker over that list. The
+   hand-written MGA and NZTM PROJ-string presets are gone; a migration-only
+   table moves scenes saved with one to its EPSG code.
    Covered: GDA2020/GDA94 MGA, NZTM, ETRS89 UTM, Lambert-93, NAD83(2011)/(CSRS),
    JGD and others. Still refused: grid-based datums (British National Grid
    27700, NAD27, original NAD83), dynamic frames, compound/geoid CRSs and
@@ -74,7 +78,7 @@ operability and quality); new capabilities come in 0.5.
 |---|---|---|---|
 | 0.4.0 release (wheel on PyPI and GitHub) | 0.4.0 | publishing 2026-11-11 | M0 wheel pin, CI gating on the PyPI wheel |
 | E. Blender 5.2 LTS in wheel acceptance | 0.4.1 | [#330](https://github.com/BenDyson-Arch/rusty-tiles/issues/330) | **0.3.0 release** |
-| CRS allow-list: GDAL-verified EPSG codes in the wheel | 0.4.1 (merged on develop) | [#337](https://github.com/BenDyson-Arch/rusty-tiles/issues/337) | M1 follow-up: EPSG picker replaces the PROJ-string presets |
+| CRS allow-list: GDAL-verified EPSG codes in the wheel | 0.4.1 (merged on develop) | [#337](https://github.com/BenDyson-Arch/rusty-tiles/issues/337) | M1 follow-up: EPSG picker replaces the PROJ-string presets (done on GeoTools develop; needs the 0.4.1 wheel) |
 | CRS resolve without converting, and the supported EPSG list, from Python | 0.4.1 | [#367](https://github.com/BenDyson-Arch/rusty-tiles/issues/367) | The picker lists only codes that will publish; Check shows the datum operation and accuracy before a bake |
 | Encoded images admitted by memory budget, not a fixed 32 MiB | 0.4.1 | [#338](https://github.com/BenDyson-Arch/rusty-tiles/issues/338) | Publishing 8K PNG photogrammetry without re-encoding; GeoTools drops its 32 MiB check |
 | C. Decoded tile export (`decode_tile` to plain GLB or arrays) | 0.4.1 | [#329](https://github.com/BenDyson-Arch/rusty-tiles/issues/329) | M7 (moved forward) |
@@ -144,7 +148,7 @@ operability and quality); new capabilities come in 0.5.
   rusty-tiles' input rules.
 - **Exit:** a Metashape export is placed correctly, and its CRS and offsets
   round-trip to the values rusty-tiles expects.
-- **Follow-up on rusty-tiles 0.4.1 (EPSG picker):** replace the hand-written
+- **Follow-up on rusty-tiles 0.4.1 (EPSG picker), done:** replace the hand-written
   MGA/NZTM PROJ-string presets with a searchable EPSG picker. Names and areas
   of use come from the bundled pyproj. The list is filtered to
   `supported_epsg_codes()` (#367), and the plain code is passed to
@@ -153,6 +157,14 @@ operability and quality); new capabilities come in 0.5.
   National Grid, which needs a grid), before any bake. Imported data with a
   CRS (GeoTIFF, GeoPackage, GeoJSON) offers its code as the project CRS.
   Projects saved with a preset are migrated to the preset's EPSG code.
+  Built as `core/crs_catalog.py` (catalogue, search near the site, the cached
+  `resolve_source_crs()` verdict, migration) and `blender/crs_picker.py` (a
+  `StringProperty` search field, the panel rows, migration on load);
+  `core/crs_migration.py` is the migration-only preset table. Migration
+  happens only when rusty-tiles resolves the code to the preset's very
+  definition, and a test compares probe ECEF within 1 mm for all 15 presets.
+  `build.json` records `placement.crs_operation`. The pin moves from 0.4.0 to
+  0.4.1 when that release exists (the develop wheel still reports 0.4.0).
 
 ### M2 Publish (first release, 0.3.0)
 

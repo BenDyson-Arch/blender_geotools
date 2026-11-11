@@ -160,23 +160,41 @@ def test_project_panel_shows_only_active_mode_fields() -> None:
     drawn = set(h.props_drawn(calls))
     assert source <= drawn and not drawn & anchor, drawn
     assert ("operator", "geotools.load_offset_file", "FILEBROWSER") in calls
-    assert ("Choose a preset or type a CRS", "ERROR") in list(h.labels(calls))
+    assert "crs_near_site" in h.props_drawn(calls)
+    if _available():
+        assert ("Search for an EPSG code, or type WKT or PROJ", "ERROR") in list(h.labels(calls))
+    else:  # the no-wheels build: the CRS row says rusty-tiles is missing
+        text = h.label_text(calls)
+        assert "No EPSG list or CRS check" in text and "rusty_tiles is not installed" in text
     assert h.draw_header(panel) == "CANCEL"  # no CRS yet
 
-    # A preset shows by name; its definition and note are in CRS Details.
-    presets = h.submodule("core.crs_presets")
+    # An EPSG code shows its name and rusty-tiles' verdict; CRS Details has the rest.
     details = h.submodule("blender.panels").GEOTOOLS_PT_project_crs
     assert not details.poll(bpy.context)
-    props.source_crs = presets.get("MGA2020_56").definition
+    props.source_crs = "EPSG:7856"
     calls = h.draw(panel)
-    assert "source_crs" not in h.props_drawn(calls)
-    assert h.operator_text("geotools.apply_crs_preset") == "GDA2020 / MGA zone 56"
+    assert "source_crs" in h.props_drawn(calls)
     assert h.draw_header(panel) == "CHECKMARK"
     assert details.poll(bpy.context)
-    calls = h.draw(details)
-    assert "source_crs" in h.props_drawn(calls)
-    assert "null shift" in h.label_text(calls)
-    assert ("Stands in for EPSG:7856", "NONE") in list(h.labels(calls))
+    details_text = h.label_text(h.draw(details))
+    if _available():
+        text = h.label_text(calls)
+        assert "GDA2020 / MGA zone 56" in text, text
+        assert "GDA2020 to WGS 84 (2) (EPSG:8450), EPSG-stated accuracy 3 m" in text, text
+        assert any(
+            t.startswith("EPSG:7856: GDA2020") and i == "CHECKMARK" for t, i in h.labels(calls)
+        )
+        assert "Area of use" in details_text and "GDAL-verified" in details_text, details_text
+        assert "towgs84" in details_text  # the definition rusty-tiles uses
+
+        # A CRS rusty-tiles refuses: the refusal, in red, before any bake.
+        props.source_crs = "EPSG:27700"
+        alerts: list[str] = []
+        calls = h.draw(panel, alerts)
+        assert "source_crs" in alerts, alerts
+        assert "EPSG:27700 is not in the standard build" in h.label_text(calls)
+        assert "native-geospatial" not in h.label_text(calls)
+        assert h.draw_header(panel) == "CANCEL"
 
     props.placement_mode = "LOCAL"
     assert h.draw_header(panel) == "CHECKMARK"
@@ -195,12 +213,113 @@ def test_project_panel_flags_invalid_numbers() -> None:
     assert h.draw_header(panel) == "CANCEL"
 
 
-def test_crs_preset_sets_source_crs() -> None:
+def _available() -> bool:
+    return h.CONFIG.expect == "available"
+
+
+def _preset_mga56() -> str:
+    codes = h.submodule("core.crs_migration").PRESET_CODES
+    return next(text for text, code in codes.items() if code == "EPSG:7856")
+
+
+def test_choosing_an_entry_stores_the_plain_code() -> None:
     h.reset_scene()
     props = h.project()
-    presets = h.submodule("core.crs_presets")
-    assert bpy.ops.geotools.apply_crs_preset(preset="MGA2020_56") == {"FINISHED"}
-    assert props.placement_mode == "SOURCE_CRS"
-    assert props.source_crs == presets.get("MGA2020_56").definition
+    props.placement_mode = "SOURCE_CRS"
+    props.source_crs = "EPSG:7856 — GDA2020 / MGA zone 56"
+    assert props.source_crs == "EPSG:7856"
+    props.source_crs = " epsg:2193 "
+    assert props.source_crs == "EPSG:2193"
+    proj = "+proj=tmerc +lon_0=151 +ellps=GRS80 +towgs84=0,0,0 +units=m"
+    props.source_crs = proj
+    assert props.source_crs == proj  # free text is kept as typed
+    assert _props().placement_from_props(props).source_crs == proj
+
+
+def test_search_lists_codes_near_the_site() -> None:
+    h.reset_scene()
+    props = h.project()
+    props.placement_mode = "SOURCE_CRS"
+    picker = h.submodule("blender.crs_picker")
+    found = picker.search_crs(props, bpy.context, "mga 56")
+    if not _available():
+        assert found == []  # nothing to list without rusty-tiles
+        return
+    labels = [label for label, _area in found]
+    assert "EPSG:7856 — GDA2020 / MGA zone 56" in labels, labels[:10]
+    assert "EPSG:28356 — GDA94 / MGA zone 56" in labels, labels[:10]
+    assert "EPSG:7855 — GDA2020 / MGA zone 55" not in labels
+    assert all(area for _label, area in found)  # the area of use is the hint
+
+    # No location yet: every code, in code order.
+    everything = [label for label, _area in picker.search_crs(props, bpy.context, "")]
+    assert len(everything) > 3000 and everything[0].startswith("EPSG:2")
+    # In Brisbane (a verified placement): only codes whose area of use holds it.
+    props.probe_status = "OK"
+    props.probe_lon, props.probe_lat = "153.03", "-27.47"
+    near = [label for label, _area in picker.search_crs(props, bpy.context, "")]
+    assert "EPSG:7856 — GDA2020 / MGA zone 56" in near
+    assert not any("MGA zone 50" in label for label in near)
+    assert len(near) < len(everything)
+    props.crs_near_site = False
+    near_first = [label for label, _area in picker.search_crs(props, bpy.context, "")]
+    assert len(near_first) == len(everything) and near_first[: len(near)] == near
+    # The field's own value lists everything, not just itself.
+    props.source_crs = "EPSG:7856"
+    assert len(picker.search_crs(props, bpy.context, "EPSG:7856")) == len(everything)
+
+
+def test_a_saved_preset_is_migrated_to_its_epsg_code() -> None:
+    h.reset_scene()
+    props = h.project()
+    props.placement_mode = "SOURCE_CRS"
+    preset = _preset_mga56()
+    props.source_crs = preset
+    picker = h.submodule("blender.crs_picker")
     placement = _props().placement_from_props(props)
-    assert placement.source_crs == presets.get("MGA2020_56").definition
+    if not _available():  # rusty-tiles can't confirm the definition: kept as saved
+        assert placement.source_crs == preset
+        assert picker.migrate_scene(bpy.context.scene) is None
+        assert props.source_crs == preset
+        return
+    assert placement.source_crs == "EPSG:7856"  # read as the code before it is written
+    assert picker.migrate_scene(bpy.context.scene) == "EPSG:7856"
+    assert props.source_crs == "EPSG:7856" and props.crs_migrated_from == preset
+    assert picker.migrate_scene(bpy.context.scene) is None  # done once
+    details = h.submodule("blender.panels").GEOTOOLS_PT_project_crs
+    assert "Migrated from an old GeoTools CRS preset" in h.label_text(h.draw(details))
+    props.source_crs = "EPSG:7855"  # another CRS: the note goes
+    assert props.crs_migrated_from == ""
+
+
+def test_a_saved_preset_is_migrated_on_file_load() -> None:
+    h.reset_scene()
+    props = h.project()
+    props.placement_mode = "SOURCE_CRS"
+    props.source_crs = _preset_mga56()
+    expected = "EPSG:7856" if _available() else _preset_mga56()
+    with tempfile.TemporaryDirectory(prefix="geotools-test-") as tmp:
+        path = Path(tmp) / "preset.blend"
+        assert bpy.ops.wm.save_as_mainfile(filepath=str(path), copy=True) == {"FINISHED"}
+        h.reset_scene()
+        assert bpy.ops.wm.open_mainfile(filepath=str(path), load_ui=False) == {"FINISHED"}
+        assert h.project().source_crs == expected
+    h.reset_scene()
+
+
+def test_run_checks_reports_the_crs_verdict() -> None:
+    h.reset_scene()
+    props = h.project()
+    props.placement_mode = "SOURCE_CRS"
+    props.source_offset_e, props.source_offset_n = "502000", "6961000"
+    checks = h.submodule("blender.checks")
+    placement = h.submodule("core.placement")
+    ok = placement.Placement(mode="source_crs", source_crs="EPSG:7856")
+    refused = placement.Placement(mode="source_crs", source_crs="EPSG:27700")
+    if not _available():
+        assert checks.crs_issues(ok, []) == [] and checks.crs_issues(refused, []) == []
+        return
+    (note,) = checks.crs_issues(ok, [])
+    assert note.code == "crs-operation" and "accuracy 3 m" in note.message
+    (error,) = checks.crs_issues(refused, [])
+    assert error.code == "crs-refused" and error.severity == "error"

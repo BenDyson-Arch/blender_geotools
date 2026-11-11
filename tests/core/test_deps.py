@@ -52,10 +52,15 @@ def _no_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(importlib.metadata, "version", version)
 
 
-def _fake_module(monkeypatch: pytest.MonkeyPatch, version: str | None) -> types.ModuleType:
+def _fake_module(
+    monkeypatch: pytest.MonkeyPatch, version: str | None, *, crs_functions: bool = True
+) -> types.ModuleType:
     module = types.ModuleType(deps.MODULE_NAME)
     if version is not None:
         module.__version__ = version
+    if crs_functions:  # rusty-tiles 0.4.1
+        for name in deps.CRS_FUNCTIONS:
+            setattr(module, name, lambda *_args: None)
     monkeypatch.setitem(sys.modules, deps.MODULE_NAME, module)
     return module
 
@@ -112,6 +117,20 @@ def test_broken_metadata_still_reports_available(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(importlib.metadata, "version", version)
 
     assert deps.probe_rusty_tiles() == deps.DependencyStatus(True, version="0.4.0")
+
+
+def test_a_wheel_without_the_crs_functions_is_not_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _no_metadata(monkeypatch)
+    _fake_module(monkeypatch, "0.4.0", crs_functions=False)  # the 0.4.0 wheel
+    status = deps.probe_rusty_tiles()
+    assert not status.available and status.version == "0.4.0"
+    assert status.error == (
+        "rusty-tiles 0.4.0 has no supported_epsg_codes or resolve_source_crs; "
+        "GeoTools needs rusty-tiles 0.4.1 or later"
+    )
+    assert "needs rusty-tiles 0.4.1 or later" in status.summary
 
 
 def test_missing(monkeypatch: pytest.MonkeyPatch) -> None:

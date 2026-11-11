@@ -66,7 +66,7 @@ def _utm13_project(a: float = 1830.14) -> tuple[float, float]:
 
 
 def _mga56_edge_project() -> tuple[float, float]:
-    """An MGA zone 56 (preset) project at the zone's west edge, 30 S."""
+    """An MGA zone 56 (EPSG:7856) project at the zone's west edge, 30 S."""
     import pyproj
 
     east, north = pyproj.Transformer.from_crs("EPSG:7844", "EPSG:7856", always_xy=True).transform(
@@ -74,7 +74,7 @@ def _mga56_edge_project() -> tuple[float, float]:
     )
     props = h.project()
     props.placement_mode = "SOURCE_CRS"
-    props.source_crs = h.submodule("core.crs_presets").get("MGA2020_56").definition
+    props.source_crs = "EPSG:7856"
     props.source_offset_e = repr(east)
     props.source_offset_n = repr(north)
     props.source_offset_a = "250.0"

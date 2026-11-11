@@ -380,8 +380,9 @@ def test_offset_round_trips_into_the_report(rusty_tiles) -> None:
 
 
 def test_unsupported_crs_fails_in_the_probe(rusty_tiles, tmp_path: Path) -> None:
+    # British National Grid needs the OSTN15 grid, which rusty-tiles' allow-list refuses.
     placement = Placement(
-        PlacementMode.SOURCE_CRS, source_crs="EPSG:2193", source_offset=(1.7e6, 5.9e6, 0.0)
+        PlacementMode.SOURCE_CRS, source_crs="EPSG:27700", source_offset=(530e3, 180e3, 0.0)
     )
     result = probe_placement(placement, *BOUNDS, workdir=tmp_path)
     assert result.ok is False

@@ -53,8 +53,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from ..core import deps
-from ..core.crs_presets import epsg_code
+from ..core import crs_catalog, deps
+from ..core.crs_catalog import epsg_code
 from ..core.facemap import build_face_map, save_face_map
 from ..core.gltf_writer import SceneExport, write_glb
 from . import staging as st
@@ -82,7 +82,11 @@ RECORD_SCHEMA = 2
 ``output_type`` (``"3tz"`` or ``"glb"``) and, for a GLB, ``glb``: its file,
 extensions used, options and face table cost (M4). Vector builds (M8) have
 ``output_type`` ``"vector"`` and ``vectors``: the GeoPackage tiled, its tables
-and whether the previous archive was reused."""
+and whether the previous archive was reused. ``placement.crs_operation`` is
+rusty-tiles' ``crsOperation``: the EPSG datum operation and its stated accuracy
+for an allow-listed code (rusty-tiles 0.4.1; from the conversion report, or for
+a GLB from ``resolve_source_crs``), null for WGS84, WKT and PROJ definitions and
+for older wheels."""
 
 MAX_RECORDED_WARNINGS = 50
 
@@ -267,9 +271,34 @@ def summarise_report(report: Mapping[str, Any]) -> dict[str, object]:
             "source_offset",
             "height_offset_metres",
             "operation",
+            "datum_operation",
             "origin_degrees_metres",
         )
     return summary
+
+
+def crs_operation(report: Mapping[str, Any]) -> dict[str, object] | None:
+    """The ``crsOperation`` of a conversion report, or None.
+
+    A mesh report holds it as ``source_crs.datum_operation``, a vector report per
+    layer (every layer is in the project CRS, so the first one is the one), a
+    point cloud report at the top. rusty-tiles 0.4.0 reports none.
+    """
+    candidates: list[object] = [report.get("crsOperation")]
+    source_crs = report.get("source_crs")
+    if isinstance(source_crs, Mapping):
+        candidates.append(source_crs.get("datum_operation"))
+    layers = report.get("layers")
+    if isinstance(layers, list):
+        candidates += [layer.get("crsOperation") for layer in layers if isinstance(layer, Mapping)]
+    found = next((c for c in candidates if isinstance(c, Mapping)), None)
+    return dict(found) if found is not None else None
+
+
+def _resolved_operation(source_crs: object) -> dict[str, object] | None:
+    """For a build without a conversion report (a GLB): ``resolve_source_crs``'s operation."""
+    result = crs_catalog.resolve(source_crs) if isinstance(source_crs, str) else None
+    return None if result is None or result.operation is None else dict(result.operation)
 
 
 def summarise_validation(report: Mapping[str, Any]) -> dict[str, object]:
@@ -634,6 +663,7 @@ class BuildJob:
             "placement": {
                 **request.placement_kwargs,
                 "crs_epsg": epsg_code(request.placement_kwargs.get("source_crs")),  # type: ignore[arg-type]
+                "crs_operation": crs_operation(report),
             },
             "source": {"glb_sha256": glb.sha256, "blend_sha256": blend_sha256},
             "layers": [dict(record) for record in request.layers],
@@ -734,6 +764,7 @@ class BuildJob:
             "placement": {
                 **request.placement_kwargs,
                 "crs_epsg": epsg_code(request.placement_kwargs.get("source_crs")),  # type: ignore[arg-type]
+                "crs_operation": _resolved_operation(request.placement_kwargs.get("source_crs")),
             },
             "source": {"glb_sha256": glb.sha256, "blend_sha256": blend_sha256},
             "layers": [dict(record) for record in request.layers],
@@ -873,6 +904,7 @@ class BuildJob:
             "placement": {
                 **placement,
                 "crs_epsg": epsg_code(placement.get("source_crs")),  # type: ignore[arg-type]
+                "crs_operation": crs_operation(report),
             },
             "source": {"gpkg_sha256": gpkg_sha256, "blend_sha256": blend_sha256},
             "layers": [dict(record) for record in request.layers],

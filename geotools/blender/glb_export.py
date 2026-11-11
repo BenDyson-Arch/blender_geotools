@@ -36,7 +36,7 @@ import numpy as np
 from bpy.props import BoolProperty, StringProperty
 from bpy_extras.io_utils import ExportHelper
 
-from ..core import crs_presets, deps, georef
+from ..core import crs_catalog, deps, georef
 from ..core import gltf_metadata as gm
 from ..core.gltf_writer import ExportError, GlbWriteResult, SceneExport, write_glb
 from ..core.issues import Issue, Severity
@@ -316,7 +316,7 @@ def _georeference(
     }
     if mode is PlacementMode.SOURCE_CRS:
         fields |= {
-            "crs_epsg": crs_presets.epsg_code(placement.source_crs),
+            "crs_epsg": crs_catalog.epsg_code(placement.source_crs),
             "crs_definition": placement.source_crs,
             "source_offset": tuple(float(v) for v in placement.source_offset),
             "height_offset": float(placement.height_offset),
