@@ -11,8 +11,9 @@ face, per face corner, or per texel. Layers come from Geometry Nodes, from
 analysis tools (M5) or from the user. M3 provides:
 
 1. the **layer registry**, stored in the `.blend`;
-2. **vertex-space bakes**: freeze a Geometry Nodes output into a stored source
-   attribute, transferring values when the node tree changes topology;
+2. **layers from Geometry Nodes**: a FACE or CORNER layer reads its attribute
+   from the evaluated mesh, so a Store Named Attribute output is a layer
+   without any bake (the vertex-space bake was removed; section 2 says why);
 3. **texture-space bakes**: a Cycles bake of an attribute into an image on the
    source UVs, after a UV-overlap check;
 4. a **presentation** step that makes a layer visible (a colour ramp into
@@ -28,7 +29,7 @@ tileset only through presentation. The registry still records everything the
 - The performance rule holds: no Python loops over faces, corners, vertices or
   texels. Use `foreach_get`/`foreach_set` with numpy, Geometry Nodes or Cycles.
   Building a node tree or a material from Python is fine.
-- `geotools/core` never imports `bpy`. Put maths (ramps, transfer reductions,
+- `geotools/core` never imports `bpy`. Put maths (ramps, colour conversion,
   UV rasterisation, validation) in `core` with plain pytest tests, and keep the
   `bpy` glue thin.
 - Every bake is undoable as one step or restores what it touched in a
@@ -98,9 +99,32 @@ CATEGORY), `layer-categories-missing`, `layer-nodata-invalid`,
   and `value_max` are string fields parsed as binary64, empty meaning none.
   `categories` is a newline-separated string. `provenance` is a JSON string,
   empty meaning none.
-- FACE and CORNER layers live in the mesh attribute `gt_<name>` on every mesh
-  of the source collection, with `FACE` or `CORNER` domain and `FLOAT`, `INT`
-  or `BOOLEAN` attribute type (CATEGORY is `INT`).
+- FACE and CORNER layers live in a mesh attribute of every source object,
+  with `FACE` or `CORNER` domain and `FLOAT`, `INT` or `BOOLEAN` attribute
+  type (CATEGORY is `INT`). The attribute is the layer's `source_attribute`
+  (`LayerSpec.source_attribute`, `GeoToolsLayer.source_attribute`, shown as
+  **Attribute** in the Layers panel), or `gt_<name>` when that is empty:
+  `core.layers.effective_attribute_name(spec)` resolves it, and
+  `attribute_name(spec)` stays the default. So a Geometry Nodes output named
+  `slope` can back a layer directly. `validate` refuses a source attribute
+  with surrounding spaces, a leading dot (Blender's internal names), the
+  reserved `gt_present` or more than 63 bytes (`layer-attribute-invalid`).
+- Values are **read from the evaluated mesh**, the one the exporter publishes:
+  `blender.layers.layer_meshes(scene)` yields each source object with
+  `obj.evaluated_get(depsgraph).data` (its modifiers and Geometry Nodes
+  applied), or its original mesh when the active build profile's **Apply
+  Modifiers** is off. `update_value_range`, `layer_status`, the presentation
+  and the export all read this way. Values are **written to the original
+  mesh** (`write_layer`, `ensure_attribute`, Create Empty Attributes), for
+  manual layers and tools; modifiers carry the attribute on like any other.
+- Panels never evaluate a mesh. A layer's data checks are cached on it
+  (`status_issues`, `status_key`): `refresh_layer(scene, item)` updates the
+  range and the cached status, and the layer operators, Run Checks and
+  Publish (through Run Checks, `refresh_layers`) call it. `cached_status`
+  is what panels draw: validation now plus the cached data issues, or one
+  `layer-not-checked` info when the layer was never checked or its
+  `status_key` (domain, type, attribute, UV map, source collection, Apply
+  Modifiers) changed since.
 - TEXTURE layers live in images, one per object, as
   `GeoToolsLayerImage(object: PointerProperty(Object), image:
   PointerProperty(Image))` items in `GeoToolsLayer.images`. The layer also
@@ -151,19 +175,25 @@ CATEGORY), `layer-categories-missing`, `layer-nodata-invalid`,
     `layer_image`, `ensure_layer_image`, `save_layer_image` (full-float EXR at
     `//geotools_layers/<layer>__<object>.exr`), `image_is_saved`,
     `remove_layer_data`, `layer_records`, `write_props`, `other_layer_names`.
-  - `layer_status` codes: `layer-attribute-missing` (warning),
-    `layer-attribute-mismatch` (error), `layer-image-missing` (warning),
-    `layer-image-unsaved` (warning), `layer-uv-map-missing` (error),
-    `layer-no-source` (info), plus the validation codes.
+  - `layer_status` codes: `layer-attribute-missing` (warning, on the evaluated
+    mesh; the message says to add a Geometry Nodes Store Named Attribute or
+    create the attribute), `layer-attribute-mismatch` (error),
+    `layer-edit-mode` (warning: an object in Edit Mode is not checked),
+    `layer-image-missing` (warning), `layer-image-unsaved` (warning),
+    `layer-uv-map-missing` (error), `layer-no-source` (info), plus the
+    validation codes. `cached_status` adds `layer-not-checked` (info).
   - Operators: `geotools.layer_add`, `layer_remove` (`delete_data`; image files on
-    disk are kept), `layer_rename` (renames the attributes too),
-    `layer_create_attributes`, `layer_set_categories`, `layer_update_range`.
+    disk are kept), `layer_rename` (renames the `gt_<name>` attributes too; a
+    layer with a source attribute keeps it), `layer_create_attributes`,
+    `layer_set_categories`, `layer_update_range` (reads the evaluated values
+    and refreshes the cached status).
   - Publish passes the records in `BuildRequest.layers`; invalid layers are left
     out with a warning.
 - UI: a **Layers** panel (`GEOTOOLS_PT_layers`) after Source, with a UIList,
-  add, remove and rename operators, the selected layer's label, units, value
-  range and status (`layer_status`), and three sub-panels in workflow order:
-  **Bake** (`GEOTOOLS_PT_layers_bake`, sections 2 and 3), **Display**
+  add, remove and rename operators, the selected layer's label, units,
+  attribute (FACE and CORNER), value range and cached status
+  (`cached_status`), and three sub-panels in workflow order: **Bake**
+  (`GEOTOOLS_PT_layers_bake`, TEXTURE layers only, section 3), **Display**
   (`GEOTOOLS_PT_layers_display`, section 4) and **Details**
   (`GEOTOOLS_PT_layers_details`, closed by default: domain, type, no-data,
   origin, aggregation, description, provenance and Create Attributes).
@@ -187,81 +217,35 @@ CATEGORY), `layer-categories-missing`, `layer-nodata-invalid`,
     `EPSG:nnnn`, else null. `source_crs` stays as the fallback.
   - `rusty_tiles_version` as before (the wheel exposes no commit).
 
-## 2. Vertex-space bake: `geotools/blender/bake_vertex.py`
+## 2. Layers from Geometry Nodes (no vertex-space bake)
 
-Operator `geotools.bake_geonodes_layer`: for a layer and a Geometry Nodes
-modifier, read the named attribute that the modifier outputs ("Store Named
-Attribute") from the evaluated mesh, and store it as the layer's `gt_<name>`
-attribute on the original mesh.
+M3 first had a vertex-space bake, `geotools.bake_geonodes_layer`, which froze
+a Geometry Nodes output into the layer's `gt_<name>` attribute on the
+original mesh and, when the node tree changed the topology, transferred the
+values back to the source faces (nearest, raycast or area mean). It was
+removed: it redid what Blender already does (the "Scope" row of the
+roadmap's decisions). Freezing a result is Apply Modifier; moving values
+between topologies is a Geometry Nodes sampling setup (Sample Nearest,
+Raycast, Sample Index). And the export already reads every object through
+the evaluated depsgraph, which is applying the modifiers at publish time.
 
-- **Same topology** (the evaluated mesh has the same polygon count and the same
-  topology digest as the original): copy directly with `foreach_get` and
-  `foreach_set`. Convert domains with numpy: point to corner through
-  `loops.vertex_index`; corner to face as the mean of each face's corners
-  (`np.add.reduceat` over `polygons.loop_start`); face to corner by
-  `np.repeat` over `loop_total`.
-- **Changed topology**: transfer values to the source faces, with the method
-  chosen in the operator:
-  - `NEAREST`: the value at the nearest point of the evaluated surface to
-    each source face centre. Use a Geometry Nodes evaluation with Sample
-    Nearest Surface, not `mathutils.bvhtree` in a Python loop.
-  - `RAYCAST`: cast along the source face normal (both directions, within a
-    maximum distance) with the Raycast node, falling back to NEAREST on a miss.
-  - `AREA_MEAN`: for each evaluated face, find the nearest source face (one
-    Geometry Nodes evaluation that writes an index attribute), then reduce in
-    numpy: `np.bincount(index, weights=value * area) / np.bincount(index,
-    weights=area)`. Source faces that receive nothing fall back to NEAREST.
-  Put the reductions in `geotools/core/transfer.py` with pytest tests.
-- Option: after a successful bake, turn the modifier off in the viewport and
-  render, so the export uses the frozen values on the source topology.
-- Report how many faces were filled by each path, and how many were left as
-  no-data (written as the layer's `nodata`, or NaN for FLOAT when none is set).
+To compute a layer with Geometry Nodes:
 
-Settled while building stream 2 (all compatible with the above):
+1. Add a Geometry Nodes modifier to the source objects and end the tree with
+   a **Store Named Attribute** node of the layer's domain (Face or Face
+   Corner) and type (Float, Integer, Boolean; Integer for a category layer).
+2. Name the attribute `gt_<name>`, or type the node's name in the layer's
+   **Attribute** field (e.g. `slope`).
+3. **Update** the layer's values (or Run Checks): the range and status are
+   read from the evaluated mesh. Publish applies the modifier, as the export
+   always has.
 
-- Operator properties: `layer` (empty for the selected one), `modifier`,
-  `attribute`, `domain` (`LAYER` keeps the layer's domain; `FACE` or `CORNER`
-  changes it, which also lets a TEXTURE entry become an attribute layer),
-  `method` (`NEAREST`, `RAYCAST`, `AREA_MEAN`), `max_distance` (raycast, each
-  way, default 1) and `disable_modifier` (default off). Every source object
-  with a Geometry Nodes modifier of that name is baked; objects without it are
-  skipped and reported, and a mesh shared by several objects is baked once.
-- The mesh is evaluated up to and including the modifier: later modifiers are
-  turned off in the viewport for the evaluation, and the modifier itself on
-  (so a modifier turned off by an earlier bake can be baked again). Their
-  visibility is restored afterwards.
-- The attribute may be on the POINT, EDGE, FACE or CORNER domain, with type
-  FLOAT, INT, INT8 or BOOLEAN. Vectors and colours are refused.
-- Transfers use one temporary object that shares the original mesh and reads
-  the evaluated mesh with an Object Info node (original space). NEAREST uses
-  Sample Nearest (FACE) for the evaluated face and Sample Nearest Surface for
-  the interpolated value. A CORNER layer samples each corner moved 1%
-  (`CORNER_INSET`) towards its face centre, so a corner takes its own face's
-  side of a value boundary. RAYCAST casts two rays (normal and reverse) from
-  the same points; the nearer hit wins. AREA_MEAN gives a CORNER layer each
-  face's value on all its corners.
-- `core.transfer.reduction_kind`: BOOLEAN, CATEGORY and INT layers aggregated
-  by MODE never interpolate. They take the value of the evaluated face found
-  (the mode of its corners), and AREA_MEAN takes the value with the largest
-  total area (`segment_mode`). Other INT layers are averaged and rounded.
-- No-data and NaN never mix into a mean: reductions skip them, and the
-  sampling tree maps the layer's `nodata` to NaN before Sample Nearest Surface
-  and Raycast interpolate. Where the interpolated value is NaN, the evaluated
-  face's own value (the mean of its valid corners) is used. An element whose
-  value is still no-data is counted as no-data, not under its path.
-- Every object's values are computed before anything is written, so a failure
-  leaves the source and the registry unchanged. The layer then becomes
-  `origin=GEONODES` with provenance `make_provenance("bake_geonodes", {...})`.
-  The parameters are `modifier`, `node_group`, `attribute`, `method`,
-  `domain`, `source_domains`, `same_topology`, `objects`, `counts` (per path:
-  `copied`, `area_mean`, `raycast`, `nearest`, `fallback`, plus `nodata`),
-  `modifier_disabled` and, for RAYCAST, `max_distance`.
-- The panel's settings are kept per layer in `GeoToolsLayer.vertex_bake`
-  (`GeoToolsVertexBake`: the operator's settings plus `last_report`).
-  `bake_vertex.register()` adds this pointer to the registered class, so
-  `properties.py` is unchanged. The UI is the **Bake** sub-panel of Layers
-  (`GEOTOOLS_PT_layers_bake`), which draws `bake_vertex.draw_bake` for FACE
-  and CORNER layers.
+The tree may change the topology (Subdivide Mesh, Delete Geometry): the layer
+then lives on the evaluated faces, which is what is published, and the face
+map records those objects with an `evaluated:` topology (see
+`export.py`). With the build profile's **Apply Modifiers** off, the export and
+every layer read use the original mesh data instead, as Blender's own glTF
+exporter does, so only attributes stored on the mesh count.
 
 ## 3. Texture-space bake: `geotools/blender/bake_texture.py`
 
@@ -333,7 +317,8 @@ Settled while building stream 3 (all compatible with the above):
   and margin, **Bake...** (the operator's dialog) and **Check UV Overlap**
   (`geotools.check_layer_uvs`).
 - Operator properties: `layer` (empty for the selected one; must be TEXTURE),
-  `source_layer` (a FACE or CORNER layer, baked from `gt_<name>`), `attribute`
+  `source_layer` (a FACE or CORNER layer, baked from its attribute,
+  `effective_attribute_name`), `attribute`
   (used when `source_layer` is empty), `method` (`AUTO`, `DIRECT`,
   `SELECTED_TO_ACTIVE`), `cage_extrusion` (0: 1% of the object's bounding-box
   diagonal), `max_ray_distance` (0: twice the extrusion) and `bake_anyway`.
@@ -379,14 +364,15 @@ sets the base colour to white with no texture, or `MULTIPLY`), `palette`,
 `range_min` and `range_max` (binary64 strings; empty means `auto_range`), and,
 for CATEGORY, one colour per category.
 
-- **COLOR_0**: for FACE and CORNER layers, write the ramp to a byte colour
-  attribute `gt_present` (CORNER domain).
+- **COLOR_0**: for FACE and CORNER layers, the ramp of the values on the
+  exported (evaluated) meshes, computed at publish time and handed to the
+  exporter in memory (see "Building" below).
 - **BASE_COLOR and EMISSIVE**: for TEXTURE layers, ramp the float images into
   8-bit sRGB PNG images (numpy over `pixels.foreach_get`).
 - Export: `extract_scene(..., presentation=Presentation(...))`, a small
   dataclass in `geotools/blender/export.py`. It overrides what the exporter
-  writes (the COLOR_0 source attribute, base-colour or emissive textures, and
-  the base colour factor for `REPLACE`) without changing the user's materials
+  writes (the COLOR_0 colours, base-colour or emissive textures, and the base
+  colour factor for `REPLACE`) without changing the user's materials
   or render colour attribute.
 - Variant publish: the build profile gets `variant_layer` (a layer name, empty
   meaning the plain tileset). The output name gets `.<layer>` before `.3tz`
@@ -449,15 +435,33 @@ value `i`; missing items use `default_category_colours`) and `images` (the
 `GeoToolsLayer.presentation`. A BOOLEAN layer ramps over `(0, 1)` when its
 range is automatic.
 
-**Writing** (`geotools/blender/presentation.py`): `write_presentation(scene,
-layer_name) -> (Presentation, variant_record)`.
+**Building** (`geotools/blender/presentation.py`): `build_presentation(scene,
+layer_name) -> (Presentation, variant_record)`, called by the variant publish.
 
-- COLOR_0: `gt_present` (`BYTE_COLOR`, CORNER) on every source mesh, written
-  with `foreach_set("color_srgb")`; a FACE layer is repeated over each face's
-  corners. A mesh without the layer's attribute is painted with the no-data
-  colour (a `variant-data-missing` warning). Adding a colour attribute makes
-  Blender set it active and render, so the previous active and render names
-  are put back. An existing `gt_present` of another type or domain is replaced.
+- COLOR_0: the layer's values are read from the mesh each source object
+  exports (`layers.layer_meshes`: evaluated, unless Apply Modifiers is off)
+  and turned into one 8-bit sRGB colour per face (FACE layer) or per corner
+  (CORNER layer), kept in memory in `Presentation.colors` (object name ->
+  `(N, 4) uint8`). The exporter converts them to linear floats
+  (`core.ramps.srgb_bytes_to_linear`, Blender's own byte-colour conversion)
+  and indexes them by each exported corner's polygon or corner. No colour
+  attribute is written, so nothing has to survive the modifiers: a layer
+  computed entirely by a Geometry Nodes modifier, even one that changes the
+  topology, presents like a stored one. An object without the layer's
+  attribute gets the no-data colour (a `variant-data-missing` warning); the
+  automatic range is taken over the evaluated values of every object.
+- Viewport preview: `write_preview(scene, layer_name) -> (variant_record,
+  skipped)` (the Display sub-panel's **Write Colours**) paints the same
+  colours into `gt_present` (`BYTE_COLOR`, CORNER) on each original mesh,
+  with `foreach_set("color_srgb")`, a FACE layer repeated over each face's
+  corners. It can only do so where the evaluated topology is the original's
+  (`export.same_topology`) or Apply Modifiers is off; other objects are
+  skipped and named in a warning, since no original corner matches each
+  exported one. Adding a colour attribute makes Blender set it active and
+  render, so the previous active and render names are put back. An existing
+  `gt_present` of another type or domain is replaced. The export never reads
+  `gt_present`: a stale, missing or modifier-dropped preview changes no
+  tileset.
 - TEXTURE: one 8-bit sRGB image per object (`gt_present.<layer>.<object>`, the
   size of the float layer image, alpha 255), from the first channel of the
   float image. They are generated datablocks, not files: the exporter writes
@@ -466,8 +470,8 @@ layer_name) -> (Presentation, variant_record)`.
 - The user's materials, images and colour attributes are never changed. The
   plain export never publishes `gt_present`, even when it is the render or
   active colour attribute: COLOR_0 then comes from the next one.
-- Operators: `geotools.layer_write_presentation` (write now, to look at it in
-  the viewport) and `geotools.layer_presentation_reset_colors`.
+- Operators: `geotools.layer_write_presentation` (`write_preview`, to look at
+  it in the viewport) and `geotools.layer_presentation_reset_colors`.
 
 **Export** (`blender/export.py`):
 
@@ -476,21 +480,27 @@ layer_name) -> (Presentation, variant_record)`.
 class Presentation:
     target: Target
     blend: Blend
-    attribute: str = "gt_present"                     # COLOR_0 source
+    colors: Mapping[str, np.ndarray] = {}             # COLOR_0: object name -> (N, 4) uint8 sRGB
+    domain: str = "FACE"                              # COLOR_0: rows per FACE or per CORNER
+    nodata_rgba: tuple[int, int, int, int] = (0, 0, 0, 255)  # objects without colours
     images: Mapping[str, bpy.types.Image] = {}        # object name -> 8-bit image
     uv_map: str = ""                                  # "" = each object's render UV map
 
 def extract_scene(context, collection, image_dir, *, remedies=None,
-                  presentation: Presentation | None = None) -> tuple[SceneExport, dict[str, str]]
+                  presentation: Presentation | None = None,
+                  apply_modifiers: bool = True) -> tuple[SceneExport, dict[str, str]]
 ```
 
-- COLOR_0 is read from `gt_present` on the **evaluated** mesh, so modifiers
-  carry it like any corner attribute (Subdivision interpolates it). If a
-  modifier drops it and the evaluated topology equals the original's (the
-  topology digest is not `evaluated:`), it is read from the original mesh,
-  whose corners are then the same. If it is dropped **and** the topology
-  changed, `extract_scene` raises `ExportError` naming the object: apply the
-  modifiers or bake the layer on the evaluated topology first.
+- COLOR_0 comes from `Presentation.colors`, never from a mesh attribute.
+  Colours whose count is not the exported mesh's faces or corners raise
+  `ExportError` (the mesh changed after the presentation was built); the
+  publish builds the presentation just before extracting, from the same
+  depsgraph, so this only guards against misuse.
+- `apply_modifiers=False` (the build profile's **Apply Modifiers**, default
+  on, in Build Settings) exports `obj.to_mesh()` of the original object, its
+  mesh data without modifiers, with the evaluated transform. Every face map
+  entry is then the plain topology digest. `build.json` records the choice as
+  `geotools.apply_modifiers`.
 - Texture targets give each object its own copy of each of its materials
   (named `<material> [<object>]`), with the object's image in the slot and its
   texture coordinates renumbered (still at most two UV maps); an empty slot
@@ -528,9 +538,10 @@ from `auto_range`. Colours are 8-bit sRGB RGBA. `ramp_stops` has 11 entries.
 
 ## Exit (from the roadmap)
 
-- A Geometry Nodes result is baked in both spaces (Blender tests: same
-  topology, changed topology with each transfer method, and texture bake
-  directly and selected-to-active).
+- A Geometry Nodes result reaches a tileset: as a FACE layer read from the
+  evaluated mesh (Blender test: Store Named Attribute after Subdivide Mesh,
+  its range, status, COLOR_0 in the GLB and a validated variant publish), and
+  baked into a texture layer directly and selected-to-active.
 - The layer survives saving and reopening the `.blend` (Blender test: save to
   a temporary file, `open_mainfile`, check the registry, attributes and
   images).
@@ -543,7 +554,8 @@ from `auto_range`. Colours are 8-bit sRGB RGBA. `ramp_stops` has 11 entries.
 1. **Registry** (first; the others build on it): `core/layers.py`,
    `blender/layers.py`, properties, Layers panel, persistence test,
    `build.json` schema 2.
-2. **Vertex bake**: `blender/bake_vertex.py`, `core/transfer.py`.
+2. **Vertex bake**: built, then removed (section 2); layers read the
+   evaluated mesh instead.
 3. **Texture bake**: `blender/bake_texture.py`, `core/uv_overlap.py`, the
    `uv-overlap` check.
 4. **Presentation and variants**: `core/ramps.py`, `Presentation` in export,

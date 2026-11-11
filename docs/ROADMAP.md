@@ -77,7 +77,7 @@ GeoTools creates tilesets; it no longer imports them.
 | M0 Foundation | Clean scaffold, packaging, CI | 0.4.0 wheel | none |
 | M1 Project and georeference | CRS, offsets, source ingest | 0.4.0 | none |
 | M2 Publish | Blender to a validated `.3tz` | 0.4.0, plus E to release | **0.3.0** |
-| M3 Layers and bake engine | Geometry Nodes and attributes baked to vertex or texture space | none | 0.4.0 |
+| M3 Layers and bake engine | Layers read from Geometry Nodes outputs or stored attributes, and texture-space bakes | none | 0.4.0 |
 | M4 GLB export with metadata | A standard glTF 2.0 GLB carrying objects and layers as `EXT_mesh_features` / `EXT_structural_metadata` | none | 0.4.0 |
 | M5 Analysis library | Fast analysis rebuilt on the bake engine | none | 0.4.0 |
 | M6 Texture cleanup | Paint, clean, publish | none | 0.5.0 |
@@ -152,11 +152,15 @@ GeoTools creates tilesets; it no longer imports them.
 - **Layer registry:** name, domain (face, corner or texture), type, units,
   no-data value, origin (Geometry Nodes, analysis or manual) and a
   coarse-level aggregation rule, stored now for the 0.5 annotate pass.
-- **Vertex-space bake:**
-  - freeze Geometry Nodes outputs ("Store Named Attribute") from the evaluated
-    mesh into stored source attributes;
-  - if the node tree changes topology, transfer values back to source faces
-    with a BVH tree (nearest point, raycast or area-weighted mean).
+- **Layers from Geometry Nodes (no vertex-space bake):** a face or corner
+  layer reads its attribute ("Store Named Attribute", `gt_<name>` or a name
+  set on the layer) from the evaluated mesh, as the export does, so a node
+  tree computes a layer with no bake step, even when it changes the
+  topology. A vertex-space bake that froze outputs into source attributes and
+  transferred values between topologies was built and then removed: Apply
+  Modifier and Geometry Nodes sampling already do that (the Scope decision).
+  The build profile's Apply Modifiers option, on by default, can export and
+  read the original mesh data instead.
 - **Texture-space bake:**
   - a Cycles bake of an Attribute node into an image on the source UVs, with
     gutters;
@@ -166,7 +170,8 @@ GeoTools creates tilesets; it no longer imports them.
   either a colour ramp into COLOR_0 or a texture in the base-colour or
   emissive slot. Publish it as a variant tileset such as `site.slope.3tz`.
 - **Exit:**
-  - a Geometry Nodes result is baked in both spaces;
+  - a Geometry Nodes result reaches a tileset, read from the evaluated mesh
+    and baked into texture space;
   - the layer survives saving and reopening the `.blend`;
   - the variant tileset shows the analysis in Cesium.
 
