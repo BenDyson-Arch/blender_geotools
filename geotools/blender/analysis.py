@@ -148,6 +148,138 @@ class GeoToolsSunSettings(bpy.types.PropertyGroup):
     error: StringProperty(default="")
 
 
+PERIOD_ITEMS = (
+    ("DAY", "Day", "The date set above"),
+    ("RANGE", "Dates", "From the date set above to an end date, inclusive (a season)"),
+    ("YEAR", "Year", "The whole calendar year of the date set above"),
+)
+
+SUN_HOURS_DOMAIN_ITEMS = (
+    ("FACE", "Face", "One value per face, at its centre"),
+    ("CORNER", "Corner", "One value per face corner, just inside the face"),
+    ("TEXTURE", "Texture", "One value per texel of an image on the source UVs"),
+)
+
+
+class GeoToolsSunHoursSettings(bpy.types.PropertyGroup):
+    """Settings and last result of sun hours and insolation (``.sun_hours``).
+
+    The date, time zone, site and refraction are the Sun panel's.
+    """
+
+    period: EnumProperty(name="Period", items=PERIOD_ITEMS, default="DAY")
+    end_year: IntProperty(name="End Year", default=2026, min=1, max=9999)
+    end_month: IntProperty(name="End Month", default=8, min=1, max=12)
+    end_day: IntProperty(name="End Day", default=31, min=1, max=31)
+    step_minutes: IntProperty(
+        name="Step",
+        description="Minutes between sun positions; each counts for its whole step",
+        default=15,
+        min=1,
+        max=720,
+    )
+    domain: EnumProperty(name="Values", items=SUN_HOURS_DOMAIN_ITEMS, default="FACE")
+    hours_layer: StringProperty(
+        name="Layer",
+        description="Layer that receives the hours of direct sun (created if missing)",
+        default="sun_hours",
+    )
+    insolation: BoolProperty(
+        name="Insolation",
+        description="Also compute clear-sky irradiation in kWh/m² (Ineichen-Perez model)",
+        default=False,
+    )
+    insolation_layer: StringProperty(
+        name="Layer",
+        description="Layer that receives the clear-sky irradiation (created if missing)",
+        default="insolation",
+    )
+    linke_turbidity: FloatProperty(
+        name="Linke Turbidity",
+        description="Haziness of the clear sky: 2 very clean, 3 clean rural, 4-5 humid or "
+        "hazy, 6-7 polluted",
+        default=3.0,
+        min=1.0,
+        max=10.0,
+        step=10,
+    )
+    diffuse: BoolProperty(
+        name="Diffuse Sky",
+        description="Add the isotropic diffuse sky, seen through the sky-view of each sample",
+        default=True,
+    )
+    diffuse_rays: IntProperty(
+        name="Sky Rays",
+        description="Rays per sample spread over the sky for the diffuse term",
+        default=64,
+        min=8,
+        max=1024,
+    )
+    tolerance: FloatProperty(
+        name="Merge Within",
+        description="Sun directions closer than this share one ray (degrees). 0 casts one "
+        "ray per step; larger is faster with softer shadow edges",
+        default=2.0,
+        min=0.0,
+        max=10.0,
+        step=25,
+        precision=2,
+    )
+    horizon: FloatProperty(
+        name="Horizon",
+        description="Elevation of the far horizon in every direction (degrees); terrain "
+        "beyond the scene is not otherwise known",
+        default=0.0,
+        min=0.0,
+        max=60.0,
+    )
+    offset: FloatProperty(
+        name="Ray Offset",
+        description="How far rays start off the surface, in scene units; 0 for automatic",
+        default=0.0,
+        min=0.0,
+        soft_max=0.1,
+        precision=4,
+    )
+    resolution: IntProperty(
+        name="Resolution",
+        description="Image size of a new texture layer (an existing layer keeps its own)",
+        default=1024,
+        min=16,
+        max=16384,
+    )
+    result: StringProperty(default="")
+    error: StringProperty(default="")
+
+
+class GeoToolsShadowStudySettings(bpy.types.PropertyGroup):
+    """Solstice and equinox shadow-study frames (``.shadow_study``)."""
+
+    march: BoolProperty(name="March Equinox", default=True)
+    june: BoolProperty(name="June Solstice", default=True)
+    september: BoolProperty(name="September Equinox", default=False)
+    december: BoolProperty(name="December Solstice", default=True)
+    start_hour: FloatProperty(
+        name="From",
+        description="Local time of the first frame each day",
+        default=9.0,
+        min=0.0,
+        max=24.0,
+    )
+    end_hour: FloatProperty(
+        name="To",
+        description="Local time of the last frame each day",
+        default=15.0,
+        min=0.0,
+        max=24.0,
+    )
+    step_hours: FloatProperty(
+        name="Every", description="Hours between frames", default=3.0, min=0.25, max=24.0
+    )
+    result: StringProperty(default="")
+    error: StringProperty(default="")
+
+
 class GeoToolsMeasureSettings(bpy.types.PropertyGroup):
     """Points A and B and the last readings (``scene.geotools_analysis.measure``)."""
 
@@ -168,6 +300,8 @@ class GeoToolsAnalysis(bpy.types.PropertyGroup):
 
     sun: PointerProperty(type=GeoToolsSunSettings)
     measure: PointerProperty(type=GeoToolsMeasureSettings)
+    sun_hours: PointerProperty(type=GeoToolsSunHoursSettings)
+    shadow_study: PointerProperty(type=GeoToolsShadowStudySettings)
 
 
 # --- shared --------------------------------------------------------------------------------
@@ -410,8 +544,15 @@ def _clear_sun_animation(obj: bpy.types.Object) -> None:
                 bpy.data.actions.remove(action)
 
 
-def _keyframe(block, path: str, frames: np.ndarray, values: np.ndarray, name: str) -> None:
-    """Linear keyframes for each channel of ``path`` at once (``values`` is (channels, n))."""
+def _keyframe(
+    block, path: str, frames: np.ndarray, values: np.ndarray, name: str, interpolation: int = -1
+) -> None:
+    """Keyframes for each channel of ``path`` at once (``values`` is (channels, n)).
+
+    Linear unless ``interpolation`` (a ``Keyframe.interpolation`` enum value) is given.
+    """
+    if interpolation < 0:
+        interpolation = _LINEAR
     animation = block.animation_data_create()
     action = bpy.data.actions.new(name)
     animation.action = action
@@ -423,11 +564,12 @@ def _keyframe(block, path: str, frames: np.ndarray, values: np.ndarray, name: st
         co[0::2] = frames
         co[1::2] = channel
         points.foreach_set("co", co)
-        points.foreach_set("interpolation", np.full(len(frames), _LINEAR, dtype=np.int32))
+        points.foreach_set("interpolation", np.full(len(frames), interpolation, dtype=np.int32))
         fcurve.update()
 
 
 _LINEAR = bpy.types.Keyframe.bl_rna.properties["interpolation"].enum_items["LINEAR"].value
+CONSTANT = bpy.types.Keyframe.bl_rna.properties["interpolation"].enum_items["CONSTANT"].value
 
 
 class GEOTOOLS_OT_sun_place(bpy.types.Operator):
@@ -778,6 +920,8 @@ class GEOTOOLS_OT_copy_reading(bpy.types.Operator):
 
 classes = (
     GeoToolsSunSettings,
+    GeoToolsSunHoursSettings,
+    GeoToolsShadowStudySettings,
     GeoToolsMeasureSettings,
     GeoToolsAnalysis,
     GEOTOOLS_OT_sun_place,

@@ -57,6 +57,7 @@ from . import _spa_tables as _t
 __all__ = [
     "SunPosition",
     "TimeZoneUnavailable",
+    "apparent_longitude",
     "delta_t",
     "direction",
     "fixed_offset",
@@ -431,6 +432,17 @@ def solar_position_jd(
         bool(refraction),
         float(atmos_refract),
     )
+
+
+def apparent_longitude(jd: np.ndarray | float, delta_t_seconds: float | None = None) -> np.ndarray:
+    """The sun's geocentric apparent longitude (degrees, in [0, 360)) at Julian days ``jd`` (UT).
+
+    0, 90, 180 and 270 are the March equinox, June solstice, September
+    equinox and December solstice.
+    """
+    jd = np.atleast_1d(np.asarray(jd, dtype=np.float64))
+    lam = _ephemeris(jd, _delta_t_at(jd, delta_t_seconds))[0]
+    return lam % 360.0
 
 
 def _delta_t_at(jd: np.ndarray, given: float | None) -> np.ndarray:

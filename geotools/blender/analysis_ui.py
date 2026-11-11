@@ -3,6 +3,9 @@
 - Analysis: the parent, with what the tools need (pyproj for a CRS project).
   - Sun: date, time and time zone, site, Place Sun and Animate Day, and the
     last sun position with the convergence applied.
+  - Sun Hours: hours of direct sun and clear-sky insolation over a day, dates
+    or a year, into layers (``sun_hours``), with the last run's summary.
+  - Shadow Study: Sun light keys at the equinoxes and solstices.
   - Coordinates: points A and B (from the 3D cursor or a pick), their E, N, RL
     and latitude and longitude, the distance between them, and the area of
     the selected faces. Each result has a copy button.
@@ -12,6 +15,8 @@ these classes before About.
 """
 
 from __future__ import annotations
+
+import json
 
 import bpy
 
@@ -163,6 +168,128 @@ def _draw_sun_result(layout, context, props) -> None:
         wrapped(box, context, note, "INFO")
 
 
+def _draw_period(layout, props, sun_props) -> None:
+    layout.row().prop(props, "period", expand=True)
+    col = layout.column(align=True)
+    row = col.row(align=True)
+    if props.period == "YEAR":
+        row.prop(sun_props, "year", text="Year")
+        return
+    row.label(text="From" if props.period == "RANGE" else "Date")
+    row.prop(sun_props, "year", text="")
+    row.prop(sun_props, "month", text="")
+    row.prop(sun_props, "day", text="")
+    if props.period == "RANGE":
+        row = col.row(align=True)
+        row.label(text="To")
+        row.prop(props, "end_year", text="")
+        row.prop(props, "end_month", text="")
+        row.prop(props, "end_day", text="")
+
+
+class GEOTOOLS_PT_analysis_sun_hours(_AnalysisPanel, bpy.types.Panel):
+    """Hours of direct sun and clear-sky insolation, into layers."""
+
+    bl_idname = "GEOTOOLS_PT_analysis_sun_hours"
+    bl_label = "Sun Hours"
+    bl_parent_id = "GEOTOOLS_PT_analysis"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context: bpy.types.Context) -> None:
+        layout = self.layout
+        settings = analysis.settings(context)
+        props, sun_props = settings.sun_hours, settings.sun
+        layout.label(text="Time zone, site and refraction: see Sun", icon="LIGHT_SUN")
+        _draw_period(layout, props, sun_props)
+        col = split_column(layout)
+        col.prop(props, "step_minutes", text="Step (min)")
+        col.prop(props, "tolerance")
+        col.prop(props, "horizon")
+        col.prop(props, "domain")
+        if props.domain == "TEXTURE":
+            col.prop(props, "resolution")
+        col.prop(props, "hours_layer", text="Hours Layer")
+        col.prop(props, "insolation")
+        if props.insolation:
+            sub = col.column()
+            sub.prop(props, "insolation_layer", text="kWh/m² Layer")
+            sub.prop(props, "linke_turbidity")
+            sub.prop(props, "diffuse")
+            row = sub.row()
+            row.active = props.diffuse
+            row.prop(props, "diffuse_rays")
+        col.prop(props, "offset")
+        big_button(layout).operator("geotools.sun_hours", icon="LIGHT_SUN")
+        _draw_sun_hours_result(layout, context, props)
+
+
+def _draw_sun_hours_result(layout, context, props) -> None:
+    if props.error:
+        col = layout.column()
+        col.alert = True
+        wrapped(col, context, props.error, "ERROR")
+        return
+    if not props.result:
+        return
+    result = json.loads(props.result)
+    box = layout.box()
+    box.label(text=f"{result['first_day']} to {result['last_day']}", icon="TIME")
+    col = box.column(align=True)
+    stats = result["stats"]
+    info_row(col, "Sun Up", f"{stats['sun_hours_possible']:,.1f} h")
+    info_row(col, "Samples", f"{result['samples']:,} ({result['domain'].lower()})")
+    info_row(col, "Rays", f"{result['sun_rays']:,} sun + {stats['sky_rays']:,} sky")
+    if stats["group_tolerance_deg"] > 0:
+        info_row(col, "Merged", f"within {stats['max_group_deviation_deg']:.2f}°")
+    info_row(col, "Time", f"{result['seconds']:.1f} s, {result['bakes']} bake(s)")
+    for name, (low, high) in result["ranges"].items():
+        if low and high:
+            info_row(col, name, f"{float(low):,.2f} to {float(high):,.2f}")
+    for note in result["notes"]:
+        wrapped(box, context, note, "INFO")
+
+
+class GEOTOOLS_PT_analysis_shadow_study(_AnalysisPanel, bpy.types.Panel):
+    """Sun light keys at the equinoxes and solstices, one frame per moment."""
+
+    bl_idname = "GEOTOOLS_PT_analysis_shadow_study"
+    bl_label = "Shadow Study"
+    bl_parent_id = "GEOTOOLS_PT_analysis"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context: bpy.types.Context) -> None:
+        layout = self.layout
+        settings = analysis.settings(context)
+        props, sun_props = settings.shadow_study, settings.sun
+        layout.label(text=f"Year {sun_props.year}; time zone and site: see Sun", icon="TIME")
+        col = layout.column(align=True)
+        for name in ("march", "june", "september", "december"):
+            col.prop(props, name)
+        col = split_column(layout)
+        row = col.row(align=True)
+        row.prop(props, "start_hour", text="Hours")
+        row.prop(props, "end_hour", text="")
+        col.prop(props, "step_hours")
+        col.prop(sun_props, "frame_start")
+        big_button(layout).operator("geotools.sun_shadow_study", icon="RENDER_ANIMATION")
+        if props.error:
+            col = layout.column()
+            col.alert = True
+            wrapped(col, context, props.error, "ERROR")
+            return
+        if not props.result:
+            return
+        result = json.loads(props.result)
+        box = layout.box()
+        first, last = result["frames"]
+        box.label(text=f"Frames {first}-{last}: render them", icon="RENDER_ANIMATION")
+        col = box.column(align=True)
+        for row in result["moments"]:
+            info_row(col, f"Frame {row['frame']}", row["local"].replace("T", " ")[:16])
+        for note in result["notes"]:
+            wrapped(box, context, note, "INFO")
+
+
 class GEOTOOLS_PT_analysis_coordinates(_AnalysisPanel, bpy.types.Panel):
     """Points on Earth, the distance between them and the area of selected faces."""
 
@@ -265,5 +392,7 @@ def _draw_area(layout, area: site.AreaReading, name: str) -> None:
 classes = (
     GEOTOOLS_PT_analysis,
     GEOTOOLS_PT_analysis_sun,
+    GEOTOOLS_PT_analysis_sun_hours,
+    GEOTOOLS_PT_analysis_shadow_study,
     GEOTOOLS_PT_analysis_coordinates,
 )
