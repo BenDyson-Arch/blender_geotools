@@ -31,12 +31,14 @@ from bpy.props import EnumProperty, FloatProperty, IntProperty, StringProperty
 
 from ..core import deps, sysmem
 from ..core.issues import Severity
+from ..core.presentation import variant_output
 from ..publish import preview as pv
 from ..publish import staging as st
 from ..publish.job import BuildJob, BuildRequest, JobState
 from .checks import count_issues, describe_counts, run_checks, store_issues
 from .common import ADDON_PACKAGE, extension_version, redraw_ui
 from .layers import layer_records
+from .presentation import variant_issues, write_presentation
 from .properties import FieldError, placement_from_props
 
 log = logging.getLogger(__name__)
@@ -263,11 +265,13 @@ def _on_load_pre(*_args: object) -> None:
 # --- operators ---------------------------------------------------------------------------
 
 
-def _extract_scene(context, collection, image_dir: Path, remedies: list[dict]):
+def _extract_scene(context, collection, image_dir: Path, remedies: list[dict], presentation=None):
     """``export.extract_scene``; imported late so a missing exporter only fails here."""
     from . import export
 
-    return export.extract_scene(context, collection, image_dir, remedies=remedies)
+    return export.extract_scene(
+        context, collection, image_dir, remedies=remedies, presentation=presentation
+    )
 
 
 def blend_path_for_record(filepath: str | None = None, is_dirty: bool | None = None) -> Path | None:
@@ -302,6 +306,23 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
     bl_label = "Publish"
     bl_options = {"REGISTER"}
 
+    layer: StringProperty(
+        name="Variant Layer",
+        description="Publish a variant tileset with this layer presented "
+        "(<output>.<layer>.3tz). Empty to use the build profile's variant layer",
+        options={"SKIP_SAVE"},
+    )
+
+    @classmethod
+    def description(cls, context: bpy.types.Context, properties) -> str:
+        if properties.layer:
+            return (
+                f"Publish the variant tileset of layer {properties.layer} with the active "
+                "build profile: the same source, placement and checks, with the layer's "
+                "presentation colours, as <output>.<layer>.3tz"
+            )
+        return cls.__doc__
+
     @classmethod
     def poll(cls, context: bpy.types.Context) -> bool:
         if context.scene is None:
@@ -334,8 +355,17 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
         except OutputPathError as ex:
             self.report({"ERROR"}, f"Cannot publish with {profile.name!r}: {ex}")
             return {"CANCELLED"}
+        variant = self.layer.strip() or profile.variant_layer.strip()
+        if variant:
+            try:
+                output = variant_output(output, variant)
+            except ValueError as ex:
+                self.report({"ERROR"}, f"Cannot publish the variant: {ex}")
+                return {"CANCELLED"}
 
         issues = run_checks(context)
+        if variant:
+            issues += variant_issues(context.scene, variant)
         store_issues(props, issues)
         counts = count_issues(issues)
         if counts[Severity.ERROR]:
@@ -365,9 +395,12 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
             image_dir = st.images_dir_for(output)
             shutil.rmtree(image_dir, ignore_errors=True)
             image_dir.mkdir(parents=True)
+            present, variant_record = None, None
+            if variant:
+                present, variant_record = write_presentation(context.scene, variant)
             remedies: list[dict] = []
             scene_export, topology = _extract_scene(
-                context, props.source_collection, image_dir, remedies
+                context, props.source_collection, image_dir, remedies, present
             )
             extra_record = _extra_record(context, profile.name, props.source_collection.name)
             if remedies:
@@ -390,6 +423,7 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
                 extra_record=extra_record,
                 layers=layer_records_,
                 blend_path=blend_path,
+                variant=variant_record,
             )
             job = BuildJob(scene_export, request, lock=lock)
         except Exception as ex:
@@ -708,6 +742,9 @@ class GEOTOOLS_PT_publish(bpy.types.Panel):
             row = col.row(align=True)
             row.alert = not profile.output_path.strip()
             row.prop(profile, "output_path", text="")
+            variant = profile.variant_layer.strip()
+            if variant:
+                col.label(text=f"Variant: layer {variant} (.{variant}.3tz)", icon="RNA")
             row = layout.row(align=True)
             row.prop(profile, "overwrite")
             row.prop(profile, "validate")

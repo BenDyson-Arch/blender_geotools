@@ -318,6 +318,28 @@ def test_layers_are_recorded(tmp_path: Path, monkeypatch) -> None:
     assert record["layers"][0]["attribute"] == "gt_slope"
 
 
+def test_variant_is_recorded(tmp_path: Path, monkeypatch) -> None:
+    from geotools.core.presentation import variant_output, variant_record
+
+    monkeypatch.setattr(job_mod, "_rusty_tiles", fake_rt)
+    spec = LayerSpec("slope", Domain.FACE, DataType.FLOAT)
+    variant = variant_record(spec, "COLOR_0", "REPLACE", palette="magma", value_range=(0.0, 9.0))
+    plain = tmp_path / "site.3tz"
+    out = variant_output(plain, "slope")
+    job = BuildJob(grid_scene(), request(out, layers=[to_record(spec)], variant=variant))
+    run(job)
+    assert job.state is JobState.DONE, job.error
+    assert job.staging_dir == tmp_path / "site.slope.geotools"
+    record = json.loads((job.staging_dir / "build.json").read_text())
+    assert record["schema"] == 2
+    assert record["variant"] == variant
+    assert record["output"] == str(out)
+
+    job = BuildJob(grid_scene(), request(plain))
+    run(job)
+    assert json.loads((st.staging_dir_for(plain) / "build.json").read_text())["variant"] is None
+
+
 def test_source_hashes_and_crs_epsg(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(job_mod, "_rusty_tiles", fake_rt)
     blend = tmp_path / "site.blend"

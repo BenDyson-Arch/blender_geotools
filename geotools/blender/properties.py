@@ -20,6 +20,7 @@ from bpy.props import (
     CollectionProperty,
     EnumProperty,
     FloatProperty,
+    FloatVectorProperty,
     IntProperty,
     PointerProperty,
     StringProperty,
@@ -30,6 +31,8 @@ from ..core.images import ImageRemedy, RemedyKind
 from ..core.issues import Issue, Severity
 from ..core.layers import Aggregation, DataType, Domain, Origin
 from ..core.placement import Placement, PlacementMode, Vec3
+from ..core.presentation import Blend, Target
+from ..core.ramps import DEFAULT_PALETTE, PALETTES
 
 # --- binary64 number fields ------------------------------------------------------
 
@@ -258,6 +261,12 @@ class GeoToolsBuildProfile(bpy.types.PropertyGroup):
         description="Validate the archive with rusty-tiles after building",
         default=True,
     )
+    variant_layer: StringProperty(
+        name="Variant Layer",
+        description="Publish a variant tileset with this layer presented, as "
+        "<output>.<layer>.3tz. Empty for the plain tileset",
+        default="",
+    )
 
     # Last successful publish, written by geotools.publish (never while drawing).
     last_output: StringProperty(name="Last Output", subtype="FILE_PATH")
@@ -395,6 +404,97 @@ class GeoToolsLayerImage(bpy.types.PropertyGroup):
     image: PointerProperty(name="Image", type=bpy.types.Image)
 
 
+PRESENT_TARGET_ITEMS = (
+    (
+        Target.COLOR_0.value,
+        "Vertex Colour",
+        "Face and corner layers: the ramp goes into COLOR_0 (the gt_present attribute)",
+    ),
+    (
+        Target.BASE_COLOR.value,
+        "Base Colour",
+        "Texture layers: the ramp becomes the base-colour texture",
+    ),
+    (
+        Target.EMISSIVE.value,
+        "Emission",
+        "Texture layers: the ramp becomes the emissive texture",
+    ),
+)
+
+PRESENT_BLEND_ITEMS = (
+    (
+        Blend.REPLACE.value,
+        "Replace",
+        "Show the ramp alone: the base colour becomes white (black for emission) with no texture",
+    ),
+    (
+        Blend.MULTIPLY.value,
+        "Multiply",
+        "Keep the material: the ramp multiplies its base colour (emission adds on top)",
+    ),
+)
+
+PALETTE_LABELS = {
+    "viridis": "Viridis",
+    "magma": "Magma",
+    "cividis": "Cividis",
+    "turbo": "Turbo",
+    "diverging_rdbu": "Diverging Red-Blue",
+    "greys": "Greys",
+}
+
+PALETTE_ITEMS = tuple(
+    (name, PALETTE_LABELS.get(name, name.title()), f"The {PALETTE_LABELS.get(name, name)} ramp")
+    for name in PALETTES
+)
+
+
+class GeoToolsCategoryColor(bpy.types.PropertyGroup):
+    """The presentation colour of one category value (item i is value i)."""
+
+    color: FloatVectorProperty(
+        name="Colour", subtype="COLOR_GAMMA", size=3, min=0.0, max=1.0, default=(0.5, 0.5, 0.5)
+    )
+
+
+class GeoToolsLayerPresentation(bpy.types.PropertyGroup):
+    """How a layer is made visible in a variant tileset (``GeoToolsLayer.presentation``).
+
+    Read with ``blender.presentation.presentation_settings``. ``range_min`` and
+    ``range_max`` are binary64 text, empty for automatic (``core.ramps.auto_range``).
+    """
+
+    target: EnumProperty(name="Target", items=PRESENT_TARGET_ITEMS, default=Target.COLOR_0.value)
+    blend: EnumProperty(name="Blend", items=PRESENT_BLEND_ITEMS, default=Blend.REPLACE.value)
+    palette: EnumProperty(name="Palette", items=PALETTE_ITEMS, default=DEFAULT_PALETTE)
+    range_min: StringProperty(
+        name="Ramp Minimum",
+        description="Value at the low end of the ramp, stored as text so the full double "
+        "precision is kept. Empty for automatic (2nd percentile of the values)",
+        default="",
+    )
+    range_max: StringProperty(
+        name="Ramp Maximum",
+        description="Value at the high end of the ramp, stored as text so the full double "
+        "precision is kept. Empty for automatic (98th percentile of the values)",
+        default="",
+    )
+    nodata_color: FloatVectorProperty(
+        name="No-Data Colour",
+        description="Colour of faces, corners or texels without a value",
+        subtype="COLOR_GAMMA",
+        size=3,
+        min=0.0,
+        max=1.0,
+        default=(0.5, 0.5, 0.5),
+    )
+    category_colors: CollectionProperty(type=GeoToolsCategoryColor)
+    # The 8-bit images of a texture presentation, one per object, written by
+    # blender.presentation.write_presentation (regenerated on every publish).
+    images: CollectionProperty(type=GeoToolsLayerImage)
+
+
 class GeoToolsLayer(bpy.types.PropertyGroup):
     """One layer of the registry; mirrors ``core.layers.LayerSpec``.
 
@@ -470,6 +570,9 @@ class GeoToolsLayer(bpy.types.PropertyGroup):
         soft_max=64,
         subtype="PIXEL",
     )
+
+    # Presentation (blender.presentation) ---------------------------------------
+    presentation: PointerProperty(type=GeoToolsLayerPresentation)
 
 
 PLACEMENT_MODE_ITEMS = (
@@ -561,6 +664,8 @@ classes = (
     GeoToolsImageRemedy,
     GeoToolsImageInfo,
     GeoToolsLayerImage,
+    GeoToolsCategoryColor,
+    GeoToolsLayerPresentation,
     GeoToolsLayer,
     GeoToolsProject,
 )

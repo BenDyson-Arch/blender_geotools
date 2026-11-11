@@ -84,6 +84,37 @@ The file name adds the remedy and its parameters, e.g.
 result is checked against rusty-tiles' size and edge limits straight away; a
 result still over them is an ``ExportError``, never a silent retry. The user's
 image, its file, pixels and dirty state are left alone.
+
+Presentation (variant tilesets)
+-------------------------------
+``extract_scene(..., presentation=Presentation(...))`` publishes a layer's
+presentation (``blender.presentation``) in place of the user's colours, without
+changing the user's materials, images or colour attributes. Only what is
+written changes:
+
+* ``COLOR_0`` target: COLOR_0 is read from the ``gt_present`` byte colour
+  attribute instead of the render colour attribute. It is read from the
+  evaluated mesh, so modifiers carry it like any other corner attribute
+  (Subdivision interpolates it). If a modifier drops it (some Geometry Nodes
+  trees do) and the evaluated topology is the original's, it is read from the
+  original mesh, whose corners are then the same; otherwise the export fails
+  with an ``ExportError`` naming the object, since no corner of the evaluated
+  mesh can be matched to a colour. REPLACE writes every material with a white
+  base colour factor and no base-colour texture, so COLOR_0 shows as it is;
+  MULTIPLY keeps the materials, and COLOR_0 multiplies their base colour.
+* ``BASE_COLOR`` and ``EMISSIVE`` targets (TEXTURE layers): each object gets its
+  own copy of each of its materials, with the object's 8-bit presentation
+  image in that slot (sampling the layer's UV map), so a material shared by
+  several objects becomes one glTF material per object. A slot without a
+  material gets a plain white one. REPLACE on BASE_COLOR sets the base colour
+  factor to white and drops COLOR_0; REPLACE on EMISSIVE makes the base colour
+  black with no texture, metallic 0 and no metallic-roughness texture, drops
+  COLOR_0 and sets the emissive factor to 1, so the ramp shows unlit. MULTIPLY
+  keeps the base colour factor and COLOR_0 (BASE_COLOR) or the whole material
+  (EMISSIVE, factor 1).
+
+Without a presentation, ``gt_present`` is never published: COLOR_0 then skips
+it even when it is the render or active colour attribute.
 """
 
 from __future__ import annotations
@@ -92,7 +123,8 @@ import hashlib
 import logging
 import os
 import re
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Self
 
@@ -110,6 +142,7 @@ from ..core.gltf_writer import (
     TextureRef,
 )
 from ..core.images import ImageRemedy, RemedyKind, scaled_size
+from ..core.presentation import PRESENT_ATTRIBUTE, Blend, Target
 from . import nodes
 from .properties import image_remedy
 
@@ -128,28 +161,57 @@ _SUFFIXES = {"image/png": (".png",), "image/jpeg": (".jpg", ".jpeg")}
 # --- public entry point ---------------------------------------------------------------
 
 
+@dataclass(frozen=True, slots=True, eq=False)
+class Presentation:
+    """A layer presentation to publish instead of the user's colours.
+
+    Made by ``blender.presentation.write_presentation``; see the module docstring.
+    """
+
+    target: Target
+    blend: Blend
+    attribute: str = PRESENT_ATTRIBUTE
+    """COLOR_0 target: the byte colour attribute COLOR_0 is read from."""
+    images: Mapping[str, bpy.types.Image] = field(default_factory=dict)
+    """BASE_COLOR and EMISSIVE targets: object name -> its 8-bit presentation image."""
+    uv_map: str = ""
+    """The UV map the images use; empty for each object's render UV map."""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "target", Target(self.target))
+        object.__setattr__(self, "blend", Blend(self.blend))
+
+    @property
+    def per_object(self) -> bool:
+        """True if every object gets its own materials (a texture target)."""
+        return self.target is not Target.COLOR_0
+
+
 def extract_scene(
     context: bpy.types.Context,
     collection: bpy.types.Collection,
     image_dir: Path,
     *,
     remedies: list[dict] | None = None,
+    presentation: Presentation | None = None,
 ) -> tuple[SceneExport, dict[str, str]]:
     """The collection's mesh objects as a ``SceneExport``, plus object name ->
     topology digest (prefixed ``"evaluated:"`` when polygon indices refer to the
     evaluated mesh; see the module docstring).
 
     With ``remedies``, one dict per image written with a remedy is appended to
-    it: the image, the remedy tag, and the file, format and size written."""
+    it: the image, the remedy tag, and the file, format and size written.
+    With ``presentation``, that layer presentation is published in place of the
+    user's colours (see "Presentation" in the module docstring)."""
     objects = sorted((o for o in collection.all_objects if o.type == "MESH"), key=lambda o: o.name)
     _sync_edit_mode(context, objects)
     depsgraph = context.evaluated_depsgraph_get()
 
-    materials = _MaterialTable(Path(image_dir))
+    materials = _MaterialTable(Path(image_dir), presentation)
     groups: dict[tuple[int | None, _Layout], list[_Chunk]] = {}
     topology: dict[str, str] = {}
     for index, obj in enumerate(objects):
-        topology[obj.name] = _extract_object(obj, index, depsgraph, materials, groups)
+        topology[obj.name] = _extract_object(obj, index, depsgraph, materials, groups, presentation)
 
     def order(key: tuple[int | None, _Layout]) -> tuple:
         material, layout = key
@@ -792,17 +854,104 @@ def material_info(material: bpy.types.Material, images: _ImageTable) -> _Materia
     return _MaterialInfo(MaterialData(**fields), tuple(refs), tangent_ref)
 
 
-class _MaterialTable:
-    def __init__(self, image_dir: Path) -> None:
-        self.images = _ImageTable(image_dir)
-        self.infos: list[_MaterialInfo] = []
-        self._index: dict[str, int] = {}
+# MaterialData texture fields, in gltf_writer's slot order.
+_TEXTURE_FIELDS = (
+    "base_color_texture",
+    "metallic_roughness_texture",
+    "normal_texture",
+    "occlusion_texture",
+    "emissive_texture",
+)
 
-    def index(self, material: bpy.types.Material) -> int:
-        key = material.name_full
+
+def _presented(
+    info: _MaterialInfo,
+    presentation: Presentation,
+    images: _ImageTable,
+    obj: bpy.types.Object | None,
+) -> _MaterialInfo:
+    """``info`` with the presentation applied (see the module docstring)."""
+    data = info.data
+    white = (1.0, 1.0, 1.0, 1.0)
+    if presentation.target is Target.COLOR_0:
+        if presentation.blend is Blend.MULTIPLY:
+            return info
+        return replace(info, data=replace(data, base_color_factor=white, base_color_texture=None))
+
+    image = presentation.images.get(obj.name) if obj is not None else None
+    if image is None:
+        raise ExportError(
+            f"Object {getattr(obj, 'name', '?')!r} has no presentation image; write the "
+            "presentation again (Layers panel)."
+        )
+    slot = "base_color_texture" if presentation.target is Target.BASE_COLOR else "emissive_texture"
+    fields: dict[str, object] = {"name": f"{data.name} [{obj.name}]"}
+    textures = {
+        name: getattr(data, name)
+        for name in _TEXTURE_FIELDS
+        if name != slot and getattr(data, name) is not None
+    }
+    if presentation.target is Target.EMISSIVE:
+        fields["emissive_factor"] = (1.0, 1.0, 1.0)
+        if presentation.blend is Blend.REPLACE:
+            fields["base_color_factor"] = (0.0, 0.0, 0.0, 1.0)
+            fields["metallic_factor"] = 0.0
+            for name in ("base_color_texture", "metallic_roughness_texture"):
+                textures.pop(name, None)
+                fields[name] = None
+    elif presentation.blend is Blend.REPLACE:
+        fields["base_color_factor"] = white
+
+    # Texture coordinates: the remaining textures keep their UV maps, the
+    # presentation image samples the layer's; renumber in slot order.
+    uv_of = {name: info.uv_refs[ref.texcoord] for name, ref in textures.items()}
+    uv_of[slot] = presentation.uv_map
+    refs: list[str] = []
+    for name in _TEXTURE_FIELDS:
+        if name in uv_of and uv_of[name] not in refs:
+            refs.append(uv_of[name])
+    if len(refs) > MAX_TEXCOORDS:
+        raise ExportError(
+            f"Material {data.name!r} on {obj.name!r} would sample {len(refs)} UV maps with "
+            f"the presentation texture; glTF allows {MAX_TEXCOORDS}."
+        )
+    for name, ref in textures.items():
+        fields[name] = TextureRef(image=ref.image, texcoord=refs.index(uv_of[name]))
+    fields[slot] = TextureRef(image=images.add(image), texcoord=refs.index(presentation.uv_map))
+    return _MaterialInfo(replace(data, **fields), tuple(refs), info.tangent_ref)
+
+
+class _MaterialTable:
+    def __init__(self, image_dir: Path, presentation: Presentation | None = None) -> None:
+        self.images = _ImageTable(image_dir)
+        self.presentation = presentation
+        self.infos: list[_MaterialInfo] = []
+        self._index: dict[tuple[str | None, str | None], int] = {}
+
+    @property
+    def per_object(self) -> bool:
+        """True if each object gets its own materials (a texture presentation)."""
+        return self.presentation is not None and self.presentation.per_object
+
+    def index(
+        self, material: bpy.types.Material | None, obj: bpy.types.Object | None = None
+    ) -> int:
+        """The material's index; ``obj`` matters only for a texture presentation,
+        where ``material`` may also be None (a plain white material)."""
+        per_object = self.per_object
+        key = (
+            material.name_full if material is not None else None,
+            obj.name if per_object and obj is not None else None,
+        )
         if key not in self._index:
+            if material is not None:
+                info = material_info(material, self.images)
+            else:
+                info = _MaterialInfo(MaterialData(name="GeoTools presentation"), (), None)
+            if self.presentation is not None:
+                info = _presented(info, self.presentation, self.images, obj)
             self._index[key] = len(self.infos)
-            self.infos.append(material_info(material, self.images))
+            self.infos.append(info)
         return self._index[key]
 
 
@@ -829,10 +978,22 @@ class _Chunk:
 
 
 class _ObjectData:
-    """Lazily read attributes of one evaluated mesh, in world space."""
+    """Lazily read attributes of one evaluated mesh, in world space.
 
-    def __init__(self, obj: bpy.types.Object, mesh: bpy.types.Mesh) -> None:
+    ``original`` is the object's own mesh when the evaluated topology is the
+    same (corners match one to one), else None; a presentation colour missing
+    from the evaluated mesh is read from it.
+    """
+
+    def __init__(
+        self,
+        obj: bpy.types.Object,
+        mesh: bpy.types.Mesh,
+        presentation: Presentation | None = None,
+        original: bpy.types.Mesh | None = None,
+    ) -> None:
         self.obj, self.mesh = obj, mesh
+        self.presentation, self.original = presentation, original
         self.tri_loops, self.tri_poly = _triangles(mesh)
         self.tri_verts = _corner_verts(mesh)[self.tri_loops]
         face_material = _attribute(mesh, "material_index", "FACE", "value", 1, np.int32)
@@ -896,14 +1057,49 @@ class _ObjectData:
     # colour ---------------------------------------------------------------------
 
     def _read_color(self) -> tuple[np.ndarray, str] | None:
+        presentation = self.presentation
+        if presentation is None:
+            return self._render_color()
+        if presentation.target is Target.COLOR_0:
+            return self._present_color(presentation.attribute)
+        if presentation.blend is Blend.REPLACE:
+            return None
+        return self._render_color()
+
+    def _render_color(self) -> tuple[np.ndarray, str] | None:
+        """The render colour attribute, else the active one, else the first; never
+        ``gt_present``, which only a presentation publishes."""
         attrs = self.mesh.color_attributes
-        if not len(attrs):
-            return None
-        attr = attrs.get(attrs.default_color_name) or attrs.get(attrs.active_color_name)
+        attr = None
+        for name in (attrs.default_color_name, attrs.active_color_name):
+            if name and name != PRESENT_ATTRIBUTE and attrs.get(name) is not None:
+                attr = attrs.get(name)
+                break
         if attr is None:
-            attr = attrs[0]
-        if attr.domain not in ("POINT", "CORNER"):
+            attr = next((a for a in attrs if a.name != PRESENT_ATTRIBUTE), None)
+        if attr is None or attr.domain not in ("POINT", "CORNER"):
             return None
+        return self._color_data(attr)
+
+    def _present_color(self, name: str) -> tuple[np.ndarray, str]:
+        for mesh in (self.mesh, self.original):
+            attr = None if mesh is None else mesh.color_attributes.get(name)
+            if attr is not None and attr.domain in ("POINT", "CORNER"):
+                return self._color_data(attr)
+        raise ExportError(
+            f"Object {self.obj.name!r}: the presentation colours ({name}) are missing"
+            + (
+                ""
+                if self.original is not None or name not in self.obj.original.data.attributes
+                else ": its modifiers change the topology and drop the attribute, so no "
+                "corner of the result can be matched to a colour. Apply the modifiers, or "
+                "bake the layer onto the evaluated topology, then publish the variant again"
+            )
+            + "."
+        )
+
+    @staticmethod
+    def _color_data(attr: bpy.types.Attribute) -> tuple[np.ndarray, str]:
         data = _get(attr.data, "color", len(attr.data), 4, np.float32)
         np.nan_to_num(data, copy=False, nan=0.0)
         np.clip(data, 0.0, 1.0, out=data)
@@ -971,6 +1167,7 @@ def _extract_object(
     depsgraph: bpy.types.Depsgraph,
     materials: _MaterialTable,
     groups: dict[tuple[int | None, _Layout], list[_Chunk]],
+    presentation: Presentation | None = None,
 ) -> str:
     evaluated = obj.evaluated_get(depsgraph)
     mesh = evaluated.to_mesh()
@@ -978,22 +1175,27 @@ def _extract_object(
         digest = mesh_topology_digest(obj.data, mesh)
         if len(mesh.polygons) == 0:
             return digest
-        data = _ObjectData(evaluated, mesh)
+        same_topology = not digest.startswith(EVALUATED_PREFIX)
+        data = _ObjectData(evaluated, mesh, presentation, obj.data if same_topology else None)
         if data.tri_verts.shape[0] == 0:
             return digest
 
         # Material of each triangle; Blender clamps material_index to the last slot.
+        # A texture presentation gives each object its own materials, and a white
+        # one where a slot is empty.
+        per_object = materials.per_object
         slots = [s.material.original if s.material else None for s in evaluated.material_slots]
         if slots:
             slot = np.clip(data.tri_mat, 0, len(slots) - 1)
             used = np.flatnonzero(np.bincount(slot, minlength=len(slots)))
             keys = np.full(len(slots), -1, dtype=np.int64)
             for s in used.tolist():
-                if slots[s] is not None:
-                    keys[s] = materials.index(slots[s])
+                if slots[s] is not None or per_object:
+                    keys[s] = materials.index(slots[s], obj)
             tri_key = keys[slot]
         else:
-            tri_key = np.full(data.tri_verts.shape[0], -1, dtype=np.int64)
+            fill = materials.index(None, obj) if per_object else -1
+            tri_key = np.full(data.tri_verts.shape[0], fill, dtype=np.int64)
 
         distinct = np.unique(tri_key)
         if distinct.size == 1:

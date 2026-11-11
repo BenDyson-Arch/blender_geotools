@@ -17,6 +17,7 @@ from ..core.issues import Severity
 from ..core.layers import default_aggregation, validate
 from .common import draw_dependency_status, extension_version
 from .layers import layer_status, other_layer_names, spec_from_props
+from .presentation import GEOTOOLS_PT_layers_presentation
 from .properties import (
     ANCHOR_FIELDS,
     LAYER_AGGREGATION_DEFAULT,
@@ -431,6 +432,11 @@ class GEOTOOLS_PT_build_profiles(_GeoToolsPanel, bpy.types.Panel):
         col.prop(profile, "output_path")
         col.prop(profile, "overwrite")
         col.prop(profile, "validate")
+        row = col.row()
+        row.alert = bool(profile.variant_layer.strip()) and (
+            props.layers.get(profile.variant_layer.strip()) is None
+        )
+        row.prop_search(profile, "variant_layer", props, "layers", icon="RNA")
 
 
 # --- About ---------------------------------------------------------------------------
@@ -454,6 +460,7 @@ classes = (
     GEOTOOLS_PT_project_verify,
     GEOTOOLS_PT_source,
     GEOTOOLS_PT_layers,
+    GEOTOOLS_PT_layers_presentation,
     GEOTOOLS_PT_checks,
     GEOTOOLS_PT_checks_images,
     GEOTOOLS_PT_build_profiles,
