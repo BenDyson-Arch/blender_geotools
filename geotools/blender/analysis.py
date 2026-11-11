@@ -233,6 +233,12 @@ class GeoToolsSunHoursSettings(bpy.types.PropertyGroup):
         min=0.0,
         max=60.0,
     )
+    horizon_profile: BoolProperty(
+        name="Use Horizon Profile",
+        description="Use the horizon profile from Archaeoastronomy as the far horizon, by "
+        "azimuth (raised to Horizon where that is higher)",
+        default=False,
+    )
     offset: FloatProperty(
         name="Ray Offset",
         description="How far rays start off the surface, in scene units; 0 for automatic",

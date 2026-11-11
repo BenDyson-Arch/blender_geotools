@@ -13,6 +13,7 @@ from ..core import deps
 from . import (
     analysis,
     analysis_presets,
+    archaeo,
     bake_texture,
     checks,
     crs_picker,
@@ -56,6 +57,7 @@ MODULES: tuple[ModuleType, ...] = (
     bake_texture,
     analysis,
     sun_hours,
+    archaeo,
     analysis_presets,
     panels,  # last: the sidebar draws what the modules above register
 )

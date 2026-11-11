@@ -291,7 +291,14 @@ def test_panels_order_and_draw() -> None:
         "GEOTOOLS_PT_layers": ["Bake", "Display", "Details"],
         "GEOTOOLS_PT_checks": ["Images"],
         "GEOTOOLS_PT_publish": ["Build Settings", "Last Build"],
-        "GEOTOOLS_PT_analysis": ["Sun", "Sun Hours", "Shadow Study", "Coordinates", "Presets"],
+        "GEOTOOLS_PT_analysis": [
+            "Sun",
+            "Sun Hours",
+            "Shadow Study",
+            "Archaeoastronomy",
+            "Coordinates",
+            "Presets",
+        ],
     }, children
     for cls in panels.classes:
         assert cls.is_registered, cls

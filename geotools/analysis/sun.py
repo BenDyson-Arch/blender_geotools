@@ -58,12 +58,15 @@ __all__ = [
     "SunPosition",
     "TimeZoneUnavailable",
     "apparent_longitude",
+    "apparent_sidereal_time",
     "delta_t",
     "direction",
     "fixed_offset",
     "julian_day",
     "light_euler",
     "local_times",
+    "mean_obliquity",
+    "nutation",
     "solar_position",
     "solar_position_jd",
     "time_zone_database_available",
@@ -477,7 +480,22 @@ def _ephemeris_block(jd: np.ndarray, dt: np.ndarray) -> tuple[np.ndarray, ...]:
     beta = -np.degrees(_earth(_B, jme))
     big_r = _earth(_R, jme)
 
-    # Nutation in longitude and obliquity (3.4).
+    # Nutation in longitude and obliquity (3.4); true obliquity (3.5).
+    delta_psi, delta_eps = nutation(jce)
+    eps = _mean_obliquity_jce(jce) + delta_eps
+
+    # Aberration and the apparent sun longitude (3.6, 3.7).
+    lam = theta + delta_psi - 20.4898 / (3600.0 * big_r)
+    return lam, beta, big_r, delta_psi, eps
+
+
+def nutation(jce: np.ndarray | float) -> tuple[np.ndarray, np.ndarray]:
+    """Nutation in longitude and in obliquity (degrees) at Julian ephemeris centuries ``jce``.
+
+    The SPA paper's 63-term series (IAU 1980, its section 3.4), with ``jce``
+    counted from J2000 in TT.
+    """
+    jce = np.atleast_1d(np.asarray(jce, dtype=np.float64))
     x = np.stack(
         [
             _poly(jce, 297.85036, 445267.111480, -0.0019142, 189474.0),
@@ -491,17 +509,56 @@ def _ephemeris_block(jd: np.ndarray, dt: np.ndarray) -> tuple[np.ndarray, ...]:
     a, b, c, d = (_NUT_ABCD[:, i : i + 1] for i in range(4))
     delta_psi = ((a + b * jce) * np.sin(arg)).sum(axis=0) / 36_000_000.0
     delta_eps = ((c + d * jce) * np.cos(arg)).sum(axis=0) / 36_000_000.0
+    return delta_psi, delta_eps
 
-    # True obliquity of the ecliptic (3.5).
-    u = jme / 10.0
+
+LASKAR_LIMIT_YEARS = 10_000.0
+"""Laskar's obliquity polynomial is fitted for 10,000 years either side of J2000."""
+
+
+def _mean_obliquity_jce(jce: np.ndarray) -> np.ndarray:
+    u = jce / 100.0  # units of 10,000 Julian years
     eps0 = np.zeros_like(u)
     for coefficient in _OBLIQUITY_ARCSEC:  # Horner, highest power first
         eps0 = eps0 * u + coefficient
-    eps = eps0 / 3600.0 + delta_eps
+    return eps0 / 3600.0
 
-    # Aberration and the apparent sun longitude (3.6, 3.7).
-    lam = theta + delta_psi - 20.4898 / (3600.0 * big_r)
-    return lam, beta, big_r, delta_psi, eps
+
+def mean_obliquity(jde: np.ndarray | float) -> np.ndarray:
+    """Mean obliquity of the ecliptic (degrees) at Julian ephemeris days ``jde`` (TT).
+
+    Laskar (1986), "Secular terms of classical planetary theories using the
+    results of general relativity", A&A 157, 59 (the SPA paper's eq. 24 and
+    Meeus' eq. 22.3). Fitted for 10,000 years either side of J2000: 0.01"
+    over 1,000 years and a few arc seconds at the ends. Raises ValueError
+    beyond that.
+    """
+    jde = np.atleast_1d(np.asarray(jde, dtype=np.float64))
+    jce = (jde - J2000) / 36525.0
+    if np.any(np.abs(jce) > LASKAR_LIMIT_YEARS / 100.0):
+        raise ValueError(
+            "Laskar's obliquity is only valid within 10,000 years of 2000 (8000 BCE to 12000 CE)."
+        )
+    return _mean_obliquity_jce(jce)
+
+
+def apparent_sidereal_time(
+    jd: np.ndarray | float, delta_psi: np.ndarray | float, eps: np.ndarray | float
+) -> np.ndarray:
+    """Apparent sidereal time at Greenwich (degrees, [0, 360)) at Julian days ``jd`` (UT).
+
+    ``delta_psi`` and ``eps`` are the nutation in longitude and the true
+    obliquity in degrees (SPA section 3.8, Meeus eq. 12.4).
+    """
+    jd = np.atleast_1d(np.asarray(jd, dtype=np.float64))
+    jc = (jd - J2000) / 36525.0
+    nu0 = (
+        280.46061837
+        + 360.98564736629 * (jd - J2000)
+        + 0.000387933 * jc * jc
+        - jc * jc * jc / 38_710_000.0
+    ) % 360.0
+    return (nu0 + np.asarray(delta_psi) * np.cos(np.radians(eps))) % 360.0
 
 
 def _topocentric(
@@ -522,17 +579,10 @@ def _topocentric(
     """The fast part of SPA, at every time (paper sections 3.8 to 3.15)."""
     rad = np.radians
     deg = np.degrees
-    jc = (jd - J2000) / 36525.0
 
     # Apparent sidereal time at Greenwich (3.8).
-    nu0 = (
-        280.46061837
-        + 360.98564736629 * (jd - J2000)
-        + 0.000387933 * jc * jc
-        - jc * jc * jc / 38_710_000.0
-    ) % 360.0
     eps_r = rad(eps)
-    nu = nu0 + delta_psi * np.cos(eps_r)
+    nu = apparent_sidereal_time(jd, delta_psi, eps)
 
     # Geocentric right ascension and declination (3.9, 3.10).
     lam_r, beta_r = rad(lam % 360.0), rad(beta)

@@ -24,7 +24,7 @@ import bpy
 
 from ..analysis import site, sun
 from ..core.placement import PlacementMode
-from . import analysis, analysis_presets
+from . import analysis, analysis_presets, archaeo_ui
 from .properties import ANCHOR_FIELDS, number_is_valid
 from .ui import big_button, info_row, split_column, wrapped
 
@@ -207,6 +207,7 @@ class GEOTOOLS_PT_analysis_sun_hours(_AnalysisPanel, bpy.types.Panel):
         col.prop(props, "step_minutes", text="Step (min)")
         col.prop(props, "tolerance")
         col.prop(props, "horizon")
+        col.prop(props, "horizon_profile")
         col.prop(props, "domain")
         if props.domain == "TEXTURE":
             col.prop(props, "resolution")
@@ -407,6 +408,7 @@ classes = (
     GEOTOOLS_PT_analysis_sun,
     GEOTOOLS_PT_analysis_sun_hours,
     GEOTOOLS_PT_analysis_shadow_study,
+    *archaeo_ui.classes,
     GEOTOOLS_PT_analysis_coordinates,
     GEOTOOLS_PT_analysis_presets,
 )

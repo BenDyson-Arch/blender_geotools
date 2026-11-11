@@ -1,4 +1,4 @@
-"""M5 analysis (bpy-free): the sun, sun hours, and points, distances and areas on Earth.
+"""M5 analysis (bpy-free): the sun and Moon, sun hours, archaeoastronomy, and points on Earth.
 
 - :mod:`.sun`: NREL SPA sun positions, vectorised over time, and time zones.
 - :mod:`.site`: where scene points are on Earth (E, N, RL, latitude and
@@ -6,6 +6,11 @@
 - :mod:`.sun_hours`: time steps, sun and sky rays and their weights for sun
   hours and insolation; equinox and solstice moments.
 - :mod:`.clearsky`: the Ineichen-Perez clear-sky model.
+- :mod:`.moon`: Meeus' lunar theory (ch. 47), apparent and topocentric.
+- :mod:`.horizon`: the horizon from a point: ray fans, curvature, refraction
+  and the profile.
+- :mod:`.archaeo`: rise and set events at an epoch, dated sunrises, lunar
+  standstills, the declination inversion and alignments.
 
 The design is in ``docs/design/m5-analysis.md``.
 """
