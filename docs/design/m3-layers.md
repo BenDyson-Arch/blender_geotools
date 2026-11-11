@@ -61,6 +61,12 @@ class LayerSpec:
     aggregation: Aggregation | None = None   # None -> default_aggregation(data_type)
     description: str = ""
     categories: tuple[str, ...] = ()         # CATEGORY only: label of value i
+    label: str = ""                          # display name; the UI shows label, or name if empty
+    value_min: float | None = None           # range actually present, ignoring no-data and NaN;
+    value_max: float | None = None           #   set by whoever writes the values
+    provenance: Mapping[str, object] | None = None
+        # {"tool": str, "parameters": {...}, "geotools_version": str}, JSON-safe;
+        # set by bakes and analysis tools (make_provenance), None for manual layers
 
 ATTRIBUTE_PREFIX = "gt_"
 def attribute_name(spec_or_name) -> str      # "gt_" + name: the mesh attribute that holds a FACE/CORNER layer
@@ -68,18 +74,30 @@ def validate(spec, existing_names=()) -> list[Issue]
 def default_aggregation(data_type) -> Aggregation   # FLOAT/INT -> AREA_MEAN, BOOLEAN/CATEGORY -> MODE
 def to_record(spec) -> dict                  # JSON-safe, stable key order; for build.json
 def from_record(d) -> LayerSpec
+def make_provenance(tool, parameters=None, geotools_version="") -> dict
+def display_name(spec) -> str                # label, or name if the label is empty
 ```
+
+`to_record` keys, in order: `name`, `label`, `attribute` (`gt_<name>`, null for
+TEXTURE), `domain`, `data_type`, `units`, `nodata`, `value_min`, `value_max`,
+`origin`, `aggregation` (the effective one), `description`, `categories`,
+`provenance`. `categories` is a list of `{"value": int, "label": str}` objects
+(the spec keeps the tuple: value i is label i); `from_record` accepts that form
+in any order, or plain labels. Non-finite numbers are written as null.
 
 Validation codes (Issue codes, kebab-case): `layer-name-invalid`,
 `layer-name-duplicate`, `layer-aggregation-invalid` (for example AREA_MEAN on a
-CATEGORY), `layer-categories-missing`, `layer-nodata-invalid`.
+CATEGORY), `layer-categories-missing`, `layer-nodata-invalid`,
+`layer-range-invalid` (non-finite, or minimum above maximum),
+`layer-provenance-invalid` (not an object with a non-empty `tool`).
 
 ### Storage in Blender
 
 - `scene.geotools.layers`: `CollectionProperty(type=GeoToolsLayer)` and
-  `layers_index`. `GeoToolsLayer` mirrors `LayerSpec`. `nodata` is a string
-  field parsed as binary64, empty meaning none. `categories` is a
-  newline-separated string.
+  `layers_index`. `GeoToolsLayer` mirrors `LayerSpec`. `nodata`, `value_min`
+  and `value_max` are string fields parsed as binary64, empty meaning none.
+  `categories` is a newline-separated string. `provenance` is a JSON string,
+  empty meaning none.
 - FACE and CORNER layers live in the mesh attribute `gt_<name>` on every mesh
   of the source collection, with `FACE` or `CORNER` domain and `FLOAT`, `INT`
   or `BOOLEAN` attribute type (CATEGORY is `INT`).
@@ -100,22 +118,28 @@ CATEGORY), `layer-categories-missing`, `layer-nodata-invalid`.
   def read_layer(mesh, spec) -> np.ndarray                # foreach_get into a numpy array
   def write_layer(mesh, spec, values) -> None             # foreach_set, checks the length
   def layer_status(scene, item) -> list[Issue]            # missing attributes or images, wrong domain/type
+  def update_value_range(scene, item) -> tuple[float | None, float | None]
+      # numpy min/max over the gt_<name> attributes (TEXTURE: the images' first
+      # channel), ignoring no-data, NaN and inf; stored in value_min/value_max
   ```
 
 - Additions made while building stream 1 (all compatible with the above):
   - `core.layers` also has `effective_aggregation(spec)`, `numpy_dtype(data_type)`,
     `fill_value(spec)` (no-data, else NaN for FLOAT, 0 for INT/CATEGORY, False for
     BOOLEAN), `VALID_AGGREGATIONS`, `RESERVED_NAMES` (`present`, for
-    `gt_present`), and `parse_nodata`/`format_nodata`/`parse_categories`/
-    `format_categories` for the text fields. `validate`'s `existing_names` are
+    `gt_present`), `json_safe`, and `parse_number`/`format_number` (alias
+    `parse_nodata`/`format_nodata`), `parse_categories`/`format_categories` and
+    `parse_provenance`/`format_provenance` for the text fields. `validate`'s `existing_names` are
     the *other* layers' names.
   - `to_record` writes the effective aggregation and an `"attribute"` key
     (`gt_<name>`, or null for TEXTURE); `from_record(to_record(s)) == s` when
     `s.aggregation` is set.
   - `GeoToolsLayer.aggregation` has a `DEFAULT` item for `None`; the layer name is
     the PropertyGroup `name`.
-  - `spec_from_props` never raises: bad no-data text becomes NaN, reported as
-    `layer-nodata-invalid`. `ensure_layer` raises `ValueError` on an invalid spec.
+  - `spec_from_props` never raises: bad number text becomes NaN, bad provenance
+    JSON `{"invalid": text}`, both reported by `validate`. `ensure_layer` raises
+    `ValueError` on an invalid spec. Adding a layer can move other entries in
+    memory, so look a `GeoToolsLayer` up again rather than keeping it.
   - `ensure_attribute(mesh, spec, *, issues=None)` and
     `write_layer(mesh, spec, values, *, issues=None)`: a new attribute is filled
     with `fill_value`; a replaced one is logged and added to `issues` as
@@ -133,7 +157,7 @@ CATEGORY), `layer-categories-missing`, `layer-nodata-invalid`.
     `layer-no-source` (info), plus the validation codes.
   - Operators: `geotools.layer_add`, `layer_remove` (`delete_data`; image files on
     disk are kept), `layer_rename` (renames the attributes too),
-    `layer_create_attributes`, `layer_set_categories`.
+    `layer_create_attributes`, `layer_set_categories`, `layer_update_range`.
   - Publish passes the records in `BuildRequest.layers`; invalid layers are left
     out with a warning.
 - UI: a **Layers** panel (`GEOTOOLS_PT_layers`) after Source, with a UIList,
@@ -144,6 +168,17 @@ CATEGORY), `layer-categories-missing`, `layer-nodata-invalid`.
   `.blend`. Images survive because they are saved files.
 - `build.json` gets a `"layers"` list (`to_record` of each layer) and, for a
   variant, `"variant": {"layer": name, ...}`. Bump `RECORD_SCHEMA` to 2.
+  Schema 2 also has:
+  - `"source": {"glb_sha256": <hex of source.glb>, "blend_sha256": <hex of the
+    saved .blend, or null>}`. The operator passes `BuildRequest.blend_path`
+    (`publish.blend_path_for_record()`: None if the file is unsaved or
+    `bpy.data.is_dirty`), and the worker thread hashes the file. An unreadable
+    file is recorded as null.
+  - `"placement"` keeps the rusty-tiles keywords and gains `"crs_epsg"`:
+    `"EPSG:nnnn"` when `source_crs` is a `core.crs_presets` preset's definition
+    (`crs_presets.epsg_code`, from `for_definition(...).epsg`) or is itself
+    `EPSG:nnnn`, else null. `source_crs` stays as the fallback.
+  - `rusty_tiles_version` as before (the wheel exposes no commit).
 
 ## 2. Vertex-space bake: `geotools/blender/bake_vertex.py`
 

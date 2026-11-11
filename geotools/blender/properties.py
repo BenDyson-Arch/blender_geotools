@@ -404,6 +404,7 @@ class GeoToolsLayer(bpy.types.PropertyGroup):
     PointerProperty); register their PropertyGroups before this class.
     """
 
+    label: StringProperty(name="Label", description="Display name; empty to show the layer name")
     domain: EnumProperty(name="Domain", items=LAYER_DOMAIN_ITEMS, default=Domain.FACE.value)
     data_type: EnumProperty(name="Type", items=LAYER_DATA_TYPE_ITEMS, default=DataType.FLOAT.value)
     units: StringProperty(name="Units", description='Units of the values, e.g. "deg", "m", "h"')
@@ -424,6 +425,26 @@ class GeoToolsLayer(bpy.types.PropertyGroup):
     categories: StringProperty(
         name="Categories",
         description="Category labels, one per line: line i is the label of value i",
+        default="",
+    )
+    # The range of the values present (binary64 text, empty if not known), set by
+    # whoever writes the values or by blender.layers.update_value_range.
+    value_min: StringProperty(
+        name="Minimum",
+        description="Smallest value present, ignoring no-data. Stored as text so the full "
+        "double precision is kept; empty if not known",
+        default="",
+    )
+    value_max: StringProperty(
+        name="Maximum",
+        description="Largest value present, ignoring no-data. Stored as text so the full "
+        "double precision is kept; empty if not known",
+        default="",
+    )
+    provenance: StringProperty(
+        name="Provenance",
+        description='What made the layer, as JSON: {"tool", "parameters", '
+        '"geotools_version"}. Empty for a manual layer',
         default="",
     )
 

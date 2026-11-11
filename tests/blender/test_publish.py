@@ -255,6 +255,11 @@ def test_publish_end_to_end() -> None:
         record = json.loads((staging / "build.json").read_text())
         assert record["schema"] == 2
         assert record["layers"] == [layers.to_record(slope)]
+        assert record["source"] == {
+            "glb_sha256": record["source_glb"]["sha256"],
+            "blend_sha256": None,  # never saved
+        }
+        assert record["placement"]["crs_epsg"] is None
         assert record["output"] == str(output)
         assert record["settings"]["profile"] == "fast"
         assert record["placement"]["anchor"] == [153.02, -27.47, 10.0]

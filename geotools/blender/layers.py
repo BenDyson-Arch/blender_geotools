@@ -15,6 +15,7 @@ the data) and raise ``RuntimeError`` otherwise.
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -33,9 +34,13 @@ from ..core.layers import (
     fill_value,
     format_categories,
     format_nodata,
+    format_number,
+    format_provenance,
     numpy_dtype,
     parse_categories,
     parse_nodata,
+    parse_number,
+    parse_provenance,
     to_record,
     validate,
 )
@@ -82,7 +87,8 @@ def attribute_type(data_type: DataType) -> str:
 def spec_from_props(item: GeoToolsLayer) -> LayerSpec:
     """The ``LayerSpec`` a registry entry describes. Never raises.
 
-    No-data text that is not a number becomes NaN, which ``validate`` reports.
+    Number text that is not a number becomes NaN, and provenance text that is
+    not a JSON object ``{"invalid": text}``; ``validate`` reports both.
     """
     aggregation = item.aggregation
     return LayerSpec(
@@ -95,6 +101,10 @@ def spec_from_props(item: GeoToolsLayer) -> LayerSpec:
         aggregation=None if aggregation == LAYER_AGGREGATION_DEFAULT else Aggregation(aggregation),
         description=item.description,
         categories=parse_categories(item.categories),
+        label=item.label,
+        value_min=parse_number(item.value_min),
+        value_max=parse_number(item.value_max),
+        provenance=parse_provenance(item.provenance),
     )
 
 
@@ -113,6 +123,10 @@ def write_props(item: GeoToolsLayer, spec: LayerSpec) -> None:
     )
     item.description = spec.description
     item.categories = format_categories(spec.categories)
+    item.label = spec.label
+    item.value_min = format_number(spec.value_min)
+    item.value_max = format_number(spec.value_max)
+    item.provenance = format_provenance(spec.provenance)
 
 
 def find_layer(scene: bpy.types.Scene, name: str) -> GeoToolsLayer | None:
@@ -131,6 +145,10 @@ def ensure_layer(scene: bpy.types.Scene, spec: LayerSpec) -> GeoToolsLayer:
     Only the LayerSpec fields are written: a TEXTURE layer keeps its images, UV
     map, resolution and margin. Raises ``ValueError`` if ``validate`` finds an
     error in ``spec``; the registry is then unchanged.
+
+    Adding a layer can move the other entries in memory: do not keep a
+    ``GeoToolsLayer`` across ``ensure_layer`` calls; look it up again with
+    :func:`find_layer`.
     """
     layers = scene.geotools.layers
     item = layers.get(spec.name)
@@ -320,6 +338,55 @@ def write_layer(
     attr = ensure_attribute(mesh, spec, issues=issues)
     attr.data.foreach_set("value", array)
     mesh.update_tag()
+
+
+def _finite_range(values: np.ndarray, nodata: float | None) -> tuple[float, float] | None:
+    """Min and max of ``values`` ignoring NaN, inf and ``nodata``; None if none are left."""
+    if values.dtype == np.bool_:
+        values = values.view(np.uint8)
+    keep = np.isfinite(values) if values.dtype.kind == "f" else np.ones(values.shape, bool)
+    if nodata is not None and values.dtype.kind == "f":
+        # Compare in the stored precision: a float32 attribute holds float32(nodata).
+        keep &= values != values.dtype.type(nodata)
+    elif nodata is not None and float(nodata).is_integer():
+        keep &= values != int(nodata)
+    if not keep.any():
+        return None
+    kept = values[keep]
+    return float(kept.min()), float(kept.max())
+
+
+def update_value_range(
+    scene: bpy.types.Scene, item: GeoToolsLayer
+) -> tuple[float | None, float | None]:
+    """Work out the range of the values present and store it in ``value_min``/``value_max``.
+
+    Reads the ``gt_<name>`` attribute of every source mesh that holds the layer
+    (or, for a TEXTURE layer, the first channel of its images), ignoring NaN,
+    inf and no-data. Both are None (stored as "") if no value is left. Raises
+    ``RuntimeError`` if a source mesh is in Edit Mode.
+    """
+    spec = spec_from_props(item)
+    nodata = spec.nodata if spec.nodata is not None and math.isfinite(spec.nodata) else None
+    ranges = []
+    if Domain(spec.domain) is Domain.TEXTURE:
+        for entry in item.images:
+            image = entry.image
+            if image is None or not len(image.pixels):
+                continue
+            pixels = np.empty(len(image.pixels), np.float32)
+            image.pixels.foreach_get(pixels)
+            ranges.append(_finite_range(pixels[:: image.channels], nodata))
+    else:
+        for mesh in source_meshes(scene):
+            if attribute_problem(mesh, spec) is None:
+                ranges.append(_finite_range(read_layer(mesh, spec), nodata))
+    found = [r for r in ranges if r is not None]
+    low = min(r[0] for r in found) if found else None
+    high = max(r[1] for r in found) if found else None
+    item.value_min = format_number(low)
+    item.value_max = format_number(high)
+    return low, high
 
 
 def remove_attribute(mesh: bpy.types.Mesh, name: str) -> bool:
@@ -798,8 +865,34 @@ class GEOTOOLS_OT_layer_set_categories(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class GEOTOOLS_OT_layer_update_range(bpy.types.Operator):
+    """Work out the range of the selected layer's values on the source, ignoring no-data"""
+
+    bl_idname = "geotools.layer_update_range"
+    bl_label = "Update Range"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context: bpy.types.Context) -> bool:
+        return _active_layer_poll(cls, context, object_mode=True)
+
+    def execute(self, context: bpy.types.Context) -> set[str]:
+        item = _active_layer(context)
+        try:
+            low, high = update_value_range(context.scene, item)
+        except RuntimeError as ex:
+            self.report({"ERROR"}, f"Cannot work out the range: {ex}")
+            return {"CANCELLED"}
+        if low is None:
+            self.report({"WARNING"}, f"Layer {item.name} holds no values yet")
+        else:
+            self.report({"INFO"}, f"Layer {item.name}: {low:g} to {high:g}")
+        redraw_ui(context)
+        return {"FINISHED"}
+
+
 class GEOTOOLS_UL_layers(bpy.types.UIList):
-    """Layers: name, domain icon and type."""
+    """Layers: label (or name), domain icon and type."""
 
     bl_idname = "GEOTOOLS_UL_layers"
 
@@ -816,7 +909,7 @@ class GEOTOOLS_UL_layers(bpy.types.UIList):
         flt_flag: int = 0,
     ) -> None:
         row = layout.row(align=True)
-        row.label(text=item.name, icon=DOMAIN_ICONS.get(item.domain, "NONE"))
+        row.label(text=item.label.strip() or item.name, icon=DOMAIN_ICONS.get(item.domain, "NONE"))
         row.label(text=item.bl_rna.properties["data_type"].enum_items[item.data_type].name)
 
 
@@ -826,6 +919,7 @@ classes = (
     GEOTOOLS_OT_layer_rename,
     GEOTOOLS_OT_layer_create_attributes,
     GEOTOOLS_OT_layer_set_categories,
+    GEOTOOLS_OT_layer_update_range,
     GEOTOOLS_UL_layers,
 )
 

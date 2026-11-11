@@ -229,6 +229,7 @@ class GEOTOOLS_PT_layers(_GeoToolsPanel, bpy.types.Panel):
         col = layout.column()
         col.use_property_split = True
         col.use_property_decorate = False
+        col.prop(item, "label")
         col.prop(item, "domain")
         col.prop(item, "data_type")
         col.prop(item, "units")
@@ -245,6 +246,22 @@ class GEOTOOLS_PT_layers(_GeoToolsPanel, bpy.types.Panel):
             text = f"Default: {_aggregation_label(item, spec.data_type)}"
             col.label(text=text, icon="INFO")
         col.prop(item, "description")
+
+        box = layout.box()
+        header = box.row()
+        header.label(text="Value Range")
+        header.operator("geotools.layer_update_range", text="", icon="FILE_REFRESH")
+        values = box.column(align=True)
+        values.alert = any(i.code == "layer-range-invalid" for i in issues)
+        values.prop(item, "value_min")
+        values.prop(item, "value_max")
+        provenance = spec.provenance
+        if provenance is not None:
+            if any(i.code == "layer-provenance-invalid" for i in issues):
+                box.label(text="Provenance is not valid JSON", icon="ERROR")
+            else:
+                version = provenance.get("geotools_version") or "unknown version"
+                box.label(text=f"Made by {provenance['tool']} (GeoTools {version})", icon="INFO")
 
         if item.data_type == "CATEGORY":
             box = layout.box()

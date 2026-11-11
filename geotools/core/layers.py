@@ -5,16 +5,20 @@ the ``bpy``-free half: the :class:`LayerSpec` description, its validation, the
 default coarse-level aggregation, and the JSON record written to build.json.
 The Blender storage and the attribute helpers are in ``geotools.blender.layers``.
 
-Text fields: Blender stores ``nodata`` as binary64 text and ``categories`` as a
-newline-separated string. :func:`parse_nodata`, :func:`format_nodata`,
-:func:`parse_categories` and :func:`format_categories` convert between those
-and a :class:`LayerSpec`.
+Text fields: Blender stores ``nodata``, ``value_min`` and ``value_max`` as
+binary64 text, ``categories`` as a newline-separated string and ``provenance``
+as JSON. :func:`parse_number`/:func:`format_number` (``parse_nodata``/
+``format_nodata`` are the same functions), :func:`parse_categories`/
+:func:`format_categories` and :func:`parse_provenance`/:func:`format_provenance`
+convert between those and a :class:`LayerSpec`.
 """
 
 from __future__ import annotations
 
+import json
 import math
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -34,14 +38,21 @@ __all__ = [
     "Origin",
     "attribute_name",
     "default_aggregation",
+    "display_name",
     "effective_aggregation",
     "fill_value",
     "format_categories",
     "format_nodata",
+    "format_number",
+    "format_provenance",
     "from_record",
+    "json_safe",
+    "make_provenance",
     "numpy_dtype",
     "parse_categories",
     "parse_nodata",
+    "parse_number",
+    "parse_provenance",
     "to_record",
     "validate",
 ]
@@ -87,6 +98,13 @@ class LayerSpec:
     aggregation: Aggregation | None = None  # None -> default_aggregation(data_type)
     description: str = ""
     categories: tuple[str, ...] = ()  # CATEGORY only: label of value i
+    label: str = ""  # display name; the UI shows label, or name if label is empty
+    value_min: float | None = None  # range actually present, set by whoever writes values
+    value_max: float | None = None
+    # {"tool": str, "parameters": {...}, "geotools_version": str}, set by bakes and
+    # analysis tools (see make_provenance); None for manual layers. A dict makes
+    # the spec unhashable; specs are compared, never hashed.
+    provenance: Mapping[str, object] | None = None
 
 
 ATTRIBUTE_PREFIX = "gt_"
@@ -124,6 +142,11 @@ def attribute_name(spec_or_name: LayerSpec | str) -> str:
     """``"gt_" + name``: the mesh attribute that holds a FACE or CORNER layer."""
     name = spec_or_name.name if isinstance(spec_or_name, LayerSpec) else spec_or_name
     return ATTRIBUTE_PREFIX + name
+
+
+def display_name(spec: LayerSpec) -> str:
+    """What the UI shows: the label, or the name if the label is empty."""
+    return spec.label.strip() or spec.name
 
 
 def default_aggregation(data_type: DataType) -> Aggregation:
@@ -169,11 +192,12 @@ def fill_value(spec: LayerSpec) -> float | int | bool:
 # --- text fields ----------------------------------------------------------------------
 
 
-def parse_nodata(text: str) -> float | None:
-    """The no-data value stored as binary64 text; empty text means none.
+def parse_number(text: str) -> float | None:
+    """An optional number stored as binary64 text; empty text means none.
 
-    Text that is not a number gives NaN, which :func:`validate` reports as
-    ``layer-nodata-invalid``, so reading the registry never fails.
+    Text that is not a number gives NaN, which :func:`validate` reports
+    (``layer-nodata-invalid`` or ``layer-range-invalid``), so reading the
+    registry never fails.
     """
     if not text.strip():
         return None
@@ -183,9 +207,13 @@ def parse_nodata(text: str) -> float | None:
         return math.nan
 
 
-def format_nodata(value: float | None) -> str:
+def format_number(value: float | None) -> str:
     """Exact text for ``value`` (``repr`` round-trips a binary64); "" for none."""
     return "" if value is None else repr(float(value))
+
+
+parse_nodata = parse_number
+format_nodata = format_number
 
 
 def parse_categories(text: str) -> tuple[str, ...]:
@@ -197,6 +225,60 @@ def parse_categories(text: str) -> tuple[str, ...]:
 
 def format_categories(categories: tuple[str, ...] | list[str]) -> str:
     return "\n".join(categories)
+
+
+def json_safe(value: object) -> object:
+    """Plain JSON data: mappings with str keys, lists, finite floats, str, int, bool, None.
+
+    Tuples become lists, numpy scalars and arrays become Python values and lists,
+    non-finite floats become None and anything else its ``str``.
+    """
+    if isinstance(value, Mapping):
+        return {str(k): json_safe(v) for k, v in value.items()}
+    if isinstance(value, np.ndarray):
+        return json_safe(value.tolist())
+    if isinstance(value, np.generic):
+        return json_safe(value.item())
+    if isinstance(value, (list, tuple)):
+        return [json_safe(v) for v in value]
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
+    return str(value)
+
+
+def make_provenance(
+    tool: str, parameters: Mapping[str, object] | None = None, geotools_version: str = ""
+) -> dict[str, object]:
+    """The ``provenance`` a bake or analysis tool records, made JSON-safe."""
+    return {
+        "tool": str(tool),
+        "parameters": json_safe(dict(parameters or {})),
+        "geotools_version": str(geotools_version),
+    }
+
+
+def parse_provenance(text: str) -> Mapping[str, object] | None:
+    """Provenance stored as JSON text; empty text means none.
+
+    Text that is not a JSON object gives ``{"invalid": text}``, which
+    :func:`validate` reports as ``layer-provenance-invalid``.
+    """
+    if not text.strip():
+        return None
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return {"invalid": text}
+    return value if isinstance(value, dict) else {"invalid": text}
+
+
+def format_provenance(provenance: Mapping[str, object] | None) -> str:
+    """Compact, key-sorted JSON for ``provenance``; "" for none."""
+    if provenance is None:
+        return ""
+    return json.dumps(json_safe(provenance), sort_keys=True, allow_nan=False)
 
 
 # --- validation -----------------------------------------------------------------------
@@ -274,7 +356,59 @@ def validate(spec: LayerSpec, existing_names: object = ()) -> list[Issue]:
                 )
 
     issues.extend(_nodata_issues(spec, data_type, subject))
+    issues.extend(_range_issues(spec, subject))
+    issues.extend(_provenance_issues(spec, subject))
     return issues
+
+
+def _range_issues(spec: LayerSpec, subject: str | None) -> list[Issue]:
+    bounds = {"minimum": spec.value_min, "maximum": spec.value_max}
+    for word, value in bounds.items():
+        if value is not None and not math.isfinite(float(value)):
+            return [
+                Issue(
+                    Severity.ERROR,
+                    "layer-range-invalid",
+                    f"Layer {spec.name!r}: the value {word} must be a finite number "
+                    "(empty when not known).",
+                    subject,
+                )
+            ]
+    low, high = spec.value_min, spec.value_max
+    if low is not None and high is not None and float(low) > float(high):
+        return [
+            Issue(
+                Severity.ERROR,
+                "layer-range-invalid",
+                f"Layer {spec.name!r}: the value minimum {low!r} is above the maximum {high!r}.",
+                subject,
+            )
+        ]
+    return []
+
+
+def _provenance_issues(spec: LayerSpec, subject: str | None) -> list[Issue]:
+    provenance = spec.provenance
+    if provenance is None:
+        return []
+    ok = (
+        isinstance(provenance, Mapping)
+        and isinstance(provenance.get("tool"), str)
+        and bool(provenance["tool"].strip())  # type: ignore[union-attr]
+        and isinstance(provenance.get("parameters", {}), Mapping)
+        and isinstance(provenance.get("geotools_version", ""), str)
+    )
+    if ok:
+        return []
+    return [
+        Issue(
+            Severity.ERROR,
+            "layer-provenance-invalid",
+            f"Layer {spec.name!r}: provenance must be a JSON object with a tool name, "
+            'e.g. {"tool": "slope", "parameters": {}, "geotools_version": "0.3.0"}.',
+            subject,
+        )
+    ]
 
 
 def _nodata_issues(spec: LayerSpec, data_type: DataType, subject: str | None) -> list[Issue]:
@@ -323,42 +457,71 @@ def to_record(spec: LayerSpec) -> dict[str, object]:
     """JSON-safe description of a layer for build.json, in a stable key order.
 
     ``aggregation`` is the effective one (the default when the spec has none), so
-    a record states what applies. A non-finite ``nodata`` (an invalid spec) is
+    a record states what applies. ``categories`` is a list of
+    ``{"value": i, "label": label}``. Non-finite numbers (an invalid spec) are
     written as null.
     """
-    nodata = None
-    if spec.nodata is not None and math.isfinite(float(spec.nodata)):
-        nodata = float(spec.nodata)
     return {
         "name": spec.name,
+        "label": spec.label,
         "attribute": attribute_name(spec) if Domain(spec.domain) is not Domain.TEXTURE else None,
         "domain": Domain(spec.domain).value,
         "data_type": DataType(spec.data_type).value,
         "units": spec.units,
-        "nodata": nodata,
+        "nodata": _finite_or_none(spec.nodata),
+        "value_min": _finite_or_none(spec.value_min),
+        "value_max": _finite_or_none(spec.value_max),
         "origin": Origin(spec.origin).value,
         "aggregation": effective_aggregation(spec).value,
         "description": spec.description,
-        "categories": list(spec.categories),
+        "categories": [{"value": i, "label": label} for i, label in enumerate(spec.categories)],
+        "provenance": None if spec.provenance is None else json_safe(spec.provenance),
     }
+
+
+def _finite_or_none(value: float | None) -> float | None:
+    if value is None or not math.isfinite(float(value)):
+        return None
+    return float(value)
+
+
+def _categories_from_record(items: object) -> tuple[str, ...]:
+    """Labels from ``[{"value": i, "label": ...}]`` (any order) or a list of labels."""
+    items = list(items or ())  # type: ignore[call-overload]
+    if not items or not isinstance(items[0], Mapping):
+        return tuple(str(label) for label in items)
+    by_value = {int(item["value"]): str(item["label"]) for item in items}
+    if sorted(by_value) != list(range(len(items))):
+        raise ValueError(f"category values must be 0 to {len(items) - 1}, got {sorted(by_value)}")
+    return tuple(by_value[i] for i in range(len(items)))
 
 
 def from_record(d: dict[str, object]) -> LayerSpec:
     """The :class:`LayerSpec` of a :func:`to_record` record.
 
-    ``attribute`` is derived from the name and ignored. Raises ``KeyError`` or
+    ``attribute`` is derived from the name and ignored. ``categories`` may be the
+    ``{"value", "label"}`` objects or plain labels. Raises ``KeyError`` or
     ``ValueError`` for a record that is not a layer record.
     """
-    nodata = d.get("nodata")
+
+    def number(key: str) -> float | None:
+        value = d.get(key)
+        return None if value is None else float(value)  # type: ignore[arg-type]
+
     aggregation = d.get("aggregation")
+    provenance = d.get("provenance")
     return LayerSpec(
         name=str(d["name"]),
         domain=Domain(d["domain"]),
         data_type=DataType(d["data_type"]),
         units=str(d.get("units", "")),
-        nodata=None if nodata is None else float(nodata),  # type: ignore[arg-type]
+        nodata=number("nodata"),
         origin=Origin(d.get("origin", Origin.MANUAL)),
         aggregation=None if aggregation is None else Aggregation(aggregation),
         description=str(d.get("description", "")),
-        categories=tuple(str(c) for c in d.get("categories", ()) or ()),  # type: ignore[union-attr]
+        categories=_categories_from_record(d.get("categories", ())),
+        label=str(d.get("label", "")),
+        value_min=number("value_min"),
+        value_max=number("value_max"),
+        provenance=None if provenance is None else dict(provenance),  # type: ignore[call-overload]
     )

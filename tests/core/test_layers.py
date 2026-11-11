@@ -190,15 +190,19 @@ def test_numpy_dtype_and_fill_value() -> None:
 
 RECORD_KEYS = [
     "name",
+    "label",
     "attribute",
     "domain",
     "data_type",
     "units",
     "nodata",
+    "value_min",
+    "value_max",
     "origin",
     "aggregation",
     "description",
     "categories",
+    "provenance",
 ]
 
 
@@ -212,20 +216,36 @@ def test_record_has_stable_keys_and_is_json() -> None:
         origin=Origin.ANALYSIS,
         description="Classified cover",
         categories=("ground", "grass", "trees"),
+        label="Land cover",
+        value_min=0.0,
+        value_max=2.0,
+        provenance=L.make_provenance("classify", {"bands": (1, 2)}, "0.3.0"),
     )
     record = L.to_record(s)
     assert list(record) == RECORD_KEYS
     assert record == {
         "name": "land_cover",
+        "label": "Land cover",
         "attribute": "gt_land_cover",
         "domain": "CORNER",
         "data_type": "CATEGORY",
         "units": "",
         "nodata": -1.0,
+        "value_min": 0.0,
+        "value_max": 2.0,
         "origin": "ANALYSIS",
         "aggregation": "MODE",  # the default, written out
         "description": "Classified cover",
-        "categories": ["ground", "grass", "trees"],
+        "categories": [
+            {"value": 0, "label": "ground"},
+            {"value": 1, "label": "grass"},
+            {"value": 2, "label": "trees"},
+        ],
+        "provenance": {
+            "tool": "classify",
+            "parameters": {"bands": [1, 2]},
+            "geotools_version": "0.3.0",
+        },
     }
     text = json.dumps(record, allow_nan=False)
     assert L.from_record(json.loads(text)) == L.from_record(record)
@@ -250,6 +270,13 @@ def test_record_round_trip() -> None:
             nodata=-1.0,
         ),
         spec(nodata=0.1 + 0.2, aggregation=Aggregation.MIN, description="ünïcode"),
+        spec(
+            aggregation=Aggregation.AREA_MEAN,
+            label="Slope (degrees)",
+            value_min=0.1 + 0.2,
+            value_max=89.5,
+            provenance=L.make_provenance("slope", {"smooth": 2.5, "mode": "fast"}, "0.3.0"),
+        ),
     ]
     for s in specs:
         record = L.to_record(s)
@@ -266,6 +293,71 @@ def test_record_of_default_aggregation_is_explicit() -> None:
     assert L.to_record(back) == L.to_record(s)
 
 
+def test_categories_record_form() -> None:
+    labels = ("ground", "grass", "trees")
+    record = L.to_record(spec(data_type=DataType.CATEGORY, categories=labels))
+    assert [c["value"] for c in record["categories"]] == [0, 1, 2]
+    # Objects in any order, and plain labels, are read back.
+    shuffled = dict(record, categories=list(reversed(record["categories"])))
+    assert L.from_record(shuffled).categories == labels
+    assert L.from_record(dict(record, categories=list(labels))).categories == labels
+    assert L.from_record(dict(record, categories=[])).categories == ()
+    gap = [{"value": 0, "label": "a"}, {"value": 2, "label": "c"}]
+    with pytest.raises(ValueError):
+        L.from_record(dict(record, categories=gap))
+
+
+def test_label_and_display_name() -> None:
+    assert L.display_name(spec()) == "slope"
+    assert L.display_name(spec(label="  ")) == "slope"
+    assert L.display_name(spec(label="Slope (deg)")) == "Slope (deg)"
+    assert L.validate(spec(label="Anything Goes ✓")) == []
+
+
+def test_value_range() -> None:
+    assert L.validate(spec(value_min=-1.0, value_max=1.0)) == []
+    assert L.validate(spec(value_min=3.0, value_max=3.0)) == []
+    assert L.validate(spec(value_min=3.0)) == []
+    for low, high in ((2.0, 1.0), (math.nan, None), (None, math.inf)):
+        issues = L.validate(spec(value_min=low, value_max=high))
+        assert codes(issues) == ["layer-range-invalid"], (low, high, issues)
+    record = L.to_record(spec(value_min=math.nan, value_max=1.0))
+    assert record["value_min"] is None and record["value_max"] == 1.0
+
+
+def test_number_text() -> None:
+    assert L.parse_nodata is L.parse_number and L.format_nodata is L.format_number
+    assert L.parse_number("") is None
+    assert L.parse_number(L.format_number(1e-300)) == 1e-300
+
+
+def test_provenance() -> None:
+    p = L.make_provenance("slope", {"radius": np.float32(2.5), "steps": np.int64(3)}, "0.3.0")
+    assert p == {
+        "tool": "slope",
+        "parameters": {"radius": 2.5, "steps": 3},
+        "geotools_version": "0.3.0",
+    }
+    assert type(p["parameters"]["steps"]) is int  # type: ignore[index]
+    assert L.make_provenance("x") == {"tool": "x", "parameters": {}, "geotools_version": ""}
+    assert L.validate(spec(provenance=p)) == []
+    json.dumps(p, allow_nan=False)
+
+    text = L.format_provenance(p)
+    assert L.parse_provenance(text) == p
+    assert L.format_provenance(None) == "" and L.parse_provenance(" ") is None
+    for bad in ({"parameters": {}}, {"tool": ""}, {"tool": "x", "parameters": [1]}):
+        assert codes(L.validate(spec(provenance=bad))) == ["layer-provenance-invalid"], bad
+    for text in ("{not json", "[1, 2]"):
+        parsed = L.parse_provenance(text)
+        assert codes(L.validate(spec(provenance=parsed))) == ["layer-provenance-invalid"]
+
+    # Non-JSON values are made safe in the record.
+    record = L.to_record(spec(provenance={"tool": "t", "parameters": {"x": math.nan, 1: (2,)}}))
+    assert record["provenance"] == {"tool": "t", "parameters": {"x": None, "1": [2]}}
+    json.dumps(record, allow_nan=False)
+
+
 def test_texture_record_has_no_attribute() -> None:
     record = L.to_record(spec(domain=Domain.TEXTURE))
     assert record["attribute"] is None
@@ -280,3 +372,4 @@ def test_from_record_rejects_bad_records() -> None:
         L.from_record({"name": "x", "domain": "VERTEX", "data_type": "FLOAT"})
     minimal = L.from_record({"name": "x", "domain": "FACE", "data_type": "INT"})
     assert minimal == LayerSpec("x", Domain.FACE, DataType.INT)
+    assert minimal.label == "" and minimal.provenance is None and minimal.value_min is None

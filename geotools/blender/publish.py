@@ -270,6 +270,20 @@ def _extract_scene(context, collection, image_dir: Path, remedies: list[dict]):
     return export.extract_scene(context, collection, image_dir, remedies=remedies)
 
 
+def blend_path_for_record(filepath: str | None = None, is_dirty: bool | None = None) -> Path | None:
+    """The saved ``.blend`` whose hash build.json records, or None.
+
+    None when the file was never saved or has changed since (``is_dirty``): the
+    file on disk would then not match the scene that was published. The
+    arguments default to ``bpy.data.filepath`` and ``bpy.data.is_dirty``.
+    """
+    filepath = bpy.data.filepath if filepath is None else filepath
+    is_dirty = bpy.data.is_dirty if is_dirty is None else is_dirty
+    if not filepath or is_dirty:
+        return None
+    return Path(filepath)
+
+
 def _extra_record(context: bpy.types.Context, profile_name: str, collection_name: str) -> dict:
     return {
         "geotools_version": extension_version(),
@@ -302,6 +316,8 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
         if is_running():
             self.report({"ERROR"}, "A publish is already running; cancel it or wait")
             return {"CANCELLED"}
+        # Before anything below writes to the scene (store_issues does).
+        blend_path = blend_path_for_record()
         props = context.scene.geotools
         if props.source_collection is None:
             self.report({"ERROR"}, "Cannot publish: set or ingest a source collection first")
@@ -373,6 +389,7 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
                 topology=dict(topology),
                 extra_record=extra_record,
                 layers=layer_records_,
+                blend_path=blend_path,
             )
             job = BuildJob(scene_export, request, lock=lock)
         except Exception as ex:

@@ -61,6 +61,7 @@ def test_layers_registered() -> None:
         "geotools.layer_rename",
         "geotools.layer_create_attributes",
         "geotools.layer_set_categories",
+        "geotools.layer_update_range",
     ):
         assert h.operator_available(idname), idname
     assert hasattr(bpy.types, "GEOTOOLS_UL_layers")
@@ -102,6 +103,26 @@ def test_registry_create_update_find() -> None:
     item = L.ensure_layer(scene, cats)
     assert item.categories == "ground\ntrees"
     assert L.spec_from_props(item) == cats
+
+    # Label, value range (binary64 text) and provenance (JSON text).
+    full = _spec(
+        "sun",
+        label="Sun hours",
+        value_min=0.1 + 0.2,
+        value_max=11.75,
+        provenance=c.make_provenance("sun_hours", {"steps": 24, "date": "2026-06-21"}, "0.3.0"),
+    )
+    item = L.ensure_layer(scene, full)
+    assert item.label == "Sun hours"
+    assert item.value_min == repr(0.1 + 0.2) and item.value_max == "11.75"
+    assert '"tool": "sun_hours"' in item.provenance
+    assert L.spec_from_props(item) == full
+    item.provenance = "{broken"
+    assert "layer-provenance-invalid" in _codes(L.layer_status(scene, item))
+    item.provenance = ""
+    assert L.spec_from_props(item).provenance is None
+    item.value_min = "20"
+    assert "layer-range-invalid" in _codes(L.layer_status(scene, item))
 
 
 def test_ensure_layer_refuses_invalid_spec() -> None:
@@ -359,6 +380,54 @@ def test_status_of_texture_layers() -> None:
         raise AssertionError("saved a layer image next to an unsaved .blend")
 
 
+# --- value range --------------------------------------------------------------------------
+
+
+def test_update_value_range() -> None:
+    h.reset_scene()
+    L = _layers()
+    scene = bpy.context.scene
+    (obj, other) = _source()
+    slope = L.ensure_layer(scene, _spec(nodata=-9999.0))
+    assert L.update_value_range(scene, slope) == (None, None)
+    assert (slope.value_min, slope.value_max) == ("", "")
+    L.write_layer(obj.data, _spec(nodata=-9999.0), np.array([-9999.0, 0.5, math.nan], np.float32))
+    L.write_layer(other.data, _spec(nodata=-9999.0), np.array([12.25, -3.0, -9999.0], np.float32))
+    assert L.update_value_range(scene, slope) == (-3.0, 12.25)
+    assert (slope.value_min, slope.value_max) == ("-3.0", "12.25")
+    assert L.spec_from_props(slope).value_max == 12.25
+
+    # No-data that is not exact in float32 is still recognised.
+    odd = _spec("odd", nodata=0.1)
+    item = L.ensure_layer(scene, odd)
+    L.write_layer(obj.data, odd, np.array([0.1, 0.2, 0.3], np.float32))
+    low, high = L.update_value_range(scene, item)
+    assert (low, high) == (float(np.float32(0.2)), float(np.float32(0.3))), (low, high)
+
+    count = _spec("count", "CORNER", "INT", nodata=-1.0)
+    item = L.ensure_layer(scene, count)
+    L.write_layer(obj.data, count, np.arange(11, dtype=np.int32) - 1)
+    assert L.update_value_range(scene, item) == (0.0, 9.0)
+
+    flag = _spec("flag", data_type="BOOLEAN")
+    item = L.ensure_layer(scene, flag)
+    L.write_layer(obj.data, flag, np.array([True, True, True]))
+    assert L.update_value_range(scene, item) == (1.0, 1.0)
+
+    tex = L.ensure_layer(scene, _spec("shade", "TEXTURE"))
+    tex.resolution = 2
+    image = L.ensure_layer_image(tex, obj)
+    pixels = np.array([[4, 99, 99, 1], [math.nan, 0, 0, 1], [-2, 50, 50, 1], [1, -50, 0, 1]])
+    image.pixels.foreach_set(pixels.astype(np.float32).ravel())
+    assert L.update_value_range(scene, tex) == (-2.0, 4.0), "read a channel other than R"
+
+    slope = L.find_layer(scene, "slope")  # adding layers may move the old entries
+    slope.value_min = slope.value_max = ""
+    h.project().layers_index = 0
+    assert bpy.ops.geotools.layer_update_range() == {"FINISHED"}
+    assert (slope.value_min, slope.value_max) == ("-3.0", "12.25")
+
+
 # --- remove and rename ---------------------------------------------------------------------
 
 
@@ -469,8 +538,20 @@ def test_panel_draws_layers() -> None:
     L.ensure_layer(scene, _spec(units="deg"))
     calls = h.draw(_panel())
     drawn = h.props_drawn(calls)
-    for prop in ("domain", "data_type", "units", "nodata", "origin", "aggregation"):
+    for prop in (
+        "label",
+        "domain",
+        "data_type",
+        "units",
+        "nodata",
+        "origin",
+        "aggregation",
+        "value_min",
+        "value_max",
+    ):
         assert prop in drawn, (prop, drawn)
+    assert "provenance" not in drawn
+    assert ("operator", "geotools.layer_update_range", "FILE_REFRESH") in calls
     assert ("operator", "geotools.layer_create_attributes", "ADD") in calls
     labels = [text for text, _icon in h.labels(calls)]
     assert "Default: Area Mean" in labels, labels
@@ -479,11 +560,17 @@ def test_panel_draws_layers() -> None:
     labels = [text for text, _icon in h.labels(h.draw(_panel()))]
     assert "Stored on every source object" in labels, labels
 
-    # Invalid no-data is drawn as an alert.
+    # Invalid no-data and range are drawn as alerts.
     props.layers[0].nodata = "abc"
+    props.layers[0].value_min = "inf"
     alerts: list[str] = []
     h.draw(_panel(), alerts)
-    assert "nodata" in alerts, alerts
+    assert "nodata" in alerts and "value_min" in alerts, alerts
+    props.layers[0].provenance = _core().format_provenance(
+        _core().make_provenance("slope", {}, "0.3.0")
+    )
+    labels = [text for text, _icon in h.labels(h.draw(_panel()))]
+    assert "Made by slope (GeoTools 0.3.0)" in labels, labels
 
     L.ensure_layer(scene, _spec("cover", data_type="CATEGORY", categories=("ground", "trees")))
     props.layers_index = 1
@@ -503,6 +590,9 @@ def test_panel_draws_layers() -> None:
     for item in props.layers:
         rows = h.draw_list_item(ul, props, item)
         assert ("label", item.name, L.DOMAIN_ICONS[item.domain]) in rows, rows
+    props.layers[0].label = "Slope (degrees)"
+    rows = h.draw_list_item(ul, props, props.layers[0])
+    assert ("label", "Slope (degrees)", "FACESEL") in rows, rows
 
 
 # --- persistence ------------------------------------------------------------------------------
@@ -513,7 +603,15 @@ def test_layers_survive_save_and_reopen() -> None:
     c, L = _core(), _layers()
     scene = bpy.context.scene
     objects = _source()
-    slope = _spec(units="deg", nodata=-9999.0, origin=c.Origin.GEONODES)
+    slope = _spec(
+        units="deg",
+        nodata=-9999.0,
+        origin=c.Origin.GEONODES,
+        label="Slope",
+        value_min=-2.25,
+        value_max=1.5,
+        provenance=c.make_provenance("geonodes", {"modifier": "Slope"}, "0.3.0-dev"),
+    )
     count = _spec("count", "CORNER", "INT", aggregation=c.Aggregation.MAX)
     flag = _spec("flag", "FACE", "BOOLEAN")
     shade = _spec("shade", "TEXTURE", units="h", nodata=0.1 + 0.2)
@@ -566,6 +664,8 @@ def test_layers_survive_save_and_reopen() -> None:
                 assert np.array_equal(L.read_layer(mesh, flag), flags)
             for name in ("slope", "count", "flag"):
                 assert L.layer_status(scene, props.layers[name]) == [], name
+            assert L.spec_from_props(props.layers["slope"]) == slope
+            assert L.update_value_range(scene, props.layers["slope"]) == (-2.25, 1.5)
 
             tex = props.layers["shade"]
             assert (tex.uv_map, tex.resolution, tex.margin) == ("UVMap", 4, 3)
@@ -580,6 +680,28 @@ def test_layers_survive_save_and_reopen() -> None:
             status = L.layer_status(scene, tex)
             assert _codes(status) == ["layer-image-missing"], status
             assert status[0].subject == "Grid_B"
+    finally:
+        assert bpy.ops.wm.read_homefile(use_empty=True) == {"FINISHED"}
+        h.reset_scene()
+
+
+# --- build record ---------------------------------------------------------------------------
+
+
+def test_blend_path_for_record() -> None:
+    publish = h.submodule("blender.publish")
+    try:
+        assert bpy.ops.wm.read_homefile(use_empty=True) == {"FINISHED"}
+        h.reset_scene()
+        assert publish.blend_path_for_record() is None, "an unsaved file was hashed"
+        with tempfile.TemporaryDirectory(prefix="geotools-test-") as tmp:
+            path = Path(tmp) / "hash.blend"
+            assert bpy.ops.wm.save_as_mainfile(filepath=str(path)) == {"FINISHED"}
+            assert not bpy.data.is_dirty
+            assert publish.blend_path_for_record() == path
+            # Background Blender never marks the file dirty, so pass the flag.
+            assert publish.blend_path_for_record(str(path), is_dirty=True) is None
+            assert publish.blend_path_for_record("", is_dirty=False) is None
     finally:
         assert bpy.ops.wm.read_homefile(use_empty=True) == {"FINISHED"}
         h.reset_scene()

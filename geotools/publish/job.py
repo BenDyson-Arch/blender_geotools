@@ -27,6 +27,7 @@ then only skips validation, and the job still records the build and ends DONE.
 from __future__ import annotations
 
 import datetime as _dt
+import hashlib
 import json
 import logging
 import math
@@ -43,6 +44,7 @@ from types import ModuleType
 from typing import Any
 
 from ..core import deps
+from ..core.crs_presets import epsg_code
 from ..core.facemap import build_face_map, save_face_map
 from ..core.gltf_writer import SceneExport, write_glb
 from . import staging as st
@@ -63,7 +65,8 @@ __all__ = [
 log = logging.getLogger(__name__)
 
 RECORD_SCHEMA = 2
-"""``schema`` of build.json. 2 added ``layers``, the layer registry (M3)."""
+"""``schema`` of build.json. 2 added ``layers`` (the M3 layer registry),
+``source`` (GLB and ``.blend`` hashes) and ``placement.crs_epsg``."""
 
 MAX_RECORDED_WARNINGS = 50
 
@@ -110,6 +113,9 @@ class BuildRequest:
     layers: list[dict[str, object]] = field(
         default_factory=list
     )  # core.layers.to_record of each layer, for build.json
+    # The saved .blend the scene came from, hashed on the worker thread; None if
+    # unsaved or modified since saving (the file would not match the scene).
+    blend_path: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -496,6 +502,15 @@ class BuildJob:
         work.mkdir(parents=True)
         self._work_ready = True
 
+        # 0. The .blend hash, read before anything else so a save during the
+        # build cannot change it.
+        blend_sha256 = None
+        if request.blend_path is not None:
+            t = time.monotonic()
+            blend_sha256 = _sha256_file(request.blend_path)
+            phase_seconds["hash_blend"] = time.monotonic() - t
+            self._check_cancel()
+
         # 1. GLB and face map. The writer has no cancel hook; check around it.
         self._set_state(JobState.WRITING, "Writing source GLB")
         t = time.monotonic()
@@ -569,7 +584,11 @@ class BuildJob:
                 "force": request.force,
                 "validate": request.validate,
             },
-            "placement": dict(request.placement_kwargs),
+            "placement": {
+                **request.placement_kwargs,
+                "crs_epsg": epsg_code(request.placement_kwargs.get("source_crs")),  # type: ignore[arg-type]
+            },
+            "source": {"glb_sha256": glb.sha256, "blend_sha256": blend_sha256},
             "layers": [dict(record) for record in request.layers],
             "source_glb": {
                 "path": st.GLB_NAME,
@@ -648,6 +667,19 @@ class BuildJob:
 def _is_cancel_error(ex: BaseException) -> bool:
     """rusty-tiles' own cancellation, or an observer failure caused by our raise."""
     return type(ex).__name__ in {"CancelledError", "ObserverError"} or isinstance(ex, _Cancelled)
+
+
+def _sha256_file(path: Path) -> str | None:
+    """Hex SHA-256 of a file, or None if it cannot be read."""
+    digest = hashlib.sha256()
+    try:
+        with open(path, "rb") as f:
+            while chunk := f.read(1 << 20):
+                digest.update(chunk)
+    except OSError:
+        log.warning("could not hash %s", path, exc_info=True)
+        return None
+    return digest.hexdigest()
 
 
 def _size(path: Path) -> int | None:
