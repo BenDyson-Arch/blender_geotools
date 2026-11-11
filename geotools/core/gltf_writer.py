@@ -15,6 +15,14 @@ admits:
   tangents likewise; UV v is flipped (glTF v = 1 - Blender v);
 - byte-identical output for identical input (no timestamps, fixed key order).
 
+The metadata GLB (M4, ``core.gltf_metadata``) is the one exception to "no
+extensions": ``write_glb(..., extension=...)`` hands the laid-out document to a
+:class:`GlbExtension`, which adds extensions, buffer views, images and nodes.
+Primitives may then carry ``custom_attributes`` (``_FEATURE_ID_0``, ``_SLOPE``,
+...), and every buffer view and the BIN chunk start on 8 bytes, as
+``EXT_structural_metadata`` asks. Without an extension the output is exactly
+the rusty-tiles input described here, and custom attributes are refused.
+
 Implementation choices (M2):
 
 - Empty primitives (no triangles) are REFUSED, never skipped. rusty-tiles
@@ -54,6 +62,7 @@ import tempfile
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 import numpy as np
 
@@ -101,6 +110,12 @@ class PrimitiveData:
     # Provenance per triangle (rows of ``indices``), for the face map.
     source_object: np.ndarray | None = None  # (T,) int32 index into object_names
     source_polygon: np.ndarray | None = None  # (T,) int32 Blender polygon index
+    # Metadata GLB only (needs ``write_glb(..., extension=...)``): extra SCALAR
+    # vertex attributes, (name, (V,) array of float32, int8, uint8, int16 or
+    # uint16), written after COLOR_0 in this order. Names start with "_".
+    custom_attributes: tuple[tuple[str, np.ndarray], ...] = ()
+    # The UV map of each texcoord set, when the exporter knows it (not written).
+    texcoord_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +157,14 @@ _IMAGE_READ = 1 << 20  # bytes per image read
 
 _FLOAT = 5126
 _UNSIGNED_INT = 5125
+# Component types of custom SCALAR attributes (numpy dtype -> glTF).
+_CUSTOM_COMPONENTS = {
+    np.dtype("<f4"): 5126,
+    np.dtype("i1"): 5120,
+    np.dtype("u1"): 5121,
+    np.dtype("<i2"): 5122,
+    np.dtype("<u2"): 5123,
+}
 _ARRAY_BUFFER = 34962
 _ELEMENT_ARRAY_BUFFER = 34963
 _SAMPLER = {"magFilter": 9729, "minFilter": 9987, "wrapS": 10497, "wrapT": 10497}
@@ -160,15 +183,73 @@ _SLOTS = (
 )
 
 
-def write_glb(scene: SceneExport, path: Path) -> GlbWriteResult:
-    """Validate ``scene`` and write it to ``path`` (atomically: temp then rename)."""
+class GlbExtension(Protocol):
+    """Adds extensions to the laid-out document (the metadata GLB)."""
+
+    def apply(self, layout: GlbLayout) -> None: ...
+
+
+class GlbLayout:
+    """What a :class:`GlbExtension` may change: the document and the BIN chunk.
+
+    ``document`` is the full glTF JSON (``images``, ``textures`` and
+    ``samplers`` are added from :attr:`images`, :attr:`textures` and
+    :attr:`samplers` afterwards); ``primitives`` its mesh primitives, in
+    ``SceneExport.primitives`` order.
+    """
+
+    def __init__(self, document: dict, primitives: list[dict], add_view, images, textures):
+        self.document = document
+        self.primitives = primitives
+        self._add_view = add_view
+        self.images: list[dict] = images
+        self.textures: list[dict] = textures
+        self.samplers: list[dict] = [dict(_SAMPLER)] if textures else []
+        self.extensions_used: list[str] = []
+
+    def add_view(self, label: str, data: bytes | np.ndarray, *, byte_stride: int = 0) -> int:
+        """A buffer view holding ``data`` (bytes, or an array written as it is)."""
+        array = np.ascontiguousarray(data) if isinstance(data, np.ndarray) else None
+        length = array.nbytes if array is not None else len(data)
+        view = self._add_view(label, length, _emit_bytes(data), None)
+        if byte_stride:
+            self.document["bufferViews"][view]["byteStride"] = int(byte_stride)
+        return view
+
+    def add_image(self, name: str, data: bytes, mime_type: str = "image/png") -> int:
+        view = self.add_view(f"image {name}", data)
+        self.images.append({"name": name, "bufferView": view, "mimeType": mime_type})
+        return len(self.images) - 1
+
+    def add_texture(self, image: int, sampler: dict) -> int:
+        sampler = dict(sampler)
+        if sampler not in self.samplers:
+            self.samplers.append(sampler)
+        self.textures.append({"sampler": self.samplers.index(sampler), "source": int(image)})
+        return len(self.textures) - 1
+
+    def use(self, extension: str) -> None:
+        if extension not in self.extensions_used:
+            self.extensions_used.append(extension)
+
+
+def write_glb(
+    scene: SceneExport, path: Path, *, extension: GlbExtension | None = None
+) -> GlbWriteResult:
+    """Validate ``scene`` and write it to ``path`` (atomically: temp then rename).
+
+    With ``extension``, it adds its extensions to the document (see the module
+    docstring); without, the output is the plain rusty-tiles input."""
     path = Path(path)
-    image_sizes = _validate_scene(scene)
-    document, segments, bin_length = _layout(scene, image_sizes)
+    image_sizes = _validate_scene(scene, custom=extension is not None)
+    document, segments, bin_length = _layout(scene, image_sizes, extension)
     json_bytes = json.dumps(
         document, separators=(",", ":"), ensure_ascii=True, allow_nan=False
     ).encode("ascii")
     json_bytes += b" " * (-len(json_bytes) % 4)
+    if extension is not None:
+        # The BIN data starts 8-byte aligned in the file (28 bytes of headers).
+        json_bytes += b" " * ((4 - len(json_bytes)) % 8)
     if len(json_bytes) > MAX_JSON_BYTES:
         raise ExportError(
             f"The glTF JSON would be {len(json_bytes)} bytes; rusty-tiles accepts at most "
@@ -195,7 +276,7 @@ def write_glb(scene: SceneExport, path: Path) -> GlbWriteResult:
                 segment.emit(sink)
                 if sink.count - start != segment.length:
                     raise ExportError(f"Internal error: {segment.label} wrote the wrong length.")
-                sink.write(b"\0" * (-segment.length % 4))
+                sink.write(b"\0" * segment.padding)
             if sink.count != total:
                 raise ExportError("Internal error: the GLB length does not match its header.")
             f.flush()
@@ -222,6 +303,7 @@ class _Segment:
     label: str
     length: int
     emit: Callable[[_Sink], None]
+    padding: int = 0
 
 
 class _Sink:
@@ -239,11 +321,14 @@ class _Sink:
         self.count += len(view)
 
 
-def _layout(scene: SceneExport, image_sizes: dict[int, int]) -> tuple[dict, list[_Segment], int]:
+def _layout(
+    scene: SceneExport, image_sizes: dict[int, int], extension: GlbExtension | None = None
+) -> tuple[dict, list[_Segment], int]:
     accessors: list[dict] = []
     views: list[dict] = []
     segments: list[_Segment] = []
     offset = 0
+    align = 4 if extension is None else 8
 
     def add_view(label: str, length: int, emit, target: int | None) -> int:
         nonlocal offset
@@ -251,8 +336,8 @@ def _layout(scene: SceneExport, image_sizes: dict[int, int]) -> tuple[dict, list
         if target is not None:
             view["target"] = target
         views.append(view)
-        segments.append(_Segment(label, length, emit))
-        offset += length + (-length % 4)
+        segments.append(_Segment(label, length, emit, -length % align))
+        offset += length + (-length % align)
         return len(views) - 1
 
     def add_accessor(label: str, array: np.ndarray, kind: str, emit, target: int, **extra) -> int:
@@ -308,6 +393,22 @@ def _layout(scene: SceneExport, image_sizes: dict[int, int]) -> tuple[dict, list
                 _emit_plain(prim.color, "<f4"),
                 _ARRAY_BUFFER,
             )
+        for name, values in prim.custom_attributes:
+            dtype = values.dtype.newbyteorder("<") if values.dtype.itemsize > 1 else values.dtype
+            size = dtype.itemsize
+            view = add_view(f"{label} {name}", values.shape[0] * 4, _emit_padded(values), None)
+            views[view]["target"] = _ARRAY_BUFFER
+            if size < 4:
+                views[view]["byteStride"] = 4  # vertex attribute elements align to 4 bytes
+            accessors.append(
+                {
+                    "bufferView": view,
+                    "componentType": _CUSTOM_COMPONENTS[np.dtype(dtype)],
+                    "count": int(values.shape[0]),
+                    "type": "SCALAR",
+                }
+            )
+            attributes[name] = len(accessors) - 1
         entry: dict = {"attributes": attributes, "indices": indices}
         if prim.material is not None:
             entry["material"] = int(prim.material)
@@ -333,10 +434,21 @@ def _layout(scene: SceneExport, image_sizes: dict[int, int]) -> tuple[dict, list
     }
     if scene.materials:
         document["materials"] = [_material_json(m, texture_of) for m in scene.materials]
+    textures = [{"sampler": 0, "source": t} for t in range(len(images))]
+    samplers = [dict(_SAMPLER)] if images else []
+    extensions_used: list[str] = []
+    if extension is not None:
+        document["bufferViews"] = views
+        layout = GlbLayout(document, primitives, add_view, images, textures)
+        extension.apply(layout)
+        samplers = layout.samplers
+        extensions_used = layout.extensions_used
+    if extensions_used:
+        document = {"extensionsUsed": list(extensions_used), **document}
     if images:
-        document["textures"] = [{"sampler": 0, "source": t} for t in range(len(images))]
+        document["textures"] = textures
         document["images"] = images
-        document["samplers"] = [dict(_SAMPLER)]
+        document["samplers"] = samplers
     document["accessors"] = accessors
     document["bufferViews"] = views
     document["buffers"] = [{"byteLength": offset}]
@@ -398,6 +510,31 @@ def _emit_plain(array: np.ndarray, dtype: str):
     return emit
 
 
+def _emit_bytes(data: bytes | np.ndarray):
+    def emit(sink: _Sink) -> None:
+        sink.write(np.ascontiguousarray(data) if isinstance(data, np.ndarray) else data)
+
+    return emit
+
+
+def _emit_padded(values: np.ndarray):
+    """A SCALAR attribute with every element in its own 4 bytes (little-endian)."""
+    dtype = values.dtype.newbyteorder("<") if values.dtype.itemsize > 1 else values.dtype
+    size = dtype.itemsize
+
+    def emit(sink: _Sink) -> None:
+        for rows in _row_chunks(values.shape[0]):
+            chunk = np.ascontiguousarray(values[rows], dtype=dtype)
+            if size == 4:
+                sink.write(chunk)
+                continue
+            out = np.zeros((chunk.shape[0], 4 // size), dtype=dtype)
+            out[:, 0] = chunk
+            sink.write(out)
+
+    return emit
+
+
 def _emit_yup(array: np.ndarray):
     """Blender (x, y, z[, w]) -> glTF (x, z, -y[, w]); 0 - y keeps +0.0 for zero."""
 
@@ -447,9 +584,10 @@ def _emit_file(index: int, path: Path, length: int):
 # ----------------------------------------------------------------------- validation
 
 
-def _validate_scene(scene: SceneExport) -> dict[int, int]:
+def _validate_scene(scene: SceneExport, *, custom: bool = False) -> dict[int, int]:
     """Check everything rusty-tiles would check. Returns {image index: byte size}
-    for the images some material references."""
+    for the images some material references. ``custom``: custom attributes are
+    allowed (the metadata GLB)."""
     if not isinstance(scene, SceneExport):
         raise ExportError(f"Expected a SceneExport, got {type(scene).__name__}.")
     if not isinstance(scene.generator, str):
@@ -477,6 +615,7 @@ def _validate_scene(scene: SceneExport) -> dict[int, int]:
         used_images |= _validate_material(m, material, len(scene.images))
     for p, prim in enumerate(scene.primitives):
         _validate_primitive(p, prim, scene)
+        _validate_custom(p, prim, custom)
     return {i: _validate_image(i, scene.images[i]) for i in sorted(used_images)}
 
 
@@ -690,6 +829,40 @@ def _validate_primitive(p: int, prim: PrimitiveData, scene: SceneExport) -> None
             )
         if int(prim.source_polygon.min()) < 0:
             raise ExportError(f"{where}: source_polygon has a negative polygon index.")
+
+
+_RESERVED_ATTRIBUTES = ("POSITION", "NORMAL", "TANGENT", "TEXCOORD_0", "TEXCOORD_1", "COLOR_0")
+
+
+def _validate_custom(p: int, prim: PrimitiveData, allowed: bool) -> None:
+    where = f"Primitive {p}"
+    attributes = prim.custom_attributes
+    if not attributes:
+        return
+    if not allowed:
+        raise ExportError(
+            f"{where} has custom attributes, which rusty-tiles refuses; only the metadata "
+            "GLB (an extension) writes them."
+        )
+    names = set()
+    vertices = prim.positions.shape[0]
+    for item in attributes:
+        if not isinstance(item, tuple) or len(item) != 2:
+            raise ExportError(f"{where}: custom_attributes must be (name, array) pairs.")
+        name, values = item
+        if not isinstance(name, str) or not name.startswith("_") or name in _RESERVED_ATTRIBUTES:
+            raise ExportError(f"{where}: custom attribute {name!r} must start with '_'.")
+        if name in names:
+            raise ExportError(f"{where}: custom attribute {name!r} is given twice.")
+        names.add(name)
+        if not isinstance(values, np.ndarray) or values.ndim != 1 or values.shape[0] != vertices:
+            raise ExportError(f"{where}: custom attribute {name} must be a ({vertices},) array.")
+        dtype = values.dtype.newbyteorder("<") if values.dtype.itemsize > 1 else values.dtype
+        if np.dtype(dtype) not in _CUSTOM_COMPONENTS:
+            raise ExportError(
+                f"{where}: custom attribute {name} is {values.dtype}; use float32, int8, "
+                "uint8, int16 or uint16."
+            )
 
 
 def _validate_image(i: int, image: ImageData) -> int:
