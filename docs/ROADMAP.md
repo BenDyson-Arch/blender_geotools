@@ -79,7 +79,7 @@ GeoTools creates tilesets; it no longer imports them.
 | M2 Publish | Blender to a validated `.3tz` | 0.4.0, plus E to release | **0.3.0** |
 | M3 Layers and bake engine | Geometry Nodes and attributes baked to vertex or texture space | none | 0.4.0 |
 | M4 GLB export with metadata | A standard glTF 2.0 GLB carrying objects and layers as `EXT_mesh_features` / `EXT_structural_metadata` | none | 0.4.0 |
-| M5 Analysis library | Fast analysis rebuilt on the bake engine | none | 0.4.0 |
+| M5 Analysis library | Georeferenced sun, archaeoastronomy, 3D hydrology and measurement; a preset library of Geometry Nodes analyses | none | 0.4.0 |
 | M6 Texture cleanup | Paint, clean, publish | none | 0.5.0 |
 | M7 Output inspection | Open output tiles in Blender, quality checks | C | 0.6.0 |
 | M8 Geo formats | GeoJSON, GeoPackage and GeoTIFF in and out of Blender, in the project frame | none | any time after M2 |
@@ -209,20 +209,60 @@ rusty-tiles tiles, because rusty-tiles 0.4 refuses input with extensions.
 
 ### M5 Analysis library
 
-Each tool writes a layer (M3).
+Shaped by the scope rule. GeoTools writes code only for analysis that needs
+the georeference or that neither a GIS nor stock Blender does well; everything
+else is an editable preset that Blender computes, or a recipe. Results are
+layers (M3), so they display, publish as variants and export as metadata (M4).
 
-- **Surface tools** (slope, aspect, roughness, curvature): numpy over normals
-  and neighbours, or bundled Geometry Nodes groups.
-- **Sun hours and shadow:** reuse the 0.2 solar-position maths, and bake direct
-  sunlight with Cycles over a series of time steps.
-- **Viewshed and line of sight:** bake the shadow of a point light placed at
-  the observer; a lit surface is a visible one. Keep a raycast line-of-sight
-  check between two points.
-- **Distance tools:** distance to a feature or a reference surface, and change
-  detection between two sources.
-- **Display:** colour ramps, categorical palettes and legends.
-- **Exit:** each tool finishes in under a minute on a 10M-triangle mesh, or as
-  one bake.
+- **GeoTools tools (code):**
+  - **Sun at a moment:** sun direction from the project's latitude,
+    longitude, date, time and time zone, corrected from grid north to true
+    north (grid convergence, up to about 1.5° at an MGA zone edge). Places or
+    animates Blender's sun; shadows are rendered or baked by Blender.
+  - **Sun hours and insolation:** hours of direct sun, or kWh/m² with a
+    clear-sky model, over a day, season or year, from real sun positions
+    (Cycles bakes over time steps). Solstice and equinox shadow studies.
+  - **Archaeoastronomy:** sunrise and sunset azimuths for solstices and
+    equinoxes and lunar standstills, and the horizon profile from a point
+    with the terrain, which sets when the sun actually clears the skyline.
+    Alignment checks against features.
+  - **3D surface hydrology:** flow paths, flow accumulation and ponding
+    (depressions, spill level, volume) on the mesh's connectivity, so walls,
+    overhangs and multi-level surfaces work, which a 2.5D DEM cannot do.
+    Vectorised numpy (pointer jumping, no vertex loops). Geometric only: no
+    rainfall, infiltration or hydraulics.
+  - **Coordinates and measurement:** pick a point to read E/N/RL and
+    latitude/longitude at full precision; grid and ground distances and areas
+    (combined scale factor).
+  - **Contours and sections out:** contours at an interval and cross-sections
+    along a line, as GeoPackage lines with elevation (M8 I/O).
+- **Preset library (Geometry Nodes groups and bake setups, shipped as a
+  Blender asset library):** "Add Analysis" appends one as a modifier and
+  creates the layer for its output attribute; the user can open and edit it.
+  Export applies modifiers.
+  - Terrain shape: slope, aspect, curvature (plan and profile), roughness and
+    rugosity, TPI and TRI.
+  - Archaeological visualisation: local relief model, sky-view factor,
+    positive and negative openness.
+  - Visibility: viewshed (point light and shadow bake), cumulative viewshed,
+    intervisibility between points, line of sight.
+  - Surface reading: ambient occlusion and curvature bakes for worn surfaces,
+    rock art and inscriptions.
+  - Change and distance: distance between two surveys or epochs, distance to
+    a feature (M8 vectors).
+  - Volumes: cut and fill between two surfaces, closed-mesh volumes (for
+    example context volumes).
+  - 3D least-cost paths: Shortest Edge Paths with a walking cost (Tobler)
+    from slope, a maximum walkable slope and per-face costs from layers.
+  - Flow-path tracing for quick looks (a Repeat zone stepping downhill).
+- **Recipes:** docs and example `.blend` files for anything that does not
+  earn a preset.
+- **Left to a GIS, results imported through M8:** catchment-scale 2.5D
+  hydrology, landscape-scale least-cost and cost-distance, and large-raster
+  terrain statistics (QGIS, WhiteboxTools).
+- **Exit:** each GeoTools tool finishes in under a minute on a 10M-triangle
+  mesh or as one bake; each preset adds with one click, produces a layer, and
+  publishes as a variant.
 
 ### M6 Texture cleanup
 
