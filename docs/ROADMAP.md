@@ -34,6 +34,7 @@ GeoTools creates tilesets; it no longer imports them.
 | CRS handling | rusty-tiles does all CRS maths at publish time (`source_crs`, `source_offset`, `height_offset`). GeoTools stores the declaration and never reprojects geometry itself. The source GLB is always standard glTF Y-up | |
 | Precision | Offsets, anchors and other geodetic numbers are binary64 Python floats, never Blender `FloatProperty` (single precision) | |
 | Performance rule | No Python loops over faces or vertices. Use `foreach_get`/`foreach_set` with numpy, Geometry Nodes or Cycles bakes | |
+| Scope | Don't do what Blender already does. GeoTools reads and writes geo formats, handles georeference and publishes; modelling, draping, displacement and painting use Blender's own tools, with recipes in the docs | A task needs something Blender cannot do |
 
 ## rusty-tiles constraints this plan is built around (0.4.0)
 
@@ -81,7 +82,7 @@ GeoTools creates tilesets; it no longer imports them.
 | M5 Analysis library | Fast analysis rebuilt on the bake engine | none | 0.4.0 |
 | M6 Texture cleanup | Paint, clean, publish | none | 0.5.0 |
 | M7 Output inspection | Open output tiles in Blender, quality checks | C | 0.6.0 |
-| M8 Vectors | GeoPackage layers, incremental vector tiles | none | any time after M2 |
+| M8 Geo formats | GeoJSON, GeoPackage and GeoTIFF in and out of Blender, in the project frame | none | any time after M2 |
 | M9 Queryable metadata without retiling | Annotate pass from layers | A or D (rusty-tiles 0.5) | 1.0.0 |
 | M10 Large sites and texture-only rebuilds | Chunked working mode, texture-only republish | B | later |
 
@@ -244,14 +245,38 @@ Each tool writes a layer (M3).
 - **Exit:** you can open any tile of a published archive and trace it back to
   its source faces.
 
-### M8 Vectors (can run in parallel after M2)
+### M8 Geo formats: vectors and rasters (can run in parallel after M2)
 
-- Bring back the GeoPackage reader and writer from `legacy-0.2`, for annotation
-  polygons and lines drawn in Blender such as cleanup masks or regions of
-  interest.
-- Publish with `vector_to_3tz` and `reuse_tileset`, which already updates
-  incrementally.
-- **Exit:** editing one polygon republishes only the tiles that changed.
+GeoTools reads and writes the geo formats Blender cannot, and stops there.
+What users do with the data inside Blender (draping, offsetting, extruding,
+displacing) uses Blender's own tools, documented as recipes, not GeoTools code.
+
+- **GeoJSON and GeoPackage import:** features become an ordinary Blender mesh
+  in the project frame. Points become vertices, lines become edges, polygons
+  become faces; polygons with holes are triangulated. Feature properties
+  become mesh attributes (float, int, string) on the matching domain, plus a
+  feature id. Coordinates are shifted by the project offset in binary64; Z is
+  kept when present. Bring back the legacy 0.2 readers, vectorised to follow
+  the performance rule.
+- **GeoJSON and GeoPackage export:** Blender geometry, with Z and its
+  attributes, written back into the project CRS. GeoPackage write-back to the
+  source table by feature id, as 0.2 had.
+- **GeoTIFF import:** read the GeoTIFF georeference (tie point, pixel scale,
+  GeoKeys) and nodata. A DEM becomes a height mesh in the project frame, with
+  an optional decimation step; an orthophoto becomes an image on a plane
+  placed and sized to its footprint. Pixels are read through Blender's image
+  loader where it can; only the georeference tags are parsed by GeoTools.
+- **CRS:** data in the project CRS is placed exactly. Data in another CRS is
+  refused with a clear message until rusty-tiles offers a reprojection
+  helper (to be asked); WGS84 GeoJSON is the common case.
+- **Recipes (docs and an example `.blend`):** drape archaeological contexts on
+  a site mesh with Raycast and Set Position, offset them by a depth or level
+  attribute, and extrude volumes between top and bottom levels.
+- **Publish vectors** as 3D Tiles with `vector_to_3tz` and `reuse_tileset`,
+  which already updates incrementally.
+- **Exit:** a GeoJSON of contexts is imported, draped and offset with the
+  recipe, exported back to GeoPackage with Z values a GIS reads correctly, and
+  a GeoTIFF DEM and orthophoto line up with the site mesh.
 
 ### M9 Queryable metadata without retiling (needs A or D)
 

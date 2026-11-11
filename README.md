@@ -55,7 +55,7 @@ The plan is in [docs/ROADMAP.md](docs/ROADMAP.md).
 - M5: analysis tools rebuilt on the bake engine.
 - M6: texture painting and cleanup.
 - M7: open output tiles in Blender and check their quality.
-- M8: vector layers from GeoPackage.
+- M8: GeoJSON, GeoPackage and GeoTIFF import and export.
 - M9: queryable metadata without retiling (needs rusty-tiles 0.5).
 - M10: large sites and texture-only rebuilds.
 
