@@ -1,0 +1,144 @@
+name: Release
+
+# Push a tag vX.Y.Z on main to publish a release. The tag must match the
+# manifest version, be on main, and have a matching CHANGELOG.md section. A
+# version with a suffix (0.4.0-rc.1) becomes a prerelease; any other becomes the
+# latest release.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.13"
+  # Keep in step with ci.yml.
+  BLENDER_VERSION: "5.2.4"
+  BLENDER_SHA256: "2fd14c50987426897ba60237ee996edf2b4151f4b1a72a460ca20be58c1d2d86"
+
+jobs:
+  check:
+    name: Check release tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      prerelease: ${{ steps.tag.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - id: tag
+        name: Match the tag to the manifest, main and the changelog
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          version=$(python -c 'import tomllib; print(tomllib.load(open("geotools/blender_manifest.toml", "rb"))["version"])')
+          if [ "$RELEASE_TAG" != "v$version" ]; then
+            echo "::error::Tag $RELEASE_TAG does not match the manifest version $version"; exit 1
+          fi
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::$RELEASE_TAG is not on main; merge develop into main first"; exit 1
+          fi
+          case "$version" in
+            *-dev*) echo "::error::$version is a development version"; exit 1 ;;
+            *-*) echo 'prerelease=true' >> "$GITHUB_OUTPUT" ;;
+            *) echo 'prerelease=false' >> "$GITHUB_OUTPUT" ;;
+          esac
+          python scripts/release_notes.py "$version" > /dev/null
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build and test the platform zips
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Set up Blender
+        uses: ./.github/actions/setup-blender
+        with:
+          version: ${{ env.BLENDER_VERSION }}
+          sha256: ${{ env.BLENDER_SHA256 }}
+      - name: Fetch the pinned rusty-tiles wheels (PyPI, every platform)
+        run: python scripts/fetch_wheels.py
+      - name: Validate and build the split extension zips
+        run: python scripts/build_extension.py --blender "$BLENDER" --out dist
+      - name: Check that every platform was built
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          set -eu
+          for platform in linux_x64 windows_x64 macos_arm64 macos_x64; do
+            test -f "dist/geotools-${VERSION}-${platform}.zip" \
+              || { echo "::error::missing dist/geotools-${VERSION}-${platform}.zip"; exit 1; }
+          done
+      - name: Install and test in Blender (linux-x64, rusty-tiles at the pin)
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          python scripts/run_blender_tests.py --blender "$BLENDER" \
+            --zip "dist/geotools-${VERSION}-linux_x64.zip" --expect available
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-zips
+          path: dist/*.zip
+          if-no-files-found: error
+
+  publish:
+    name: Publish the GitHub release
+    needs: [check, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: release-zips
+          path: dist
+      - name: Attach checksums and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.check.outputs.version }}
+          PRERELEASE: ${{ needs.check.outputs.prerelease }}
+        run: |
+          set -eu
+          python scripts/release_notes.py "$VERSION" > notes.md
+          (cd dist && sha256sum ./*.zip > SHA256SUMS)
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft \
+              --title "GeoTools $VERSION" --notes-file notes.md
+          fi
+          gh release upload "$RELEASE_TAG" dist/*.zip dist/SHA256SUMS --clobber
+          if [ "$PRERELEASE" = true ]; then
+            gh release edit "$RELEASE_TAG" --draft=false --prerelease
+          else
+            gh release edit "$RELEASE_TAG" --draft=false --latest
+          fi

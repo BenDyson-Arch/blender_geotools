@@ -135,14 +135,18 @@ tests; without them they are skipped. Blender's
 Python has no pytest, so `tests/blender/run_suite.py` is a small runner of its
 own.
 
-CI (`.github/workflows/ci.yml`) has three jobs:
+CI (`.github/workflows/ci.yml`) runs on pull requests and on pushes to `main`
+and `develop`. It has three jobs:
 
 - `core`: ruff and pytest.
 - `blender`: an official, checksum-pinned Blender 5.2 LTS runs the Blender
   tests with `--expect missing`, then uploads the zip.
 - `blender-wheel`: the same with the PyPI wheel. It doesn't gate until
   rusty-tiles 0.4.0 is on PyPI; to make it gate, set the repository variable
-  `RUSTY_TILES_WHEEL_GATING` to `true`.
+  `RUSTY_TILES_WHEEL_GATING` to `true` and add it to the required checks of
+  the `main` and `develop` rulesets.
+
+When you update the pinned Blender in `ci.yml`, update `release.yml` to match.
 
 ## Isolating the Blender profile
 
@@ -159,21 +163,48 @@ blender
 `-e` enables the extension after installing it. Delete the directory when you
 are done.
 
+## Branches and pull requests
+
+- `main` holds released code only. It moves when a release is merged.
+- `develop` is where work lands. Branch from it and open pull requests against
+  it (`gh pr create --base develop`).
+- `legacy-0.2` keeps the 0.2 importer add-on. It is not developed.
+
+Both `main` and `develop` are protected by rulesets: no deletion or force
+push, changes only through a pull request with review threads resolved, merge
+or squash only, and the `core (pytest, ruff)` and
+`blender (official 5.2 LTS, no wheels)` checks must pass. On `main` the branch
+must also be up to date with its base, and a code-owner review is required
+(repository admins can bypass it). Release tags `v*` cannot be deleted or
+moved.
+
 ## Releasing
 
-1. Set `version` in `geotools/blender_manifest.toml`, for example from
-   `0.3.0-dev` to `0.3.0`.
-2. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [0.3.0] - YYYY-MM-DD`, add
-   a new empty `## [Unreleased]` above it, and update the links at the bottom.
-3. Fetch the pinned wheels for every platform from PyPI:
-   `python scripts/fetch_wheels.py`. Do not release with `--from-dir` wheels
-   unless they are the published release wheels.
-4. Build the split zips: `python scripts/build_extension.py --blender /path/to/blender`.
-   Check that `dist/` has one zip for each of `linux_x64`, `windows_x64`,
-   `macos_arm64` and `macos_x64`.
-5. Run the core and Blender tests.
-6. Commit, tag `v0.3.0`, push, and create a GitHub release with the four zips
-   attached, for example `gh release create v0.3.0 dist/geotools-0.3.0-*.zip`.
+Releases are cut from `main` by pushing a tag. `.github/workflows/release.yml`
+does the rest.
+
+1. On a branch from `develop`, set `version` in
+   `geotools/blender_manifest.toml`, for example from `0.3.0-dev` to `0.3.0`.
+   Use a suffix such as `0.3.0-rc.1` for a prerelease.
+2. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [0.3.0] - YYYY-MM-DD`,
+   add a new empty `## [Unreleased]` above it, and update the links at the
+   bottom. The release notes are this section, so it must not be empty.
+3. Merge that into `develop`, then open a pull request from `develop` to
+   `main` and merge it.
+4. Tag the merge commit on `main` and push the tag:
+   `git tag -a v0.3.0 -m "GeoTools 0.3.0" && git push origin v0.3.0`.
+5. The release workflow checks that the tag matches the manifest, is on
+   `main` and has a changelog section. It then fetches the pinned wheels for
+   every platform from PyPI, builds the four split zips, tests the Linux zip in
+   official Blender, and publishes a GitHub release with the zips and
+   `SHA256SUMS`. A plain version becomes the latest release; a suffixed one is
+   a prerelease.
+6. On `develop`, set the version to the next `-dev` version, for example
+   `0.4.0-dev`.
+
+If the workflow fails after creating the draft release, fix the cause and
+re-run the failed jobs: it reuses the draft. A version that was published needs
+a new version number, since release tags cannot be moved.
 
 ## Bumping the rusty-tiles pin
 
