@@ -258,16 +258,37 @@ class GEOTOOLS_OT_use_data_origin(bpy.types.Operator):
     bl_label = "Use This Data's Centre as the Project Origin"
     bl_options = {"REGISTER", "UNDO"}
 
-    kind: EnumProperty(name="Kind", items=KIND_ITEMS, default="GEOJSON")
-    filepath: StringProperty(name="File", subtype="FILE_PATH")
+    kind: EnumProperty(
+        name="Kind", description="The kind of file to import", items=KIND_ITEMS, default="GEOJSON"
+    )
+    filepath: StringProperty(name="File", description="The file to import", subtype="FILE_PATH")
     layer: StringProperty(
         name="Layer", description="GeoPackage tables, separated by commas; empty for every table"
     )
     where: StringProperty(name="Filter", description="GeoPackage SQL WHERE clause")
-    within_site: BoolProperty(name="Within Site Extent", default=False)
-    allow_grid_downloads: BoolProperty(name="Allow Grid Downloads", default=False)
-    mode: EnumProperty(name="As", items=RASTER_MODE_ITEMS, default="AUTO")
-    step: IntProperty(name="Decimation", default=1, min=1)
+    within_site: BoolProperty(
+        name="Within Site Extent",
+        description="Only features whose bounds overlap the source collection's extent",
+        default=False,
+    )
+    allow_grid_downloads: BoolProperty(
+        name="Allow Grid Downloads",
+        description="Let PROJ download a transformation grid from cdn.proj.org if a more "
+        "accurate operation needs one",
+        default=False,
+    )
+    mode: EnumProperty(
+        name="As",
+        description="Import a GeoTIFF as a DEM height mesh or an orthophoto on a plane",
+        items=RASTER_MODE_ITEMS,
+        default="AUTO",
+    )
+    step: IntProperty(
+        name="Decimation",
+        description="Use every nth pixel of a DEM; the spacing grows n times",
+        default=1,
+        min=1,
+    )
 
     @classmethod
     def poll(cls, context: bpy.types.Context) -> bool:

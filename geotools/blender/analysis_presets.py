@@ -60,6 +60,7 @@ from . import blend_paths
 from .common import extension_version, redraw_ui
 from .layers import ensure_layer, find_layer, refresh_layer, source_objects, spec_from_props
 from .properties import FieldError, placement_from_props
+from .ui import wrapped
 
 log = logging.getLogger(__name__)
 
@@ -667,7 +668,9 @@ class GEOTOOLS_OT_analysis_add(bpy.types.Operator):
     bl_label = "Add Analysis"
     bl_options = {"REGISTER", "UNDO"}
 
-    preset: EnumProperty(name="Preset", items=PRESET_ITEMS)
+    preset: EnumProperty(
+        name="Preset", description="The analysis preset to add", items=PRESET_ITEMS
+    )
     name: StringProperty(
         name="Layer",
         description="Layer name (lowercase letters, digits and underscores), or the new "
@@ -965,7 +968,7 @@ def draw_panel(layout: bpy.types.UILayout, context: bpy.types.Context) -> None:
     obj = context.active_object
     found = preset_modifiers(obj) if obj is not None and obj.type == "MESH" else []
     if not found:
-        layout.label(text="Adds a Geometry Nodes modifier and a layer", icon="INFO")
+        wrapped(layout, context, "Adds a Geometry Nodes modifier and a layer.", "INFO")
         return
     col = layout.column(align=True)
     for modifier, preset in found:

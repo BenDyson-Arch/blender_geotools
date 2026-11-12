@@ -143,7 +143,7 @@ Tiles go into a "GeoTools Output" collection, with locked transforms and a
 `geotools_output` record (archive, URI, depth, role, geometric error, texels
 per material slot). They are read-only in the sense that matters: nothing in
 GeoTools writes them back, and they are not in the source collection, so they
-are never published. Open takes the selected tile, every tile at one depth, or
+are never published. **Open Tiles** takes the selected tile, every tile at one depth, or
 every leaf, refuses more than the Limit (64 by default), and skips tiles
 already open.
 

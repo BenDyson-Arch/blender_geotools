@@ -1,13 +1,18 @@
 """View3D sidebar panels, category "GeoTools".
 
-The panels follow the workflow top to bottom, and each header shows its state
-(``ui.STATUS_ICONS``: done, warning, error, not set up yet):
+The panels follow the workflow top to bottom (set up the project, bring data
+in, analyse, look after the layers and textures, check, publish, inspect the
+output), and each header shows its state (``ui.STATUS_ICONS``: done, warning,
+error, not set up yet). docs/design/ui-structure.md has the tree and the naming
+rules.
 
 - Project: where the source sits on Earth, and Verify Placement.
   - CRS Details: the CRS's area of use, definition and datum operation.
-- Source: the source collection, ingest and summary.
+- Source: the source collection, Import Source Mesh and the summary.
 - Linked Data: GeoJSON, GeoPackage and GeoTIFF files linked to objects
   (``links_ui``).
+- Analysis (``analysis_ui``): Measure, Presets, Hydrology, Contours and
+  Sections, and Sun (with Sun Hours and Shadow Study), then Archaeoastronomy.
 - Layers: the layer registry and the selected layer at a glance, with the
   attribute a face or corner layer is read from (a Geometry Nodes output,
   for one).
@@ -18,7 +23,7 @@ The panels follow the workflow top to bottom, and each header shows its state
   cleanup tools (fill holes, remove masked objects, pad islands, balance pages).
 - Checks: preflight issues and their fixes.
   - Images: the source images and their remedies.
-- Publish: build profiles, output, format (.3tz, the metadata .glb or Vectors),
+- Publish: build profiles, format (.3tz, the metadata .glb or Vectors), output,
   variant (or, for Vectors, the vector collection), the GLB options (Face
   Table, Earth-Placed) and the Publish (or Export) button.
   - Build Settings: Apply Modifiers, rusty-tiles quality, threads and memory.
@@ -26,8 +31,6 @@ The panels follow the workflow top to bottom, and each header shows its state
 - Inspect Output: open published tiles over the source (``inspect_ui``).
   - Trace to Source: output faces to source faces and back.
   - Quality: distance to the source, texel density and levels compared.
-- Analysis: the sun, and coordinates and measurement (``analysis_ui``); hydrology,
-  and contours and sections (``surface_ui``).
 - About: version and dependencies.
 
 Registration order is the sidebar order. Panels draw cached state only and
@@ -61,7 +64,6 @@ from . import (
     presentation,
     publish,
     scene_georef,
-    surface_ui,
     texture_state,
     texture_ui,
     vector_publish,
@@ -292,10 +294,12 @@ class GEOTOOLS_PT_source(_GeoToolsPanel, bpy.types.Panel):
         layout = self.layout
         props = context.scene.geotools
         if props.source_collection is None:
-            wrapped(layout, context, "Choose a source collection, or import a mesh.", "INFO")
+            wrapped(
+                layout, context, "Choose a source collection, or use Import Source Mesh.", "INFO"
+            )
         col = split_column(layout)
         col.prop(props, "source_collection", text="Collection")
-        layout.operator("geotools.ingest_source", text="Import Mesh...", icon="IMPORT")
+        layout.operator("geotools.ingest_source", text="Import Source Mesh...", icon="IMPORT")
         if props.source_filepath:
             layout.label(text=f"From {paths.name(props.source_filepath)}", icon="FILE")
 
@@ -513,7 +517,7 @@ class GEOTOOLS_PT_layers_details(_GeoToolsPanel, bpy.types.Panel):
             version = provenance.get("geotools_version") or "unknown version"
             wrapped(layout, context, f"Made by {provenance['tool']} (GeoTools {version})", "INFO")
         if item.domain != Domain.TEXTURE.value:
-            layout.operator("geotools.layer_create_attributes", text="Create Empty Attributes")
+            layout.operator("geotools.layer_create_attributes")
 
 
 # --- Checks --------------------------------------------------------------------------
@@ -665,13 +669,16 @@ class GEOTOOLS_PT_publish(_GeoToolsPanel, bpy.types.Panel):
         suffix = publish.profile_suffix(profile)
         path = profile.output_path.strip()
         wrong_suffix = bool(path) and not path.endswith(suffix)
+        # Labelled above: ".3tz .glb Vectors" and a path do not fit beside a label.
+        col = layout.column(align=True)
+        col.label(text="Format")
+        col.row().prop(profile, "output_type", expand=True)
         col = layout.column(align=True)
         col.label(text="Output")
         row = col.row(align=True)
         row.alert = not path or wrong_suffix
         row.prop(profile, "output_path", text="", placeholder=f"//site{suffix}")
         col = split_column(layout)
-        col.row().prop(profile, "output_type", expand=True)
         if vector_publish.is_vector(profile):
             vector_publish.draw_profile(col, context, profile)
         else:
@@ -812,6 +819,7 @@ classes = (
     GEOTOOLS_PT_project_crs,
     GEOTOOLS_PT_source,
     *links_ui.classes,
+    *analysis_ui.classes,
     GEOTOOLS_PT_layers,
     GEOTOOLS_PT_layers_bake,
     GEOTOOLS_PT_layers_display,
@@ -823,8 +831,6 @@ classes = (
     GEOTOOLS_PT_publish_settings,
     GEOTOOLS_PT_publish_last,
     *inspect_ui.classes,
-    *analysis_ui.classes,
-    *surface_ui.classes,
     GEOTOOLS_PT_about,
 )
 

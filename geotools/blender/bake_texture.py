@@ -510,7 +510,12 @@ class GEOTOOLS_OT_bake_texture_layer(bpy.types.Operator):
         description="Named attribute of the evaluated mesh to bake, e.g. a Geometry Nodes "
         "output. Used when no source layer is set",
     )
-    method: EnumProperty(name="Method", items=METHOD_ITEMS, default="AUTO")
+    method: EnumProperty(
+        name="Method",
+        description="How each object is baked: directly, or selected to active",
+        items=METHOD_ITEMS,
+        default="AUTO",
+    )
     cage_extrusion: FloatProperty(
         name="Extrusion",
         description="Selected to active: how far rays start outside the object. 0 for 1% of "

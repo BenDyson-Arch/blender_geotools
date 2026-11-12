@@ -81,8 +81,8 @@ class GEOTOOLS_PT_linked_data(bpy.types.Panel):
         col = row.column(align=True)
         col.operator("geotools.link_check", text="", icon="FILE_REFRESH")
 
+        layout.label(text="Import", icon="IMPORT")
         row = layout.row(align=True)
-        row.label(text="Import", icon="IMPORT")
         row.operator("geotools.import_geojson", text="GeoJSON")
         row.operator("geotools.import_gpkg", text="GeoPackage")
         if geotiff_available():
