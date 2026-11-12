@@ -340,6 +340,26 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
     `scripts/make_example_drape.py`.
   - Linked file paths and build profile output paths accept `//` (relative to
     the `.blend`) without a warning.
+- Output inspection (M7), in a new Inspect Output panel after Publish. List
+  the tiles of the last published `.3tz` (or a chosen one) by depth, with role,
+  geometric error and triangle count, and **Open** a tile, one depth or every
+  leaf (within a limit) as read-only objects in a "GeoTools Output"
+  collection: built from rusty-tiles' decoded arrays with per-face
+  `source_primitive` and `source_triangle` attributes, the tile's texture
+  pages as packed images and its materials. Tiles are placed by the
+  placement `build.json` recorded (CRS projects through a vectorised pyproj
+  inverse, anchor projects by the inverse rigid transform), with a note when
+  the scene's placement has changed since; leaves land on the source within
+  rusty-tiles' reported `maximum_leaf_geometry_error` (0 to 0.005 mm for
+  `quality` and `lossless`, the 16-bit position step for `fast` and
+  `balanced`). **Trace to Source** selects the source faces of the selected
+  output faces, and the reverse, through the face map; a coarse tile carries
+  only a representative source primitive, so it selects that whole
+  primitive and says so, and a face map that no longer fits the edited scene
+  is refused. **Quality**: each face's distance from its centre to the
+  source (Geometry Proximity), the texels per m² of each face, and levels
+  compared one depth at a time or side by side. The design is in
+  `docs/design/m7-output-inspection.md`; `scripts/bench_inspect.py` times it.
 
 ### Changed
 
@@ -350,6 +370,9 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   `resolve_source_crs`). A wheel without them is reported as not available, in
   About and Check Dependencies. The pin in `pyproject.toml` stays at 0.4.0
   until 0.4.1 is released (the develop wheel still reports 0.4.0).
+- GeoTools also needs rusty-tiles' `list_tiles` and `decode_tile` (0.4.1,
+  decoded tile views) for output inspection; a wheel without them is reported
+  as needing rusty-tiles 0.4.1 or later.
 - Blender 5.2.0 is now the minimum version (was 5.1). Only the latest Blender
   release is supported.
 - The sidebar is redesigned around the workflow: Project, Source, Layers,

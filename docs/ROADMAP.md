@@ -358,6 +358,14 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
   texel-density view, and a side-by-side comparison of levels of detail.
 - **Exit:** you can open any tile of a published archive and trace it back to
   its source faces.
+- *Status:* built on the rusty-tiles `feat/decoded-tile-export` branch (#369,
+  0.4.1) ([m7-output-inspection.md](design/m7-output-inspection.md)): the
+  Inspect Output panel lists and opens tiles placed by the recorded
+  placement, traces both ways through the face map, and has the distance,
+  texel-density and level views. The exit test
+  (`tests/blender/test_inspect.py`) publishes a synthetic site, opens a leaf
+  and the coarse root, and traces each to its source faces. Merges once
+  rusty-tiles 0.4.1 is out.
 
 ### M8 Geo formats: vectors and rasters (can run in parallel after M2)
 

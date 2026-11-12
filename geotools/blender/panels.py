@@ -21,6 +21,9 @@ The panels follow the workflow top to bottom, and each header shows its state
   Table, Earth-Placed) and the Publish (or Export) button.
   - Build Settings: Apply Modifiers, rusty-tiles quality, threads and memory.
   - Last Build: what the last publish wrote, and Preview (.3tz only).
+- Inspect Output: open published tiles over the source (``inspect_ui``).
+  - Trace to Source: output faces to source faces and back.
+  - Quality: distance to the source, texel density and levels compared.
 - Analysis: the sun, and coordinates and measurement (``analysis_ui``); hydrology,
   and contours and sections (``surface_ui``).
 - About: version and dependencies.
@@ -53,6 +56,7 @@ from . import (
     analysis_ui,
     bake_texture,
     crs_picker,
+    inspect_ui,
     links_ui,
     presentation,
     publish,
@@ -810,6 +814,7 @@ classes = (
     GEOTOOLS_PT_publish,
     GEOTOOLS_PT_publish_settings,
     GEOTOOLS_PT_publish_last,
+    *inspect_ui.classes,
     *analysis_ui.classes,
     *surface_ui.classes,
     GEOTOOLS_PT_about,

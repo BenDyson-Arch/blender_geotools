@@ -53,14 +53,20 @@ def _no_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _fake_module(
-    monkeypatch: pytest.MonkeyPatch, version: str | None, *, crs_functions: bool = True
+    monkeypatch: pytest.MonkeyPatch,
+    version: str | None,
+    *,
+    crs_functions: bool = True,
+    decode_functions: bool = True,
 ) -> types.ModuleType:
     module = types.ModuleType(deps.MODULE_NAME)
     if version is not None:
         module.__version__ = version
-    if crs_functions:  # rusty-tiles 0.4.1
-        for name in deps.CRS_FUNCTIONS:
-            setattr(module, name, lambda *_args: None)
+    names = (deps.CRS_FUNCTIONS if crs_functions else ()) + (
+        deps.DECODE_FUNCTIONS if decode_functions else ()
+    )
+    for name in names:  # rusty-tiles 0.4.1
+        setattr(module, name, lambda *_args, **_kwargs: None)
     monkeypatch.setitem(sys.modules, deps.MODULE_NAME, module)
     return module
 
@@ -123,14 +129,26 @@ def test_a_wheel_without_the_crs_functions_is_not_available(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _no_metadata(monkeypatch)
-    _fake_module(monkeypatch, "0.4.0", crs_functions=False)  # the 0.4.0 wheel
+    _fake_module(monkeypatch, "0.4.0", crs_functions=False, decode_functions=False)  # 0.4.0
     status = deps.probe_rusty_tiles()
     assert not status.available and status.version == "0.4.0"
     assert status.error == (
-        "rusty-tiles 0.4.0 has no supported_epsg_codes or resolve_source_crs; "
-        "GeoTools needs rusty-tiles 0.4.1 or later"
+        "rusty-tiles 0.4.0 has no supported_epsg_codes, resolve_source_crs, list_tiles or "
+        "decode_tile; GeoTools needs rusty-tiles 0.4.1 or later"
     )
     assert "needs rusty-tiles 0.4.1 or later" in status.summary
+
+
+def test_a_wheel_without_decode_tile_is_not_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A develop build with the CRS functions but before decoded tile views (#329).
+    _no_metadata(monkeypatch)
+    _fake_module(monkeypatch, "0.4.1", decode_functions=False)
+    status = deps.probe_rusty_tiles()
+    assert not status.available
+    assert status.error == (
+        "rusty-tiles 0.4.1 has no list_tiles or decode_tile; "
+        "GeoTools needs rusty-tiles 0.4.1 or later"
+    )
 
 
 def test_missing(monkeypatch: pytest.MonkeyPatch) -> None:
