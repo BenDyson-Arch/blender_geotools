@@ -6,18 +6,19 @@ Nodes preset you can open and edit. Results are [layers](layers.md), so they
 display, publish as variants and export as metadata. Lines and points are mesh
 objects that **Export Vectors** writes as GeoPackage or GeoJSON.
 
-The panel is closed by default. Its sub-panels, top to bottom:
+The panel sits between Linked Data and Layers, and is closed by default. Its
+sub-panels, top to bottom (Measure and Presets start open):
 
 | Sub-panel | What it does |
 |---|---|
-| [Sun](#sun) | Places or animates a Blender Sun light for a date, time and place. |
-| [Sun Hours](#sun-hours) | Hours of direct sun, and optionally clear-sky insolation, into a layer. |
-| [Shadow Study](#shadow-study) | Keys the Sun at the equinoxes and solstices, ready to render. |
-| [Archaeoastronomy](#archaeoastronomy) | Horizon profile, sunrise, sunset and lunar standstill events, sightlines and alignment checks. |
-| [Coordinates](#coordinates) | E, N, height and latitude and longitude of a point; distances and areas. |
+| [Measure](#measure) | E, N, height and latitude and longitude of a point; distances and areas. |
 | [Presets](#presets) | Geometry Nodes analyses: slope, aspect, visibility, volumes and more. |
 | [Hydrology](#hydrology) | Where water runs and ponds on the 3D surface. |
 | [Contours and Sections](#contours-and-sections) | Contour and section lines. |
+| [Sun](#sun) | Places or animates a Blender Sun light for a date, time and place. |
+| &nbsp;&nbsp;[Sun Hours](#sun-hours) | Inside Sun: hours of direct sun, and optionally clear-sky insolation, into a layer. |
+| &nbsp;&nbsp;[Shadow Study](#shadow-study) | Inside Sun: keys the Sun at the equinoxes and solstices, ready to render. |
+| [Archaeoastronomy](#archaeoastronomy) | Horizon profile, sunrise, sunset and lunar standstill events, sightlines and alignment checks. |
 
 **What the tools need:**
 
@@ -52,7 +53,7 @@ north by the convergence, up to about 1.5° at the edge of a UTM or MGA zone.
 **Refraction** (on) lifts the sun near the horizon as the atmosphere does.
 
 **Over a Day** keyframes the light: set the **Hours** (from and to), the **Step
-(min)**, the **First Frame** and the **Frames per Step**, then press **Animate
+(min)**, the **First Frame** and the **Frame Step**, then press **Animate
 Day**. The light is switched off while the sun is below the horizon.
 
 The sun's position is NREL's Solar Position Algorithm, within 0.00001° of the
@@ -127,8 +128,8 @@ the skyline in each direction, to about 0.002°. **Earth Curvature** and
 **Refraction** (terrestrial, k = 0.13) are on by default. **Ignore Within**
 leaves out terrain near the eye. **Open Horizon** is the altitude used where no
 terrain is hit; such open azimuths, and skylines at the edge of the terrain,
-are flagged. **Far Horizon for Sun Hours** feeds the profile to
-[Sun Hours](#sun-hours). **Clear Horizon** removes it.
+are flagged. To use the profile as the far horizon in
+[Sun Hours](#sun-hours), tick **Use Horizon Profile** there. **Clear Horizon** removes it.
 
 ### Events
 
@@ -161,7 +162,7 @@ panel says how far back the results can be trusted.
 it, set **Open Horizon** or import a wider terrain. Results for old epochs
 carry the uncertainty the panel states.
 
-## Coordinates
+## Measure
 
 Reads points at full double precision, and measures between them.
 
@@ -277,7 +278,7 @@ project's height system (RL: Blender Z plus offset A).
 1. Choose the **Surface**.
 2. Set the **Interval**, the **Base** level and **Major Every** (every fifth
    line is major by default).
-3. Press **Make Contours**.
+3. Press **Create Contours**.
 
 The result is a line object (`Contours`) with `elevation`, `index`, `major`
 and `closed` attributes.
@@ -287,7 +288,7 @@ and `closed` attributes.
 1. Draw a line object along the section, or use an imported line layer, and
    set it as the **Section Line**.
 2. **Selected Edges Only** cuts along the selected edges only.
-3. Press **Make Sections**.
+3. Press **Create Sections**.
 
 The result is a line object (`Sections`) with `chainage` per point. Every
 piece of a multi-level surface is kept.

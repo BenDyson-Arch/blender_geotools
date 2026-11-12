@@ -21,7 +21,7 @@ says why tiles cannot be opened.
    - **One Depth**: every tile at one **Depth**;
    - **All Leaves**: every leaf tile.
    **Limit** (64) caps how many tiles open at once.
-4. Press **Open**.
+4. Press **Open Tiles**.
 
 Each tile becomes a read-only mesh object in a **GeoTools Output** collection,
 with its textures and materials. Each face carries `source_primitive` and

@@ -112,10 +112,10 @@ Leave the offsets at 0 for now. The next step reads them from the offset file.
 
 ## 5. Bring in the mesh
 
-1. In the **Source** panel, press **Import Mesh...**.
+1. In the **Source** panel, press **Import Source Mesh...**.
 2. Pick `terrain.ply`. **Up Axis** is **Z Up**, the usual for photogrammetry
    OBJ and PLY exports. glTF files are always Y-up and converted for you.
-3. Press **Ingest Source**.
+3. Press **Import Source Mesh**.
 
 GeoTools runs Blender's own importer and puts the result in a new collection,
 **GeoTools Source**. This is the source collection: what GeoTools publishes.
