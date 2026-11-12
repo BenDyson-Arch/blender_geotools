@@ -98,9 +98,11 @@ operability and quality); new capabilities come in 0.5.
 ## Milestones
 
 **Release scope, decided 2026-11-12.** 0.3.0 ships everything finished on
-`develop` while rusty-tiles 0.4.1 is awaited: M0 to M5 and M8. It still waits
-for rusty-tiles 0.4.1, which carries Blender 5.2 wheel acceptance (E) and the
-CRS allow-list that the EPSG picker needs. M6 and M7 follow in 0.4.0.
+`develop` while rusty-tiles 0.4.1 is awaited: M0 to M8. It still waits
+for rusty-tiles 0.4.1, which carries Blender 5.2 wheel acceptance (E), the
+CRS allow-list that the EPSG picker needs and the tile decoding M7 reads
+(C). M6 and M7 were first planned for 0.4.0 and moved into 0.3.0 on
+2026-11-13, once both were built and tested.
 
 **User guide.** [guide/](guide/README.md) is the user documentation for the
 release: getting started on a synthetic demo site, then one page per feature
@@ -114,11 +116,17 @@ area. Every change a user can see updates the page for its area.
 | M3 Layers and bake engine | Layers read from Geometry Nodes outputs or stored attributes, and texture-space bakes | none | **0.3.0** |
 | M4 GLB export with metadata | A standard glTF 2.0 GLB carrying objects and layers as `EXT_mesh_features` / `EXT_structural_metadata` | none | **0.3.0** |
 | M5 Analysis library | Georeferenced sun, archaeoastronomy, 3D hydrology and measurement; a preset library of Geometry Nodes analyses | none | **0.3.0** |
-| M6 Texture cleanup | Paint, clean, publish | none | 0.4.0 |
-| M7 Output inspection | Open output tiles in Blender, quality checks | C (0.4.1, rusty-tiles #369) | 0.4.0 |
+| M6 Texture cleanup | Paint, clean, publish | none | **0.3.0** |
+| M7 Output inspection | Open output tiles in Blender, quality checks | C (0.4.1, rusty-tiles #369) | **0.3.0** |
 | M8 Geo formats | GeoJSON, GeoPackage and GeoTIFF in and out of Blender, in the project frame | none | **0.3.0** |
 | M9 Queryable metadata without retiling | M4 GLBs tiled with exact leaf metadata, then an annotate pass | #332 (rusty-tiles 0.5) | 1.0.0 |
 | M10 Large sites and texture-only rebuilds | Chunked working mode, texture-only republish | B | later |
+
+**Sidebar.** Each milestone adds its panels to the one GeoTools sidebar tab.
+Before 0.3.0 they were consolidated into workflow order (project, data in,
+analysis, layers and textures, checks, publish, output), with Analysis
+grouped and every control given a tooltip. New panels follow
+[docs/design/ui-structure.md](design/ui-structure.md).
 
 ### M0 Foundation
 
@@ -390,8 +398,8 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
   texel-density view, and a side-by-side comparison of levels of detail.
 - **Exit:** you can open any tile of a published archive and trace it back to
   its source faces.
-- *Status:* built on the rusty-tiles `feat/decoded-tile-export` branch (#369,
-  0.4.1) ([m7-output-inspection.md](design/m7-output-inspection.md)): the
+- *Status:* built, shipping in 0.3.0. Tested on rusty-tiles develop at
+  34e22f19, which includes #369's merge (0.4.1) ([m7-output-inspection.md](design/m7-output-inspection.md)): the
   Inspect Output panel lists and opens tiles placed by the recorded
   placement, traces both ways through the face map, and has the distance,
   texel-density and level views. The exit test

@@ -155,7 +155,7 @@ class GEOTOOLS_OT_ingest_source(bpy.types.Operator):
     """Import a source mesh (glTF, OBJ or PLY) into the source collection"""
 
     bl_idname = "geotools.ingest_source"
-    bl_label = "Ingest Source"
+    bl_label = "Import Source Mesh"
     bl_options = {"REGISTER", "UNDO"}
 
     filepath: StringProperty(subtype="FILE_PATH", options={"SKIP_SAVE"})

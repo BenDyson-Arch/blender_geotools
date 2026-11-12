@@ -64,8 +64,20 @@ def test_problems(tmp_path: Path) -> None:
 
 
 def test_command() -> None:
-    cmd = pv.preview_command("rt", "/c", Path("/m"), 1234)
-    assert cmd == ["rt", "preview", "--cesium", "/c", "--mesh", "/m", "--port", "1234", "--json"]
+    mesh = Path("/m")
+    cmd = pv.preview_command("rt", "/c", mesh, 1234)
+    # The mesh path is passed in the OS's own spelling (a backslash on Windows).
+    assert cmd == [
+        "rt",
+        "preview",
+        "--cesium",
+        "/c",
+        "--mesh",
+        str(mesh),
+        "--port",
+        "1234",
+        "--json",
+    ]
 
 
 CLI = os.environ.get("GEOTOOLS_TEST_RUSTY_TILES_CLI", "")

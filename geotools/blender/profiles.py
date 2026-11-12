@@ -76,7 +76,12 @@ class GEOTOOLS_OT_build_profile_move(bpy.types.Operator):
     bl_label = "Move Build Profile"
     bl_options = {"REGISTER", "UNDO"}
 
-    direction: EnumProperty(items=(("UP", "Up", ""), ("DOWN", "Down", "")), default="UP")
+    direction: EnumProperty(
+        name="Direction",
+        description="Which way to move the build profile in the list",
+        items=(("UP", "Up", "Move it up"), ("DOWN", "Down", "Move it down")),
+        default="UP",
+    )
 
     @classmethod
     def poll(cls, context: bpy.types.Context) -> bool:

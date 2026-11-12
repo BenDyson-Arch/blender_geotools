@@ -153,8 +153,18 @@ class GeoToolsArchaeoSettings(bpy.types.PropertyGroup):
         min=core.EPOCH_MIN,
         max=core.EPOCH_MAX,
     )
-    limb: EnumProperty(name="Limb", items=LIMB_ITEMS, default="UPPER")
-    lunar: EnumProperty(name="Standstills", items=LUNAR_ITEMS, default="MEAN")
+    limb: EnumProperty(
+        name="Limb",
+        description="Which part of the sun's or moon's disc marks the rise or set",
+        items=LIMB_ITEMS,
+        default="UPPER",
+    )
+    lunar: EnumProperty(
+        name="Standstills",
+        description="How the lunar standstill declinations are worked out",
+        items=LUNAR_ITEMS,
+        default="MEAN",
+    )
     moon_events: BoolProperty(
         name="Lunar Standstills", description="Include the lunar standstills", default=True
     )
@@ -1004,7 +1014,9 @@ class GEOTOOLS_OT_archaeo_copy(bpy.types.Operator):
     bl_label = "Copy"
     bl_options = {"REGISTER"}
 
-    what: EnumProperty(name="What", items=COPY_ITEMS, default="EVENTS")
+    what: EnumProperty(
+        name="What", description="The result to copy", items=COPY_ITEMS, default="EVENTS"
+    )
 
     def execute(self, context: bpy.types.Context) -> set[str]:
         text = copy_text(context, self.what)

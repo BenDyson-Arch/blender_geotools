@@ -1048,7 +1048,12 @@ class GEOTOOLS_OT_link_write_back(bpy.types.Operator):
     columns: StringProperty(
         name="Attributes", description="Attributes to write, separated by commas"
     )
-    items: CollectionProperty(type=GeoToolsWriteBackItem, options={"SKIP_SAVE"})
+    items: CollectionProperty(
+        type=GeoToolsWriteBackItem,
+        name="Attributes",
+        description="The object's attributes, each ticked to be written back",
+        options={"SKIP_SAVE"},
+    )
 
     @classmethod
     def poll(cls, context: bpy.types.Context) -> bool:
@@ -1130,7 +1135,12 @@ class GEOTOOLS_OT_export_vector(bpy.types.Operator):
 
     filepath: StringProperty(subtype="FILE_PATH", options={"SKIP_SAVE"})
     filter_glob: StringProperty(default="*.gpkg;*.geojson;*.json", options={"HIDDEN"})
-    file_format: EnumProperty(name="Format", items=EXPORT_FORMAT_ITEMS, default="GPKG")
+    file_format: EnumProperty(
+        name="Format",
+        description="The file format to write",
+        items=EXPORT_FORMAT_ITEMS,
+        default="GPKG",
+    )
     layer: StringProperty(
         name="Layer", description="Table name (and GeoJSON name); empty for the object's name"
     )

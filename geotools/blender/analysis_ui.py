@@ -1,19 +1,23 @@
 """Sidebar panels of the M5 analysis tools (``analysis``).
 
 - Analysis: the parent, with what the tools need (pyproj for a CRS project).
-  - Sun: date, time and time zone, site, Place Sun and Animate Day, and the
-    last sun position with the convergence applied.
-  - Sun Hours: hours of direct sun and clear-sky insolation over a day, dates
-    or a year, into layers (``sun_hours``), with the last run's summary.
-  - Shadow Study: Sun light keys at the equinoxes and solstices.
-  - Coordinates: points A and B (from the 3D cursor or a pick), their E, N, RL
+  - Measure: points A and B (from the 3D cursor or a pick), their E, N, RL
     and latitude and longitude, the distance between them, and the area of
-    the selected faces. Each result has a copy button.
+    the selected faces. Each result has a copy button. (Its ``bl_idname``
+    keeps the old name, ``GEOTOOLS_PT_analysis_coordinates``.)
   - Presets: the Add Analysis menu of Geometry Nodes presets
     (``analysis_presets``) and the presets on the active object.
+  - Hydrology, and Contours and Sections (``surface_ui``).
+  - Sun: date, time and time zone, site, Place Sun and Animate Day, and the
+    last sun position with the convergence applied. Its sub-panels use its
+    date, time zone and site:
+    - Sun Hours: hours of direct sun and clear-sky insolation over a day, dates
+      or a year, into layers (``sun_hours``), with the last run's summary.
+    - Shadow Study: Sun light keys at the equinoxes and solstices.
+  - Archaeoastronomy (``archaeo_ui``).
 
 Panels draw stored results only; the operators compute. ``panels`` registers
-these classes before About.
+these classes after Linked Data, before Layers.
 """
 
 from __future__ import annotations
@@ -24,7 +28,7 @@ import bpy
 
 from ..analysis import site, sun
 from ..core.placement import PlacementMode
-from . import analysis, analysis_presets, archaeo_ui
+from . import analysis, analysis_presets, archaeo_ui, surface_ui
 from .properties import ANCHOR_FIELDS, number_is_valid
 from .ui import big_button, info_row, split_column, wrapped
 
@@ -68,8 +72,8 @@ class GEOTOOLS_PT_analysis(_AnalysisPanel, bpy.types.Panel):
             wrapped(
                 layout,
                 context,
-                "Local project: the sun uses the latitude and longitude below with +Y as "
-                "true north, and points have local coordinates only.",
+                "Local project: the sun uses the latitude and longitude set in Sun, with +Y "
+                "as true north, and points have local coordinates only.",
                 "INFO",
             )
 
@@ -80,6 +84,7 @@ class GEOTOOLS_PT_analysis_sun(_AnalysisPanel, bpy.types.Panel):
     bl_idname = "GEOTOOLS_PT_analysis_sun"
     bl_label = "Sun"
     bl_parent_id = "GEOTOOLS_PT_analysis"
+    bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
@@ -194,14 +199,14 @@ class GEOTOOLS_PT_analysis_sun_hours(_AnalysisPanel, bpy.types.Panel):
 
     bl_idname = "GEOTOOLS_PT_analysis_sun_hours"
     bl_label = "Sun Hours"
-    bl_parent_id = "GEOTOOLS_PT_analysis"
+    bl_parent_id = "GEOTOOLS_PT_analysis_sun"
     bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
         settings = analysis.settings(context)
         props, sun_props = settings.sun_hours, settings.sun
-        layout.label(text="Time zone, site and refraction: see Sun", icon="LIGHT_SUN")
+        wrapped(layout, context, "Uses the time zone, site and refraction set in Sun.", "LIGHT_SUN")
         _draw_period(layout, props, sun_props)
         col = split_column(layout)
         col.prop(props, "step_minutes", text="Step (min)")
@@ -257,14 +262,20 @@ class GEOTOOLS_PT_analysis_shadow_study(_AnalysisPanel, bpy.types.Panel):
 
     bl_idname = "GEOTOOLS_PT_analysis_shadow_study"
     bl_label = "Shadow Study"
-    bl_parent_id = "GEOTOOLS_PT_analysis"
+    bl_parent_id = "GEOTOOLS_PT_analysis_sun"
     bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
         settings = analysis.settings(context)
         props, sun_props = settings.shadow_study, settings.sun
-        layout.label(text=f"Year {sun_props.year}; time zone and site: see Sun", icon="TIME")
+        wrapped(
+            layout,
+            context,
+            f"Year {sun_props.year}, with the time zone and site set in Sun. Keys start at "
+            f"frame {sun_props.frame_start} (Sun > Over a Day > First Frame).",
+            "TIME",
+        )
         col = layout.column(align=True)
         for name in ("march", "june", "september", "december"):
             col.prop(props, name)
@@ -273,7 +284,6 @@ class GEOTOOLS_PT_analysis_shadow_study(_AnalysisPanel, bpy.types.Panel):
         row.prop(props, "start_hour", text="Hours")
         row.prop(props, "end_hour", text="")
         col.prop(props, "step_hours")
-        col.prop(sun_props, "frame_start")
         big_button(layout).operator("geotools.sun_shadow_study", icon="RENDER_ANIMATION")
         if props.error:
             col = layout.column()
@@ -296,8 +306,8 @@ class GEOTOOLS_PT_analysis_shadow_study(_AnalysisPanel, bpy.types.Panel):
 class GEOTOOLS_PT_analysis_coordinates(_AnalysisPanel, bpy.types.Panel):
     """Points on Earth, the distance between them and the area of selected faces."""
 
-    bl_idname = "GEOTOOLS_PT_analysis_coordinates"
-    bl_label = "Coordinates"
+    bl_idname = "GEOTOOLS_PT_analysis_coordinates"  # kept from when it was "Coordinates"
+    bl_label = "Measure"
     bl_parent_id = "GEOTOOLS_PT_analysis"
 
     def draw(self, context: bpy.types.Context) -> None:
@@ -403,12 +413,14 @@ class GEOTOOLS_PT_analysis_presets(_AnalysisPanel, bpy.types.Panel):
         analysis_presets.draw_panel(self.layout, context)
 
 
+# Registration order is the sidebar order (a parent before its children).
 classes = (
     GEOTOOLS_PT_analysis,
+    GEOTOOLS_PT_analysis_coordinates,
+    GEOTOOLS_PT_analysis_presets,
+    *surface_ui.classes,
     GEOTOOLS_PT_analysis_sun,
     GEOTOOLS_PT_analysis_sun_hours,
     GEOTOOLS_PT_analysis_shadow_study,
     *archaeo_ui.classes,
-    GEOTOOLS_PT_analysis_coordinates,
-    GEOTOOLS_PT_analysis_presets,
 )
