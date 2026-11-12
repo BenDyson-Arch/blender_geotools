@@ -80,6 +80,25 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   visualisation: local relief model (trend removal), sky-view factor and
   positive and negative openness. Formulas, inputs, accuracy against analytic
   surfaces and timings are in `docs/analysis-presets.md`.
+- Analysis presets (M5), second batch. Visibility: viewshed from an observer
+  (an Empty, or one made at the 3D cursor) with observer and target heights
+  and a maximum distance, cumulative viewshed from a set of points,
+  intervisibility lines between every pair of points and a line of sight along
+  a line with its ground profile and first obstruction. Change and distance:
+  signed distance to a second survey and distance to a feature (such as
+  imported vectors), in plan or 3D. Volumes: cut and fill against a reference
+  surface (no data outside its footprint, with fill, cut, net and covered area
+  totals) and the volume of each closed part of a mesh. Paths and flow:
+  least-cost walking paths (Shortest Edge Paths with Tobler's hiking function,
+  a maximum slope and an optional per-face cost attribute) with their walking
+  time, and quick-look flow paths stepping downhill from seed points. Object
+  inputs (observer, second surface, line, points) are filled from the
+  selection or the 3D cursor; presets that make lines create a new object in
+  a "GeoTools Analysis" collection with their provenance and attributes ready
+  for vector publishing. **Read Totals** reports volumes, walking time and
+  obstructions summed in binary64. All use Geometry Nodes Raycast, measured
+  faster than a bake for these ray counts; accuracy and timings at 1M and 10M
+  triangles are in `docs/analysis-presets.md`.
 - Analysis (M5): **3D surface hydrology**, in a Hydrology sub-panel. Flow
   routing, flow accumulation (upslope contributing area in m², plan area of
   upward faces by default) and ponding on the mesh's own connectivity: faces

@@ -1,8 +1,9 @@
 # Analysis presets
 
-Status: first batch of the M5 preset library (see
-[ROADMAP.md](ROADMAP.md#m5-analysis-library)): terrain shape and
-archaeological visualisation.
+Status: the M5 preset library (see
+[ROADMAP.md](ROADMAP.md#m5-analysis-library)). First batch: terrain shape and
+archaeological visualisation. Second batch: visibility, change and distance,
+volumes, and paths and flow.
 
 A preset is an ordinary Geometry Nodes group built from stock nodes. **Add
 Analysis** (Analysis panel ▸ Presets) appends it to the file, adds it as a
@@ -37,7 +38,54 @@ Each layer records its preset in its provenance:
 ```
 
 `inputs` are the modifier's values when the preset was added (per object, when
-the objects differ). Later edits on the modifier are not tracked.
+the objects differ); an object input is recorded by the object's name. Later
+edits on the modifier are not tracked.
+
+### Object inputs
+
+Presets that need an observer, a second surface, a line or a set of points
+have object inputs on the modifier. Add Analysis fills them as it adds the
+preset, from the other selected objects (in name order) or the 3D cursor:
+
+| The input needs | Taken from the selection | Otherwise |
+|---|---|---|
+| a point (Observer, Start, End) | a selected Empty, camera or light: its origin | a new Empty at the 3D cursor |
+| points (Observers, Points, Seeds) | another selected mesh, curve or point cloud (its vertices or points), or an Empty (its origin) | a new mesh of one vertex at the 3D cursor; add more vertices in Edit Mode |
+| a second surface (Reference) | another selected mesh with faces | refused, nothing changed |
+| a line (Line) | a selected mesh with edges, or a curve | refused, nothing changed |
+| a feature (Feature) | another selected mesh, curve or point cloud | refused, nothing changed |
+
+New Empties and meshes go in the **GeoTools Analysis** collection, never in
+the source collection, so they do not publish with the site. Move an Empty,
+edit the points, or pick another object on the modifier: the result updates.
+
+Presets that take a mesh, line or points from the selection go on the
+**active** object only; viewshed and closed volume, like the first batch, go
+on every selected mesh. Adding a preset to an object that already has it keeps
+the modifier and its inputs, and makes no new Empty.
+
+### Object presets: lines
+
+Intervisibility, line of sight, least-cost path and flow path make lines, not
+a layer. Add Analysis creates a new mesh object in GeoTools Analysis (named
+after the preset, or the name given), whose modifier builds the lines from the
+surface (the active mesh) and the other inputs. The lines carry fixed POINT
+and EDGE attributes, listed with each preset. The object's
+`geotools_provenance` custom property holds the same provenance a layer
+records (JSON), plus the attributes and their units. Choose the collection in
+a Vectors build profile to publish the lines with their attributes: loose
+edges become lines and loose vertices points, and EDGE and POINT attributes
+become columns ([m8-geo-formats.md](design/m8-geo-formats.md)).
+
+### Totals
+
+Cut and fill and closed volume show totals on the modifier, under its name
+(Blender's info line from a Warning node, summed in float32 by Attribute
+Statistic), as does a least-cost path (its walking time). **Read Totals** in the
+Presets panel reads them for the active object from the evaluated mesh,
+summed in binary64, and also reports intervisibility counts and the line of
+sight's obstruction; Add Analysis reports the same when it adds the preset.
+Read Totals only sums values the nodes made (and face areas and normals).
 
 ## The library
 
@@ -60,19 +108,23 @@ the objects differ). Later edits on the modifier are not tracked.
 - Blender 5.2 has no API for an extension to register an asset library
   without writing the user's preferences (which would outlive the extension),
   so GeoTools appends from the bundled file directly. The presets are also
-  marked as assets in the catalogs *GeoTools/Terrain Shape* and
-  *GeoTools/Archaeological Visualisation* (`blender_assets.cats.txt` beside
-  the file): add the extension's `assets` folder as an asset library in the
+  marked as assets in one catalog per category (*GeoTools/Terrain Shape*,
+  *GeoTools/Archaeological Visualisation*, *GeoTools/Visibility*,
+  *GeoTools/Change and Distance*, *GeoTools/Volumes* and *GeoTools/Paths and
+  Flow*; `blender_assets.cats.txt` beside the file): add the extension's `assets` folder as an asset library in the
   preferences to drag them from the Asset Browser.
 - A bumped preset version is appended alongside an older one already in a
   file; existing modifiers keep the old group.
 
-Four helper groups are shared: **Window Heights** (eight vertical rays around
+Seven helper groups are shared: **Window Heights** (eight vertical rays around
 a point), **Surface Derivatives** (the Evans-Young derivatives from them),
 **Mean Rise** (mean height over an annulus from a Repeat zone of vertical
-rays) and **Horizon** (horizon angles by bisecting with rays, in nested Repeat
-zones). Repeat zones keep their running values in temporary point attributes
-named `.gt_tmp_*`, removed before the group ends.
+rays), **Horizon** (horizon angles by bisecting with rays, in nested Repeat
+zones), **Object Points** (an object's vertices or points, or its origin),
+**Sight Target** (the surface joined with an Occluders collection) and
+**Drape** (a position dropped onto the topmost surface by a vertical ray from
+above its bounding box). Repeat zones keep their running values in temporary
+attributes named `.gt_tmp_*`, removed before the group ends.
 
 ## Conventions
 
@@ -96,6 +148,11 @@ named `.gt_tmp_*`, removed before the group ends.
   annulus presets use the samples that hit; horizon presets see an open sky
   beyond the edge, so openness rises (to about 160°) within Max Distance of
   the boundary.
+
+- **Object inputs** are read in the space of the object the modifier is on
+  (Object Info, Relative), so their transforms count. Heights (Observer
+  Height, Target Height) and distances are along that object's axes: the
+  scene's for an unrotated, unscaled mesh, as imported meshes are.
 
 Defaults suit a photogrammetry site mesh at 1–10 cm spacing.
 
@@ -259,6 +316,282 @@ its rays Ray Offset *below* the surface, where a ray crosses the surface
 within Max Distance if and only if the lowest surface point is at or below θ.
 Same inputs and defaults; display range 60–120°.
 
+## Visibility
+
+**Geometry Nodes Raycast, not a bake.** Every visibility preset casts one ray
+per element per observer, from the element to the eye. For one observer that
+is one ray per face: 1M rays on a 1M-triangle mesh, which Geometry Nodes casts,
+BVH build included, in 0.7 s (7.7 s at 10M). The roadmap's other
+candidate, a point light at the observer and a shadow bake, pays a Cycles
+bake's fixed cost before casting a ray: measured on this machine for sun hours
+([m5-analysis.md](design/m5-analysis.md#visibility-cycles-raycast-nodes-in-a-bake)),
+about 1.3 s per bake at 1M triangles and 15–20 s at 10M, plus about 1 s (1M)
+and 7.7 s (10M) to build the sample object that carries face values, and the
+values must then be written back as a layer by GeoTools code. So a bake is
+slower for one observer at both sizes, and is not an editable preset. A
+cumulative viewshed casts observers × faces rays: here Geometry Nodes ran at
+about 4.5 Mrays/s on 10M faces (10 on 1M), the sun-hours Cycles probe at
+15–25 Mrays/s, so on a 10M mesh a bake would overtake Geometry Nodes beyond
+about 15–20 observers (see Performance). All four presets use Geometry Nodes
+Raycast; a bake setup for many observers is proposed below.
+
+Common rules:
+
+- The **eye** is an observer point plus **Observer Height** (along +Z).
+- A ray **hits back faces too**, so a thin wall blocks sight from either side.
+- **Occluders**: an optional collection of other objects that block sight as
+  well as the surface (buildings, vegetation models). It must not contain the
+  object the modifier is on (Blender reports a dependency cycle).
+- **Ray Offset** (default 1 cm): rays start this far off the surface, along
+  the face normal (viewshed) or along the sight line (intervisibility), so the
+  surface does not block itself. A surface closer than this to an occluder may
+  see past it at the joint.
+- Earth curvature and refraction are not applied: over 1 km they lower a
+  distant point by about 7 cm (k = 0.13), which matters for landscape
+  viewsheds, not for a site.
+
+### Viewshed (`viewshed`, FACE, ratio)
+
+1 where the face can be seen from the eye, 0 where it cannot, no data beyond
+Max Distance. A face is tested at its centre, moved Ray Offset along its normal
+and raised by Target Height: it is seen when nothing lies on the segment from
+there to the eye and, with Target Height 0, its front faces the eye. So a
+face is all seen or all hidden: the edge of a shadow is resolved to the face
+size. Aggregation area mean (the share of the area that is seen); display
+0–1, greys.
+
+| Input | Default | |
+|---|---|---|
+| Observer | (filled) | The observer: this object's origin (a selected Empty, or a new one at the 3D cursor). Move it and the viewshed follows. |
+| Observer Height | 1.6 m | Eye above the observer point. |
+| Target Height | 0 m | Height above each face that must be seen (for example 1.7 m: could a person standing here be seen). Above 0, faces that face away count too. |
+| Max Distance | 1000 m | Horizontal reach; faces farther away are no data. |
+| Ray Offset | 0.01 m | See above. |
+| Occluders | none | See above. |
+
+### Cumulative Viewshed (`viewshed_cumulative`, FACE, count)
+
+How many observers see each face: the viewshed test once per vertex of the
+**Observers** object (a Repeat zone, one iteration per observer), counted. A
+face beyond an observer's Max Distance counts 0 for it (no no-data). Use it
+for prominence and exposure studies (how many of the barrows see this spot)
+or, with one observer per point along a route, for visibility from a path.
+
+Inputs as viewshed, with **Observers** (this object's vertices, or its origin
+if it has none) in place of Observer, and **Drape**: drop the observer points
+onto the topmost surface first, for 2D points (vector points imported at
+height 0). Drape takes the topmost surface under the point, so a point inside
+a building would land on its roof. Cost: observers × faces rays.
+
+### Intervisibility (`intervisibility`, lines)
+
+A line between every pair of points, eye to eye: for N points, N(N − 1)/2
+lines. Each point is raised by **Height** (after Drape, if on); a line is
+visible when nothing lies on it between Ray Offset from either end.
+
+| Attribute | Domain | |
+|---|---|---|
+| `visible` | EDGE | 1 visible, 0 blocked |
+| `distance` | EDGE | Eye-to-eye length, m |
+
+Inputs: **Points**, **Surface** (the active mesh), **Height** (1.6 m),
+**Ray Offset**, **Drape** and **Occluders**. The group builds all N² ordered
+pairs and keeps i < j, so it suits up to a few thousand points.
+
+### Line of Sight (`line_of_sight`, lines)
+
+From an observer at a line's first vertex to a target at its last:
+
+- **The ground profile.** The line resampled every **Spacing** (Resample
+  Curve) and draped onto the topmost surface (points off the surface are no
+  data). Each profile point, raised by Target Height, is seen from the eye or
+  not; an edge of the profile holds the mean of its two ends (1 seen, 0
+  hidden, 0.5 where visibility changes).
+- **The sight line** from the eye (the first profile point plus Observer
+  Height) to the target (the last plus Target Height), split at the first
+  obstruction: eye to obstruction `visible` 1, obstruction to target 0. An
+  unobstructed sight line is one edge, visible 1.
+- **The obstruction**, a loose vertex at the first point where the sight line
+  meets the surface, with `obstruction` 1; it publishes as a point, and Read
+  Totals reports where it is.
+
+| Attribute | Domain | |
+|---|---|---|
+| `visible` | EDGE | As above |
+| `part` | EDGE | 0 on the ground profile, 1 on the sight line |
+| `obstruction` | POINT | 1 on the obstruction vertex |
+
+Inputs: **Line** (a mesh with edges, such as an imported vector line, or a
+curve; the observer is the first point of its first part and the target the
+last point of its last), **Surface**, **Observer Height** (1.6 m), **Target
+Height** (0 m), **Spacing** (0.5 m), **Ray Offset** and **Occluders**.
+
+## Change and distance
+
+### Distance to Surface (`surface_distance`, CORNER, m)
+
+The signed distance from each vertex p to the nearest point q of the
+**Reference** surface (Geometry Proximity to its faces):
+`d = sign((p − q) · n_q) |p − q|`, with n_q the normal of the reference face q
+lies on (Sample Nearest Surface). Positive on the side the reference faces
+(above, for terrain), negative behind it. For two surveys, add it to the later
+one with the earlier as Reference: positive is gain (deposition, growth,
+backfill), negative loss (erosion, excavation, collapse). Display diverging.
+
+This is the cloud-to-mesh distance (CloudCompare's C2M) at the vertices: the
+nearest distance, not along a fixed direction, so on steep ground it is
+shorter than the vertical difference cut and fill measures. It is not M3C2
+(Lague et al. 2013):
+there is no normal-scale averaging and no confidence interval; for that,
+compare in CloudCompare and import the result (M8). Beyond the reference's
+edge the nearest point is on its boundary and the distance means little:
+**Max Distance** (default 1 m) makes anything farther no data, but within Max
+Distance of the edge the values are still to the edge, so trim the meshes to
+their common footprint for a change map.
+
+| Input | Default | |
+|---|---|---|
+| Reference | (filled) | The surface measured to (another selected mesh). |
+| Max Distance | 1 m | Farther than this is no data. |
+
+### Distance to Feature (`feature_distance`, CORNER, m)
+
+The distance from each vertex to the nearest face, edge or vertex of the
+**Feature** object: polygons, lines and points (curves become edges, point
+clouds vertices), such as vector features imported with M8. With
+**Horizontal** (default) both are flattened to z = 0 first: the plan distance
+a GIS buffer uses, 0 inside a polygon, whatever the features' heights (2D
+imports sit at height 0). Off, it is the 3D distance.
+
+| Input | Default | |
+|---|---|---|
+| Feature | (filled) | Another selected mesh, curve or point cloud. |
+| Horizontal | on | Plan distance; off: 3D. |
+
+## Volumes
+
+### Cut and Fill (`cut_fill`, FACE, m)
+
+The vertical depth of each face centre above the **Reference** surface:
+`d = z_c − z_ref(x_c, y_c)`, with z_ref the topmost reference surface at the
+centre's x and y (a vertical ray from above the reference's bounding box). No
+data where the reference is not vertically below or above the centre. Add it to
+the new surface (the design, or the later survey) with the existing ground as
+Reference: positive is fill, negative cut.
+
+Totals, over the faces with a reference: **fill** `Σ max(d, 0) A n_z`, **cut**
+`Σ max(−d, 0) A n_z`, and net, with `A n_z` the face's plan area (area times
+the z of its unit normal). This is exact for planar faces over a reference
+that is planar beneath each face (a linear function's mean over a polygon is
+its value at the centroid); for a curved reference the error falls with the
+square of the face size.
+
+**The footprint, honestly.** Only where this mesh has faces and the reference
+lies vertically under or over their centres. The totals line gives the plan
+area covered and the plan area outside the reference. Parts of the reference
+outside this mesh are not counted: add the preset to the mesh that covers the
+whole works, or trim both to the same boundary. It is 2.5D: vertical faces
+(n_z = 0) add nothing and overhangs (n_z < 0) count negatively, so the net
+volume of a folded surface is right (the divergence theorem) but the split
+into cut and fill is by face. Display diverging, automatic range.
+
+| Input | Default | |
+|---|---|---|
+| Reference | (filled) | The surface compared with (another selected mesh). |
+
+### Closed Volume (`closed_volume`, FACE, m³)
+
+The volume of each closed part of the mesh (each Mesh Island), stored on every
+face of that part:
+`V = (1/3) Σ ((c_f − c̄) · n_f) A_f`, over the part's faces f with centre c_f,
+unit normal n_f and area A_f (the divergence theorem). Any point c̄ gives the
+same sum for a closed part; the mean of the part's face centres keeps float32
+exact far from the origin. It is exact for planar faces (p · n is constant
+over a planar face); a quad that is not planar uses Blender's face normal and
+area, so triangulate first. A part is **closed** when every one of its edges
+has exactly two faces; open or non-manifold parts are no data (merge by
+distance first if the walls, top and bottom of a context volume are separate).
+A negative volume means the normals point inwards (Recalculate Outside).
+Overlapping parts are counted twice. Aggregation none (a part's volume is not
+an area mean). The modifier shows the total of the closed parts and how many
+parts are closed and open; Read Totals sums it in binary64.
+
+Context volumes from the drape recipe ([drape-contexts.md](recipes/drape-contexts.md))
+are one closed part per extruded polygon.
+
+## Paths and flow
+
+### Least-Cost Path (`least_cost_path`, lines)
+
+The quickest walking route along the surface's edges from **Start** to
+**End**, by Tobler's hiking function (Tobler 1993):
+`v = 6 exp(−3.5 |S + 0.05|)` km/h, S = dz/dx in the walking direction, and
+time = horizontal run / v. Fastest at 5 % downhill (6 km/h), 5.04 km/h on the
+level, 0.67 km/h up 30°.
+
+- **The route**: Shortest Edge Paths (Dijkstra over the edges) from the
+  surface vertex nearest Start to the vertex nearest End. The node takes one
+  cost per edge, used both ways, so each edge costs the mean of Tobler's time
+  up and down it, times its cost factor. Edges steeper than **Max Slope**, or
+  whose cost factor is 0 or no data, are removed (impassable).
+- **The time** (`elapsed` at each point from the start, `time` per edge, and
+  the total) is Tobler's in the direction walked along that route, times the
+  cost factor. Where uphill and downhill times differ a lot the route may not
+  be the one-way fastest, but its time is its own.
+- **Cost Attribute**: the name of a FACE attribute, such as a layer's
+  `gt_<name>`, whose values multiply the walking time (2 for dense scrub, 0 for
+  water or an open trench). Face values are averaged onto vertices and an edge
+  takes the mean of its two ends. Empty: no factor.
+
+The modifier shows "Walking time … min over … m", or that no walkable path
+exists. **Paths follow mesh edges**, so on a regular grid they zig-zag: a route
+between the directions of the grid's edges is up to √2 longer than straight
+on a triangulated grid (1.08 with both diagonals). Irregular photogrammetry
+meshes have edges in every direction and are far less biased. The zig-zag
+shows as extra length and time, not hidden. Landscape-scale cost surfaces
+belong in a GIS (QGIS r.walk, imported through M8).
+
+| Input | Default | |
+|---|---|---|
+| Surface | (filled) | The surface walked on: the active mesh. |
+| Start, End | (filled) | Selected Empties (by name), or new ones at the 3D cursor; move them to change the route. |
+| Max Slope | 30° | Steeper edges cannot be walked. |
+| Cost Attribute | (empty) | See above. |
+
+| Attribute | Domain | |
+|---|---|---|
+| `elapsed` | POINT | Seconds from the start |
+| `time` | EDGE | Seconds along the edge |
+
+### Flow Path (Quick Look) (`flow_path`, lines)
+
+**A quick look, not hydrology.** From each seed, draped onto the topmost
+surface, a Repeat zone steps **Step** horizontally down the steepest slope of
+the face below (the horizontal part of its normal points downhill), drops onto
+the surface again, and goes on while the new point is lower, the slope is
+above **Flat Slope** and there is surface below. A path stops in a pit, on a
+flat, at the edge, after **Max Steps**, or where a step would not go lower (a
+valley narrower than Step: a path crossing a valley floor zig-zags down it or
+stops).
+
+There is no flow accumulation, no depression filling, no spreading on flats,
+and it is 2.5D (the topmost surface). For real 3D surface hydrology on the
+mesh's connectivity (flow paths, accumulation and ponding, with walls and
+overhangs), use GeoTools' hydrology tool (M5, a separate GeoTools tool).
+
+| Input | Default | |
+|---|---|---|
+| Surface | (filled) | The active mesh. |
+| Seeds | (filled) | This object's vertices (or its origin): a selected mesh of points, or a new one-vertex mesh at the 3D cursor. |
+| Step | 0.1 m | Horizontal length of each step. |
+| Max Steps | 1000 | |
+| Flat Slope | 0.5° | Paths stop on flatter ground. |
+
+| Attribute | Domain | |
+|---|---|---|
+| `step` | POINT | Steps from the seed (0 at the seed) |
+| `seed` | EDGE | Index of the seed vertex |
+
 ## Accuracy
 
 Blender tests (`tests/blender/test_analysis_presets.py`), on analytic surfaces:
@@ -279,7 +612,25 @@ Blender tests (`tests/blender/test_analysis_presets.py`), on analytic surfaces:
 | | positive openness at the bottom | 70.56° | 70.75° |
 | | negative openness at the bottom | 109.44° | 109.51° |
 
+Second batch (`tests/blender/test_analysis_presets_2.py`):
+
+| Case | Preset | Expected | Result |
+|---|---|---|---|
+| 20 m plane at 0.5 m faces, a 6 × 0.4 × 1 m wall, eye 1.6 m up 2 m in front | viewshed | hidden exactly where the segment from the face centre to the eye meets the wall (slab test, binary64) | every ground face outside the wall agrees; no face centre within 1 mm of a shadow edge; wall front and top seen, back hidden |
+| same, three observers | cumulative viewshed | sum of the three analytic viewsheds (1, 2 and 3 all occur) | equal on every ground face |
+| same, four points at 0.5 m | intervisibility | segment-box test of each of the 6 lines | equal; `distance` to 1×10⁻⁶ relative |
+| same, a line from 1 m in front of the wall to 8 m behind it | line of sight | sight line meets the wall top at (2.375, 0, 1.0); ground seen in front, hidden behind to 8 m | obstruction within 10⁻⁴ m; profile as expected |
+| plane and a copy 0.25 m below (then above) | distance to surface | +0.25 m (−0.25 m); 2 m: no data | ±0.25 to 10⁻⁶ m |
+| plane 3 m up, a line feature | distance to feature | \|x\| in plan, √(x² + 9) in 3D, distance to a square in plan (0 inside) | to 10⁻⁵ m |
+| 16 m plane at 5 cm, a Gaussian bump exp(−r²) and a pit −0.5 exp(−r²), over a 12 m reference | cut and fill | fill π(1 − erfc(2)/2) = 3.1343 m³ inside the reference (π for the whole bump), cut half that; 112 m² outside | within 0.1 % (and within 1 % of π) |
+| a cube of side 2 at (1000, 2000, 50), a triangulated unit cube, an open box | closed volume | 8, 1, no data; total 9 m³ | 8 exactly, 1 to 10⁻⁶, no data; 9.000 |
+| 20 m plane at 0.5 m, start and end 15 m apart on a row | least-cost path | straight, 15 m / 5.0367 km/h = 10.721 s | straight, 10.721 s (10⁻⁴ relative) |
+| a 35° ridge from the west edge to x = 4 between start and end | least-cost path | round the east end with Max Slope 30°; over it, and quicker, with 40° | as expected; `elapsed` equals Tobler along the path to 10⁻⁵ |
+| cone z = 5 − r at 0.2 m, 8 seeds at r = 1 | flow path | radial, down to the edge | within 3° of radial, r and z monotonic, to r > 9.5 m |
+
 ## Performance
+
+### First batch
 
 Measured with `scripts/bench_analysis_presets.py` (one evaluation of each
 preset alone, with its defaults, on a synthetic triangulated terrain at 2 cm
@@ -315,18 +666,78 @@ corners), or a **Cycles bake** of the visible sky (Embree ray tracing, many
 times Blender's Geometry Nodes raycast), each written as a layer with
 provenance. Neither is in this batch.
 
+### Second batch
+
+`scripts/bench_analysis_presets.py` with synthetic inputs (`inputs()`): an
+observer 1 m above the centre, 10 observers (Drape on), a reference terrain
+5 cm above the first with as many triangles, a 100-vertex line feature, a line
+across the terrain, start and end at opposite corners, 20 intervisibility
+points and 100 flow seeds. Each preset ran alone in its own Blender (so each
+pays for its own BVH), Blender 5.2.4, 16 threads, on a machine shared with
+other jobs (load average 5 to 16 during the runs): treat these as upper
+bounds.
+
+| Preset | 1M triangles | 10M triangles | What it costs |
+|---|---|---|---|
+| viewshed | 0.7 s | 7.7 s | 1 ray per face, plus the BVH |
+| cumulative viewshed, 10 observers | 1.3 s | 24 s | 1 ray per face per observer |
+| cumulative viewshed, 100 observers | 11 s | 229 s | as above |
+| intervisibility, 20 points (190 lines) | 0.3 s | 2.8 s | the surface's BVH; the rays are nothing |
+| line of sight | 0.3 s | 2.8 s | as above |
+| distance to surface | 0.5 s | 5.2 s | a proximity query and a nearest-surface sample per vertex, and the reference's BVH |
+| distance to feature (100-vertex line) | 0.05 s | 0.6 s | proximity to a small feature |
+| cut and fill | 1.2 s | 14 s | the reference's BVH, a vertical ray per face, four sums |
+| closed volume | 0.7 s | 6.6 s | mesh islands, edge neighbours, accumulations |
+| least-cost path | 0.3 s | 3.1 s | Dijkstra over every edge |
+| flow path, 100 seeds | 0.3 s | 2.8 s | the surface's BVH, then a ray per seed per step |
+| flow path, 1,000 seeds | | 2.9 s | as above |
+
+At 10M triangles, about 2.8 s of every preset that reads the surface through
+an object input is Blender building its BVH (intervisibility, line of sight
+and flow paths cost little more). Every preset is within the M5 target of a
+minute at 10M except **the cumulative viewshed beyond about 25 observers**:
+about 2.2 s per observer at 10M faces, so 100 observers take four minutes.
+Fewer observers, a smaller Max Distance or a decimated copy of the mesh help.
+The proposal for many observers is a **Cycles bake setup**: one Raycast shader
+node per observer, its direction the observer minus the shading position,
+baked through the sun-hours sample object (15–25 Mrays/s here, after 15–20 s
+of fixed cost at 10M), which would bring 100 observers on 10M faces to about
+a minute. It needs GeoTools code to write the bake back as a layer, as sun
+hours does, so it is not in this batch.
+
+## What stock nodes cannot do well
+
+- **Directed least-cost routing.** Shortest Edge Paths takes one cost per
+  edge, used both ways, so Tobler's asymmetry (downhill faster than uphill)
+  cannot steer the route; the route uses the mean of the two directions and
+  the time reported is the directional time along it. A directed graph search
+  (numpy, in GeoTools code) or QGIS r.walk through M8 would give the true
+  one-way route. A cost-distance layer (the time from every vertex to End) is
+  possible in stock nodes: Shortest Edge Paths' Total Cost is exactly that
+  (with the same symmetric cost), and could be a later preset.
+- **Paths not tied to edges.** Graph paths on a mesh follow its edges (see
+  Least-Cost Path); routing across faces needs a fast-marching solver, which
+  has no stock-node form.
+- **Hydrology.** Flow accumulation, depression filling and routing over flats
+  need ordering by height and propagation along receivers (pointer jumping),
+  which a Repeat zone can do only one step per iteration over the whole mesh:
+  thousands of iterations on a real site. That is GeoTools' 3D hydrology
+  tool's job; the flow-path preset stays a quick look.
+- **Totals in binary64.** Attribute Statistic sums in float32 (about seven
+  digits); Read Totals re-sums in binary64.
+- **Sub-face visibility.** A face is seen or hidden by its centre; a finer
+  mesh (Subdivide on a copy) gives finer edges.
+- **Change detection with uncertainty (M3C2).** Averaging along local normals
+  at a chosen scale, with confidence intervals, is possible in principle with
+  Repeat zones but slow and fragile; CloudCompare through M8 is the better
+  route.
+
 ## Planned presets (next batch)
 
-- **Visibility:** viewshed (point light and shadow bake), cumulative viewshed,
-  intervisibility between points, line of sight.
 - **Surface reading:** ambient occlusion and curvature bakes for worn
   surfaces, rock art and inscriptions.
-- **Change and distance:** distance between two surveys or epochs, distance to
-  a feature (M8 vectors).
-- **Volumes:** cut and fill between two surfaces, closed-mesh volumes.
-- **3D least-cost paths:** Shortest Edge Paths with a walking cost (Tobler)
-  from slope, a maximum walkable slope and per-face costs from layers.
-- **Flow-path tracing** for quick looks (a Repeat zone stepping downhill).
+- A Cycles bake setup for cumulative viewsheds from many observers, and a
+  cost-distance layer (see above).
 
 ## References
 
@@ -336,9 +747,16 @@ provenance. Neither is in this batch.
   Geology*, 2nd ed. Academic Press.
 - Hesse, R. (2010). LiDAR-derived Local Relief Models. *Archaeological
   Prospection* 17, 67–72.
+- Lague, D., Brodu, N., Leroux, J. (2013). Accurate 3D comparison of complex
+  topography with terrestrial laser scanner: application to the Rangitikei
+  canyon (N-Z). *ISPRS Journal of Photogrammetry and Remote Sensing* 82,
+  10–26.
 - Riley, S. J., DeGloria, S. D., Elliot, R. (1999). A terrain ruggedness index
   that quantifies topographic heterogeneity. *Intermountain Journal of
   Sciences* 5, 23–27.
+- Tobler, W. (1993). Three presentations on geographical analysis and
+  modeling. Technical Report 93-1, NCGIA, University of California, Santa
+  Barbara.
 - Weiss, A. (2001). Topographic Position and Landforms Analysis. ESRI User
   Conference poster.
 - Yokoyama, R., Shirasawa, M., Pike, R. J. (2002). Visualizing topography by

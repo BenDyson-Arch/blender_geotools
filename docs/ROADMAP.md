@@ -300,14 +300,20 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
   Blender asset library):** "Add Analysis" appends one as a modifier and
   creates the layer for its output attribute; the user can open and edit it.
   Export applies modifiers.
-  - *Status:* terrain shape and archaeological visualisation are built
-    ([analysis-presets.md](analysis-presets.md)). Blender 5.2 offers no clean
-    way for an extension to register an asset library, so the groups are
-    appended from the bundled `.blend` (also marked as assets). Open items:
-    Hesse's purge step of the local relief model has no clean stock-node form
-    (the preset is the trend-removal step), and sky-view factor and openness
-    take three to four minutes at 10M triangles (the local relief model about
-    one); a raster horizon scan or a Cycles bake is proposed for large sites.
+  - *Status:* terrain shape, archaeological visualisation, visibility, change
+    and distance, volumes, and paths and flow are built
+    ([analysis-presets.md](analysis-presets.md)); surface reading is next.
+    Blender 5.2 offers no clean way for an extension to register an asset
+    library, so the groups are appended from the bundled `.blend` (also
+    marked as assets). Open items: Hesse's purge step of the local relief
+    model has no clean stock-node form (the preset is the trend-removal step),
+    and sky-view factor and openness take three to four minutes at 10M
+    triangles (the local relief model about one); a raster horizon scan or a
+    Cycles bake is proposed for large sites. Shortest Edge Paths takes one cost
+    per edge, so least-cost routes use the mean of Tobler's uphill and downhill
+    times (the reported time is directional); a cumulative viewshed from
+    hundreds of observers on a 10M mesh takes minutes (a Cycles bake setup is
+    proposed).
   - Terrain shape: slope, aspect, curvature (plan and profile), roughness and
     rugosity, TPI and TRI.
   - Archaeological visualisation: local relief model, sky-view factor,
