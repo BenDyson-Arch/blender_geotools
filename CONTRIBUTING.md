@@ -4,6 +4,10 @@ GeoTools is a Blender 5.2+ extension that bundles rusty-tiles and pyproj. Read
 [docs/ROADMAP.md](docs/ROADMAP.md) first. It holds the plan and the decisions
 behind it.
 
+To learn what GeoTools does from a user's side, read the
+[user guide](docs/guide/README.md). When you change what a user sees (a panel,
+a button, an option or a workflow), update the guide page for that area too.
+
 ## Repository layout
 
 | Path | What it holds |

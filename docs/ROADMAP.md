@@ -104,6 +104,10 @@ CRS allow-list that the EPSG picker needs and the tile decoding M7 reads
 (C). M6 and M7 were first planned for 0.4.0 and moved into 0.3.0 on
 2026-11-13, once both were built and tested.
 
+**User guide.** [guide/](guide/README.md) is the user documentation for the
+release: getting started on a synthetic demo site, then one page per feature
+area. Every change a user can see updates the page for its area.
+
 | Milestone | Delivers | Needs from rusty-tiles | Release |
 |---|---|---|---|
 | M0 Foundation | Clean scaffold, packaging, CI | 0.4.x wheel | none |
