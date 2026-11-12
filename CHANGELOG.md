@@ -7,6 +7,8 @@ and the project follows semantic versioning where practical.
 
 ## [Unreleased]
 
+## [0.3.0] - Unreleased
+
 GeoTools is being rebuilt to create, analyse and publish OGC 3D Tiles with
 rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
 
@@ -494,6 +496,7 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
 - Importing `PYSU.gpkg` no longer fails on a degenerate MultiPolygon part with only two distinct exterior points.
 - Blender 5.1 string mesh attribute writes no longer fail when assigning feature properties.
 
-[Unreleased]: https://github.com/BenDyson-Arch/blender_geotools/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/BenDyson-Arch/blender_geotools/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/BenDyson-Arch/blender_geotools/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/BenDyson-Arch/blender_geotools/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/BenDyson-Arch/blender_geotools/releases/tag/v0.1.0
