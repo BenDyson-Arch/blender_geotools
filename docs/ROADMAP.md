@@ -96,17 +96,22 @@ operability and quality); new capabilities come in 0.5.
 
 ## Milestones
 
+**Release scope, decided 2026-11-12.** 0.3.0 ships everything finished on
+`develop` while rusty-tiles 0.4.1 is awaited: M0 to M5 and M8. It still waits
+for rusty-tiles 0.4.1, which carries Blender 5.2 wheel acceptance (E) and the
+CRS allow-list that the EPSG picker needs. M6 and M7 follow in 0.4.0.
+
 | Milestone | Delivers | Needs from rusty-tiles | Release |
 |---|---|---|---|
 | M0 Foundation | Clean scaffold, packaging, CI | 0.4.x wheel | none |
 | M1 Project and georeference | CRS, offsets, source ingest | 0.4.0 | none |
 | M2 Publish | Blender to a validated `.3tz` | 0.4.1 (E and the CRS allow-list) | **0.3.0** |
-| M3 Layers and bake engine | Layers read from Geometry Nodes outputs or stored attributes, and texture-space bakes | none | 0.4.0 |
-| M4 GLB export with metadata | A standard glTF 2.0 GLB carrying objects and layers as `EXT_mesh_features` / `EXT_structural_metadata` | none | 0.4.0 |
-| M5 Analysis library | Georeferenced sun, archaeoastronomy, 3D hydrology and measurement; a preset library of Geometry Nodes analyses | none | 0.4.0 |
-| M6 Texture cleanup | Paint, clean, publish | none | 0.5.0 |
-| M7 Output inspection | Open output tiles in Blender, quality checks | C (0.4.1) | 0.5.0 |
-| M8 Geo formats | GeoJSON, GeoPackage and GeoTIFF in and out of Blender, in the project frame | none | any time after M2 |
+| M3 Layers and bake engine | Layers read from Geometry Nodes outputs or stored attributes, and texture-space bakes | none | **0.3.0** |
+| M4 GLB export with metadata | A standard glTF 2.0 GLB carrying objects and layers as `EXT_mesh_features` / `EXT_structural_metadata` | none | **0.3.0** |
+| M5 Analysis library | Georeferenced sun, archaeoastronomy, 3D hydrology and measurement; a preset library of Geometry Nodes analyses | none | **0.3.0** |
+| M6 Texture cleanup | Paint, clean, publish | none | 0.4.0 |
+| M7 Output inspection | Open output tiles in Blender, quality checks | C (0.4.1, rusty-tiles #369) | 0.4.0 |
+| M8 Geo formats | GeoJSON, GeoPackage and GeoTIFF in and out of Blender, in the project frame | none | **0.3.0** |
 | M9 Queryable metadata without retiling | M4 GLBs tiled with exact leaf metadata, then an annotate pass | #332 (rusty-tiles 0.5) | 1.0.0 |
 | M10 Large sites and texture-only rebuilds | Chunked working mode, texture-only republish | B | later |
 
@@ -337,6 +342,17 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
 - **Exit:** each GeoTools tool finishes in under a minute on a 10M-triangle
   mesh or as one bake; each preset adds with one click, produces a layer, and
   publishes as a variant.
+- **Status (2026-11-12): built**, shipping in 0.3.0. Known gaps against the
+  exit, each documented with its workaround:
+  - a year of sun hours per face on 10M triangles takes about 2.5 min: use a
+    texture layer or merge sun directions within 5° (both under a minute);
+  - sky-view factor and openness (2.5 to 3.5 min at 10M) and a cumulative
+    viewshed beyond about 25 observers exceed a minute in stock Geometry
+    Nodes. A bake-engine fast path, reusing the sun-hours Cycles Raycast
+    engine, is being added before 0.3.0;
+  - least-cost paths use one cost per edge both ways (the mean of uphill and
+    downhill Tobler times); a true one-way route stays with QGIS `r.walk`
+    through M8.
 
 ### M6 Texture cleanup
 
@@ -348,7 +364,7 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
   full retile until B lands.
 - **Exit:** a painted source republishes, and coarse levels pick up the change.
 
-### M7 Output inspection (needs C, in rusty-tiles 0.4.1)
+### M7 Output inspection (needs C: rusty-tiles #369, in 0.4.1)
 
 - Load output leaves or coarse tiles back into Blender as read-only objects
   through `decode_tile`.
