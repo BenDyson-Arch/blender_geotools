@@ -37,6 +37,7 @@ from ..core.placement import Vec3
 from ..core.preflight import ImageSummary, MaterialSummary, ObjectSummary, SceneSummary
 from .nodes import alpha_clip_nodes, blend_mode, from_node, output_node, upstream
 from .properties import image_remedy
+from .texture_state import save_target
 
 # Shader nodes the GLB writer can express when they sit upstream of the
 # material output: core PBR through one Principled BSDF, image textures on a UV
@@ -133,6 +134,7 @@ def image_summary(image: bpy.types.Image) -> ImageSummary:
         file_bytes=file_bytes,
         bit_depth=bit_depth,
         remedy=image_remedy(image),
+        unsaved_target=save_target(image),
     )
 
 

@@ -21,6 +21,7 @@ from . import (
     data_origin,
     glb_export,
     hydrology,
+    inspect,
     layers,
     links,
     operators,
@@ -35,6 +36,8 @@ from . import (
     scene_georef,
     source,
     sun_hours,
+    texture_cleanup,
+    texture_paint,
     vectors,
 )
 
@@ -58,6 +61,7 @@ MODULES: tuple[ModuleType, ...] = (
     presentation,
     glb_export,
     publish,
+    inspect,
     bake_texture,
     analysis,
     sun_hours,
@@ -65,6 +69,8 @@ MODULES: tuple[ModuleType, ...] = (
     analysis_presets,
     hydrology,
     contours,
+    texture_cleanup,
+    texture_paint,
     panels,  # last: the sidebar draws what the modules above register
 )
 

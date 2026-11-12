@@ -278,8 +278,10 @@ def test_panels_order_and_draw() -> None:
         "Source",
         "Linked Data",
         "Layers",
+        "Textures",
         "Checks",
         "Publish",
+        "Inspect Output",
         "Analysis",
         "About",
     ], top
@@ -290,8 +292,10 @@ def test_panels_order_and_draw() -> None:
     assert children == {
         "GEOTOOLS_PT_project": ["CRS Details"],
         "GEOTOOLS_PT_layers": ["Bake", "Display", "Details"],
+        "GEOTOOLS_PT_textures": ["Paint", "Cleanup", "Balance"],
         "GEOTOOLS_PT_checks": ["Images"],
         "GEOTOOLS_PT_publish": ["Build Settings", "Last Build"],
+        "GEOTOOLS_PT_inspect": ["Trace to Source", "Quality"],
         "GEOTOOLS_PT_analysis": [
             "Sun",
             "Sun Hours",
