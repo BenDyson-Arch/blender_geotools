@@ -7,6 +7,18 @@ and the project follows semantic versioning where practical.
 
 ## [Unreleased]
 
+### Added
+
+- Validation of the terrain-shape and archaeological-visualisation presets
+  ([docs/validation/terrain.md](docs/validation/terrain.md)): slope, aspect
+  (grid and true north), curvatures, rugosity, TPI, TRI, local relief model,
+  sky-view factor and openness, live and fast, against closed forms and GDAL
+  3.12.0, WhiteboxTools 2.4.0 and rvt-py 2.2.1 on synthetic DEMs. All agree;
+  the plan-curvature naming, TPI sampling and horizon search region are
+  documented convention differences. Reference script
+  `scripts/validation/terrain/make_references.py`, fixtures in
+  `tests/data/validation/terrain/`, tests in normal CI.
+
 ## [0.3.0] - Unreleased
 
 GeoTools is being rebuilt to create, analyse and publish OGC 3D Tiles with
