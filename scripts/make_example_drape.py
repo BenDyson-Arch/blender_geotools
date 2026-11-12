@@ -459,11 +459,11 @@ def build_blend(out: Path) -> Path:
     bpy.context.view_layer.objects.active = contexts
 
     blend = out / "drape-contexts.blend"
+    # Saving stores the link relative to the .blend (//contexts.geojson, see
+    # CONTRIBUTING.md "File paths"), so the example works wherever it is checked out.
     bpy.ops.wm.save_as_mainfile(filepath=str(blend), compress=True, relative_remap=True)
-    # The link keeps a path relative to the .blend, so the example works wherever
-    # it is checked out.
-    contexts.geotools_link.filepath = bpy.path.relpath(str(geojson_path))
-    bpy.ops.wm.save_as_mainfile(filepath=str(blend), compress=True, relative_remap=True)
+    link = contexts.geotools_link.filepath
+    assert link == "//contexts.geojson", f"the link was stored as {link!r}"
     return blend
 
 

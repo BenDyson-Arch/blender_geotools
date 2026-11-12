@@ -32,7 +32,7 @@ import bpy
 from bpy.props import BoolProperty, EnumProperty, IntProperty, StringProperty
 
 from ..core.data_origin import DataOrigin, NeedsProjectOrigin
-from . import scene_georef
+from . import blend_paths, scene_georef
 from .common import redraw_ui
 from .properties import write_number
 from .ui import wrapped
@@ -182,7 +182,7 @@ def apply_origin(props: bpy.types.PropertyGroup, origin: DataOrigin) -> bool:
 def _run_import(context: bpy.types.Context, request: dict[str, object]) -> list[str]:
     """Run the refused import again; return the report lines. Raises like the importers."""
     kind = str(request["kind"])
-    path = Path(bpy.path.abspath(str(request["filepath"])))
+    path = Path(blend_paths.abspath(str(request["filepath"])))
     if kind == "GEOTIFF":
         from . import raster_io
 

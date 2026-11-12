@@ -7,6 +7,24 @@ and the project follows semantic versioning where practical.
 
 ## [Unreleased]
 
+### Fixed
+
+- File paths GeoTools stores itself now work across Linux, macOS and Windows,
+  so a project folder (the `.blend` and its data) opens on any of them and
+  finds its files. Linked GeoJSON, GeoPackage and GeoTIFF files, the build
+  profile's output path, the last output and build record, the source file and
+  the offset file are stored as `//sub/file` (forward slashes) when they are
+  under the `.blend`'s folder, and stay absolute otherwise. `//` paths with
+  either separator resolve on every OS: a `//out\site.3tz` typed on Windows no
+  longer becomes a file named with a backslash on Linux or macOS. Saving to
+  another folder re-expresses them for it, as Blender does for its own paths;
+  a copy leaves the open file as it was. Older files with absolute or
+  backslash paths keep working and are rewritten only when GeoTools next sets
+  that path, never on load. Checks Linked Files reports Up to Date, Changed on
+  Disk and Missing for both forms, and GeoTools compares files by their
+  resolved paths (macOS `/var` and `/private/var`, Windows 8.3 short names).
+  The rule is in `geotools/core/paths.py` and CONTRIBUTING.md ("File paths").
+
 ## [0.3.0] - Unreleased
 
 GeoTools is being rebuilt to create, analyse and publish OGC 3D Tiles with

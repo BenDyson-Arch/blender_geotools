@@ -182,7 +182,7 @@ from ..core.layers import Domain, LayerSpec, fill_value
 from ..core.metadata_schema import attribute_semantic
 from ..core.presentation import PRESENT_ATTRIBUTE, Blend, Target
 from ..core.ramps import srgb_bytes_to_linear
-from . import nodes
+from . import blend_paths, nodes
 from .properties import image_remedy
 
 log = logging.getLogger(__name__)
@@ -535,7 +535,7 @@ def _magic_mime(head: bytes) -> str | None:
 def _file_path(image: bpy.types.Image) -> str:
     if not image.filepath:
         return ""
-    return os.path.normpath(bpy.path.abspath(image.filepath, library=image.library))
+    return blend_paths.image_path(image)
 
 
 def _srgb_from_linear(c: np.ndarray) -> np.ndarray:

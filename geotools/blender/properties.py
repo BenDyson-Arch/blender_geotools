@@ -34,7 +34,7 @@ from ..core.layers import Aggregation, DataType, Domain, Origin
 from ..core.placement import Placement, PlacementMode, Vec3
 from ..core.presentation import Blend, Target
 from ..core.ramps import DEFAULT_PALETTE, PALETTES
-from . import crs_picker, scene_georef
+from . import blend_paths, crs_picker, scene_georef
 
 # --- binary64 number fields ------------------------------------------------------
 
@@ -350,6 +350,8 @@ class GeoToolsBuildProfile(bpy.types.PropertyGroup):
         description="Where the .3tz archive (or .glb, for the GLB format) is written",
         subtype="FILE_PATH",
         options={"PATH_SUPPORTS_BLEND_RELATIVE"},
+        # Under the .blend's folder: stored as //sub/file, with forward slashes.
+        update=blend_paths.portable_update("output_path"),
     )
     glb_face_table: BoolProperty(
         name="Face Table", description=GLB_FACE_TABLE_DESCRIPTION, default=False
@@ -404,8 +406,13 @@ class GeoToolsBuildProfile(bpy.types.PropertyGroup):
     )
 
     # Last successful publish, written by geotools.publish (never while drawing).
-    last_output: StringProperty(name="Last Output", subtype="FILE_PATH")
-    last_record: StringProperty(name="Last Build Record", subtype="FILE_PATH")
+    # Stored portably (//sub/file under the .blend's folder): see blend_paths.
+    last_output: StringProperty(
+        name="Last Output", subtype="FILE_PATH", options={"PATH_SUPPORTS_BLEND_RELATIVE"}
+    )
+    last_record: StringProperty(
+        name="Last Build Record", subtype="FILE_PATH", options={"PATH_SUPPORTS_BLEND_RELATIVE"}
+    )
     last_build_utc: StringProperty(name="Last Build Time")
     last_seconds: FloatProperty(name="Last Build Seconds", default=0.0)
     last_validation: EnumProperty(
@@ -886,6 +893,7 @@ class GeoToolsProject(bpy.types.PropertyGroup):
         name="Source File",
         description="File the source was last ingested from",
         subtype="FILE_PATH",
+        options={"PATH_SUPPORTS_BLEND_RELATIVE"},
     )
     # Cached summary, refreshed by operators (never computed while drawing).
     summary_valid: BoolProperty(default=False)

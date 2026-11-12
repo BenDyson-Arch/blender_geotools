@@ -47,7 +47,7 @@ from ..core.vector.model import Column, ColumnType, Kind, VectorData, concat
 from ..core.vector.options import VectorOptions, within_bbox
 from ..core.vector.transform import bounds as data_bounds
 from ..core.vector.transform import reproject_data
-from . import data_origin, links
+from . import blend_paths, data_origin, links
 from .common import redraw_ui
 from .links import RefreshError, RefreshResult
 from .properties import FieldError, placement_from_props
@@ -415,7 +415,7 @@ def import_vectors(
             collection.objects.link(obj)
             link = obj.geotools_link
             link.kind = kind
-            link.filepath = str(path)
+            links.store_path(link, path)
             link.layer = layer_name
             link.fid_field = data.fid_field
             link.crs = crs_match.to_text(crs)
@@ -857,7 +857,7 @@ class _ImportVectorBase:
         return {"RUNNING_MODAL"}
 
     def _run(self, context, kind: str, layers: list[str], where: str = "") -> set[str]:
-        path = Path(bpy.path.abspath(self.filepath))
+        path = Path(blend_paths.abspath(self.filepath))
         if not path.is_file():
             self.report({"ERROR"}, f"File not found: {path}")
             return {"CANCELLED"}
@@ -947,7 +947,7 @@ class GEOTOOLS_OT_import_gpkg(_ImportVectorBase, bpy.types.Operator):
         layout.prop(self, "allow_grid_downloads")
 
     def execute(self, context: bpy.types.Context) -> set[str]:
-        path = Path(bpy.path.abspath(self.filepath))
+        path = Path(blend_paths.abspath(self.filepath))
         layers = [self.layer.strip()] if self.layer.strip() else []
         if not layers:
             try:
@@ -1168,7 +1168,7 @@ class GEOTOOLS_OT_export_vector(bpy.types.Operator):
         objects = self._objects(context)
         if not self.filepath:
             stem = objects[0].name if objects else "vectors"
-            folder = Path(bpy.path.abspath("//")) if bpy.data.is_saved else Path.home()
+            folder = Path(blend_paths.blend_dir() or Path.home())
             self.filepath = str(folder / (bpy.path.clean_name(stem) + EXTENSIONS[self.file_format]))
         context.window_manager.fileselect_add(self)
         return {"RUNNING_MODAL"}
@@ -1189,7 +1189,7 @@ class GEOTOOLS_OT_export_vector(bpy.types.Operator):
         if not self.filepath:
             self.report({"ERROR"}, "No file chosen")
             return {"CANCELLED"}
-        path = Path(bpy.path.abspath(self.filepath))
+        path = Path(blend_paths.abspath(self.filepath))
         layer = self.layer.strip() or (objects[0].name if len(objects) == 1 else path.stem)
         try:
             counts, warnings = export_vectors(
