@@ -56,6 +56,7 @@ from ..analysis import site
 from ..core.issues import Severity
 from ..core.layers import attribute_name, display_name, format_number, validate
 from ..core.placement import PlacementMode
+from . import blend_paths
 from .common import extension_version, redraw_ui
 from .layers import ensure_layer, find_layer, refresh_layer, source_objects, spec_from_props
 from .properties import FieldError, placement_from_props
@@ -169,7 +170,7 @@ def _forget_library(library: Path) -> None:
     """Remove the Library entries an append leaves behind (nothing is linked from them)."""
     for entry in list(bpy.data.libraries):
         try:
-            same = Path(bpy.path.abspath(entry.filepath)).resolve() == library.resolve()
+            same = blend_paths.same_file(blend_paths.abspath(entry.filepath), library)
         except (OSError, ValueError):
             continue
         if same and not any(getattr(i, "library", None) == entry for i in bpy.data.node_groups):

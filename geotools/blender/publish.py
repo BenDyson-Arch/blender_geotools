@@ -27,20 +27,20 @@ import os
 import shutil
 import webbrowser
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import bpy
 from bpy.app.handlers import persistent
 from bpy.props import EnumProperty, FloatProperty, IntProperty, StringProperty
 
-from ..core import deps, sysmem
+from ..core import deps, paths, sysmem
 from ..core.display import format_count, format_seconds
 from ..core.issues import Issue, Severity
 from ..core.presentation import variant_output
 from ..publish import preview as pv
 from ..publish import staging as st
 from ..publish.job import BuildJob, BuildRequest, JobState
-from . import texture_state
+from . import blend_paths, texture_state
 from .checks import count_issues, describe_counts, run_checks, store_issues
 from .common import ADDON_PACKAGE, extension_version, redraw_ui
 from .layers import layer_records
@@ -148,12 +148,12 @@ def resolve_output(path_text: str, suffix: str = ".3tz") -> Path:
     text = path_text.strip()
     if not text:
         raise OutputPathError(f"Set an output path ({suffix}) on the build profile")
-    if text.startswith("//") and not bpy.data.is_saved:
+    if paths.is_blend_relative(text) and not bpy.data.is_saved:
         raise OutputPathError(
             "The output path is relative to the .blend (//); save the .blend first "
             "or use an absolute path"
         )
-    resolved = bpy.path.abspath(text)
+    resolved = blend_paths.abspath(text)
     if not os.path.isabs(resolved):
         raise OutputPathError(
             f"The output path {text!r} is relative; use an absolute path or // for the .blend's folder"
@@ -205,8 +205,8 @@ def _store_result(session: _Session) -> None:
     profile.last_features = str(summary.get("features", "")) if vector else ""
     if vector:
         summary = {**summary, "triangles": ""}
-    profile.last_output = str(result.output)
-    profile.last_record = str(result.record_path)
+    profile.last_output = blend_paths.portable(result.output)
+    profile.last_record = blend_paths.portable(result.record_path)
     profile.last_build_utc = _utc_now()
     profile.last_seconds = result.seconds
     profile.last_validation = {True: "OK", False: "FAILED", None: "NONE"}[result.validation_ok]
@@ -712,7 +712,14 @@ def _last_output(context: bpy.types.Context) -> Path | None:
     profile = active_profile(context.scene) if context.scene is not None else None
     if profile is None or not profile.last_output:
         return None
-    return Path(profile.last_output)
+    return Path(blend_paths.abspath(profile.last_output))
+
+
+def _last_record(context: bpy.types.Context) -> Path | None:
+    profile = active_profile(context.scene) if context.scene is not None else None
+    if profile is None or not profile.last_record:
+        return None
+    return Path(blend_paths.abspath(profile.last_record))
 
 
 class GEOTOOLS_OT_open_output_folder(bpy.types.Operator):
@@ -743,14 +750,14 @@ class GEOTOOLS_OT_open_build_record(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context: bpy.types.Context) -> bool:
-        profile = active_profile(context.scene) if context.scene is not None else None
-        if profile is None or not profile.last_record or not Path(profile.last_record).is_file():
+        record = _last_record(context)
+        if record is None or not record.is_file():
             cls.poll_message_set("No build record for this build profile yet")
             return False
         return True
 
     def execute(self, context: bpy.types.Context) -> set[str]:
-        return bpy.ops.wm.path_open(filepath=active_profile(context.scene).last_record)
+        return bpy.ops.wm.path_open(filepath=str(_last_record(context)))
 
 
 # --- preview --------------------------------------------------------------------------------
@@ -860,7 +867,7 @@ def output_name(scene: bpy.types.Scene, profile: bpy.types.PropertyGroup) -> str
     text = profile.output_path.strip()
     if not text:
         return None
-    path = Path(text.replace("//", "", 1))
+    path = PurePosixPath(paths.name(text))
     if path.suffix != profile_suffix(profile):
         return None
     variant = profile.variant_layer.strip()
@@ -919,7 +926,7 @@ def draw_last_build(
     layout: bpy.types.UILayout, context: bpy.types.Context, profile: bpy.types.PropertyGroup
 ) -> None:
     col = layout.column(align=True)
-    col.label(text=Path(profile.last_output).name, icon="FILE_3D")
+    col.label(text=paths.name(profile.last_output), icon="FILE_3D")
     if profile.last_build_utc:
         when = profile.last_build_utc.replace("T", " ").removesuffix("Z")
         info_row(col, "Built", f"{when[:16]} UTC")
@@ -930,7 +937,7 @@ def draw_last_build(
         info_row(col, "Features", format_count(int(profile.last_features)))
     if profile.last_tiles:
         info_row(col, "Tiles", format_count(int(profile.last_tiles)))
-    glb = Path(profile.last_output).suffix == ".glb"
+    glb = profile.last_output.endswith(".glb")
     row = layout.row(align=True)
     row.operator("geotools.open_output_folder", text="Folder", icon="FILE_FOLDER")
     row.operator("geotools.open_build_record", text="Record", icon="TEXT")

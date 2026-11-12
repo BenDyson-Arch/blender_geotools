@@ -64,6 +64,7 @@ from ..core.layers import (
     validate,
 )
 from ..core.ramps import auto_range
+from . import blend_paths
 from .common import redraw_ui
 from .properties import (
     LAYER_AGGREGATION_DEFAULT,
@@ -588,7 +589,7 @@ def save_layer_image(item: GeoToolsLayer, obj: bpy.types.Object) -> Path:
             "Save the .blend first: layer images are saved next to it in geotools_layers/"
         )
     filepath = layer_image_filepath(item, obj)
-    path = Path(bpy.path.abspath(filepath))
+    path = Path(blend_paths.abspath(filepath))
     path.parent.mkdir(parents=True, exist_ok=True)
     image.filepath_raw = filepath
     image.file_format = "OPEN_EXR"
@@ -605,7 +606,7 @@ def image_is_saved(image: bpy.types.Image) -> bool:
         return False
     if not image.filepath:
         return False
-    return Path(bpy.path.abspath(image.filepath, library=image.library)).is_file()
+    return Path(blend_paths.image_path(image)).is_file()
 
 
 def remove_layer_data(scene: bpy.types.Scene, item: GeoToolsLayer) -> tuple[int, int]:

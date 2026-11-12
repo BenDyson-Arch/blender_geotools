@@ -34,6 +34,7 @@ from bpy.props import BoolProperty, EnumProperty, IntProperty, PointerProperty, 
 
 from ..core import fingerprint
 from ..core.fingerprint import FileState, Fingerprint
+from . import blend_paths
 from .common import redraw_ui
 
 log = logging.getLogger(__name__)
@@ -110,7 +111,14 @@ def linked_objects() -> list[bpy.types.Object]:
 
 
 def link_path(link: GeoToolsLink) -> Path:
-    return Path(bpy.path.abspath(link.filepath))
+    """The linked file: a ``//`` path (either separator) against the ``.blend``'s folder."""
+    owner = link.id_data
+    return Path(blend_paths.abspath(link.filepath, getattr(owner, "library", None)))
+
+
+def store_path(link: GeoToolsLink, path: str | Path) -> None:
+    """Set the linked file: relative (``//``) if under the ``.blend``'s folder."""
+    link.filepath = blend_paths.portable(path)
 
 
 def utc_now() -> str:

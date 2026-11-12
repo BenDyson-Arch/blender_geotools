@@ -47,6 +47,7 @@ from pathlib import Path
 import bpy
 import numpy as np
 
+from ..core import paths
 from ..core.display import format_number
 from ..core.issues import Issue, Severity
 from ..core.layers import (
@@ -757,7 +758,7 @@ def variant_output_name(scene: bpy.types.Scene, layer_name: str) -> str | None:
     if not text:
         return None
     try:
-        return variant_output(Path(text.replace("//", "", 1)), layer_name).name
+        return variant_output(Path(paths.name(text)), layer_name).name
     except ValueError:
         return None
 

@@ -38,11 +38,9 @@ refresh.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import bpy
 
-from ..core import crs_catalog, deps, sysmem
+from ..core import crs_catalog, deps, paths, sysmem
 from ..core.display import format_count, format_gib, format_range, format_size
 from ..core.display import plural as plural_text
 from ..core.issues import Severity
@@ -226,7 +224,7 @@ def _draw_source_crs(layout, context, props) -> None:
     row = layout.row(align=True)
     row.operator("geotools.load_offset_file", icon="FILEBROWSER")
     if props.offset_file:
-        layout.label(text=f"From {Path(props.offset_file).name}", icon="TEXT")
+        layout.label(text=f"From {paths.name(props.offset_file)}", icon="TEXT")
 
 
 def _draw_verify(layout, context, props) -> None:
@@ -299,7 +297,7 @@ class GEOTOOLS_PT_source(_GeoToolsPanel, bpy.types.Panel):
         col.prop(props, "source_collection", text="Collection")
         layout.operator("geotools.ingest_source", text="Import Mesh...", icon="IMPORT")
         if props.source_filepath:
-            layout.label(text=f"From {Path(props.source_filepath).name}", icon="FILE")
+            layout.label(text=f"From {paths.name(props.source_filepath)}", icon="FILE")
 
         if props.source_collection is None:
             return
@@ -690,7 +688,7 @@ class GEOTOOLS_PT_publish(_GeoToolsPanel, bpy.types.Panel):
             row.prop(profile, "validate")
 
         name = publish.output_name(context.scene, profile)
-        if profile.output_path.startswith("//") and not bpy.data.is_saved:
+        if paths.is_blend_relative(profile.output_path.strip()) and not bpy.data.is_saved:
             layout.label(text="Save the .blend first (// path)", icon="ERROR")
         rusty = deps.probe_rusty_tiles().available
         if not rusty and not glb:

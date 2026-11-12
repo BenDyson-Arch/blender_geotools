@@ -58,6 +58,7 @@ from ..core.inspect import (
 from ..core.output_frame import FrameError, SceneFrame
 from ..core.output_tiles import OutputTilesError, TileEntry
 from ..core.placement import PlacementMode
+from . import blend_paths
 from .common import redraw_ui
 from .properties import FieldError, placement_from_props
 
@@ -113,7 +114,13 @@ def _apply_view(self, context: bpy.types.Context) -> None:
 
 class GeoToolsInspectSettings(bpy.types.PropertyGroup):
     source: EnumProperty(name="Archive", items=SOURCE_ITEMS, default="LAST")
-    filepath: StringProperty(name="File", subtype="FILE_PATH", description="A .3tz archive")
+    filepath: StringProperty(
+        name="File",
+        subtype="FILE_PATH",
+        description="A .3tz archive",
+        options={"PATH_SUPPORTS_BLEND_RELATIVE"},
+        update=blend_paths.portable_update("filepath"),
+    )
     archive: StringProperty(name="Listed Archive", description="The archive the list shows")
     tiles: CollectionProperty(type=GeoToolsOutputTile)
     tiles_index: IntProperty(name="Tile", default=0)
@@ -154,7 +161,7 @@ def last_output(scene: bpy.types.Scene) -> Path | None:
     profile = props.build_profiles[props.build_profile_index]
     if not profile.last_output or not profile.last_output.endswith(".3tz"):
         return None
-    return Path(profile.last_output)
+    return Path(blend_paths.abspath(profile.last_output))
 
 
 def chosen_archive(context: bpy.types.Context) -> Path | None:
@@ -163,7 +170,7 @@ def chosen_archive(context: bpy.types.Context) -> Path | None:
         return last_output(context.scene)
     if not props.filepath.strip():
         return None
-    return Path(bpy.path.abspath(props.filepath.strip()))
+    return Path(blend_paths.abspath(props.filepath.strip()))
 
 
 _frames: dict[str, tuple[tuple, SceneFrame, list[str]]] = {}
