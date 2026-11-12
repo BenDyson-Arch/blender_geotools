@@ -42,17 +42,17 @@ def test_offsets_round_trip_exactly() -> None:
     p = _props()
     props = h.project()
     props.placement_mode = "SOURCE_CRS"
-    props.source_crs = "EPSG:32760"
+    props.crs = "EPSG:32760"
     # Typed by a user as text...
-    props.source_offset_n = "6961000.123456"
+    props.origin_n = "6961000.123456"
     # ...and written by code through the helper.
-    p.write_number(props, "source_offset_e", EASTING)
+    p.write_number(props, "origin_e", EASTING)
     p.write_number(props, "source_offset_a", -12.000000001)
     p.write_number(props, "height_offset", 0.1 + 0.2)
 
-    assert props.source_offset_n == "6961000.123456"
-    assert p.read_number(props, "source_offset_n") == NORTHING
-    assert p.read_number(props, "source_offset_e") == EASTING
+    assert props.origin_n == "6961000.123456"
+    assert p.read_number(props, "origin_n") == NORTHING
+    assert p.read_number(props, "origin_e") == EASTING
     assert p.read_number(props, "height_offset") == 0.1 + 0.2
 
     placement = p.placement_from_props(props)
@@ -95,9 +95,9 @@ def test_values_survive_save_and_reload() -> None:
     p = _props()
     props = h.project()
     props.placement_mode = "SOURCE_CRS"
-    props.source_crs = "EPSG:32760"
-    p.write_number(props, "source_offset_n", NORTHING)
-    p.write_number(props, "source_offset_e", EASTING)
+    props.crs = "EPSG:32760"
+    p.write_number(props, "origin_n", NORTHING)
+    p.write_number(props, "origin_e", EASTING)
     with tempfile.TemporaryDirectory(prefix="geotools-test-") as tmp:
         path = Path(tmp) / "precision.blend"
         assert bpy.ops.wm.save_as_mainfile(filepath=str(path), copy=True) == {"FINISHED"}
@@ -115,20 +115,33 @@ def test_invalid_number_is_reported() -> None:
     p = _props()
     props = h.project()
     props.placement_mode = "SOURCE_CRS"
-    props.source_crs = "EPSG:32760"
+    props.crs = "EPSG:32760"
+    props.origin_e = "502000.5"
+    scene = bpy.context.scene
+    # The offset is the GeoScene key 'crs x' (a double): text that is not a finite
+    # number is refused and the field keeps its value.
     for bad in ("", "abc", "nan", "inf", "1,5"):
-        props.source_offset_e = bad
+        props.origin_e = bad
+        assert props.origin_e == "502000.5" and scene["crs x"] == 502000.5
+    assert p.field_issues(props) == []
+    # A project without a CRS (or with one GeoScene cannot hold) keeps GeoTools' own
+    # text, which Check reports when it is not a number.
+    props.crs = ""
+    assert "SRID" not in scene and "crs x" not in scene
+    assert props.origin_e == "502000.5"
+    for bad in ("", "abc", "nan", "inf", "1,5"):
+        props.origin_e = bad
         try:
             p.placement_from_props(props)
         except p.FieldError as ex:
-            assert ex.field.attr == "source_offset_e"
+            assert ex.field.attr == "origin_e"
             assert "Offset E" in str(ex)
         else:
             raise AssertionError(f"{bad!r} was accepted")
         issues = p.field_issues(props)
         assert [i.code for i in issues] == ["invalid-number"], issues
     try:
-        p.write_number(props, "source_offset_e", float("nan"))
+        p.write_number(props, "origin_e", float("nan"))
     except ValueError:
         pass
     else:
@@ -145,7 +158,7 @@ def test_project_panel_shows_only_active_mode_fields() -> None:
     props = h.project()
     panel = h.submodule("blender.panels").GEOTOOLS_PT_project
     anchor = {f.attr for f in p.ANCHOR_FIELDS}
-    source = {f.attr for f in p.SOURCE_CRS_FIELDS} | {"source_crs"}
+    source = {f.attr for f in p.SOURCE_CRS_FIELDS} | {"crs"}
 
     drawn = set(h.props_drawn(h.draw(panel)))
     assert "placement_mode" in drawn
@@ -171,9 +184,9 @@ def test_project_panel_shows_only_active_mode_fields() -> None:
     # An EPSG code shows its name and rusty-tiles' verdict; CRS Details has the rest.
     details = h.submodule("blender.panels").GEOTOOLS_PT_project_crs
     assert not details.poll(bpy.context)
-    props.source_crs = "EPSG:7856"
+    props.crs = "EPSG:7856"
     calls = h.draw(panel)
-    assert "source_crs" in h.props_drawn(calls)
+    assert "crs" in h.props_drawn(calls)
     assert h.draw_header(panel) == "CHECKMARK"
     assert details.poll(bpy.context)
     details_text = h.label_text(h.draw(details))
@@ -188,10 +201,10 @@ def test_project_panel_shows_only_active_mode_fields() -> None:
         assert "towgs84" in details_text  # the definition rusty-tiles uses
 
         # A CRS rusty-tiles refuses: the refusal, in red, before any bake.
-        props.source_crs = "EPSG:27700"
+        props.crs = "EPSG:27700"
         alerts: list[str] = []
         calls = h.draw(panel, alerts)
-        assert "source_crs" in alerts, alerts
+        assert "crs" in alerts, alerts
         assert "EPSG:27700 is not in the standard build" in h.label_text(calls)
         assert "native-geospatial" not in h.label_text(calls)
         assert h.draw_header(panel) == "CANCEL"
@@ -205,11 +218,10 @@ def test_project_panel_flags_invalid_numbers() -> None:
     props = h.project()
     panel = h.submodule("blender.panels").GEOTOOLS_PT_project
     props.placement_mode = "SOURCE_CRS"
-    props.source_crs = "EPSG:32760"
-    props.source_offset_n = "6961000.5x"
+    props.origin_n = "6961000.5x"  # no CRS yet: GeoTools' own text, kept as typed
     alerts: list[str] = []
     h.draw(panel, alerts)
-    assert alerts == ["source_offset_n"], alerts
+    assert alerts == ["crs", "crs_near_site", "origin_n"], alerts  # the CRS row too: no CRS
     assert h.draw_header(panel) == "CANCEL"
 
 
@@ -226,13 +238,13 @@ def test_choosing_an_entry_stores_the_plain_code() -> None:
     h.reset_scene()
     props = h.project()
     props.placement_mode = "SOURCE_CRS"
-    props.source_crs = "EPSG:7856 — GDA2020 / MGA zone 56"
-    assert props.source_crs == "EPSG:7856"
-    props.source_crs = " epsg:2193 "
-    assert props.source_crs == "EPSG:2193"
+    props.crs = "EPSG:7856 — GDA2020 / MGA zone 56"
+    assert props.crs == "EPSG:7856"
+    props.crs = " epsg:2193 "
+    assert props.crs == "EPSG:2193"
     proj = "+proj=tmerc +lon_0=151 +ellps=GRS80 +towgs84=0,0,0 +units=m"
-    props.source_crs = proj
-    assert props.source_crs == proj  # free text is kept as typed
+    props.crs = proj
+    assert props.crs == proj  # free text is kept as typed
     assert _props().placement_from_props(props).source_crs == proj
 
 
@@ -265,7 +277,7 @@ def test_search_lists_codes_near_the_site() -> None:
     near_first = [label for label, _area in picker.search_crs(props, bpy.context, "")]
     assert len(near_first) == len(everything) and near_first[: len(near)] == near
     # The field's own value lists everything, not just itself.
-    props.source_crs = "EPSG:7856"
+    props.crs = "EPSG:7856"
     assert len(picker.search_crs(props, bpy.context, "EPSG:7856")) == len(everything)
 
 
@@ -274,21 +286,26 @@ def test_a_saved_preset_is_migrated_to_its_epsg_code() -> None:
     props = h.project()
     props.placement_mode = "SOURCE_CRS"
     preset = _preset_mga56()
-    props.source_crs = preset
+    props.source_crs = preset  # GeoTools' own text, as an earlier version saved it
     picker = h.submodule("blender.crs_picker")
     placement = _props().placement_from_props(props)
     if not _available():  # rusty-tiles can't confirm the definition: kept as saved
         assert placement.source_crs == preset
         assert picker.migrate_scene(bpy.context.scene) is None
-        assert props.source_crs == preset
+        assert props.crs == preset
         return
     assert placement.source_crs == "EPSG:7856"  # read as the code before it is written
     assert picker.migrate_scene(bpy.context.scene) == "EPSG:7856"
-    assert props.source_crs == "EPSG:7856" and props.crs_migrated_from == preset
+    assert props.crs == "EPSG:7856" and props.crs_migrated_from == preset
     assert picker.migrate_scene(bpy.context.scene) is None  # done once
+    # A SRID key is never rewritten by the preset migration, whatever it holds.
+    bpy.context.scene["SRID"] = preset
+    assert picker.migrate_scene(bpy.context.scene) is None
+    assert bpy.context.scene["SRID"] == preset
+    del bpy.context.scene["SRID"]
     details = h.submodule("blender.panels").GEOTOOLS_PT_project_crs
     assert "Migrated from an old GeoTools CRS preset" in h.label_text(h.draw(details))
-    props.source_crs = "EPSG:7855"  # another CRS: the note goes
+    props.crs = "EPSG:7855"  # another CRS: the note goes
     assert props.crs_migrated_from == ""
 
 
@@ -296,14 +313,17 @@ def test_a_saved_preset_is_migrated_on_file_load() -> None:
     h.reset_scene()
     props = h.project()
     props.placement_mode = "SOURCE_CRS"
-    props.source_crs = _preset_mga56()
+    props.source_crs = _preset_mga56()  # GeoTools' own text, as an earlier version saved it
     expected = "EPSG:7856" if _available() else _preset_mga56()
     with tempfile.TemporaryDirectory(prefix="geotools-test-") as tmp:
         path = Path(tmp) / "preset.blend"
         assert bpy.ops.wm.save_as_mainfile(filepath=str(path), copy=True) == {"FINISHED"}
         h.reset_scene()
         assert bpy.ops.wm.open_mainfile(filepath=str(path), load_ui=False) == {"FINISHED"}
-        assert h.project().source_crs == expected
+        assert h.project().crs == expected
+        # Migrated first, then moved into the GeoScene keys (a PROJ string BlenderGIS
+        # reads, when rusty-tiles cannot confirm the code).
+        assert bpy.context.scene["SRID"] == expected
     h.reset_scene()
 
 
@@ -311,7 +331,7 @@ def test_run_checks_reports_the_crs_verdict() -> None:
     h.reset_scene()
     props = h.project()
     props.placement_mode = "SOURCE_CRS"
-    props.source_offset_e, props.source_offset_n = "502000", "6961000"
+    props.origin_e, props.origin_n = "502000", "6961000"
     checks = h.submodule("blender.checks")
     placement = h.submodule("core.placement")
     ok = placement.Placement(mode="source_crs", source_crs="EPSG:7856")

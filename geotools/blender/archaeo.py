@@ -6,7 +6,7 @@ this module stores settings and results and drives Blender:
 * **Horizon profile** (``geotools.archaeo_horizon``): rays from the observer's
   eye in a fan of elevations at every azimuth, cast by Cycles in one EMIT bake
   per pass, as sun hours casts its rays. Here each ray is one texel of a
-  temporary sample object (``sun_hours.build_sample_object``): its direction
+  temporary sample object (``ray_bake.build_sample_object``): its direction
   is the sample's face attribute, and a probe shader with one ``Raycast``
   node emits (hit, distance, 1). A coarse pass (every 0.1°) and a fine pass
   (64 rays inside each azimuth's best 0.1°) find the skyline to about
@@ -43,19 +43,22 @@ from ..analysis import horizon, site, sun
 from ..analysis import sun_hours as sun_hours_core
 from ..core.placement import PlacementMode
 from . import analysis
-from .bake_texture import _deselect_all, _run_bake, _Saved, _show
+from .bake_texture import _Saved
 from .common import redraw_ui
 from .layers import source_objects
 from .properties import FieldError, format_vec, parse_vec
-from .sun_hours import (
+from .ray_bake import (
     NORMAL_ATTRIBUTE,
     PROBE_UV,
     RAY_LENGTH,
-    _float_image,
-    _pixels,
-    _Run,
-    _setup_cycles,
+    Run,
+    bake,
     build_sample_object,
+    float_image,
+    parking,
+    pixels,
+    setup_cycles,
+    show,
 )
 
 log = logging.getLogger(__name__)
@@ -274,21 +277,6 @@ def _probe_material(name: str, image, origin, start: float) -> bpy.types.Materia
     return material
 
 
-def _parking(origin: np.ndarray, count: int, depth: float) -> np.ndarray:
-    """Where the sample triangles sit: a grid one unit apart, ``depth`` below the eye.
-
-    They must be in the scene for Cycles to bake them, so they are far below
-    and close together: a ray would have to point almost straight down to
-    meet one, and the fan never does.
-    """
-    width = max(1, math.ceil(math.sqrt(count)))
-    index = np.arange(count)
-    grid = np.stack(
-        [index % width - width / 2.0, index // width - width / 2.0, np.zeros(count)], axis=1
-    )
-    return origin[None, :] + grid + np.array([0.0, 0.0, -depth])
-
-
 def cast_rays(
     context: bpy.types.Context, origin: np.ndarray, directions: np.ndarray, start: float = 0.0
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -303,47 +291,34 @@ def cast_rays(
         raise ArchaeoError("Enable the Cycles add-on: the horizon uses a Cycles bake.")
     n = len(directions)
     saved = _Saved.capture(context)
-    run = _Run()
+    run = Run()
     try:
-        _setup_cycles(saved, scene)
-        for obj in source_objects(scene):
-            _show(saved, obj)
+        setup_cycles(saved, scene)
+        show(saved, source_objects(scene))
+        # The triangles must be in the scene for Cycles to bake them, so they
+        # are far below and close together: a ray would have to point almost
+        # straight down to meet one, and the fan never does.
         depth = max(1.0e4, 4.0 * _terrain_extent(context))
-        points = _parking(np.asarray(origin, dtype=np.float64), n, depth)
-        obj, width, height = build_sample_object(saved, context, points, directions)
-        image = _float_image(f"{TEMP_PREFIX} Rays", width, height)
+        points = parking(np.asarray(origin, dtype=np.float64), n, depth)
+        obj, width, height = build_sample_object(
+            saved, context, points, directions, name=f"{TEMP_PREFIX} Samples"
+        )
+        image = float_image(f"{TEMP_PREFIX} Rays", width, height)
         run.images.append(image)
         material = _probe_material(f"{TEMP_PREFIX} Probe", image, origin, start)
         saved.temp_materials.append(material)
         obj.data.materials.append(material)
-        view_layer = context.view_layer
-        _deselect_all(view_layer)
-        obj.select_set(True)
-        view_layer.objects.active = obj
-        try:
-            _run_bake(
-                type="EMIT",
-                target="IMAGE_TEXTURES",
-                margin=0,
-                margin_type="EXTEND",
-                use_clear=True,
-                use_selected_to_active=False,
-                use_cage=False,
-                use_split_materials=False,
-                uv_layer=PROBE_UV,
-            )
-        except RuntimeError as ex:
-            raise ArchaeoError(f"The bake failed: {ex}") from None
-        pixels = _pixels(image)[:n].astype(np.float64)
+        bake(context, [obj], PROBE_UV, error=ArchaeoError)
+        baked = pixels(image)[:n].astype(np.float64)
     finally:
         unrestored = saved.restore(context)
         run.clean()
         if unrestored:
             log.warning("Could not restore the %s", ", ".join(unrestored))
-    if np.count_nonzero(pixels[:, 2] <= 0.5):
+    if np.count_nonzero(baked[:, 2] <= 0.5):
         raise ArchaeoError("Some rays were not baked (texel layout).")
-    hit = pixels[:, 0] > 0.5
-    return hit, np.where(hit, pixels[:, 1] + float(start), np.nan)
+    hit = baked[:, 0] > 0.5
+    return hit, np.where(hit, baked[:, 1] + float(start), np.nan)
 
 
 def _occluders(context: bpy.types.Context) -> list[bpy.types.Object]:

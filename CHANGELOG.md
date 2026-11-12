@@ -7,10 +7,71 @@ and the project follows semantic versioning where practical.
 
 ## [Unreleased]
 
+### Added
+
+- Texture cleanup (M6), in a new **Textures** panel between Layers and Checks
+  ([docs/texture-cleanup.md](docs/texture-cleanup.md)). Painting stays
+  Blender's: the docs have recipes for clone and patch across UV islands
+  (projection paint's Clone brush), smear, soften, masks and Quick Edit.
+  GeoTools adds:
+  - **Paint Texture**: one click into Texture Paint on the active object's
+    base colour image, with projection occlusion, backface culling and normal
+    falloff on, and Solid, Flat, Texture shading so the view has no lighting.
+    UV overlaps (any face that uses the image, with the `uv-overlap` rule) are
+    warned about and written as a mask image, which becomes the paint stencil
+    by default, so a stroke cannot change two places at once.
+  - **Fill Holes** (black or transparent texels) and **Remove Masked**
+    (people, vehicles or scale bars painted in a key colour or on a mask
+    image), both by push-pull inpainting that reads and writes only inside the
+    UV islands of the faces that use the image. It is a diffusion fill: it
+    blurs, and it is not content-aware.
+  - **Pad Islands**: island-aware edge padding (each background ring takes
+    the nearest island's colour), optionally filling the whole background, so
+    coarse levels and mipmaps do not bleed it in. It never writes inside an
+    island.
+  - **Fit Balance**, **Apply Balance**: a per-page, per-channel gain and
+    offset in linear light, fitted (robustly) to colour samples on both sides
+    of the 3D seams between atlas pages, previewed with a shader node before
+    it is applied to the pixels.
+  - **Undo Cleanup** puts back the images the last tool changed (one level).
+  - Publish saves every edited source image first (repacked, saved to its
+    file, or saved as `//textures/<image>.png`), so a painted texture is never
+    lost or published stale. `build.json` records each source image's SHA-256
+    in `source.images`. The Publish panel shows "N textures changed since last
+    publish", and Run Checks reports `image-unsaved`, `textures-changed` and
+    `texture-balance-preview` (an error: the preview node would publish a flat
+    colour). Publishing still means a full retile until rusty-tiles'
+    appearance-only rebuild lands. A Blender test repaints part of a texture,
+    republishes, and checks that leaf and coarse tiles both get new texture
+    bytes.
+  - `core.uv_overlap.texel_coverage`: how many UV triangles own each texel,
+    with the `uv-overlap` raster rule; `core.texture_cleanup` and
+    `core.texture_state` hold the bpy-free maths and records.
+    `scripts/bench_texture_cleanup.py` times the tools on 8K pages.
+
+## [0.3.0] - Unreleased
+
 GeoTools is being rebuilt to create, analyse and publish OGC 3D Tiles with
 rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
 
 ### Added
+
+- Interoperability with BlenderGIS and other Blender GIS tools. A CRS
+  project's CRS and origin are now kept in the scene's GeoScene keys (`SRID`,
+  `crs x` and `crs y`, with `latitude` and `longitude` kept in sync through the
+  bundled pyproj, using rusty-tiles' datum convention). These keys are the
+  BlenderGIS convention. A scene georeferenced by BlenderGIS is read as it is,
+  and a scene set up in GeoTools is georeferenced for those tools. GeoTools
+  does not depend on BlenderGIS. `SRID` is written only as a plain EPSG code
+  or a PROJ string, because BlenderGIS cannot read WKT or compound codes; such
+  a CRS stays a GeoTools setting and the scene gets no keys. Local and anchor
+  projects write no keys. If keys exist while the project is local or anchor,
+  the Project panel and Check warn and offer **Use the Scene's BlenderGIS
+  Georeference**. A `.blend` from an earlier GeoTools is migrated on load,
+  keeping its values and its A. Where both exist and differ, the keys win, and
+  a one-time notice names what was taken from where. "Use data origin" adopts
+  a scene's existing GeoScene georeference rather than moving it. See
+  `docs/design/georeference-interop.md`.
 
 - Analysis (M5), in a new Analysis panel. **Sun:** the sun's position from the
   project's site, date, time and time zone (NREL SPA, within 0.00001° of the
@@ -99,6 +160,18 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   obstructions summed in binary64. All use Geometry Nodes Raycast, measured
   faster than a bake for these ray counts; accuracy and timings at 1M and 10M
   triangles are in `docs/analysis-presets.md`.
+- Analysis presets (M5): **fast (bake) paths** for sky-view factor, positive
+  and negative openness and the cumulative viewshed. Add Analysis offers
+  "(Fast Bake)" entries and an Engine choice (Live (Geometry Nodes) or Fast
+  (bake)): the preset's own rays, inputs and formulas, cast by Cycles Raycast
+  shader nodes in one EMIT bake (the sun-hours engine, now shared as
+  `geotools/blender/ray_bake.py` by sun hours, the horizon profile and these
+  paths), stored once as a layer with origin analysis and a provenance naming
+  the preset version and the method. On 10M triangles: sky-view factor about
+  40 s and openness about 50 s (live: 163 s and about 210 s), and a
+  cumulative viewshed from 100 observers 49 to 65 s (live: 229 s). Identical
+  to the live presets on the analytic tests and to batch 2's segment-box test;
+  details in `docs/analysis-presets.md`.
 - Analysis (M5): **3D surface hydrology**, in a Hydrology sub-panel. Flow
   routing, flow accumulation (upslope contributing area in m², plan area of
   upward faces by default) and ponding on the mesh's own connectivity: faces
@@ -340,47 +413,18 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
     `scripts/make_example_drape.py`.
   - Linked file paths and build profile output paths accept `//` (relative to
     the `.blend`) without a warning.
-- Texture cleanup (M6), in a new **Textures** panel between Layers and Checks
-  ([docs/texture-cleanup.md](docs/texture-cleanup.md)). Painting stays
-  Blender's: the docs have recipes for clone and patch across UV islands
-  (projection paint's Clone brush), smear, soften, masks and Quick Edit.
-  GeoTools adds:
-  - **Paint Texture**: one click into Texture Paint on the active object's
-    base colour image, with projection occlusion, backface culling and normal
-    falloff on, and Solid, Flat, Texture shading so the view has no lighting.
-    UV overlaps (any face that uses the image, with the `uv-overlap` rule) are
-    warned about and written as a mask image, which becomes the paint stencil
-    by default, so a stroke cannot change two places at once.
-  - **Fill Holes** (black or transparent texels) and **Remove Masked**
-    (people, vehicles or scale bars painted in a key colour or on a mask
-    image), both by push-pull inpainting that reads and writes only inside the
-    UV islands of the faces that use the image. It is a diffusion fill: it
-    blurs, and it is not content-aware.
-  - **Pad Islands**: island-aware edge padding (each background ring takes
-    the nearest island's colour), optionally filling the whole background, so
-    coarse levels and mipmaps do not bleed it in. It never writes inside an
-    island.
-  - **Fit Balance**, **Apply Balance**: a per-page, per-channel gain and
-    offset in linear light, fitted (robustly) to colour samples on both sides
-    of the 3D seams between atlas pages, previewed with a shader node before
-    it is applied to the pixels.
-  - **Undo Cleanup** puts back the images the last tool changed (one level).
-  - Publish saves every edited source image first (repacked, saved to its
-    file, or saved as `//textures/<image>.png`), so a painted texture is never
-    lost or published stale. `build.json` records each source image's SHA-256
-    in `source.images`. The Publish panel shows "N textures changed since last
-    publish", and Run Checks reports `image-unsaved`, `textures-changed` and
-    `texture-balance-preview` (an error: the preview node would publish a flat
-    colour). Publishing still means a full retile until rusty-tiles'
-    appearance-only rebuild lands. A Blender test repaints part of a texture,
-    republishes, and checks that leaf and coarse tiles both get new texture
-    bytes.
-  - `core.uv_overlap.texel_coverage`: how many UV triangles own each texel,
-    with the `uv-overlap` raster rule; `core.texture_cleanup` and
-    `core.texture_state` hold the bpy-free maths and records.
-    `scripts/bench_texture_cleanup.py` times the tools on 8K pages.
 
 ### Changed
+
+- New CRS projects start with offset A = 0, because GeoScene tools read
+  Blender Z as absolute height. "Use data origin" from a local or anchor
+  project sets A to 0 as before, and now leaves a CRS project's A alone.
+  Existing scenes keep their A. When A is not 0, the Project panel and Check
+  warn that other GIS tools will see heights shifted by A. For scripts, the
+  project CRS and offset E/N are now `scene.geotools.crs`, `origin_e` and
+  `origin_n`. These read and write the GeoScene keys in a CRS project.
+  `source_crs`, `source_offset_e` and `source_offset_n` are GeoTools' own text,
+  used only when the scene has no keys.
 
 - Export Vectors writes FLOAT attributes (float32 in Blender) as the shortest
   decimal that reads back as the same value, so 123.4 is written as 123.4
@@ -494,6 +538,7 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
 - Importing `PYSU.gpkg` no longer fails on a degenerate MultiPolygon part with only two distinct exterior points.
 - Blender 5.1 string mesh attribute writes no longer fail when assigning feature properties.
 
-[Unreleased]: https://github.com/BenDyson-Arch/blender_geotools/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/BenDyson-Arch/blender_geotools/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/BenDyson-Arch/blender_geotools/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/BenDyson-Arch/blender_geotools/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/BenDyson-Arch/blender_geotools/releases/tag/v0.1.0

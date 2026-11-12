@@ -309,7 +309,7 @@ def test_corner_and_texture_values() -> None:
     corners = co.reshape(-1, 3)[corner_vertex]
     sizes = np.full(len(mesh.polygons), 4)
     centres = np.repeat(_face_centres(plane), sizes, axis=0)
-    inset = _blender().CORNER_INSET
+    inset = h.submodule("blender.ray_bake").CORNER_INSET
     sample_x = (corners + inset * (centres - corners))[:, 0]
     values = _values(plane, "corner_hours")
     assert len(values) == len(mesh.loops)

@@ -26,7 +26,10 @@ shadows, Cycles and EEVEE render them, and Cycles casts the rays of sun hours.
 | `geotools/analysis/horizon.py` | The horizon from a point: ray fans, best hits with curvature and terrestrial refraction, Bennett's refraction, the `HorizonProfile`. |
 | `geotools/analysis/archaeo.py` | Rise and set for a declination against a horizon, dated sunrises, lunar standstills, the declination inversion, alignments, calendar dates (Julian and Gregorian). |
 | `geotools/blender/analysis.py` | Settings and results on `scene.geotools_analysis`, and the sun and measurement operators. |
-| `geotools/blender/sun_hours.py` | The sun hours engine (Cycles bakes of Raycast nodes), the layers it writes, and the shadow study. |
+| `geotools/blender/ray_bake.py` | The ray bake engine shared by sun hours, the horizon and the fast preset paths: the sample object, probe groups in blocks, the probe material, Cycles set-up, render-only occluders and the bake. |
+| `geotools/blender/sun_hours.py` | Sun hours: the sun probe on the ray bake engine, the layers it writes, and the shadow study. |
+| `geotools/analysis/preset_bake.py` | The fast (bake) paths of the horizon and cumulative viewshed presets, bpy-free: inputs, the bisection model, values from bake sums, the layer and its provenance. |
+| `geotools/blender/preset_bake.py` | The fast paths' probes (bisection and observer groups), observer points through the library's own groups, and the run. |
 | `geotools/blender/archaeo.py` | Archaeoastronomy settings (`scene.geotools_analysis.archaeo`), the horizon bake, events, sightlines and the alignment check. |
 | `geotools/blender/analysis_ui.py` | The Analysis panel and its Sun, Sun Hours, Shadow Study, Archaeoastronomy (`archaeo_ui.py`) and Coordinates sub-panels, before About. |
 | `geotools/analysis/hydrology.py` | 3D surface hydrology, bpy-free: the face graph, drops, filling, routing, accumulation and depressions. |
@@ -40,14 +43,16 @@ shadows, Cycles and EEVEE render them, and Cycles casts the rays of sun hours.
 `geotools/analysis` is bpy-free, like `geotools/core`, and
 `tests/core/test_no_bpy.py` checks it. Its tests are `tests/core/test_sun.py`,
 `tests/core/test_site.py`, `tests/core/test_sun_hours.py`,
-`tests/core/test_archaeo.py`, `tests/core/test_hydrology.py` and
-`tests/core/test_slicing.py`. The operators are tested in
-`tests/blender/test_analysis.py`, `tests/blender/test_sun_hours.py`,
-`tests/blender/test_archaeo.py` and `tests/blender/test_surface_tools.py`.
+`tests/core/test_archaeo.py`, `tests/core/test_hydrology.py`,
+`tests/core/test_slicing.py` and `tests/core/test_preset_bake.py`. The
+operators are tested in `tests/blender/test_analysis.py`,
+`tests/blender/test_sun_hours.py`, `tests/blender/test_archaeo.py`,
+`tests/blender/test_surface_tools.py` and `tests/blender/test_preset_bake.py`.
 `scripts/bench_sun_hours.py` times sun hours on a synthetic town,
-`scripts/bench_archaeo.py` the horizon on a synthetic valley, and
+`scripts/bench_archaeo.py` the horizon on a synthetic valley,
 `scripts/bench_hydrology.py` hydrology, contours and sections on a synthetic
-site.
+site, and `scripts/bench_preset_bake.py` the fast preset paths on the preset
+benchmark's terrain.
 
 ## Sun position
 
@@ -297,7 +302,10 @@ machine (16 threads, shared with other work), on a 1-million-triangle terrain:
 | (c) Cycles `Raycast` shader nodes in one EMIT bake | 40 to 60 Mrays/s, after about 1 s of fixed cost | Many directions per bake; Cycles' BVH. |
 
 So the engine is (c), for all three domains. `mathutils.bvhtree` (d) was not
-considered for large meshes (the performance rule).
+considered for large meshes (the performance rule). The engine is
+`geotools/blender/ray_bake.py`, shared with the horizon profile and the
+[fast preset paths](#fast-bake-paths-for-presets); sun hours adds its probe
+(the ray group below) and its layers.
 
 - **The probe.** A shader node group holds one `Raycast` node per direction:
   for each sample it adds, per ray, `(hours, energy × cos i, 0)` when the ray
@@ -317,7 +325,10 @@ considered for large meshes (the performance rule).
   chains overflowed Cycles' 255-float shader stack beyond about 128 rays,
   silently: everything baked to 0. (3) A Raycast node whose Direction or
   Position is unlinked uses the normal or the shading point, whatever its
-  value, so both are always linked.
+  value, so both are always linked. (4) The node does not normalise its
+  Direction: Length, and the Hit Distance it reports, are in units of the
+  direction's length (direction (0, 0, 10) with Length 1 meets a ceiling 5 m
+  up, at distance 0.5). The fast viewshed relies on it.
 - **TEXTURE layers** bake the probe on each source object's UVs (the layer's
   UV map, or the active render one), through a temporary material per object
   as `bake_texture` does, with the layer's resolution and margin
@@ -507,7 +518,7 @@ azimuth no ray hits is open and takes **Open Horizon** (default 0°).
 **The engine is the sun hours one, turned around.** Sun hours bakes a few
 hundred rays per sample over millions of samples; here there is one origin
 and half a million directions. So each ray is one sample of the temporary
-sample object (`sun_hours.build_sample_object`): one tiny triangle per ray
+sample object (`ray_bake.build_sample_object`): one tiny triangle per ray
 on its own texel, with the ray's direction as the sample's normal attribute.
 A probe material with a single Cycles `Raycast` node casts from the eye along
 it and emits (hit, hit distance, 1). One EMIT bake casts every ray of a pass
@@ -1043,6 +1054,72 @@ Contours object is `Contours_lines`).
 three-segment section across the 10.0M site in 7.0 s (most of it reading
 the meshes and one signed-distance pass over every vertex per segment).
 
+## Fast (bake) paths for presets
+
+**What it computes.** The sky-view factor, positive and negative openness
+and the cumulative viewshed presets cast many rays per element: 128 per
+vertex for the horizon presets at their defaults, one per face per observer
+for the viewshed. In Geometry Nodes that is 163 s, about 210 s and 229 s
+(100 observers) on 10M triangles, past the M5 exit. Their fast paths cast the
+same rays with the ray bake engine and store an ordinary layer (origin
+ANALYSIS, the preset's domain, units and aggregation, provenance tool
+`analysis_bake` naming the preset version it reproduces, the method, the
+inputs and the run). The user picks the engine in Add Analysis (*Fast
+(bake)*, or the "(Fast Bake)" menu entries); the live preset stays.
+[analysis-presets.md](../analysis-presets.md#fast-bake-paths) has the
+user-facing description, agreement and timings.
+
+**The horizon presets, ray for ray.** One sample per vertex: its position and
+vertex normal (Geometry Nodes' point domain), so values are spread onto the
+vertex's corners as the preset stores them. The probe is a chain of one
+*direction* group per azimuth (`Directions`, from +Y), each a chain of
+`Steps` *step* groups. A step takes the bracket (lo, hi) as a vector,
+computes its elevation (0 for the first step, else the midpoint), casts one
+Raycast node of length Max Distance from the vertex moved Ray Offset along
+its normal (against it for negative openness), and returns the new bracket:
+a hit raises lo (from below, a miss does). The direction group then adds the
+final midpoint and the sine of its positive part to the running sum, so the
+bake emits (Σγ, Σ sin γ⁺, 1). Numpy turns that into the preset's formula.
+`geotools.analysis.preset_bake.bisect_horizon` is the same bisection in numpy
+over a hit function, which the tests run with exact ray-surface intersections.
+Each step is about 15 shader nodes, so the shader's arithmetic, not the
+traversal of 2 m rays, sets the rate: 14 to 20 Mrays/s at 10M.
+
+**The cumulative viewshed.** One sample per face (centre, face normal). Each
+observer is one 6-node group with its eye as a socket value: the Raycast
+node's Direction is eye − (centre + Ray Offset × normal + Target Height),
+unnormalised, with Length 1, so it covers exactly the segment to the eye
+(pitfall 4 above); Length 0 skips a face that faces away (Target Height 0) or,
+when not every eye is in range of every face, one beyond Max Distance in plan
+(compared as float32 below the next float up, i.e. ≤). The count runs as one
+float. A first version with a normalised direction, a length, a spare-slot
+input and the plan test always on was 16 nodes per observer and spent most
+of its time in the shader: with no ray cast at all it took 4.4 of its 5.1 s
+at 1M. The blocks now hold exactly the observers left (no spare slots), and
+the bake went from 59 s to 36–45 s at 10M with 100 observers. The observers
+come from the library's own *Object Points* and *Drape* groups, evaluated
+once on a temporary object, so they are the live preset's points.
+
+**Samples parked.** The sample triangles sit in a grid below everything a
+ray can reach (Max Distance, or the hull of the samples and the eyes), so no
+ray meets one; sun hours keeps its samples at the sample points.
+
+**Occluders.** Cycles' Raycast meets whatever renders, so for the bake every
+object except the meshes the analysis is on (and the viewshed's Occluders
+collection) is hidden from the render, and restored after. That matches the
+live presets, which see only their own geometry and the Occluders, except
+that several selected meshes shade each other here.
+
+**Agreement and timings.** Identical to the live presets away from mesh
+edges on the analytic tests; on a 1M-triangle terrain identical on 99.98 % of
+interior corners, the rest where a bisection ray grazes the surface within
+float32. On the trench the fast path also matches exact intersections near
+the edge, where the live preset does not on 13 % of corners (not explained).
+At 10M triangles (shared machine): SVF 37–40 s, openness 47–52 s, the
+viewshed with 100 observers 49–65 s, of which about 16 s is fixed (8.4 s to
+build the 10M-face sample object, 6.8 s for Cycles' sync and BVH, 3 s to drape
+the observers).
+
 ## How the later M5 tools build on this
 
 - **Sun hours, insolation and shadow studies** are built: see the next
@@ -1072,6 +1149,13 @@ the meshes and one signed-distance pass over every vertex per segment).
   against pvlib. Deferred: monthly turbidity, the Perez anisotropic sky,
   ground-reflected light, and measured or typical-year weather (TMY) files,
   which would replace the clear sky with real totals.
+- **Fast preset paths in the ray bake, not a raster scan.** The horizon
+  presets could have run on a height raster (as RVT does), but that is 2.5D
+  and a second code path; the bake casts the preset's own rays on the mesh,
+  so walls and overhangs behave as in the live preset, and it reuses the sun
+  hours engine (now `ray_bake.py`). Deferred: the same for the local relief
+  model (67 s at 10M), a texture-domain fast path, and building the sample
+  object from images rather than 10M tiny triangles (most of the fixed cost).
 - **Deferred for sun hours:** cancelling a run between bakes (each bake is
   Blender's and blocks the UI), a GPU device (bakes use the CPU, as the
   texture bake does), and faster sample building and bake set-up for

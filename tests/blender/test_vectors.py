@@ -39,9 +39,9 @@ def _project(mode: str = "SOURCE_CRS") -> None:
     props = h.project()
     if mode == "SOURCE_CRS":
         props.placement_mode = "SOURCE_CRS"
-        props.source_crs = "EPSG:7856"
-        props.source_offset_e = repr(E0)
-        props.source_offset_n = repr(N0)
+        props.crs = "EPSG:7856"
+        props.origin_e = repr(E0)
+        props.origin_n = repr(N0)
         props.source_offset_a = repr(A0)
     else:
         props.placement_mode = mode
