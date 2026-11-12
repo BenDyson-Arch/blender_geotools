@@ -102,11 +102,13 @@ def presentation_issues(
     palette: str,
     range_min: float | None,
     range_max: float | None,
+    scale: str = "LINEAR",
 ) -> list[Issue]:
     """Problems with presenting ``spec`` this way that need no data to find.
 
     The range is the parsed ``range_min``/``range_max`` text (None for empty,
-    which means auto). CATEGORY layers ignore the palette and range.
+    which means auto). CATEGORY layers ignore the palette, range and scale. A
+    ``"LOG"`` scale needs positive range ends.
     """
     issues: list[Issue] = []
     subject = spec.name
@@ -155,6 +157,15 @@ def presentation_issues(
                 subject,
             )
         )
+    if scale == "LOG" and any(v is not None and v <= 0 for v in (range_min, range_max)):
+        issues.append(
+            Issue(
+                Severity.ERROR,
+                VARIANT_RANGE_INVALID,
+                f"Layer {spec.name!r}: a log scale needs a positive ramp minimum and maximum.",
+                subject,
+            )
+        )
     return issues
 
 
@@ -173,11 +184,12 @@ def variant_record(
     category_rgba: np.ndarray | None = None,
     nodata_rgba: Sequence[int] = (0, 0, 0, 0),
     stops: int = LEGEND_STOPS,
+    scale: str = "LINEAR",
 ) -> dict[str, object]:
     """The ``"variant"`` object of build.json, JSON-safe, in a stable key order.
 
     Keys: ``layer``, ``target``, ``blend``, ``palette`` (null for CATEGORY),
-    ``range`` (``{"min", "max", "auto_min", "auto_max"}``, null for CATEGORY),
+    ``scale`` (``"LINEAR"`` or ``"LOG"``, null for CATEGORY), ``range`` (``{"min", "max", "auto_min", "auto_max"}``, null for CATEGORY),
     ``nodata_rgba``, and either ``ramp_stops`` (legend entries
     ``{"value", "rgba"}`` from ``core.ramps.ramp_stops``) or ``categories``
     (``{"value", "label", "rgba"}``). Colours are 8-bit sRGB RGBA lists.
@@ -191,6 +203,7 @@ def variant_record(
         if category_rgba is None:
             raise ValueError("a CATEGORY variant needs category_rgba")
         record["palette"] = None
+        record["scale"] = None
         record["range"] = None
         record["nodata_rgba"] = _rgba_list(nodata_rgba)
         record["categories"] = [
@@ -202,6 +215,7 @@ def variant_record(
         raise ValueError("a ramp variant needs a palette and a value range")
     low, high = (float(v) for v in value_range)
     record["palette"] = palette
+    record["scale"] = scale
     record["range"] = {
         "min": low,
         "max": high,
@@ -209,5 +223,5 @@ def variant_record(
         "auto_max": bool(range_auto[1]),
     }
     record["nodata_rgba"] = _rgba_list(nodata_rgba)
-    record["ramp_stops"] = ramp_stops(palette, low, high, stops)
+    record["ramp_stops"] = ramp_stops(palette, low, high, stops, log=scale == "LOG")
     return json_safe(record)  # type: ignore[return-value]

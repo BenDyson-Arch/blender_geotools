@@ -294,3 +294,13 @@ def test_stored_values_match_blender_types() -> None:
     assert vm.stored_values(Column("a", ColumnType.FLOAT, np.array([1.5]))).dtype == np.float32
     assert vm.stored_values(Column("a", ColumnType.INT, np.array([2]))).dtype == np.int32
     assert vm.stored_values(Column("a", ColumnType.STRING, ["é"])) == ["é".encode()]
+
+
+def test_float32_attributes_are_written_as_their_shortest_decimal() -> None:
+    values = np.array([0.1, 123.4, 2345.25, np.nan, -1e-7, 3.4e38], dtype=np.float32)
+    out = vm.shortest_float64(values)
+    assert out.dtype == np.float64
+    assert out[:3].tolist() == [0.1, 123.4, 2345.25]
+    assert np.isnan(out[3]) and out[4] == -1e-7
+    assert (out.astype(np.float32)[~np.isnan(out)] == values[~np.isnan(values)]).all()
+    assert vm.shortest_float64(np.array([0.1])).tolist() == [0.1]

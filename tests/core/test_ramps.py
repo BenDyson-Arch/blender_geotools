@@ -193,3 +193,19 @@ def test_srgb_bytes_to_linear() -> None:
         srgb_bytes_to_linear(rgba.astype(np.float32))
     with pytest.raises(ValueError):
         srgb_bytes_to_linear(rgba[:, :3])
+
+
+def test_log_ramp_spaces_colours_by_decades() -> None:
+    values = np.array([1.0, 10.0, 100.0, 1000.0, 0.0, -5.0, np.nan])
+    rgba = apply_ramp(values, 1.0, 1000.0, "viridis", log=True, nodata_rgba=(1, 2, 3, 4))
+    linear = apply_ramp(np.array([0.0, 1.0 / 3, 2.0 / 3, 1.0]), 0.0, 1.0, "viridis")
+    assert (rgba[:4] == linear).all()
+    assert (rgba[4] == rgba[0]).all() and (rgba[5] == rgba[0]).all()  # <= 0: the low end
+    assert rgba[6].tolist() == [1, 2, 3, 4]
+    with pytest.raises(ValueError):
+        apply_ramp(values, 0.0, 10.0, "viridis", log=True)
+    low, high = auto_range(np.array([0.0, -1.0, 2.0, 3.0, 5000.0]), log=True)
+    assert low > 0 and high == 5000.0
+    stops = ramp_stops("viridis", 1.0, 1000.0, 4, log=True)
+    assert [s["value"] for s in stops] == pytest.approx([1.0, 10.0, 100.0, 1000.0])
+    assert stops[1]["rgba"] == rgba[1].tolist()

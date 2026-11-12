@@ -15,9 +15,11 @@ from . import (
     analysis_presets,
     bake_texture,
     checks,
+    contours,
     crs_picker,
     data_origin,
     glb_export,
+    hydrology,
     layers,
     links,
     operators,
@@ -57,6 +59,8 @@ MODULES: tuple[ModuleType, ...] = (
     analysis,
     sun_hours,
     analysis_presets,
+    hydrology,
+    contours,
     panels,  # last: the sidebar draws what the modules above register
 )
 

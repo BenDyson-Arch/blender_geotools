@@ -141,8 +141,12 @@ def apply_ramp(
     *,
     nodata: float | None = None,
     nodata_rgba: Sequence[float] = (0, 0, 0, 0),
+    log: bool = False,
 ) -> np.ndarray:
     """Map ``values`` through ``palette``: ``(N, 4) uint8`` sRGB RGBA.
+
+    With ``log`` the ramp is spaced by ``log10`` between ``vmin`` and ``vmax``,
+    which must then be positive; values at or below 0 get the low end.
 
     ``vmin`` maps to the first stop and ``vmax`` to the last; values outside
     are clamped to the ends. NaN, infinities and ``nodata`` (compared in the
@@ -155,6 +159,10 @@ def apply_ramp(
     vmin, vmax = float(vmin), float(vmax)
     if not (math.isfinite(vmin) and math.isfinite(vmax)) or vmin > vmax:
         raise ValueError(f"the ramp range must be finite with min <= max, got {vmin!r}, {vmax!r}")
+    if log:
+        if vmin <= 0.0:
+            raise ValueError(f"a log ramp needs a positive range, got {vmin!r}, {vmax!r}")
+        vmin, vmax = math.log10(vmin), math.log10(vmax)
     missing_rgba = _rgba(nodata_rgba)
     last = stops.shape[0] - 1
     out = np.empty((data.shape[0], 4), dtype=np.uint8)
@@ -163,6 +171,10 @@ def apply_ramp(
     for start in range(0, data.shape[0], _CHUNK):
         block = data[start : start + _CHUNK].astype(np.float64)
         missing = _missing(data[start : start + _CHUNK], nodata)
+        if log:
+            with np.errstate(divide="ignore", invalid="ignore"):
+                block = np.where(block > 0.0, np.log10(np.where(block > 0.0, block, 1.0)), -np.inf)
+            block[np.isnan(data[start : start + _CHUNK])] = np.nan
         if span > 0.0:
             t = (block - vmin) / span
         else:
@@ -228,8 +240,13 @@ def auto_range(
     percentiles: tuple[float, float] = (2, 98),
     *,
     max_samples: int = _MAX_SAMPLES,
+    log: bool = False,
 ) -> tuple[float, float]:
     """A ramp range from the values present: the given percentiles.
+
+    With ``log``, of the positive values only, up to the largest: a log ramp
+    is for values spanning decades (flow accumulation), where the few largest
+    are the point.
 
     NaN, infinities and ``nodata`` are ignored. Arrays longer than
     ``max_samples`` are subsampled with an even stride (deterministic), which
@@ -243,6 +260,9 @@ def auto_range(
     if max_samples > 0 and data.shape[0] > max_samples:
         data = data[:: -(-data.shape[0] // max_samples)]
     kept = data[~_missing(data, nodata)]
+    if log:
+        kept = kept[kept > 0]
+        high_p = 100.0
     if kept.size == 0:
         raise ValueError("there are no values to take a range from (all are no-data)")
     low, high = np.percentile(kept.astype(np.float64), (low_p, high_p))
@@ -250,9 +270,11 @@ def auto_range(
 
 
 def ramp_stops(
-    palette: str | np.ndarray, vmin: float, vmax: float, n: int = 11
+    palette: str | np.ndarray, vmin: float, vmax: float, n: int = 11, *, log: bool = False
 ) -> list[dict[str, object]]:
     """``n`` evenly spaced legend entries ``{"value": float, "rgba": [r, g, b, a]}``.
+
+    With ``log`` they are evenly spaced in ``log10``.
 
     The colours are exactly what :func:`apply_ramp` gives at those values, so a
     legend drawn from them matches the published tiles.
@@ -260,10 +282,14 @@ def ramp_stops(
     n = int(n)
     if n < 2:
         raise ValueError(f"a legend needs at least two stops, got {n}")
-    values = np.linspace(float(vmin), float(vmax), n)
+    if log:
+        values = np.geomspace(float(vmin), float(vmax), n)
+        values[[0, -1]] = float(vmin), float(vmax)
+    else:
+        values = np.linspace(float(vmin), float(vmax), n)
     if vmin == vmax:
         values[:] = float(vmin)
-    colours = apply_ramp(values, vmin, vmax, palette)
+    colours = apply_ramp(values, vmin, vmax, palette, log=log)
     return [
         {"value": float(v), "rgba": [int(c) for c in rgba]}
         for v, rgba in zip(values.tolist(), colours, strict=True)

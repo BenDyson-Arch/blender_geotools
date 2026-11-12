@@ -21,7 +21,8 @@ The panels follow the workflow top to bottom, and each header shows its state
   Table, Earth-Placed) and the Publish (or Export) button.
   - Build Settings: Apply Modifiers, rusty-tiles quality, threads and memory.
   - Last Build: what the last publish wrote, and Preview (.3tz only).
-- Analysis: the sun, and coordinates and measurement (``analysis_ui``).
+- Analysis: the sun, and coordinates and measurement (``analysis_ui``); hydrology,
+  and contours and sections (``surface_ui``).
 - About: version and dependencies.
 
 Registration order is the sidebar order. Panels draw cached state only and
@@ -48,7 +49,16 @@ from ..core.layers import (
     parse_number,
     validate,
 )
-from . import analysis_ui, bake_texture, crs_picker, links_ui, presentation, publish, vector_publish
+from . import (
+    analysis_ui,
+    bake_texture,
+    crs_picker,
+    links_ui,
+    presentation,
+    publish,
+    surface_ui,
+    vector_publish,
+)
 from .common import draw_dependency_status, extension_version
 from .layers import (
     ATTRIBUTE_MISSING,
@@ -801,6 +811,7 @@ classes = (
     GEOTOOLS_PT_publish_settings,
     GEOTOOLS_PT_publish_last,
     *analysis_ui.classes,
+    *surface_ui.classes,
     GEOTOOLS_PT_about,
 )
 
