@@ -155,18 +155,18 @@ defaults, the viewshed with 100 draped observers; Blender 5.2.4, 16 threads,
 a machine shared with other jobs at load averages of 8 to 17, so upper
 bounds):
 
-| Preset | 1M triangles | 10M triangles | Live preset, 10M |
+| Preset | 1M triangles | 10M triangles | Live preset, 1M / 10M |
 |---|---|---|---|
-| sky-view factor | 3.4 s | 37–40 s | 163 s |
-| positive openness | 4.1 s | 47–49 s | ~210 s |
-| negative openness | 4.3 s | 52 s | ~210 s |
-| cumulative viewshed, 100 observers | 3.1 s | 49–65 s | 229 s |
+| sky-view factor | 4.2 s | 37–40 s | 12.5 s / 163 s |
+| positive openness | 5.0 s | 47–49 s | 15–19 s / ~210 s |
+| negative openness | 5.0–5.4 s | 52 s | 15–19 s / ~210 s |
+| cumulative viewshed, 100 observers | 3.6 s | 49–65 s | 11 s / 229 s |
 
 Fixed cost, separately (the cumulative viewshed with no ray cast): at 10M,
 8.4 s to read the mesh and build the sample object of 10M faces (3.9 s for
 the horizon presets' 5M vertices), 6.8 s for Cycles to sync the scene and
 build its BVH, and 3 s to drape the observers (the live preset's own Drape
-group, one BVH build); at 1M, about 2 s in all. Beyond that, the horizon presets
+group, one BVH build); at 1M, 1.5 s in all. Beyond that, the horizon presets
 cast 640M rays at 10M in 31 to 41 s (14 to 20 Mrays/s with the shader's
 bisection arithmetic), and the viewshed 1,000M rays in 29 to 39 s (25 to
 35 Mrays/s): the six shader nodes per observer cost more than the traversal.
@@ -789,7 +789,7 @@ minute at 10M except **the cumulative viewshed beyond about 25 observers**:
 about 2.2 s per observer at 10M faces, so 100 observers take four minutes.
 Its [fast path](#fast-bake-paths) casts the same sight lines in a Cycles bake,
 one Raycast node per observer: 100 observers on 10M faces in 49 to 65 s on
-this shared machine (about 16 s of it fixed cost), 3.1 s at 1M.
+this shared machine (about 16 s of it fixed cost), 3.6 s at 1M.
 
 ## What stock nodes cannot do well
 
