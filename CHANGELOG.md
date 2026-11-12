@@ -7,6 +7,11 @@ and the project follows semantic versioning where practical.
 
 ## [Unreleased]
 
+## [0.3.0] - Unreleased
+
+GeoTools is being rebuilt to create, analyse and publish OGC 3D Tiles with
+rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
+
 ### Added
 
 - Texture cleanup (M6), in a new **Textures** panel between Layers and Checks
@@ -68,13 +73,6 @@ and the project follows semantic versioning where practical.
   source (Geometry Proximity), the texels per m² of each face, and levels
   compared one depth at a time or side by side. The design is in
   `docs/design/m7-output-inspection.md`; `scripts/bench_inspect.py` times it.
-
-## [0.3.0] - Unreleased
-
-GeoTools is being rebuilt to create, analyse and publish OGC 3D Tiles with
-rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
-
-### Added
 
 - Interoperability with BlenderGIS and other Blender GIS tools. A CRS
   project's CRS and origin are now kept in the scene's GeoScene keys (`SRID`,
