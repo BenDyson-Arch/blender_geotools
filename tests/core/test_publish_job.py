@@ -426,6 +426,7 @@ def test_source_hashes_and_crs_epsg(tmp_path: Path, monkeypatch) -> None:
     assert record["source"] == {
         "glb_sha256": glb,
         "blend_sha256": hashlib.sha256(blend.read_bytes()).hexdigest(),
+        "images": [],
     }
     assert record["source"]["glb_sha256"] == job.result.glb_sha256
     assert record["placement"]["crs_epsg"] == "EPSG:7856"
@@ -452,7 +453,8 @@ def test_publish_success_and_record(tmp_path: Path) -> None:
     images = st.images_dir_for(out)
     images.mkdir(parents=True)
     (images / "leftover.png").write_bytes(b"x")
-    job = BuildJob(grid_scene(), request(out, profile="fast", jobs=2))
+    image_record = {"name": "albedo", "origin": "file", "sha256": "ab" * 32}
+    job = BuildJob(grid_scene(), request(out, profile="fast", jobs=2, images=[image_record]))
     events = run(job)
     assert job.state is JobState.DONE, job.error
     assert job.error is None
@@ -492,7 +494,11 @@ def test_publish_success_and_record(tmp_path: Path) -> None:
         "crs_epsg": None,
         "crs_operation": None,
     }
-    assert record["source"] == {"glb_sha256": result.glb_sha256, "blend_sha256": None}
+    assert record["source"] == {
+        "glb_sha256": result.glb_sha256,
+        "blend_sha256": None,
+        "images": [image_record],  # M6: the source images' hashes, as handed over
+    }
     assert record["rusty_tiles_version"] == "0.4.0"
     assert record["geotools"] == {"geotools_version": "test", "build_profile": "Test"}
     assert record["started_utc"].endswith("Z") and record["finished_utc"].endswith("Z")

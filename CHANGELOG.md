@@ -7,6 +7,48 @@ and the project follows semantic versioning where practical.
 
 ## [Unreleased]
 
+### Added
+
+- Texture cleanup (M6), in a new **Textures** panel between Layers and Checks
+  ([docs/texture-cleanup.md](docs/texture-cleanup.md)). Painting stays
+  Blender's: the docs have recipes for clone and patch across UV islands
+  (projection paint's Clone brush), smear, soften, masks and Quick Edit.
+  GeoTools adds:
+  - **Paint Texture**: one click into Texture Paint on the active object's
+    base colour image, with projection occlusion, backface culling and normal
+    falloff on, and Solid, Flat, Texture shading so the view has no lighting.
+    UV overlaps (any face that uses the image, with the `uv-overlap` rule) are
+    warned about and written as a mask image, which becomes the paint stencil
+    by default, so a stroke cannot change two places at once.
+  - **Fill Holes** (black or transparent texels) and **Remove Masked**
+    (people, vehicles or scale bars painted in a key colour or on a mask
+    image), both by push-pull inpainting that reads and writes only inside the
+    UV islands of the faces that use the image. It is a diffusion fill: it
+    blurs, and it is not content-aware.
+  - **Pad Islands**: island-aware edge padding (each background ring takes
+    the nearest island's colour), optionally filling the whole background, so
+    coarse levels and mipmaps do not bleed it in. It never writes inside an
+    island.
+  - **Fit Balance**, **Apply Balance**: a per-page, per-channel gain and
+    offset in linear light, fitted (robustly) to colour samples on both sides
+    of the 3D seams between atlas pages, previewed with a shader node before
+    it is applied to the pixels.
+  - **Undo Cleanup** puts back the images the last tool changed (one level).
+  - Publish saves every edited source image first (repacked, saved to its
+    file, or saved as `//textures/<image>.png`), so a painted texture is never
+    lost or published stale. `build.json` records each source image's SHA-256
+    in `source.images`. The Publish panel shows "N textures changed since last
+    publish", and Run Checks reports `image-unsaved`, `textures-changed` and
+    `texture-balance-preview` (an error: the preview node would publish a flat
+    colour). Publishing still means a full retile until rusty-tiles'
+    appearance-only rebuild lands. A Blender test repaints part of a texture,
+    republishes, and checks that leaf and coarse tiles both get new texture
+    bytes.
+  - `core.uv_overlap.texel_coverage`: how many UV triangles own each texel,
+    with the `uv-overlap` raster rule; `core.texture_cleanup` and
+    `core.texture_state` hold the bpy-free maths and records.
+    `scripts/bench_texture_cleanup.py` times the tools on 8K pages.
+
 ## [0.3.0] - Unreleased
 
 GeoTools is being rebuilt to create, analyse and publish OGC 3D Tiles with

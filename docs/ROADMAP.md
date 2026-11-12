@@ -366,6 +366,15 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
 - Changed images are marked dirty in the project. Publishing still means a
   full retile until B lands.
 - **Exit:** a painted source republishes, and coarse levels pick up the change.
+- *Status:* built ([texture-cleanup.md](texture-cleanup.md)). Painting, clone
+  and patch, smear, soften and masks stay Blender's, as recipes (the
+  projection Clone brush copies across UV islands). GeoTools adds a one-click
+  paint setup with UV overlaps as a stencil, push-pull hole filling and masked
+  object removal inside UV islands, island-aware edge padding, a per-page gain
+  and offset fitted across 3D seams, image hashes in `build.json` with "N
+  textures changed since last publish", and saving edited images before a
+  publish. A Blender test repaints a texture, republishes, and sees new
+  texture bytes in leaf and coarse tiles.
 
 ### M7 Output inspection (needs C: rusty-tiles #369, in 0.4.1)
 

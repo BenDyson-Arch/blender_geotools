@@ -82,8 +82,10 @@ RECORD_SCHEMA = 2
 ``output_type`` (``"3tz"`` or ``"glb"``) and, for a GLB, ``glb``: its file,
 extensions used, options and face table cost (M4). Vector builds (M8) have
 ``output_type`` ``"vector"`` and ``vectors``: the GeoPackage tiled, its tables
-and whether the previous archive was reused. ``placement.crs_operation`` is
-rusty-tiles' ``crsOperation``: the EPSG datum operation and its stated accuracy
+and whether the previous archive was reused. ``source.images`` (M6) lists
+each source image with the SHA-256 of its file or packed bytes
+(``core.texture_state``). ``placement.crs_operation`` is rusty-tiles'
+``crsOperation``: the EPSG datum operation and its stated accuracy
 for an allow-listed code (rusty-tiles 0.4.1; from the conversion report, or for
 a GLB from ``resolve_source_crs``), null for WGS84, WKT and PROJ definitions and
 for older wheels."""
@@ -145,6 +147,9 @@ class BuildRequest:
     glb_record: dict[str, object] = field(default_factory=dict)
     # Vector builds (M8): the features to write and tile (publish.vector.VectorSource).
     vector: vec.VectorSource | None = None
+    # M6: each source image's state and hash (core.texture_state.ImageState.to_record),
+    # recorded as source.images so the next publish can tell which textures changed.
+    images: list[dict[str, object]] = field(default_factory=list)
 
     @property
     def output_type(self) -> str:
@@ -665,7 +670,11 @@ class BuildJob:
                 "crs_epsg": epsg_code(request.placement_kwargs.get("source_crs")),  # type: ignore[arg-type]
                 "crs_operation": crs_operation(report),
             },
-            "source": {"glb_sha256": glb.sha256, "blend_sha256": blend_sha256},
+            "source": {
+                "glb_sha256": glb.sha256,
+                "blend_sha256": blend_sha256,
+                "images": [dict(image) for image in request.images],
+            },
             "layers": [dict(record) for record in request.layers],
             "variant": None if request.variant is None else dict(request.variant),
             "source_glb": {
@@ -766,7 +775,11 @@ class BuildJob:
                 "crs_epsg": epsg_code(request.placement_kwargs.get("source_crs")),  # type: ignore[arg-type]
                 "crs_operation": _resolved_operation(request.placement_kwargs.get("source_crs")),
             },
-            "source": {"glb_sha256": glb.sha256, "blend_sha256": blend_sha256},
+            "source": {
+                "glb_sha256": glb.sha256,
+                "blend_sha256": blend_sha256,
+                "images": [dict(image) for image in request.images],
+            },
             "layers": [dict(record) for record in request.layers],
             "variant": None if request.variant is None else dict(request.variant),
             "glb": {
