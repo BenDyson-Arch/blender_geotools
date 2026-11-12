@@ -541,6 +541,12 @@ def plan(context: bpy.types.Context) -> Plan:
             raise ValueError("The end date is before the start date.")
     steps = core.period_steps(first, last, tz, props.step_minutes)
     horizon = float(props.horizon) if props.horizon > 0 else None
+    from .archaeo import sun_hours_horizon  # archaeo builds on this module
+
+    profile = sun_hours_horizon(context)
+    if profile is not None:  # the far horizon from archaeoastronomy, raised to Horizon
+        azimuths, elevations = profile.as_pair()
+        horizon = (azimuths, np.maximum(elevations, float(props.horizon)))
     sun_steps = core.sun_steps(
         steps,
         where.latitude,
@@ -579,6 +585,18 @@ def plan(context: bpy.types.Context) -> Plan:
         "convergence_deg": where.convergence,
         "north": where.north,
         "horizon_deg": float(props.horizon),
+        "horizon_profile": (
+            None
+            if profile is None
+            else {
+                "from": profile.info.get("eye"),
+                "latitude": profile.info.get("latitude"),
+                "longitude": profile.info.get("longitude"),
+                "azimuths": len(profile.azimuth),
+                "highest_deg": float(profile.elevation.max()),
+                "ignore_within": profile.info.get("ignore_within"),
+            }
+        ),
         **rays.stats,
     }
     if props.insolation:

@@ -72,6 +72,7 @@ __all__ = [
     "crs_input",
     "face_areas",
     "float32_resolution",
+    "line_bearings",
     "measure",
     "read_point",
     "sun_site",
@@ -483,6 +484,47 @@ def measure(placement: Placement, a: Vec3, b: Vec3) -> Measurement:
         combined_scale=combined,
         resolution=max(float32_resolution(ends[0]), float32_resolution(ends[1])),
     )
+
+
+def line_bearings(
+    placement: Placement,
+    starts: Any,
+    ends: Any,
+    *,
+    local_lon_lat: tuple[float, float] | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """True bearings (degrees, [0, 360)) and latitudes of lines from ``starts`` to ``ends``.
+
+    Both are (N, 3) Blender world positions. The grid bearing in the scene
+    plus the convergence at each line's middle, and the latitude there.
+    Zero-length lines give NaN. SOURCE_CRS needs pyproj; ANCHOR uses the
+    anchor's latitude (the frame is its tangent plane); LOCAL takes
+    ``local_lon_lat`` (longitude, latitude) with +Y as true north.
+    """
+    a = _points(np.asarray(starts, dtype=np.float32).astype(np.float64))
+    b = _points(np.asarray(ends, dtype=np.float32).astype(np.float64))
+    if a.shape != b.shape:
+        raise SiteError("starts and ends must have the same shape")
+    d = b - a
+    with np.errstate(invalid="ignore"):
+        grid = np.degrees(np.arctan2(d[:, 0], d[:, 1]))
+    grid = np.where(np.hypot(d[:, 0], d[:, 1]) > 0, grid, np.nan)
+    mode = PlacementMode(placement.mode)
+    n = len(a)
+    if mode is PlacementMode.LOCAL:
+        if local_lon_lat is None:
+            raise SiteError("A local project needs a latitude and longitude.")
+        lon, lat = (float(v) for v in local_lon_lat)
+        _check_lon_lat(lon, lat)
+        return grid % 360.0, np.full(n, lat)
+    if mode is PlacementMode.ANCHOR:
+        lon, lat, _h = (float(v) for v in placement.anchor)
+        _check_lon_lat(lon, lat)
+        return (grid - float(placement.heading_degrees)) % 360.0, np.full(n, lat)
+    located = _locate(placement, (a + b) / 2.0)
+    if located.lat is None:
+        raise SiteError("The project CRS has no latitude.")
+    return (grid + located.convergence) % 360.0, np.asarray(located.lat, dtype=np.float64)
 
 
 # --- area -------------------------------------------------------------------------------

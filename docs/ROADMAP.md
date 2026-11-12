@@ -275,6 +275,10 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
     equinoxes and lunar standstills, and the horizon profile from a point
     with the terrain, which sets when the sun actually clears the skyline.
     Alignment checks against features.
+    - *Status:* built ([m5-analysis.md](design/m5-analysis.md#archaeoastronomy)):
+      the horizon by a Cycles bake, event geometry for epochs within 10,000
+      years of 2000, Meeus' Moon with standstill dates, sightlines as vector
+      lines and the alignment check.
   - **3D surface hydrology:** flow paths, flow accumulation and ponding
     (depressions, spill level, volume) on the mesh's connectivity, so walls,
     overhangs and multi-level surfaces work, which a 2.5D DEM cannot do.

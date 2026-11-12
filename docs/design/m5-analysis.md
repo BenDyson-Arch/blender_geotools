@@ -1,10 +1,11 @@
-# M5 design: the sun, sun hours, coordinates, hydrology, contours and sections
+# M5 design: the sun, sun hours, archaeoastronomy, coordinates, hydrology, contours and sections
 
 Status: the GeoTools-code tools of M5 built so far (see
 [ROADMAP.md](../ROADMAP.md#m5-analysis-library)): the sun, sun hours and
-insolation, coordinates and measurement, 3D surface hydrology, and contours
-and sections out. This note covers what they compute, how accurate it is, the
-north convention, and how the later M5 tools build on them.
+insolation, archaeoastronomy, coordinates and measurement, 3D surface
+hydrology, and contours and sections out. This note covers what they compute,
+how accurate it is, the north convention, and how the later M5 tools build on
+them.
 
 The scope rule decides the split. GeoTools computes only what needs the
 georeference: where the sun is from this site at this moment, and where a
@@ -20,9 +21,14 @@ shadows, Cycles and EEVEE render them, and Cycles casts the rays of sun hours.
 | `geotools/analysis/site.py` | Scene points on Earth: E/N/RL, latitude and longitude, grid convergence, the combined scale factor, distances and areas. Uses pyproj. |
 | `geotools/analysis/sun_hours.py` | Sun hours and insolation, bpy-free: time steps over a period, the sun's rays and their weights, merging nearby directions, sky directions, the reference sum, ray offsets, equinox and solstice moments. |
 | `geotools/analysis/clearsky.py` | The Ineichen–Perez clear-sky model. |
+| `geotools/analysis/moon.py` | Meeus' lunar theory (ch. 47), apparent and topocentric, vectorised; the mean node and its crossings. |
+| `geotools/analysis/_moon_tables.py` | Meeus' Tables 47.A and 47.B. |
+| `geotools/analysis/horizon.py` | The horizon from a point: ray fans, best hits with curvature and terrestrial refraction, Bennett's refraction, the `HorizonProfile`. |
+| `geotools/analysis/archaeo.py` | Rise and set for a declination against a horizon, dated sunrises, lunar standstills, the declination inversion, alignments, calendar dates (Julian and Gregorian). |
 | `geotools/blender/analysis.py` | Settings and results on `scene.geotools_analysis`, and the sun and measurement operators. |
 | `geotools/blender/sun_hours.py` | The sun hours engine (Cycles bakes of Raycast nodes), the layers it writes, and the shadow study. |
-| `geotools/blender/analysis_ui.py` | The Analysis panel and its Sun, Sun Hours, Shadow Study and Coordinates sub-panels, before About. |
+| `geotools/blender/archaeo.py` | Archaeoastronomy settings (`scene.geotools_analysis.archaeo`), the horizon bake, events, sightlines and the alignment check. |
+| `geotools/blender/analysis_ui.py` | The Analysis panel and its Sun, Sun Hours, Shadow Study, Archaeoastronomy (`archaeo_ui.py`) and Coordinates sub-panels, before About. |
 | `geotools/analysis/hydrology.py` | 3D surface hydrology, bpy-free: the face graph, drops, filling, routing, accumulation and depressions. |
 | `geotools/analysis/slicing.py` | Contours and sections: plane-triangle cuts, levels in the height datum, chainage. |
 | `geotools/analysis/polylines.py` | Segments chained into open and closed polylines (pointer doubling). |
@@ -34,11 +40,14 @@ shadows, Cycles and EEVEE render them, and Cycles casts the rays of sun hours.
 `geotools/analysis` is bpy-free, like `geotools/core`, and
 `tests/core/test_no_bpy.py` checks it. Its tests are `tests/core/test_sun.py`,
 `tests/core/test_site.py`, `tests/core/test_sun_hours.py`,
-`tests/core/test_hydrology.py` and `tests/core/test_slicing.py`. The operators
-are tested in `tests/blender/test_analysis.py`, `tests/blender/test_sun_hours.py`
-and `tests/blender/test_surface_tools.py`. `scripts/bench_sun_hours.py` times sun
-hours on a synthetic town, and `scripts/bench_hydrology.py` hydrology,
-contours and sections on a synthetic site.
+`tests/core/test_archaeo.py`, `tests/core/test_hydrology.py` and
+`tests/core/test_slicing.py`. The operators are tested in
+`tests/blender/test_analysis.py`, `tests/blender/test_sun_hours.py`,
+`tests/blender/test_archaeo.py` and `tests/blender/test_surface_tools.py`.
+`scripts/bench_sun_hours.py` times sun hours on a synthetic town,
+`scripts/bench_archaeo.py` the horizon on a synthetic valley, and
+`scripts/bench_hydrology.py` hydrology, contours and sections on a synthetic
+site.
 
 ## Sun position
 
@@ -390,10 +399,14 @@ understates it towards it.
 
 Terrain beyond the mesh is unknown, so the sun counts from 0° elevation. The
 **Horizon** setting raises the horizon in every direction (for a valley, or
-a city of unmodelled buildings); `sun_hours.horizon_elevation` also takes a
-profile of (true azimuth, elevation) pairs, interpolated linearly and
-periodically, for archaeoastronomy's horizon tool to supply later. Sun steps
-and sky rays below it are dropped.
+a city of unmodelled buildings). **Use Horizon Profile** takes the profile
+computed under Archaeoastronomy instead: (true azimuth, apparent altitude)
+pairs, interpolated linearly and periodically (`sun_hours.horizon_elevation`),
+raised to **Horizon** where that is higher. Sun steps and sky rays below it
+are dropped. The profile is seen from one point and applies to every sample,
+so it suits terrain far away compared with the site; its **Ignore Within**
+leaves out the near terrain, which the bake's own rays already meet. The
+provenance records where the profile was taken from.
 
 ### Provenance
 
@@ -456,6 +469,295 @@ not: it is 10M samples × several hundred rays, about 2.5 minutes at 5°. For
 a year on a large mesh, use a texture layer (1024² or 2048²), merge within
 5°, or both. Cost is samples × rays plus the fixed cost per bake, so the
 panel's numbers predict a run: the result shows samples, rays and bakes.
+
+## Archaeoastronomy
+
+**What it computes.** From an observer point (the 3D cursor or a click, as
+Coordinates), in the Archaeoastronomy sub-panel:
+
+1. the **horizon profile**: the apparent altitude of the skyline at every
+   azimuth (default every 0.5°), relative to true north, with the scene's
+   meshes as the terrain;
+2. **events**: where the sun rises and sets at the solstices and equinoxes,
+   and the Moon at the major and minor standstills, for a chosen **epoch**
+   (any year within 10,000 years of 2000), on the astronomical horizon and on
+   the profile; and the sunrise and sunset times and azimuths on the Sun
+   panel year's equinoxes and solstices and on the Sun panel date;
+3. **sightlines**: a mesh of lines from the eye towards each event, which
+   Export Vectors writes as GeoPackage or GeoJSON lines and the vector publish
+   publishes;
+4. an **alignment check**: the true azimuth of each selected edge (a wall or
+   passage axis imported with M8, say), the nearest events in either direction
+   along it, and the declination it points to.
+
+Results are tables, not layers: they are copied to the clipboard at full
+precision (tab-separated) and stored as JSON of binary64 floats.
+
+### The horizon profile
+
+**Rays.** For each azimuth the observer's eye (the point plus **Eye Height**,
+default 1.6 m) casts a fan of rays in the vertical plane, from −10° to +60°
+every 0.1°. A ray stops at its first hit, which is a terrain point the eye
+can see; the skyline is the visible point that appears highest. A second pass
+casts 64 rays inside the 0.1° above each azimuth's best hit, so the skyline is
+found to about 0.002°. At 0.5° azimuth steps that is 504,720 rays and then
+46,080. A skyline above 60° (an observer under a roof) is marked closed; an
+azimuth no ray hits is open and takes **Open Horizon** (default 0°).
+
+**The engine is the sun hours one, turned around.** Sun hours bakes a few
+hundred rays per sample over millions of samples; here there is one origin
+and half a million directions. So each ray is one sample of the temporary
+sample object (`sun_hours.build_sample_object`): one tiny triangle per ray
+on its own texel, with the ray's direction as the sample's normal attribute.
+A probe material with a single Cycles `Raycast` node casts from the eye along
+it and emits (hit, hit distance, 1). One EMIT bake casts every ray of a pass
+with Cycles' BVH, with no Python loop over rays or faces. The triangles are
+parked a grid apart well below the terrain (4× its extent, at least 10 km),
+where only a ray pointing almost straight down could meet one; the fan never
+does. Everything that renders is terrain (the source objects are shown for
+the bake); hide an object from renders to leave it out.
+
+**Curvature and refraction.** A visible point at horizontal ground distance
+d and height Δz above the eye appears at
+
+    e = atan(Δz / d) − (1 − k) d / 2R
+
+with R = 6,371 km and k the coefficient of terrestrial refraction (0.13
+when **Refraction** is on, else 0); **Earth Curvature** off drops the second
+term. At 10 km the term is 0.039° (k = 0.13), at 50 km 0.20°. Grid distances
+are divided by the combined scale factor at the observer to give ground
+metres. Curvature never makes a point hidden in the flat scene visible (its
+drop grows with distance), so first hits suffice. The arc-to-chord
+correction of a straight grid line (seconds of arc over tens of km) is
+ignored.
+
+**North.** Rays are cast at scene azimuths, true azimuth minus the
+convergence at the observer (`site.sun_site`), so the profile is in true
+azimuths. A test in MGA zone 56 checks the turn.
+
+**The edge of the terrain.** Where the skyline point lies within 1 % of the
+terrain's extent from the edge of its bounding box, the skyline is probably
+the end of the mesh rather than the real horizon, and the panel says how many
+azimuths that is. Real horizons are often 10 to 50 km away: extend the
+terrain there (a coarse regional DEM around a detailed site is enough).
+
+**Ignore Within** starts the rays that far from the eye, leaving out nearer
+terrain: a far horizon for sun hours, whose bake meets the near terrain
+itself.
+
+**Accuracy against known answers** (`tests/blender/test_archaeo.py`): an
+east-west ridge 8.4 m above the eye with its face 100 m north gives
+atan(8.4 cos A / 100) at azimuth A; the profile matches it within 0.003° from
+285° to 75°. A ridge 498.4 m above the eye at 20 km is within 0.003° of the
+closed form with curvature off, with curvature (−0.0899°) and with
+curvature and terrestrial refraction (−0.0782°). The edge of a 400 m slab is
+flagged, and its dip below level, atan(1.6 / 200), matches.
+
+### Refraction of the sky
+
+A body is on the horizon when the true altitude of its chosen limb equals the
+horizon's apparent altitude h less the refraction there:
+
+    h_true = h − R(h),   R = cot(h + 7.31 / (h + 4.4)) arc minutes
+
+(Bennett 1982, Meeus eq. 16.4, at 1010 hPa and 10 °C): 34.5′ at h = 0, 9.9′
+at 5°. Below −1° (an observer above the land around) the value at −1° is
+used. **Refraction** off sets R to 0 (and k to 0). Real refraction near the
+horizon varies by several arc minutes with temperature and pressure, and by
+much more in inversions; it, and the horizon itself, limit an archaeoastronomical
+azimuth more than any ephemeris here. **Limb** chooses the upper limb (first
+or last gleam, the default), the centre, or the lower limb (the disc just
+clear).
+
+### Rise and set for a declination
+
+For epoch geometry the declination is fixed, and `archaeo.rise_set_azimuths`
+traces the body's diurnal circle in steps of 0.01° of hour angle, with its
+altitude and azimuth at each, and finds where the limb's true topocentric
+altitude crosses the horizon's (h − R(h)) by linear interpolation. Rise is
+the first crossing upwards after lower culmination and set the last one
+downwards, so a jagged skyline that hides a body for a while gives the outer
+pair. It is vectorised over the declinations and needs no root-finding, so it
+cannot miss a crossing behind a notch. Without refraction, limb or parallax on
+a flat horizon it gives cos A = sin δ / cos φ to 1×10⁻⁴°.
+
+**Parallax.** The Moon's horizontal parallax π (about 0.95°) lowers it at the
+horizon by p with sin p = sin π cos h′. It is in the trace (mean π =
+0.9507°, or the ephemeris' π at the extreme) and in the inversion. The
+Moon's semi-diameter is asin(0.2725 sin π); its small topocentric
+augmentation (under 0.3′, nil at the horizon) is ignored. The sun's parallax
+(8.8″) is SPA's.
+
+**The inversion** (`archaeo.declination`): along an azimuth A with horizon
+altitude h, the body's centre is at true altitude h − R(h) − limb, parallax
+is added back to give the geocentric altitude h_g, and
+
+    sin δ = sin φ sin h_g + cos φ cos h_g cos A.
+
+A test round-trips 150 cases (latitudes to ±60°, declinations to ±28°,
+horizons −0.5° to 6°, each limb, with and without lunar parallax) within
+0.002°: the trace step.
+
+### Epochs and the obliquity
+
+The event geometry takes its declinations from the mean obliquity ε at the
+epoch: ±ε at the solstices, 0 at the equinoxes, ±(ε + i) at a major
+standstill and ±(ε − i) at a minor one, with i = 5.1454°. ε is Laskar's
+(1986) polynomial, as in SPA (`sun.mean_obliquity`), fitted for 10,000 years
+either side of J2000 and good to 0.01″ over 1,000 years and a few arc seconds
+at the ends; epochs beyond that are refused. A test evaluates it
+independently and against the IAU 2006 polynomial (within 0.5″ from 1000 to
+3000 CE and 0.002° at 3000 BCE).
+
+| Epoch | ε | June sunrise at 51.18° N, flat horizon, upper limb | December sunrise |
+|---|---|---|---|
+| 2026 CE | 23.4358° | 49.25° | 128.04° |
+| 1 CE | 23.6947° | 48.75° | 128.53° |
+| 2000 BCE | 23.9239° | 48.30° | 128.96° |
+| 3000 BCE | 24.0209° | 48.11° | 129.14° |
+| 8000 BCE | 24.2329° | 47.70° | 129.54° |
+
+So 3000 BCE moves the solstice declination by 0.58° and the June sunrise at
+that latitude by 1.1°. The epoch stands for the middle of its year; ε moves
+by 0.5″ a year, so the day does not matter. Nutation (±9″ in ε) is left out
+of the epoch geometry: it is real but not what a monument would mark. Years
+are astronomical (0 is 1 BCE, −2999 is 3000 BCE) and shown both ways.
+
+**How far back to trust it** (shown in the panel for the chosen epoch):
+
+- Declinations: ε to arc seconds within the 10,000 years; lunar extremes to
+  about 0.01°. Refraction outweighs both.
+- Standstill dates: to hours near the present, days beyond 2,000 years from
+  2000 and weeks beyond 4,000, as the Moon's mean elements drift.
+- ΔT (Earth rotation, Espenak and Meeus 2006) is uncertain by minutes around
+  1 CE and by tens of minutes to hours before 2000 BCE. It moves times of
+  day, never the azimuths of the epoch geometry.
+- Dated sunrises use SPA, validated from −2000 to 6000; the Sun panel takes
+  years 1 to 9999 and says so beyond 6000.
+
+### The Moon
+
+`moon.py` implements Meeus' Astronomical Algorithms (2nd ed.) chapter 47: the
+mean elements (eqs. 47.1 to 47.5), the 60 + 60 periodic terms of Tables 47.A
+and 47.B with the eccentricity factor E, and the additive terms A1 to A3. The
+nutation, true obliquity and sidereal time are SPA's (`sun.nutation`,
+`sun.apparent_sidereal_time`), the topocentric place Meeus' chapter 40 (the
+same as SPA's 3.12).
+
+| Example 47.a (1992-04-12 0h TD) | Meeus | GeoTools |
+|---|---|---|
+| Σl, Σb, Σr | −1127527, −3229126, −16590875 | −1127527.03, −3229126.42, −16590875.18 |
+| λ, β | 133.162655°, −3.229126° | 133.1626547°, −3.2291264° |
+| Δ, π | 368409.7 km, 0.991990° | 368409.68 km, 0.9919901° |
+| α, δ (apparent) | 134.688470°, 13.768368° | 134.6884685°, 13.7683666° |
+
+Against PyEphem (an independent ELP-based ephemeris) at 200 random times from
+1950 to 2050, at 27.5° S, the geocentric declination agrees to 1.5″ RMS (6″
+at most) and the topocentric altitude and azimuth to 3″ RMS (13″ at most): the
+theory's own accuracy. (PyEphem is not a dependency; the check was run once
+by hand.)
+
+### Standstills
+
+The mean ascending node Ω (Meeus eq. 47.7) goes backwards round the ecliptic
+in 18.61 years. At Ω = 0 the Moon's orbit is tilted furthest from the
+equator, a major standstill, with monthly declination limits near ±(ε + i);
+at Ω = 180°, a minor one, near ±(ε − i). `moon.node_crossings` solves Meeus'
+polynomial for the last and next crossings around the epoch; the nearer is
+the standstill used. Near the present that gives the major standstills of
+June 2006 and January 2025 and the minor ones of October 2015 and May 2034.
+
+The Moon does not sit exactly on ±(ε ± i): the inclination wobbles by about
+±0.15° every 173 days. So `archaeo.standstill` also evaluates the ephemeris
+hourly over a year either side of the node crossing and takes, of the monthly
+limits, the most extreme (major) or least extreme (minor), refined by a
+parabola. For 2025 that is +28.717° (7 March) and −28.726° (22 March),
+against ε + i = 28.581°. **Standstills** chooses which declinations the
+events use: **Node Cycle** (±(ε ± i) with the mean parallax, the usual
+geometry) or **Ephemeris** (the extremes found, with the parallax then).
+The panel shows both, with the dates (Julian calendar before 1582, Meeus'
+chapter 7).
+
+### Dated sunrises and sunsets
+
+`archaeo.sun_rise_set` evaluates SPA's airless topocentric sun every 20 s
+from local midnight to the next (4,320 positions, interpolated ephemeris) and
+finds where the limb (the day's semi-diameter) crosses the horizon as above;
+times are interpolated linearly. The days are the Sun panel year's equinoxes
+and solstices (`sun_hours.season_moments`) taken in the Sun panel's time zone,
+and the Sun panel date. Against the NOAA Solar Calculator's formulation
+(written out in the test: centre at 90.833° zenith) the sunrise azimuth agrees
+within 0.017° at six sites and dates from 64° N to 34° S (the test allows
+0.1°). Times are on the astronomical and the real horizon; a test checks the
+dated sunrise behind a 2° horizon against the declination geometry at the
+day's declination (0.05°).
+
+### Sightlines
+
+**Create Sightlines** writes (or replaces) the mesh object "GeoTools
+Sightlines" in a collection of that name: one loose edge per event with an
+azimuth, from the eye to the skyline point at the profile sample nearest the
+event (the ray that found it), or level to **Length** where there is no
+profile or the azimuth is open. EDGE attributes: `fid`, `event`, `body`,
+`phase`, `epoch`, `time`, `horizon` ("profile" or "astronomical"), and
+`azimuth` (true), `altitude`, `declination` and `length` as FLOAT. Those four
+are float32 attribute values (azimuths to about 3×10⁻⁵°), while the vertices
+are scene positions; the copied table has every number in binary64. Each
+edge has its own two vertices and its own `fid`, so M8's exporter writes one
+LineString feature per event (`tests/blender/test_archaeo.py` exports them as
+GeoJSON), and a Vectors build profile on the collection publishes them (also
+tested). Loose edges do not render, so sightlines never occlude a later
+horizon or sun hours bake.
+
+### The alignment check
+
+**Check Alignment** reads the active mesh's selected edges (every edge when
+none are selected) with `foreach_get`, takes each edge's true bearing at its
+middle (`site.line_bearings`: the grid bearing plus the convergence there),
+and compares it, and its back bearing, with the best azimuth of every event
+(on the profile when there is one), vectorised over lines and events. Each
+line gets its true azimuth both ways, the horizon altitude along each (from
+the profile, else 0), the declination each implies for a body's centre
+without parallax (the inversion above), and the three nearest events with
+the signed difference. A mesh with an EDGE `fid` (an M8 import) reports it.
+Up to 2,000 lines are kept.
+
+### Timings
+
+`scripts/bench_archaeo.py`, Blender 5.2.4 on the same 16-thread Linux machine,
+shared with other jobs (load average 9 to 10). The terrain is a 20 km square
+height field (a valley floor with ridges to about 600 m at 5 to 9 km), one
+object, all triangles; the observer at the centre; 0.5° azimuth steps; CPU.
+
+| Mesh | Horizon (504,720 + 46,080 rays, two bakes) | Events at 3000 BCE (22, with standstills and dated sunrises) | Sightlines |
+|---|---|---|---|
+| 1M triangles | 1.6 s (first pass 1.3 s) | 0.65 s | < 0.01 s |
+| 10M triangles | 2.9 s (first pass 1.7 s) | 0.43 s | < 0.01 s |
+
+A bake here syncs the terrain and a sample object of half a million tiny
+triangles, far fewer than sun hours' 10M-sample face layers, so its fixed cost
+is about a second rather than 15 to 20. The events are pure numpy: the two
+standstills' hourly ephemeris over two years each (35,000 positions) is most
+of it.
+
+### Decisions and deferrals
+
+- **Cycles Raycast in one bake, one ray per texel.** The sun hours
+  measurements (Cycles Raycast nodes 3 to 5 times faster per ray than
+  Geometry Nodes, and one bake for many rays) carry over. With one origin the
+  rays become the samples, so a whole fan is one bake with one Raycast node,
+  rather than a probe of hundreds of chained nodes.
+- **Two passes rather than bisection.** A coarse fan and one fine bracket per
+  azimuth are two bakes; bisection would be one bake per halving.
+- **Epoch geometry from declinations.** Python dates stop at year 1 and SPA
+  at −2000, but the azimuth of a solstice or standstill depends only on its
+  declination, which the obliquity sets. So epochs reach 10,000 years either
+  side of 2000, and dated events stay with the Sun panel's calendar.
+- **Deferred:** a local ΔT, pressure and temperature for the refraction
+  (standard conditions now), stellar risings (they need precession and proper
+  motion), the Moon's dated rises and sets on a chosen day, an animated
+  sightline or horizon diagram, and grouping a polyline's edges into one
+  feature axis in the alignment check (each edge is a line).
 
 ## 3D surface hydrology
 
@@ -745,15 +1047,7 @@ the meshes and one signed-distance pass over every vertex per segment).
 
 - **Sun hours, insolation and shadow studies** are built: see the next
   section.
-- **Archaeoastronomy.** Sunrise and sunset azimuths come from the same SPA,
-  searched for elevation crossings (the airless elevation with an explicit
-  refraction and the sun's semi-diameter, `SunPosition.angular_diameter`).
-  `solar_position_jd` takes Julian days, so dates before year 1 work. A
-  user-given ΔT is essential there. Lunar standstills need a lunar ephemeris
-  (Meeus chapter 47), which can share the nutation and sidereal time code of
-  `sun.py`. The horizon profile from a point is a numpy ray-march over the mesh
-  (or a Blender ray cast batch), with directions turned by `site.sun_site`'s
-  convergence. Alignment checks compare true bearings from `site.measure`.
+- **Archaeoastronomy** is built: see its section above.
 - **3D hydrology** and **contours and sections** are built: see their
   sections below.
 - **Preset library.** Geometry Nodes presets (slope, aspect, viewshed and so
@@ -780,9 +1074,9 @@ the meshes and one signed-distance pass over every vertex per segment).
   which would replace the clear sky with real totals.
 - **Deferred for sun hours:** cancelling a run between bakes (each bake is
   Blender's and blocks the UI), a GPU device (bakes use the CPU, as the
-  texture bake does), a horizon profile in the UI (the core takes one;
-  archaeoastronomy will compute it), and faster sample building and bake
-  set-up for 10M-triangle face layers (see Timings).
+  texture bake does), and faster sample building and bake set-up for
+  10M-triangle face layers (see Timings). The horizon profile is now
+  archaeoastronomy's.
 - **SPA rather than NOAA.** The NOAA spreadsheet formulation (Meeus' low
   precision method) is good to about 0.01° near the present. SPA is exact to
   the paper and covers the dates archaeoastronomy needs, and with the
