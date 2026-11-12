@@ -1,15 +1,22 @@
 name: Set up official Blender
 description: >-
-  Download an official Blender Linux x64 build from download.blender.org,
-  verify it against a pinned SHA-256, cache the tarball and put Blender on PATH.
+  Download an official Blender build (Linux x64 .tar.xz, macOS arm64 .dmg or
+  Windows x64 .zip) from download.blender.org, verify it against a pinned
+  SHA-256, cache the download and put Blender on PATH.
 
 inputs:
   version:
     description: Full Blender version, e.g. 5.2.4
     required: true
+  platform:
+    description: >-
+      Blender platform name of the runner: linux-x64, macos-arm64 or windows-x64
+    required: false
+    default: linux-x64
   sha256:
     description: >-
-      SHA-256 of blender-<version>-linux-x64.tar.xz, from
+      SHA-256 of the download for that platform (blender-<version>-linux-x64.tar.xz,
+      -macos-arm64.dmg or -windows-x64.zip), from
       https://download.blender.org/release/Blender<major.minor>/blender-<version>.sha256
     required: true
 
@@ -22,52 +29,81 @@ runs:
   using: composite
   steps:
     - name: Install Blender's runtime libraries
+      if: runner.os == 'Linux'
       shell: bash
       run: |
         sudo apt-get update -q
         sudo apt-get install -y -q --no-install-recommends \
           libegl1 libgl1 libsm6 libxfixes3 libxi6 libxkbcommon0 libxrender1 libxxf86vm1
 
-    - name: Cache the Blender tarball
+    - name: Cache the Blender download
       uses: actions/cache@v6
       with:
         path: ~/.cache/blender-download
-        key: blender-${{ inputs.version }}-linux-x64-${{ inputs.sha256 }}
+        key: blender-${{ inputs.version }}-${{ inputs.platform }}-${{ inputs.sha256 }}
 
-    - name: Download, verify and extract Blender ${{ inputs.version }}
+    - name: Download, verify and extract Blender ${{ inputs.version }} (${{ inputs.platform }})
       id: install
       shell: bash
       env:
         VERSION: ${{ inputs.version }}
+        PLATFORM: ${{ inputs.platform }}
         SHA256: ${{ inputs.sha256 }}
       run: |
         set -euo pipefail
-        name="blender-${VERSION}-linux-x64"
-        url="https://download.blender.org/release/Blender${VERSION%.*}/${name}.tar.xz"
+        case "$PLATFORM" in
+          linux-x64) ext=tar.xz ;;
+          macos-arm64) ext=dmg ;;
+          windows-x64) ext=zip ;;
+          *) echo "::error::unsupported platform $PLATFORM"; exit 1 ;;
+        esac
+        name="blender-${VERSION}-${PLATFORM}"
+        url="https://download.blender.org/release/Blender${VERSION%.*}/${name}.${ext}"
         dl="$HOME/.cache/blender-download"
-        tarball="$dl/$name.tar.xz"
+        archive="$dl/$name.$ext"
         mkdir -p "$dl"
-        if [ -f "$tarball" ]; then
-          echo "using cached $tarball"
+        if [ -f "$archive" ]; then
+          echo "using cached $archive"
         else
           echo "downloading $url"
           curl --fail --location --silent --show-error --retry 3 --retry-delay 10 \
-            --output "$tarball.part" "$url"
-          mv "$tarball.part" "$tarball"
+            --output "$archive.part" "$url"
+          mv "$archive.part" "$archive"
         fi
         # Verify every time, including cache hits.
-        if ! echo "${SHA256}  ${tarball}" | sha256sum --check --strict -; then
-          echo "::error::SHA-256 mismatch for ${name}.tar.xz (expected ${SHA256})"
-          rm -f "$tarball"
+        if command -v sha256sum > /dev/null; then
+          actual=$(sha256sum "$archive" | cut -d ' ' -f 1)
+        else
+          actual=$(shasum -a 256 "$archive" | cut -d ' ' -f 1)
+        fi
+        if [ "$actual" != "$SHA256" ]; then
+          echo "::error::SHA-256 mismatch for ${name}.${ext} (expected ${SHA256}, got ${actual})"
+          rm -f "$archive"
           exit 1
         fi
         dest="$RUNNER_TEMP/blender"
         rm -rf "$dest"
         mkdir -p "$dest"
-        tar -xJf "$tarball" -C "$dest"
-        blender="$dest/$name/blender"
+        case "$PLATFORM" in
+          linux-x64)
+            tar -xJf "$archive" -C "$dest"
+            blender="$dest/$name/blender"
+            ;;
+          macos-arm64)
+            mnt="$RUNNER_TEMP/blender-dmg"
+            mkdir -p "$mnt"
+            hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$mnt" "$archive" > /dev/null
+            ditto "$mnt/Blender.app" "$dest/Blender.app"
+            hdiutil detach "$mnt" > /dev/null || hdiutil detach -force "$mnt" > /dev/null
+            blender="$dest/Blender.app/Contents/MacOS/Blender"
+            ;;
+          windows-x64)
+            7z x -y -bd -o"$dest" "$archive" > /dev/null
+            blender="$(cygpath -w "$dest/$name/blender.exe")"
+            ;;
+        esac
         "$blender" --version | tee "$RUNNER_TEMP/blender-version.txt"
-        case "$(head -n 1 "$RUNNER_TEMP/blender-version.txt")" in
+        case "$(head -n 1 "$RUNNER_TEMP/blender-version.txt" | tr -d '\r')" in
           "Blender ${VERSION}" | "Blender ${VERSION} "*) ;;
           *) echo "::error::$blender does not report Blender ${VERSION}"; exit 1 ;;
         esac
