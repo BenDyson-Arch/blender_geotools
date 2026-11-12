@@ -156,6 +156,86 @@ def find_overlaps(
     )
 
 
+DEFAULT_COVERAGE_SAMPLES = 1 << 28
+"""Candidate texel tests of :func:`texel_coverage` before its grid is coarsened."""
+
+
+@dataclass(frozen=True, slots=True)
+class Coverage:
+    """How many UV triangles own each texel: what :func:`texel_coverage` found.
+
+    ``count`` is ``(height, width)`` uint8 (saturating at 255), row 0 at
+    ``v = 0``: the row order of Blender's ``Image.pixels``. 0 is outside every
+    UV island, 1 is owned once, 2 or more is overlapping.
+    """
+
+    width: int  # resolution of the grid used
+    height: int
+    requested: tuple[int, int]
+    count: np.ndarray
+
+    @property
+    def coarsened(self) -> bool:
+        return (self.width, self.height) != self.requested
+
+    def resampled(self) -> np.ndarray:
+        """``count`` on the requested grid (nearest texel if the grid was coarsened)."""
+        req_w, req_h = self.requested
+        if not self.coarsened:
+            return self.count
+        rows = (np.arange(req_h, dtype=np.int64) * self.height) // req_h
+        cols = (np.arange(req_w, dtype=np.int64) * self.width) // req_w
+        return self.count[rows[:, None], cols[None, :]]
+
+    @property
+    def inside(self) -> np.ndarray:
+        """``(height, width)`` bool: texels inside a UV island, on the requested grid."""
+        return self.resampled() > 0
+
+    @property
+    def overlapping(self) -> np.ndarray:
+        """``(height, width)`` bool: texels owned more than once, on the requested grid."""
+        return self.resampled() > 1
+
+
+def texel_coverage(
+    uv: np.ndarray,
+    triangles: np.ndarray | None = None,
+    *,
+    resolution: int | tuple[int, int] = 1024,
+    wrap: Wrap | str | Sequence[Wrap | str] = Wrap.REPEAT,
+    max_samples: int = DEFAULT_COVERAGE_SAMPLES,
+) -> Coverage:
+    """Count the UV triangles that own each texel of a ``resolution`` image.
+
+    The same raster and ownership rule as :func:`find_overlaps`, so texels with
+    a count above 1 are exactly the texels it calls overlapping. Triangles with
+    coordinates outside rusty-tiles' exact domain are left out. On a CLAMP axis
+    texels outside the image are dropped. The grid is halved while more than
+    ``max_samples`` candidate texels would be tested; :meth:`Coverage.resampled`
+    brings the counts back to the requested size.
+    """
+    corners = _corners(uv, triangles)
+    req = _resolution(resolution)
+    wraps = _wraps(wrap)
+    lo, hi, in_range = _boxes(corners)
+    count = corners.shape[0]
+    idx = np.flatnonzero(in_range).astype(np.int32 if count < 2**31 else np.int64)
+    lo, hi = lo[idx], hi[idx]
+    grid = _choose_grid(lo, hi, req, wraps, max_samples, max(DEFAULT_MAX_GRID, req[0] * req[1]))
+    keys, _ = _samples(corners, idx, grid, wraps, owners=False)
+    w, h = grid.width, grid.height
+    if keys is None:
+        return Coverage(w, h, req, np.zeros((h, w), np.uint8))
+    counts = np.bincount(keys, minlength=grid.gw * grid.gh)
+    del keys
+    counts = np.minimum(counts, 255).astype(np.uint8).reshape(grid.gh, grid.gw)
+    # Crop the key grid (larger only on a CLAMP axis) to the image.
+    x, y = -grid.gx0, -grid.gy0
+    counts = np.ascontiguousarray(counts[y : y + h, x : x + w])
+    return Coverage(w, h, req, counts)
+
+
 def overlap_issue(
     result: OverlapResult,
     subject: str,
@@ -363,10 +443,40 @@ def _raster(
 
     ``idx`` are the in-range triangles, in the order of ``grid``'s boxes.
     """
+    keys, owners = _samples(corners, idx, grid, wraps, owners=True)
+    if keys is None:
+        return 0
+    size = grid.gw * grid.gh
+    sample = np.arange(keys.size, dtype=np.int32 if keys.size < 2**31 else np.int64)
+    # Each texel keeps one writer; a sample that is not its texel's writer shares it.
+    winner = np.empty(size, sample.dtype)
+    winner[keys] = sample
+    lost = winner[keys] != sample
+    del winner, sample
+    overlapping = np.zeros(size, bool)
+    overlapping[keys[lost]] = True
+    texels = int(np.count_nonzero(overlapping))
+    if texels:
+        flags[owners[overlapping[keys]]] = True
+    return texels
+
+
+def _samples(
+    corners: np.ndarray,
+    idx: np.ndarray,
+    grid: _Grid,
+    wraps: tuple[Wrap, Wrap],
+    *,
+    owners: bool,
+) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """Every owned texel sample: its key in the key grid and, if asked, its triangle.
+
+    ``(None, None)`` when no triangle owns a texel.
+    """
     has = (grid.nx > 0) & (grid.ny > 0)
     tri, x0, nx, y0, ny = idx[has], grid.x0[has], grid.nx[has], grid.y0[has], grid.ny[has]
     if not tri.size:
-        return 0
+        return None, None
 
     # Split tall boxes into row slabs so no box exceeds a block.
     rows = np.maximum(_BLOCK // nx, 1)
@@ -386,6 +496,8 @@ def _raster(
     bucket, tri, x0, nx, y0, ny = (v[order] for v in (bucket, tri, x0, nx, y0, ny))
     del order
 
+    size = grid.gw * grid.gh
+    key_type = np.int32 if size < 2**31 else np.int64
     fx0 = x0 + 0.5
     fy0 = y0 + 0.5
     keys_out: list[np.ndarray] = []
@@ -428,27 +540,14 @@ def _raster(
                 r += c0 + s
                 fx = _fold(x0[r] + jx[k].astype(np.int64), grid.width, wraps[0]) - grid.gx0
                 fy = _fold(y0[r] + jy[k].astype(np.int64), grid.height, wraps[1]) - grid.gy0
-                keys_out.append(fy * grid.gw + fx)
-                tris_out.append(tri[r])
+                keys_out.append((fy * grid.gw + fx).astype(key_type, copy=False))
+                if owners:
+                    tris_out.append(tri[r])
     if not keys_out:
-        return 0
-    size = grid.gw * grid.gh
-    key_type = np.int32 if size < 2**31 else np.int64
-    keys = np.concatenate(keys_out).astype(key_type, copy=False)
-    owners = np.concatenate(tris_out)
-    del keys_out, tris_out
-    sample = np.arange(keys.size, dtype=np.int32 if keys.size < 2**31 else np.int64)
-    # Each texel keeps one writer; a sample that is not its texel's writer shares it.
-    winner = np.empty(size, sample.dtype)
-    winner[keys] = sample
-    lost = winner[keys] != sample
-    del winner, sample
-    overlapping = np.zeros(size, bool)
-    overlapping[keys[lost]] = True
-    texels = int(np.count_nonzero(overlapping))
-    if texels:
-        flags[owners[overlapping[keys]]] = True
-    return texels
+        return None, None
+    keys = np.concatenate(keys_out)
+    del keys_out
+    return keys, (np.concatenate(tris_out) if owners else None)
 
 
 def _triangle_edges(c: np.ndarray, grid: _Grid) -> list[tuple[np.ndarray, ...]]:

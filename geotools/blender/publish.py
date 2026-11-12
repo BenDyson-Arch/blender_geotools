@@ -40,6 +40,7 @@ from ..core.presentation import variant_output
 from ..publish import preview as pv
 from ..publish import staging as st
 from ..publish.job import BuildJob, BuildRequest, JobState
+from . import texture_state
 from .checks import count_issues, describe_counts, run_checks, store_issues
 from .common import ADDON_PACKAGE, extension_version, redraw_ui
 from .layers import layer_records
@@ -232,6 +233,7 @@ def update_from_job() -> float | None:
     if finished:
         if job.state is JobState.DONE:
             _store_result(session)
+            texture_state.invalidate()
         elif job.state is JobState.FAILED and status_ is not None:
             status_.message = job.error or "Publish failed"
         _session = None
@@ -474,6 +476,17 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
         if not dep.available and not glb:
             self.report({"ERROR"}, f"Cannot publish: {dep.summary}")
             return {"CANCELLED"}
+        # M6: painted or cleaned textures are saved before the export reads them.
+        try:
+            saved = texture_state.save_edited_images(texture_state.source_images(context.scene))
+        except texture_state.SaveError as ex:
+            self.report({"ERROR"}, f"Cannot publish: {ex}")
+            return {"CANCELLED"}
+        if saved.count:
+            store_issues(props, [i for i in issues if i.code != "image-unsaved"])
+        if saved.blend_changed:
+            blend_path = None  # the saved .blend no longer holds these images' pixels
+        image_records = texture_state.image_records(context.scene)
 
         try:
             lock = st.StagingLock.acquire(output)
@@ -509,6 +522,7 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
                     layers=layer_records_,
                     blend_path=blend_path,
                     variant=prepared.variant,
+                    images=image_records,
                     extension=prepared.extension,
                     glb_record=prepared.record,
                 )
@@ -539,6 +553,7 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
                     layers=layer_records_,
                     blend_path=blend_path,
                     variant=variant_record,
+                    images=image_records,
                 )
             job = BuildJob(scene_export, request, lock=lock)
         except Exception as ex:
@@ -568,6 +583,8 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
         notes = [f"{warnings} check warning{'s' * (warnings != 1)}"] if warnings else []
         if remedies:
             notes.append(f"{len(remedies)} image{'s' * (len(remedies) != 1)} remedied")
+        if saved.count:
+            notes.append(f"saved {saved.count} edited image{'s' * (saved.count != 1)}")
         if invalid_layers:
             notes.append(
                 f"layer{'s' * (len(invalid_layers) != 1)} {', '.join(invalid_layers)} not "

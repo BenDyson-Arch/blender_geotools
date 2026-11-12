@@ -318,3 +318,74 @@ def test_never_flags_what_rusty_tiles_calls_unique(seed: int) -> None:
     # Fine enough, every overlap of these grid triangles covers a centre.
     fine = uo.find_overlaps(tris, resolution=2048, wrap="CLAMP", max_examples=100)
     assert set(fine.examples) == shared
+
+
+# --- texel coverage (M6) -------------------------------------------------------------------
+
+
+def _brute_counts(tris, w, h, wrap) -> np.ndarray:
+    counts = np.zeros((h, w), np.int64)
+    for tri in tris:
+        pts = [(Fraction(u) * w, Fraction(v) * h) for u, v in tri]
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        for i in range(
+            math.ceil(min(xs) - Fraction(1, 2)), math.floor(max(xs) - Fraction(1, 2)) + 1
+        ):
+            for j in range(
+                math.ceil(min(ys) - Fraction(1, 2)), math.floor(max(ys) - Fraction(1, 2)) + 1
+            ):
+                if _owns(pts, i + Fraction(1, 2), j + Fraction(1, 2)):
+                    x, y = (i % w, j % h) if wrap == "REPEAT" else (i, j)
+                    if 0 <= x < w and 0 <= y < h:
+                        counts[y, x] += 1
+    return counts
+
+
+@pytest.mark.parametrize("wrap", ["CLAMP", "REPEAT"])
+@pytest.mark.parametrize("seed", range(4))
+def test_coverage_matches_a_brute_force_raster(wrap: str, seed: int, monkeypatch) -> None:
+    rng = np.random.default_rng(100 + seed)
+    tris = (rng.integers(-4, 21, size=(25, 3, 2)) / 16).astype(np.float32)
+    w, h = 24, 16
+    expected = _brute_counts(tris.tolist(), w, h, wrap)
+    for block, chunk in ((1 << 18, 1 << 20), (7, 5)):
+        monkeypatch.setattr(uo, "_BLOCK", block)
+        monkeypatch.setattr(uo, "_CHUNK", chunk)
+        cov = uo.texel_coverage(tris, resolution=(w, h), wrap=wrap)
+        assert not cov.coarsened and cov.count.shape == (h, w)
+        np.testing.assert_array_equal(cov.count, np.minimum(expected, 255))
+    if wrap == "REPEAT" and not (np.ptp(tris, axis=1).max(axis=1) > 1).any():
+        result = uo.find_overlaps(tris, resolution=(w, h), wrap=wrap)
+        assert int(cov.overlapping.sum()) == result.overlapping_texels
+
+
+def test_coverage_of_a_quad_grid_is_one_everywhere_inside() -> None:
+    n = 8
+    tris = []
+    for i in range(n):
+        for j in range(n):
+            a, b = (
+                (0.25 + 0.5 * i / n, 0.25 + 0.5 * j / n),
+                (0.25 + 0.5 * (i + 1) / n, 0.25 + 0.5 * j / n),
+            )
+            c, d = (a[0], 0.25 + 0.5 * (j + 1) / n), (b[0], 0.25 + 0.5 * (j + 1) / n)
+            tris += [[a, b, d], [a, d, c]]
+    cov = uo.texel_coverage(np.array(tris), resolution=64)
+    assert cov.count.max() == 1
+    assert cov.count.sum() == 32 * 32  # [0.25, 0.75] of 64 texels: rows and columns 16..47
+    assert cov.inside[16:48, 16:48].all() and not cov.inside[:16].any()
+    assert not cov.overlapping.any()
+
+
+def test_coverage_coarsens_and_resamples() -> None:
+    tris = np.array([[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0]], [[0.0, 0.0], [1.0, 1.0], [0.0, 1.0]]])
+    cov = uo.texel_coverage(tris, resolution=(256, 128), max_samples=5000)
+    assert cov.coarsened and cov.width < 256 and cov.height < 128
+    assert cov.resampled().shape == (128, 256)
+    assert cov.inside.all()
+    empty = uo.texel_coverage(np.empty((0, 3, 2)), resolution=16)
+    assert empty.count.shape == (16, 16) and not empty.count.any()
+    assert (
+        uo.texel_coverage(np.array([[[9.0, 0], [10, 0], [10, 1]]]), resolution=8).count.sum() == 0
+    )

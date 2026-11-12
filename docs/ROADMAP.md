@@ -98,9 +98,11 @@ operability and quality); new capabilities come in 0.5.
 ## Milestones
 
 **Release scope, decided 2026-11-12.** 0.3.0 ships everything finished on
-`develop` while rusty-tiles 0.4.1 is awaited: M0 to M5 and M8. It still waits
-for rusty-tiles 0.4.1, which carries Blender 5.2 wheel acceptance (E) and the
-CRS allow-list that the EPSG picker needs. M6 and M7 follow in 0.4.0.
+`develop` while rusty-tiles 0.4.1 is awaited: M0 to M8. It still waits
+for rusty-tiles 0.4.1, which carries Blender 5.2 wheel acceptance (E), the
+CRS allow-list that the EPSG picker needs and the tile decoding M7 reads
+(C). M6 and M7 were first planned for 0.4.0 and moved into 0.3.0 on
+2026-11-13, once both were built and tested.
 
 | Milestone | Delivers | Needs from rusty-tiles | Release |
 |---|---|---|---|
@@ -110,8 +112,8 @@ CRS allow-list that the EPSG picker needs. M6 and M7 follow in 0.4.0.
 | M3 Layers and bake engine | Layers read from Geometry Nodes outputs or stored attributes, and texture-space bakes | none | **0.3.0** |
 | M4 GLB export with metadata | A standard glTF 2.0 GLB carrying objects and layers as `EXT_mesh_features` / `EXT_structural_metadata` | none | **0.3.0** |
 | M5 Analysis library | Georeferenced sun, archaeoastronomy, 3D hydrology and measurement; a preset library of Geometry Nodes analyses | none | **0.3.0** |
-| M6 Texture cleanup | Paint, clean, publish | none | 0.4.0 |
-| M7 Output inspection | Open output tiles in Blender, quality checks | C (0.4.1, rusty-tiles #369) | 0.4.0 |
+| M6 Texture cleanup | Paint, clean, publish | none | **0.3.0** |
+| M7 Output inspection | Open output tiles in Blender, quality checks | C (0.4.1, rusty-tiles #369) | **0.3.0** |
 | M8 Geo formats | GeoJSON, GeoPackage and GeoTIFF in and out of Blender, in the project frame | none | **0.3.0** |
 | M9 Queryable metadata without retiling | M4 GLBs tiled with exact leaf metadata, then an annotate pass | #332 (rusty-tiles 0.5) | 1.0.0 |
 | M10 Large sites and texture-only rebuilds | Chunked working mode, texture-only republish | B | later |
@@ -366,6 +368,15 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
 - Changed images are marked dirty in the project. Publishing still means a
   full retile until B lands.
 - **Exit:** a painted source republishes, and coarse levels pick up the change.
+- *Status:* built ([texture-cleanup.md](texture-cleanup.md)). Painting, clone
+  and patch, smear, soften and masks stay Blender's, as recipes (the
+  projection Clone brush copies across UV islands). GeoTools adds a one-click
+  paint setup with UV overlaps as a stencil, push-pull hole filling and masked
+  object removal inside UV islands, island-aware edge padding, a per-page gain
+  and offset fitted across 3D seams, image hashes in `build.json` with "N
+  textures changed since last publish", and saving edited images before a
+  publish. A Blender test repaints a texture, republishes, and sees new
+  texture bytes in leaf and coarse tiles.
 
 ### M7 Output inspection (needs C: rusty-tiles #369, in 0.4.1)
 
@@ -377,6 +388,14 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
   texel-density view, and a side-by-side comparison of levels of detail.
 - **Exit:** you can open any tile of a published archive and trace it back to
   its source faces.
+- *Status:* built, shipping in 0.3.0. Tested on rusty-tiles develop at
+  34e22f19, which includes #369's merge (0.4.1) ([m7-output-inspection.md](design/m7-output-inspection.md)): the
+  Inspect Output panel lists and opens tiles placed by the recorded
+  placement, traces both ways through the face map, and has the distance,
+  texel-density and level views. The exit test
+  (`tests/blender/test_inspect.py`) publishes a synthetic site, opens a leaf
+  and the coarse root, and traces each to its source faces. Merges once
+  rusty-tiles 0.4.1 is out.
 
 ### M8 Geo formats: vectors and rasters (can run in parallel after M2)
 

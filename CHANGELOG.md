@@ -14,6 +14,66 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
 
 ### Added
 
+- Texture cleanup (M6), in a new **Textures** panel between Layers and Checks
+  ([docs/texture-cleanup.md](docs/texture-cleanup.md)). Painting stays
+  Blender's: the docs have recipes for clone and patch across UV islands
+  (projection paint's Clone brush), smear, soften, masks and Quick Edit.
+  GeoTools adds:
+  - **Paint Texture**: one click into Texture Paint on the active object's
+    base colour image, with projection occlusion, backface culling and normal
+    falloff on, and Solid, Flat, Texture shading so the view has no lighting.
+    UV overlaps (any face that uses the image, with the `uv-overlap` rule) are
+    warned about and written as a mask image, which becomes the paint stencil
+    by default, so a stroke cannot change two places at once.
+  - **Fill Holes** (black or transparent texels) and **Remove Masked**
+    (people, vehicles or scale bars painted in a key colour or on a mask
+    image), both by push-pull inpainting that reads and writes only inside the
+    UV islands of the faces that use the image. It is a diffusion fill: it
+    blurs, and it is not content-aware.
+  - **Pad Islands**: island-aware edge padding (each background ring takes
+    the nearest island's colour), optionally filling the whole background, so
+    coarse levels and mipmaps do not bleed it in. It never writes inside an
+    island.
+  - **Fit Balance**, **Apply Balance**: a per-page, per-channel gain and
+    offset in linear light, fitted (robustly) to colour samples on both sides
+    of the 3D seams between atlas pages, previewed with a shader node before
+    it is applied to the pixels.
+  - **Undo Cleanup** puts back the images the last tool changed (one level).
+  - Publish saves every edited source image first (repacked, saved to its
+    file, or saved as `//textures/<image>.png`), so a painted texture is never
+    lost or published stale. `build.json` records each source image's SHA-256
+    in `source.images`. The Publish panel shows "N textures changed since last
+    publish", and Run Checks reports `image-unsaved`, `textures-changed` and
+    `texture-balance-preview` (an error: the preview node would publish a flat
+    colour). Publishing still means a full retile until rusty-tiles'
+    appearance-only rebuild lands. A Blender test repaints part of a texture,
+    republishes, and checks that leaf and coarse tiles both get new texture
+    bytes.
+  - `core.uv_overlap.texel_coverage`: how many UV triangles own each texel,
+    with the `uv-overlap` raster rule; `core.texture_cleanup` and
+    `core.texture_state` hold the bpy-free maths and records.
+    `scripts/bench_texture_cleanup.py` times the tools on 8K pages.
+- Output inspection (M7), in a new Inspect Output panel after Publish. List
+  the tiles of the last published `.3tz` (or a chosen one) by depth, with role,
+  geometric error and triangle count, and **Open** a tile, one depth or every
+  leaf (within a limit) as read-only objects in a "GeoTools Output"
+  collection: built from rusty-tiles' decoded arrays with per-face
+  `source_primitive` and `source_triangle` attributes, the tile's texture
+  pages as packed images and its materials. Tiles are placed by the
+  placement `build.json` recorded (CRS projects through a vectorised pyproj
+  inverse, anchor projects by the inverse rigid transform), with a note when
+  the scene's placement has changed since; leaves land on the source within
+  rusty-tiles' reported `maximum_leaf_geometry_error` (0 to 0.005 mm for
+  `quality` and `lossless`, the 16-bit position step for `fast` and
+  `balanced`). **Trace to Source** selects the source faces of the selected
+  output faces, and the reverse, through the face map; a coarse tile carries
+  only a representative source primitive, so it selects that whole
+  primitive and says so, and a face map that no longer fits the edited scene
+  is refused. **Quality**: each face's distance from its centre to the
+  source (Geometry Proximity), the texels per m² of each face, and levels
+  compared one depth at a time or side by side. The design is in
+  `docs/design/m7-output-inspection.md`; `scripts/bench_inspect.py` times it.
+
 - Interoperability with BlenderGIS and other Blender GIS tools. A CRS
   project's CRS and origin are now kept in the scene's GeoScene keys (`SRID`,
   `crs x` and `crs y`, with `latitude` and `longitude` kept in sync through the
@@ -391,6 +451,9 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   `resolve_source_crs`). A wheel without them is reported as not available, in
   About and Check Dependencies. The pin in `pyproject.toml` stays at 0.4.0
   until 0.4.1 is released (the develop wheel still reports 0.4.0).
+- GeoTools also needs rusty-tiles' `list_tiles` and `decode_tile` (0.4.1,
+  decoded tile views) for output inspection; a wheel without them is reported
+  as needing rusty-tiles 0.4.1 or later.
 - Blender 5.2.0 is now the minimum version (was 5.1). Only the latest Blender
   release is supported.
 - The sidebar is redesigned around the workflow: Project, Source, Layers,
