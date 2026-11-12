@@ -7,6 +7,11 @@ and the project follows semantic versioning where practical.
 
 ## [Unreleased]
 
+## [0.3.0] - Unreleased
+
+GeoTools is being rebuilt to create, analyse and publish OGC 3D Tiles with
+rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
+
 ### Added
 
 - Texture cleanup (M6), in a new **Textures** panel between Layers and Checks
@@ -68,43 +73,9 @@ and the project follows semantic versioning where practical.
   source (Geometry Proximity), the texels per m² of each face, and levels
   compared one depth at a time or side by side. The design is in
   `docs/design/m7-output-inspection.md`; `scripts/bench_inspect.py` times it.
-
-### Changed
-
-- The sidebar is reorganised for a first-time user
-  ([docs/design/ui-structure.md](docs/design/ui-structure.md)). It follows
-  the workflow: Project, Source, Linked Data, **Analysis** (moved up from near
-  the bottom), Layers, Textures, Checks, Publish, Inspect Output, About.
-  Analysis has six sub-panels instead of eight side by side: Measure,
-  Presets, Hydrology, Contours and Sections, Sun (now with **Sun Hours** and
-  **Shadow Study** inside it, as they use its date, time zone and site) and
-  Archaeoastronomy. Sun starts closed.
-- Renamed labels, with no property or `bl_idname` changes, so saved files and
-  scripts are unaffected: the Coordinates sub-panel is **Measure**; Ingest
-  Source is **Import Source Mesh**; Make Contours and Make Sections are
-  **Create Contours** and **Create Sections**; the inspect **Open** button is
-  **Open Tiles**; Frames per Step is **Frame Step**; the Create Attributes and
-  Write Presentation operators take their buttons' names, **Create Empty
-  Attributes** and **Write Colours**.
-- No control is drawn twice: Archaeoastronomy no longer repeats Sun Hours'
-  **Use Horizon Profile** (it says whether Sun Hours uses the profile), and
-  Shadow Study no longer repeats Sun's **First Frame** (it says which frame
-  the keys start at).
-- In Publish, **Format** comes before **Output**, each labelled above its
-  field, so `.3tz .glb Vectors` is no longer cut off. Linked Data's import
-  buttons, Inspect Output's Quality buttons and the long hints in Sun Hours,
-  Shadow Study, Archaeoastronomy and Presets no longer get cut off either.
-- Every property and operator the sidebar draws has a tooltip (about 40
-  properties and 18 operator options had none, for example the sun's date and time, the layer domain and type,
-  and the Inspect Output options), and so does every option of every GeoTools
-  operator. `tests/blender/test_ui.py` keeps it that way.
-
-## [0.3.0] - Unreleased
-
-GeoTools is being rebuilt to create, analyse and publish OGC 3D Tiles with
-rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
-
-### Added
+- CI on macOS arm64 and Windows x64: the core tests, and the Blender tests
+  (no wheels) on the official, checksum-pinned Blender 5.2 LTS `.dmg` and
+  `.zip`. They are not required checks yet.
 
 - Interoperability with BlenderGIS and other Blender GIS tools. A CRS
   project's CRS and origin are now kept in the scene's GeoScene keys (`SRID`,
@@ -129,7 +100,7 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   grid convergence. It is placed on a Blender Sun light, or keyframed over a
   day at a chosen step, with the light off below the horizon. Named IANA time
   zones are used where Python has a time zone database, else a fixed UTC
-  offset. **Coordinates:** read a point from the 3D cursor or a click as E, N,
+  offset. **Measure:** read a point from the 3D cursor or a click as E, N,
   RL and latitude and longitude at full binary64 precision, with the float32
   limit of the local position shown. Grid and ground distance between two
   points uses the combined scale factor (grid scale from pyproj, height factor
@@ -465,6 +436,34 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
     the `.blend`) without a warning.
 
 ### Changed
+
+- The sidebar is reorganised for a first-time user
+  ([docs/design/ui-structure.md](docs/design/ui-structure.md)). It follows
+  the workflow: Project, Source, Linked Data, **Analysis** (moved up from near
+  the bottom), Layers, Textures, Checks, Publish, Inspect Output, About.
+  Analysis has six sub-panels instead of eight side by side: Measure,
+  Presets, Hydrology, Contours and Sections, Sun (now with **Sun Hours** and
+  **Shadow Study** inside it, as they use its date, time zone and site) and
+  Archaeoastronomy. Sun starts closed.
+- Renamed labels, with no property or `bl_idname` changes, so saved files and
+  scripts are unaffected: the Coordinates sub-panel is **Measure**; Ingest
+  Source is **Import Source Mesh**; Make Contours and Make Sections are
+  **Create Contours** and **Create Sections**; the inspect **Open** button is
+  **Open Tiles**; Frames per Step is **Frame Step**; the Create Attributes and
+  Write Presentation operators take their buttons' names, **Create Empty
+  Attributes** and **Write Colours**.
+- No control is drawn twice: Archaeoastronomy no longer repeats Sun Hours'
+  **Use Horizon Profile** (it says whether Sun Hours uses the profile), and
+  Shadow Study no longer repeats Sun's **First Frame** (it says which frame
+  the keys start at).
+- In Publish, **Format** comes before **Output**, each labelled above its
+  field, so `.3tz .glb Vectors` is no longer cut off. Linked Data's import
+  buttons, Inspect Output's Quality buttons and the long hints in Sun Hours,
+  Shadow Study, Archaeoastronomy and Presets no longer get cut off either.
+- Every property and operator the sidebar draws has a tooltip (about 40
+  properties and 18 operator options had none, for example the sun's date and time, the layer domain and type,
+  and the Inspect Output options), and so does every option of every GeoTools
+  operator. `tests/blender/test_ui.py` keeps it that way.
 
 - New CRS projects start with offset A = 0, because GeoScene tools read
   Blender Z as absolute height. "Use data origin" from a local or anchor

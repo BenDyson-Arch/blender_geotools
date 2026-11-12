@@ -203,7 +203,7 @@ Python has no pytest, so `tests/blender/run_suite.py` is a small runner of its
 own.
 
 CI (`.github/workflows/ci.yml`) runs on pull requests and on pushes to `main`
-and `develop`. It has three jobs:
+and `develop`. It has these jobs:
 
 - `core`: ruff and pytest, with pyproj installed at the pin so the reprojection
   tests run.
@@ -214,8 +214,20 @@ and `develop`. It has three jobs:
   rusty-tiles 0.4.0 is on PyPI; to make it gate, set the repository variable
   `RUSTY_TILES_WHEEL_GATING` to `true` and add it to the required checks of
   the `main` and `develop` rulesets.
+- `core (pytest, macOS arm64)` and `core (pytest, Windows x64)`: the core
+  tests (no ruff) on `macos-latest` and `windows-latest`, at the same pins.
+- `blender (macOS arm64, no wheels)` and `blender (Windows x64, no wheels)`:
+  the `blender` job on the official macOS `.dmg` and Windows `.zip` of the same
+  Blender, each checksum-pinned (`BLENDER_SHA256_MACOS_ARM64`,
+  `BLENDER_SHA256_WINDOWS_X64`) and cached.
 
-When you update the pinned Blender in `ci.yml`, update `release.yml` to match.
+The macOS and Windows jobs are not required checks yet; a failure there still
+needs fixing before a release, since every platform zip ships.
+
+`.github/actions/setup-blender` downloads, verifies and caches the Blender
+build for its `platform` input (`linux-x64`, `macos-arm64` or `windows-x64`).
+When you update the pinned Blender in `ci.yml`, take all three checksums from
+the release's `.sha256` file, and update `release.yml` to match.
 
 ## Screenshots of the sidebar
 

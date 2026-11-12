@@ -765,8 +765,11 @@ def test_layers_survive_save_and_reopen() -> None:
             assert (tex.uv_map, tex.resolution, tex.margin) == ("UVMap", 4, 3)
             image = L.layer_image(tex, objects[0])
             assert image is not None and L.layer_image(tex, objects[1]) is None
-            assert image.filepath == "//geotools_layers/shade__Grid_A.exr"
-            assert Path(bpy.path.abspath(image.filepath)) == exr
+            # Blender may store the relative path with the OS's separator (Windows).
+            assert image.filepath.replace("\\", "/") == "//geotools_layers/shade__Grid_A.exr", (
+                image.filepath
+            )
+            assert Path(bpy.path.abspath(image.filepath)).resolve() == exr.resolve()
             back = np.empty(16 * 4, np.float32)
             image.pixels.foreach_get(back)
             back = back.reshape(-1, 4)
