@@ -46,7 +46,7 @@ The script needs only Blender, and writes into `examples/drape-contexts/` (or
 1. **Set the project CRS.** In the Project panel, pick the CRS your plan is
    drawn in and set the offset. The example uses EPSG:32631, with E 500000,
    N 5400000 and A 100.
-2. **Bring in the site mesh** with Ingest Source in the Source panel. GeoTools
+2. **Bring in the site mesh** with **Import Source Mesh** in the Source panel. GeoTools
    reads the offset file beside it. In the example the mesh is called
    `terrain`.
 3. **Check the context attributes.** The recipe expects two numbers on each

@@ -273,16 +273,18 @@ def test_panels_order_and_draw() -> None:
     h.reset_scene()
     panels = h.submodule("blender.panels")
     top = [c for c in panels.classes if not getattr(c, "bl_parent_id", "")]
+    # The workflow: set up, bring data in, analyse, layers and textures, check,
+    # publish, inspect the output (docs/design/ui-structure.md).
     assert [c.bl_label for c in top] == [
         "Project",
         "Source",
         "Linked Data",
+        "Analysis",
         "Layers",
         "Textures",
         "Checks",
         "Publish",
         "Inspect Output",
-        "Analysis",
         "About",
     ], top
     children: dict[str, list[str]] = {}
@@ -297,16 +299,40 @@ def test_panels_order_and_draw() -> None:
         "GEOTOOLS_PT_publish": ["Build Settings", "Last Build"],
         "GEOTOOLS_PT_inspect": ["Trace to Source", "Quality"],
         "GEOTOOLS_PT_analysis": [
-            "Sun",
-            "Sun Hours",
-            "Shadow Study",
-            "Archaeoastronomy",
-            "Coordinates",
+            "Measure",
             "Presets",
             "Hydrology",
             "Contours and Sections",
+            "Sun",
+            "Archaeoastronomy",
         ],
+        "GEOTOOLS_PT_analysis_sun": ["Sun Hours", "Shadow Study"],
     }, children
+    # Primary panels start open; secondary ones start closed.
+    closed = {
+        c.bl_label for c in panels.classes if "DEFAULT_CLOSED" in getattr(c, "bl_options", ())
+    }
+    assert closed == {
+        "CRS Details",
+        "Linked Data",
+        "Analysis",
+        "Sun",
+        "Sun Hours",
+        "Shadow Study",
+        "Archaeoastronomy",
+        "Hydrology",
+        "Contours and Sections",
+        "Display",
+        "Details",
+        "Textures",
+        "Cleanup",
+        "Balance",
+        "Images",
+        "Build Settings",
+        "Inspect Output",
+        "Quality",
+        "About",
+    }, closed
     for cls in panels.classes:
         assert cls.is_registered, cls
         assert (cls.bl_space_type, cls.bl_region_type, cls.bl_category) == (

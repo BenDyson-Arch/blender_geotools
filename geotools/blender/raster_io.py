@@ -412,7 +412,12 @@ plane. Linked to the file, so it can be refreshed"""
 
     filename_ext = ".tif"
     filter_glob: StringProperty(default="*.tif;*.tiff", options={"HIDDEN"})
-    mode: EnumProperty(name="As", items=MODE_ITEMS, default="AUTO")
+    mode: EnumProperty(
+        name="As",
+        description="Import as a DEM height mesh or an orthophoto on a plane",
+        items=MODE_ITEMS,
+        default="AUTO",
+    )
     step: IntProperty(
         name="Decimation",
         description="Use every nth pixel of a DEM; the spacing grows n times",

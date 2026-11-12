@@ -171,6 +171,9 @@ class StubOperatorProperties:
 OPERATOR_TEXTS: list[tuple[str, str]] = []
 """``(idname, text)`` of every operator button the last :func:`draw` drew."""
 
+PROPS_DRAWN: list[tuple[object, str]] = []
+"""``(data, property name)`` of every property the last :func:`draw` drew."""
+
 
 class StubLayout:
     """Records the calls panel and preference ``draw()`` code makes.
@@ -216,6 +219,7 @@ class StubLayout:
     ) -> None:
         assert prop in data.bl_rna.properties, f"draws unknown property {prop!r} of {data!r}"
         self.calls.append(("prop", prop, icon))
+        PROPS_DRAWN.append((data, prop))
         if self.alert:
             self.alerts.append(prop)
 
@@ -233,6 +237,7 @@ class StubLayout:
         assert prop in data.bl_rna.properties, f"draws unknown property {prop!r} of {data!r}"
         assert search_prop in search_data.bl_rna.properties, search_prop
         self.calls.append(("prop", prop, icon))
+        PROPS_DRAWN.append((data, prop))
         if self.alert:
             self.alerts.append(prop)
 
@@ -278,6 +283,7 @@ def draw(
     """
     calls: list[tuple[str, str, str]] = []
     OPERATOR_TEXTS.clear()
+    PROPS_DRAWN.clear()
     namespace: dict[str, object] = {"layout": StubLayout(calls, alerts)}
     if data is not None:
         namespace["__getattr__"] = lambda _self, name: getattr(data, name)

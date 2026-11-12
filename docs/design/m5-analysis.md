@@ -31,14 +31,14 @@ shadows, Cycles and EEVEE render them, and Cycles casts the rays of sun hours.
 | `geotools/analysis/preset_bake.py` | The fast (bake) paths of the horizon and cumulative viewshed presets, bpy-free: inputs, the bisection model, values from bake sums, the layer and its provenance. |
 | `geotools/blender/preset_bake.py` | The fast paths' probes (bisection and observer groups), observer points through the library's own groups, and the run. |
 | `geotools/blender/archaeo.py` | Archaeoastronomy settings (`scene.geotools_analysis.archaeo`), the horizon bake, events, sightlines and the alignment check. |
-| `geotools/blender/analysis_ui.py` | The Analysis panel and its Sun, Sun Hours, Shadow Study, Archaeoastronomy (`archaeo_ui.py`) and Coordinates sub-panels, before About. |
+| `geotools/blender/analysis_ui.py` | The Analysis panel (after Linked Data, before Layers) and its Measure, Presets, Sun (with Sun Hours and Shadow Study inside it) and Archaeoastronomy (`archaeo_ui.py`) sub-panels. The tree is in [ui-structure.md](ui-structure.md). |
 | `geotools/analysis/hydrology.py` | 3D surface hydrology, bpy-free: the face graph, drops, filling, routing, accumulation and depressions. |
 | `geotools/analysis/slicing.py` | Contours and sections: plane-triangle cuts, levels in the height datum, chainage. |
 | `geotools/analysis/polylines.py` | Segments chained into open and closed polylines (pointer doubling). |
 | `geotools/blender/surface.py` | Evaluated meshes as one world-space array mesh, vertical rays through a Geometry Nodes Raycast, and line and point objects out. |
 | `geotools/blender/hydrology.py` | Hydrology settings (`scene.geotools_hydrology`), the operator and its layers and objects. |
 | `geotools/blender/contours.py` | Contour and section settings (`scene.geotools_contours`) and operators. |
-| `geotools/blender/surface_ui.py` | The Hydrology, and Contours and Sections, sub-panels (after Presets). |
+| `geotools/blender/surface_ui.py` | The Hydrology, and Contours and Sections, sub-panels (after Presets, before Sun). |
 
 `geotools/analysis` is bpy-free, like `geotools/core`, and
 `tests/core/test_no_bpy.py` checks it. Its tests are `tests/core/test_sun.py`,
@@ -160,6 +160,8 @@ labelled GDA2020. A test checks a saved preset string and its code give
 identical readings.
 
 ## Coordinates and measurement
+
+The **Measure** sub-panel of Analysis.
 
 **Readout.** A Blender world position (from the 3D cursor, or a click on a
 surface, which also moves the cursor) is read as its float32 value. The
@@ -484,7 +486,7 @@ panel's numbers predict a run: the result shows samples, rays and bakes.
 ## Archaeoastronomy
 
 **What it computes.** From an observer point (the 3D cursor or a click, as
-Coordinates), in the Archaeoastronomy sub-panel:
+Measure), in the Archaeoastronomy sub-panel:
 
 1. the **horizon profile**: the apparent altitude of the skyline at every
    azimuth (default every 0.5°), relative to true north, with the scene's
@@ -966,11 +968,11 @@ triangles") holds with about 40 s to spare.
 
 ## Contours and sections
 
-**What they make.** **Make Contours** cuts the surface (the source collection
+**What they make.** **Create Contours** cuts the surface (the source collection
 or the selected objects, evaluated) at `base + k × interval` in the project's
 height datum and writes a line object, **Contours**, with `elevation`,
 `index` (k), `major` (k divisible by **Major Every**), `closed`, `length` and
-`fid` on each line. **Make Sections** cuts it with the vertical plane of each
+`fid` on each line. **Create Sections** cuts it with the vertical plane of each
 edge of a line object (drawn, or an imported M8 line layer; the chosen
 **Section Line** or the active object, all its edges or the selected ones)
 and writes **Sections**: 3D polylines of the surface with `chainage` on every

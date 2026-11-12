@@ -920,8 +920,18 @@ class GEOTOOLS_OT_layer_add(bpy.types.Operator):
         description="Lowercase letters, digits and underscores; empty for an automatic name",
         options={"SKIP_SAVE"},
     )
-    domain: EnumProperty(name="Domain", items=LAYER_DOMAIN_ITEMS, default="FACE")
-    data_type: EnumProperty(name="Type", items=LAYER_DATA_TYPE_ITEMS, default="FLOAT")
+    domain: EnumProperty(
+        name="Domain",
+        description="What the layer has one value for: a face, a face corner or a texel",
+        items=LAYER_DOMAIN_ITEMS,
+        default="FACE",
+    )
+    data_type: EnumProperty(
+        name="Type",
+        description="The kind of value the layer holds",
+        items=LAYER_DATA_TYPE_ITEMS,
+        default="FLOAT",
+    )
 
     @classmethod
     def poll(cls, context: bpy.types.Context) -> bool:
@@ -1068,7 +1078,7 @@ class GEOTOOLS_OT_layer_create_attributes(bpy.types.Operator):
     wrong domain or type is replaced. A layer computed by Geometry Nodes does not need this"""
 
     bl_idname = "geotools.layer_create_attributes"
-    bl_label = "Create Attributes"
+    bl_label = "Create Empty Attributes"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod

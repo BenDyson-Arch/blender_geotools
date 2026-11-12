@@ -23,8 +23,8 @@ setting up, or a warning or error icon:
    accuracy, or why rusty-tiles refuses the CRS (WKT and PROJ text work too).
    Offsets are stored at full double precision. **Verify Placement** asks
    rusty-tiles where the source lands on Earth before any build.
-2. **Source:** pick the source collection, or import a GLB, glTF, OBJ or PLY
-   into one. A summary shows its objects, faces and size.
+2. **Source:** pick the source collection, or **Import Source Mesh** (GLB,
+   glTF, OBJ or PLY) into one. A summary shows its objects, faces and size.
 3. **Linked Data:** import GeoJSON, GeoPackage and GeoTIFF files into the
    project frame (also in File > Import), and export meshes back to GeoJSON or
    GeoPackage with Z (File > Export). Vectors become points, edges and faces
@@ -36,7 +36,12 @@ setting up, or a warning or error icon:
    and GeoPackage and GeoJSON attributes can be written back. Projected data
    imported into a local or anchor project offers to use the data's centre as
    the project origin.
-4. **Layers:** named values per face, face corner or texel. The panel shows the
+4. **Analysis** (closed by default): **Measure** (points, distances and areas
+   on Earth), **Presets** (Geometry Nodes analyses such as slope, sky-view
+   factor and viewshed, each into a layer), **Hydrology**, **Contours and
+   Sections**, **Sun** (with **Sun Hours** and **Shadow Study** inside it) and
+   **Archaeoastronomy**. Most tools write layers that the panels below publish.
+5. **Layers:** named values per face, face corner or texel. The panel shows the
    selected layer at a glance (label, units, attribute, value range, what is
    missing). A face or corner layer reads its attribute (`gt_<name>`, or the
    name typed in **Attribute**) from the evaluated mesh, so a Geometry Nodes
@@ -44,9 +49,12 @@ setting up, or a warning or error icon:
    texture layer with a Cycles bake; **Display** sets its colour ramp or
    category colours for a variant tileset; **Details** holds no-data, origin,
    aggregation and notes.
-5. **Checks:** run the checks against rusty-tiles' mesh input rules, with
+6. **Textures** (closed by default): paint the source texture with Blender's
+   brushes, and clean it up (**Fill Holes**, **Remove Masked**, **Pad
+   Islands**, **Balance**). See [docs/texture-cleanup.md](docs/texture-cleanup.md).
+7. **Checks:** run the checks against rusty-tiles' mesh input rules, with
    one-click, opt-in fixes for oversize or 16-bit images.
-6. **Publish:** pick a build profile and its output, optionally a **Variant**
+8. **Publish:** pick a build profile, its **Format** and its **Output**, optionally a **Variant**
    layer, and press **Publish**. It writes `site.3tz`, or `site.<layer>.3tz`
    for a variant, with the source collection's modifiers and Geometry Nodes
    applied (unless **Apply Modifiers** is off), with progress and cancel. Each build also writes the source GLB, a
@@ -62,7 +70,9 @@ setting up, or a warning or error icon:
    and republishes only what changed. The
    [draping recipe](docs/recipes/drape-contexts.md) drapes excavation contexts
    on a site mesh with stock Geometry Nodes, with an example file.
-7. **About** (closed by default): the extension, rusty-tiles and pyproj versions.
+9. **Inspect Output** (closed by default): open published tiles back in
+   Blender over the source, **Trace to Source**, and compare **Quality**.
+10. **About** (closed by default): the extension, rusty-tiles and pyproj versions.
 
 ### GLB with metadata
 
