@@ -552,6 +552,7 @@ def test_panel_and_menu_draw() -> None:
     assert "Slope: gt_slope" in h.label_text(h.draw(panel))
     calls = h.draw(bpy.types.GEOTOOLS_MT_analysis_presets)
     operators = [c for c in calls if c[0] == "operator"]
-    assert len(operators) == len(_catalog().PRESETS) + 1  # aspect twice: grid and true north
+    # Aspect twice (grid and true north), and the four fast (bake) paths.
+    assert len(operators) == len(_catalog().PRESETS) + 1 + 4
     assert "Terrain Shape" in h.label_text(calls)
     _clear_trees()

@@ -48,8 +48,9 @@ from pathlib import Path
 
 import bpy
 import numpy as np
-from bpy.props import EnumProperty, StringProperty
+from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
 
+from ..analysis import preset_bake as fast
 from ..analysis import presets as catalog
 from ..analysis import site
 from ..core.issues import Severity
@@ -69,6 +70,36 @@ NORTH_ITEMS = (
     ("GRID", "Grid North (+Y)", "Measure from the scene's +Y axis"),
     ("TRUE", "True North", "Add the grid convergence at each object's centre (analysis.site)"),
 )
+
+
+ENGINE_ITEMS = (
+    (
+        "GEONODES",
+        "Live (Geometry Nodes)",
+        (
+            "Add the preset as a Geometry Nodes modifier: editable, and it updates when the mesh "
+            "or an input changes"
+        ),
+    ),
+    (
+        "BAKE",
+        "Fast (bake)",
+        (
+            "Compute the values once with a Cycles bake (the sun-hours ray engine) and store them "
+            "as a layer: several times faster on large meshes, no modifier"
+        ),
+    ),
+)
+
+
+def _default(preset_id: str, name: str):
+    return next(i.default for i in catalog.get(preset_id).inputs if i.name == name)
+
+
+def _typed(value: float) -> float:
+    """A float operator property (float32) as the decimal it was typed as: 0.002, not
+    0.0020000000949949026."""
+    return float(str(np.float32(value)))
 
 
 ANALYSIS_COLLECTION = "GeoTools Analysis"
@@ -649,6 +680,84 @@ class GEOTOOLS_OT_analysis_add(bpy.types.Operator):
         description="What aspect is measured from (other presets ignore it)",
         options={"SKIP_SAVE"},
     )
+    engine: EnumProperty(
+        name="Engine",
+        items=ENGINE_ITEMS,
+        default="GEONODES",
+        description="Sky-view factor, openness and the cumulative viewshed can also be "
+        "computed once by a Cycles bake (other presets are always live)",
+        options={"SKIP_SAVE"},
+    )
+    # The fast path's inputs: the preset's own, with its defaults (a live
+    # preset takes them on its modifier instead).
+    max_distance: FloatProperty(
+        name="Max Distance",
+        default=_default("sky_view_factor", "Max Distance"),
+        min=0.001,
+        subtype="DISTANCE",
+        description="How far the horizon is searched along each direction",
+    )
+    directions: IntProperty(
+        name="Directions",
+        default=_default("sky_view_factor", "Directions"),
+        min=1,
+        max=64,
+        description="Azimuths searched, evenly spaced from +Y",
+    )
+    steps: IntProperty(
+        name="Steps",
+        default=_default("sky_view_factor", "Steps"),
+        min=1,
+        max=16,
+        description="Rays per direction that bisect the horizon angle",
+    )
+    ray_offset: FloatProperty(
+        name="Ray Offset",
+        default=_default("sky_view_factor", "Ray Offset"),
+        min=0.0,
+        subtype="DISTANCE",
+        precision=4,
+        description="Rays start this far from the surface along the vertex normal",
+    )
+    observer_height: FloatProperty(
+        name="Observer Height",
+        default=_default("viewshed_cumulative", "Observer Height"),
+        min=0.0,
+        subtype="DISTANCE",
+        description="Eye height above each observer point",
+    )
+    target_height: FloatProperty(
+        name="Target Height",
+        default=_default("viewshed_cumulative", "Target Height"),
+        min=0.0,
+        subtype="DISTANCE",
+        description="Height above the surface that must be seen (0: the surface itself, "
+        "seen from the front only)",
+    )
+    view_distance: FloatProperty(
+        name="Max Distance",
+        default=_default("viewshed_cumulative", "Max Distance"),
+        min=0.0,
+        subtype="DISTANCE",
+        description="Horizontal reach of the view",
+    )
+    view_offset: FloatProperty(
+        name="Ray Offset",
+        default=_default("viewshed_cumulative", "Ray Offset"),
+        min=0.0,
+        subtype="DISTANCE",
+        precision=4,
+        description="Sight lines start this far from the surface",
+    )
+    drape: BoolProperty(
+        name="Drape",
+        default=_default("viewshed_cumulative", "Drape"),
+        description="Drop the observer points vertically onto the topmost surface first",
+    )
+    occluders: StringProperty(
+        name="Occluders",
+        description="A collection of other objects that block sight as well (optional)",
+    )
 
     @classmethod
     def description(cls, _context, properties) -> str:
@@ -667,6 +776,11 @@ class GEOTOOLS_OT_analysis_add(bpy.types.Operator):
             where += " Uses " + "; ".join(needs) + "."
         if preset.output is catalog.Output.OBJECT:
             where += " Makes a new object of lines."
+        if fast.is_fast(preset.id) and properties.engine == "BAKE":
+            return (
+                f"{preset.description}. Fast: computed once by a Cycles bake into a stored "
+                f"layer, with no modifier.{where}"
+            )
         return f"{preset.description}.{where}{cost}"
 
     @classmethod
@@ -691,9 +805,77 @@ class GEOTOOLS_OT_analysis_add(bpy.types.Operator):
         layout.prop(self, "name", text="Object" if self._is_object() else "Layer")
         if catalog.get(self.preset).north:
             layout.prop(self, "north")
+        if not fast.is_fast(self.preset):
+            return
+        layout.prop(self, "engine")
+        if self.engine != "BAKE":
+            return
+        if self.preset in fast.HORIZON:
+            for prop in ("max_distance", "directions", "steps", "ray_offset"):
+                layout.prop(self, prop)
+        else:
+            for prop in ("observer_height", "target_height", "view_distance", "view_offset"):
+                layout.prop(self, prop)
+            layout.prop(self, "drape")
+            layout.prop_search(self, "occluders", bpy.data, "collections")
+
+    def fast_inputs(self) -> dict[str, object]:
+        """The fast path's inputs, by the preset's input names."""
+        if self.preset in fast.HORIZON:
+            return {
+                "Max Distance": _typed(self.max_distance),
+                "Directions": self.directions,
+                "Steps": self.steps,
+                "Ray Offset": _typed(self.ray_offset),
+            }
+        return {
+            "Observer Height": _typed(self.observer_height),
+            "Target Height": _typed(self.target_height),
+            "Max Distance": _typed(self.view_distance),
+            "Ray Offset": _typed(self.view_offset),
+            "Drape": self.drape,
+        }
+
+    def _execute_fast(self, context: bpy.types.Context, preset: catalog.Preset) -> set[str]:
+        from . import preset_bake  # it imports this module
+
+        notes: list[str] = []
+        try:
+            objects = preset_targets(context, preset)
+            observers = None
+            if preset.id in fast.VIEWSHED:
+                fills, notes = fill_inputs(context, preset, objects)
+                observers = fills["Observers"]
+            occluders = None
+            if self.occluders:
+                occluders = bpy.data.collections.get(self.occluders)
+                if occluders is None:
+                    raise PresetError(f"There is no collection {self.occluders!r}.")
+            result = preset_bake.compute(
+                context,
+                preset.id,
+                objects,
+                name=self.name,
+                inputs=self.fast_inputs(),
+                observers=observers,
+                occluders=occluders,
+            )
+        except (PresetError, ValueError, RuntimeError) as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        count = len(objects)
+        message = (
+            f"{preset.label} (fast) on {count} object{'s' * (count != 1)}, layer "
+            f"{result['layer']}: {preset_bake.fast_summary(result)}"
+        )
+        self.report({"INFO"}, "; ".join([message, *notes, *result["notes"]]))
+        redraw_ui(context)
+        return {"FINISHED"}
 
     def execute(self, context: bpy.types.Context) -> set[str]:
         preset = catalog.get(self.preset)
+        if self.engine == "BAKE" and fast.is_fast(preset.id):
+            return self._execute_fast(context, preset)
         try:
             objects = preset_targets(context, preset)
             name, notes = add_preset(context, preset, objects, name=self.name, north=self.north)
@@ -764,6 +946,14 @@ class GEOTOOLS_MT_analysis_presets(bpy.types.Menu):
                     )
                     op.preset = preset.id
                     op.north = "TRUE"
+                if fast.is_fast(preset.id):
+                    op = layout.operator(
+                        GEOTOOLS_OT_analysis_add.bl_idname,
+                        text=f"{preset.label} (Fast Bake)",
+                        icon="RENDER_STILL",
+                    )
+                    op.preset = preset.id
+                    op.engine = "BAKE"
 
 
 def draw_panel(layout: bpy.types.UILayout, context: bpy.types.Context) -> None:

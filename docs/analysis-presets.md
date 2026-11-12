@@ -3,7 +3,8 @@
 Status: the M5 preset library (see
 [ROADMAP.md](ROADMAP.md#m5-analysis-library)). First batch: terrain shape and
 archaeological visualisation. Second batch: visibility, change and distance,
-volumes, and paths and flow.
+volumes, and paths and flow. Sky-view factor, openness and the cumulative
+viewshed also have a [fast (bake) path](#fast-bake-paths) for large meshes.
 
 A preset is an ordinary Geometry Nodes group built from stock nodes. **Add
 Analysis** (Analysis panel ▸ Presets) appends it to the file, adds it as a
@@ -86,6 +87,91 @@ Presets panel reads them for the active object from the evaluated mesh,
 summed in binary64, and also reports intervisibility counts and the line of
 sight's obstruction; Add Analysis reports the same when it adds the preset.
 Read Totals only sums values the nodes made (and face areas and normals).
+
+## Fast (bake) paths
+
+Sky-view factor, positive and negative openness and the cumulative viewshed
+cast many rays per element, and in Geometry Nodes take minutes on a
+10M-triangle mesh. Each also has a **fast path**: the same rays, inputs and
+formulas, cast by Cycles `Raycast` shader nodes in one EMIT bake (the sun-hours
+engine, [m5-analysis.md](design/m5-analysis.md#fast-bake-paths-for-presets)),
+and stored as a layer.
+
+**Using it.** Add Analysis ▸ *Sky-View Factor (Fast Bake)* (and likewise for
+the other three), or set **Engine** to *Fast (bake)* in the Adjust Last
+Operation panel. The preset's inputs are on that panel, with the preset's
+defaults; the cumulative viewshed takes its Observers from the selection or
+the 3D cursor as the live preset does, and an optional Occluders collection.
+No modifier is added: the values are computed once, written to the meshes
+(`gt_<layer>`, CORNER or FACE as the preset's) and the layer's origin is
+*analysis*, with a provenance naming the preset and version it reproduces,
+the method (`"engine": "bake"`), the inputs, the objects, the samples, the
+rays per sample and the bakes:
+
+```json
+{"tool": "analysis_bake", "parameters": {"preset": "sky_view_factor", "preset_version": 1,
+  "engine": "bake", "method": "Zakšek et al. (2011) SVF = 1 - mean sin(max(horizon, 0)); ...",
+  "inputs": {"Max Distance": 2.0, "Directions": 16, "Steps": 8, "Ray Offset": 0.002},
+  "objects": ["Site"], "samples": 5004169, "rays_per_sample": 128, "bakes": 1, ...}}
+```
+
+To recompute (after editing the mesh, or with other inputs), run it again
+under the same layer name. A fast layer and a live preset layer cannot share a
+name: Add Analysis refuses and suggests another (`sky_view_factor_fast`).
+
+**Why a choice in Add Analysis, not a button on the layer.** A button on a
+live preset's layer would first need the live modifier evaluated: the minutes
+this path saves. The choice sits where the analysis is added, offers the
+preset's own inputs, and the live preset stays one click away (and is the one
+to use for editing the node group or keeping the result live).
+
+**How it differs from the live preset.**
+
+- *Computed once*, not live: moving an observer or editing the mesh does not
+  update it.
+- *Scene space*: rays run in the scene's axes and units. For an unrotated,
+  unscaled object (imported meshes are) that is the preset's own space.
+- *Occluders*: the meshes it is added to (all of them, so selected tiles of
+  one site shade each other) and, for the viewshed, the Occluders collection.
+  Everything else is hidden from the bake. An occluder outside the view layer
+  cannot render, so it does not occlude (the panel says so).
+- An object whose modifiers change its topology is skipped with a note, as
+  sun hours does (apply them, or use the live preset).
+
+**Agreement with the live presets** (`tests/blender/test_preset_bake.py`,
+and `scripts/bench_preset_bake.py --compare` on the benchmark terrain):
+
+| Case | Result |
+|---|---|
+| level plane: SVF, openness | SVF 1 exactly; openness 90.35° (as the preset); fast and live identical more than Max Distance from the edge |
+| V-trench, walls 30°: bottom | SVF 0.6737 (exact 0.6714), openness 70.75° and 109.51°, as the preset; fast and live identical away from the edge |
+| V-trench: every corner not on the mesh boundary | equal to the preset's bisection with exact ray-plane intersections (binary64), within 2×10⁻⁴, also where rays leave the mesh. The live preset differs from that on 13 % of the trench's corners, all within 1.5 m of the mesh's edge (not yet explained); on the boundary itself a ray along the edge grazes it, and either engine may call it a hit |
+| benchmark terrain, 1M triangles, corners more than Max Distance from the edge | identical on 99.98 %; the rest (558 of 2.5M for SVF) differ where a bisection ray grazes the surface within float32, which either engine may call a hit: up to 0.02 SVF or 7° openness, mean 5×10⁻⁶ SVF |
+| wall on a plane, three observers (draped from 5 m) | every ground face equal to batch 2's segment-box test, and fast equals live on every face; the same over two bakes, and with an Occluders collection |
+| benchmark terrain, 1M triangles, 100 observers | equal to the live preset on all but 4 of 1M faces (grazing sight lines) |
+
+**Timings** (`scripts/bench_preset_bake.py`, the benchmark terrain at 2 cm,
+defaults, the viewshed with 100 draped observers; Blender 5.2.4, 16 threads,
+a machine shared with other jobs at load averages of 8 to 17, so upper
+bounds):
+
+| Preset | 1M triangles | 10M triangles | Live preset, 10M |
+|---|---|---|---|
+| sky-view factor | 3.4 s | 37–40 s | 163 s |
+| positive openness | 4.1 s | 47–49 s | ~210 s |
+| negative openness | 4.3 s | 52 s | ~210 s |
+| cumulative viewshed, 100 observers | 3.1 s | 49–65 s | 229 s |
+
+Fixed cost, separately (the cumulative viewshed with no ray cast): at 10M,
+8.4 s to read the mesh and build the sample object of 10M faces (3.9 s for
+the horizon presets' 5M vertices), 6.8 s for Cycles to sync the scene and
+build its BVH, and 3 s to drape the observers (the live preset's own Drape
+group, one BVH build); at 1M, about 2 s in all. Beyond that, the horizon presets
+cast 640M rays at 10M in 31 to 41 s (14 to 20 Mrays/s with the shader's
+bisection arithmetic), and the viewshed 1,000M rays in 29 to 39 s (25 to
+35 Mrays/s): the six shader nodes per observer cost more than the traversal.
+More observers cost about 0.3 to 0.4 s per observer at 10M; the bake takes
+1,024 observers at a time, each further bake paying the fixed cost again.
 
 ## The library
 
@@ -304,6 +390,9 @@ interval is used. Raycast hits back faces too, so thin walls occlude.
 | Steps | 8 | Rays per direction. |
 | Ray Offset | 0.002 m | Start of each ray from the surface, along the vertex normal. |
 
+On a large mesh use the [fast path](#fast-bake-paths): the same search in a
+Cycles bake, about four times faster.
+
 ### Positive and Negative Openness (`openness_positive`, `openness_negative`, CORNER, deg)
 
 Yokoyama et al. (2002): positive openness `Φ = 90° − (1/N) Σ β_i`, with β_i
@@ -314,7 +403,8 @@ negative openness the reverse. The search is the sky-view factor's over
 −90° to 90° (the first ray, θ = 0, is the midpoint); negative openness starts
 its rays Ray Offset *below* the surface, where a ray crosses the surface
 within Max Distance if and only if the lowest surface point is at or below θ.
-Same inputs and defaults; display range 60–120°.
+Same inputs and defaults; display range 60–120°. Both have a
+[fast path](#fast-bake-paths).
 
 ## Visibility
 
@@ -333,7 +423,8 @@ cumulative viewshed casts observers × faces rays: here Geometry Nodes ran at
 about 4.5 Mrays/s on 10M faces (10 on 1M), the sun-hours Cycles probe at
 15–25 Mrays/s, so on a 10M mesh a bake would overtake Geometry Nodes beyond
 about 15–20 observers (see Performance). All four presets use Geometry Nodes
-Raycast; a bake setup for many observers is proposed below.
+Raycast; the cumulative viewshed also has a [fast path](#fast-bake-paths)
+that casts the same sight lines in a bake, for many observers.
 
 Common rules:
 
@@ -381,7 +472,9 @@ Inputs as viewshed, with **Observers** (this object's vertices, or its origin
 if it has none) in place of Observer, and **Drape**: drop the observer points
 onto the topmost surface first, for 2D points (vector points imported at
 height 0). Drape takes the topmost surface under the point, so a point inside
-a building would land on its roof. Cost: observers × faces rays.
+a building would land on its roof. Cost: observers × faces rays. For more than
+a few dozen observers on a large mesh, use the [fast path](#fast-bake-paths):
+100 observers on 10M triangles in about a minute rather than four.
 
 ### Intervisibility (`intervisibility`, lines)
 
@@ -659,12 +752,9 @@ and TPI evaluate within a minute at 10M triangles. The local relief model
 takes about a minute (67 s, or half that with 24 samples), and the horizon
 presets (sky-view factor and openness) take three to four minutes, past the
 M5 target of a minute per tool. Directions 8 and Steps 6 cut that to about
-a third, with a coarser result. For large sites the proposal is a
-**GeoTools-code path**: a horizon scan on a height raster resampled from the
-mesh (numpy, as RVT computes SVF and openness on DEMs, written back to the
-corners), or a **Cycles bake** of the visible sky (Embree ray tracing, many
-times Blender's Geometry Nodes raycast), each written as a layer with
-provenance. Neither is in this batch.
+a third, with a coarser result. Their [fast path](#fast-bake-paths), the same
+search cast in a Cycles bake, takes 37 to 52 s at 10M triangles and is the
+way for large sites.
 
 ### Second batch
 
@@ -697,13 +787,9 @@ an object input is Blender building its BVH (intervisibility, line of sight
 and flow paths cost little more). Every preset is within the M5 target of a
 minute at 10M except **the cumulative viewshed beyond about 25 observers**:
 about 2.2 s per observer at 10M faces, so 100 observers take four minutes.
-Fewer observers, a smaller Max Distance or a decimated copy of the mesh help.
-The proposal for many observers is a **Cycles bake setup**: one Raycast shader
-node per observer, its direction the observer minus the shading position,
-baked through the sun-hours sample object (15–25 Mrays/s here, after 15–20 s
-of fixed cost at 10M), which would bring 100 observers on 10M faces to about
-a minute. It needs GeoTools code to write the bake back as a layer, as sun
-hours does, so it is not in this batch.
+Its [fast path](#fast-bake-paths) casts the same sight lines in a Cycles bake,
+one Raycast node per observer: 100 observers on 10M faces in 49 to 65 s on
+this shared machine (about 16 s of it fixed cost), 3.1 s at 1M.
 
 ## What stock nodes cannot do well
 
@@ -736,8 +822,7 @@ hours does, so it is not in this batch.
 
 - **Surface reading:** ambient occlusion and curvature bakes for worn
   surfaces, rock art and inscriptions.
-- A Cycles bake setup for cumulative viewsheds from many observers, and a
-  cost-distance layer (see above).
+- A cost-distance layer (see above).
 
 ## References
 
