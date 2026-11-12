@@ -102,6 +102,10 @@ operability and quality); new capabilities come in 0.5.
 for rusty-tiles 0.4.1, which carries Blender 5.2 wheel acceptance (E) and the
 CRS allow-list that the EPSG picker needs. M6 and M7 follow in 0.4.0.
 
+**User guide.** [guide/](guide/README.md) is the user documentation for the
+release: getting started on a synthetic demo site, then one page per feature
+area. Every change a user can see updates the page for its area.
+
 | Milestone | Delivers | Needs from rusty-tiles | Release |
 |---|---|---|---|
 | M0 Foundation | Clean scaffold, packaging, CI | 0.4.x wheel | none |
