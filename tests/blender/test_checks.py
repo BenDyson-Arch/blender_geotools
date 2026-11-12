@@ -295,6 +295,7 @@ def test_panels_order_and_draw() -> None:
             "Sun",
             "Sun Hours",
             "Shadow Study",
+            "Archaeoastronomy",
             "Coordinates",
             "Presets",
             "Hydrology",

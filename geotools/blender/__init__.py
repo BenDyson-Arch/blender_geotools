@@ -13,6 +13,7 @@ from ..core import deps
 from . import (
     analysis,
     analysis_presets,
+    archaeo,
     bake_texture,
     checks,
     contours,
@@ -58,6 +59,7 @@ MODULES: tuple[ModuleType, ...] = (
     bake_texture,
     analysis,
     sun_hours,
+    archaeo,
     analysis_presets,
     hydrology,
     contours,
