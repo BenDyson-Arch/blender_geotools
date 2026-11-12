@@ -14,6 +14,8 @@ The panels follow the workflow top to bottom, and each header shows its state
   - Bake: a Cycles bake into a texture layer's images (texture layers only).
   - Display: the colours of the layer's variant tileset.
   - Details: no-data, origin, aggregation and the other rarely changed fields.
+- Textures (``texture_ui``): paint setup with UV-overlap stencil, and the M6
+  cleanup tools (fill holes, remove masked objects, pad islands, balance pages).
 - Checks: preflight issues and their fixes.
   - Images: the source images and their remedies.
 - Publish: build profiles, output, format (.3tz, the metadata .glb or Vectors),
@@ -57,6 +59,8 @@ from . import (
     presentation,
     publish,
     surface_ui,
+    texture_state,
+    texture_ui,
     vector_publish,
 )
 from .common import draw_dependency_status, extension_version
@@ -687,6 +691,8 @@ class GEOTOOLS_PT_publish(_GeoToolsPanel, bpy.types.Panel):
         elif not rusty and profile.glb_earth_placed:
             layout.label(text="Earth-placed needs rusty-tiles", icon="ERROR")
 
+        if not vector_publish.is_vector(profile):
+            texture_state.draw_changes(layout, context, profile)
         if running and status_ is not None:
             publish.draw_progress(layout, context, status_)
             return
@@ -805,6 +811,7 @@ classes = (
     GEOTOOLS_PT_layers_bake,
     GEOTOOLS_PT_layers_display,
     GEOTOOLS_PT_layers_details,
+    *texture_ui.classes,
     GEOTOOLS_PT_checks,
     GEOTOOLS_PT_checks_images,
     GEOTOOLS_PT_publish,
