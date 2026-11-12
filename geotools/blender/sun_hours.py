@@ -3,9 +3,10 @@
 The maths is bpy-free (``geotools.analysis.sun_hours`` and ``.clearsky``):
 which rays to cast and what each is worth. Blender casts them:
 
-* **The engine is a Cycles EMIT bake.** A shader node group (the "probe")
-  holds one Cycles ``Raycast`` node per sun direction, up to
-  :data:`RAYS_PER_BAKE` at a time, as a chain of blocks of :data:`BLOCK`
+* **The engine is a Cycles EMIT bake** (:mod:`.ray_bake`, shared with the
+  horizon profile and the fast preset paths). A shader node group (the
+  "probe") holds one Cycles ``Raycast`` node per sun direction, up to
+  :data:`RAYS_PER_BAKE` at a time, as a chain of blocks of ``ray_bake.BLOCK``
   rays. For each sample it sums, per ray, the hours (when the ray is in front
   of the surface and nothing blocks it) and the energy x cos(incidence), and
   emits ``(hours, energy, 1)``. A bake evaluates it once per texel, with
@@ -53,24 +54,13 @@ from ..core.layers import (
     make_provenance,
 )
 from . import analysis
-from .bake_texture import (
-    _assign_material,
-    _deselect_all,
-    _run_bake,
-    _Saved,
-    _show,
-    check_object_uvs,
-    uv_map_name,
-)
+from .bake_texture import _assign_material, _Saved, check_object_uvs, uv_map_name
 from .common import extension_version, redraw_ui
-from .export import same_topology
 from .layers import (
-    apply_modifiers,
     ensure_layer,
     ensure_layer_image,
     evaluated_depsgraph,
     find_layer,
-    layer_meshes,
     refresh_layer,
     remove_layer_data,
     save_layer_image,
@@ -79,25 +69,33 @@ from .layers import (
     write_layer,
 )
 from .properties import FieldError
+from .ray_bake import (
+    PROBE_UV,
+    RAY_LENGTH,
+    Probe,
+    RayBakeError,
+    Run,
+    float_image,
+    get_attribute,
+    new_socket,
+    pixels,
+    probe_material,
+    setup_cycles,
+    show,
+)
+from .ray_bake import bake as ray_bake
+from .ray_bake import build_sample_object as _build_sample_object
+from .ray_bake import collect_samples as _collect_samples
 
 log = logging.getLogger(__name__)
 
 TOOL = "sun_hours"
 """Provenance tool name recorded on the layers."""
 TEMP_PREFIX = "GeoTools Sun Hours"
-PROBE_UV = "gt_probe"
-POSITION_ATTRIBUTE = "gt_probe_position"
-NORMAL_ATTRIBUTE = "gt_probe_normal"
 
 RAYS_PER_BAKE = 1024
 """Rays per bake at most. Bake time is linear in rays; this keeps the fixed cost
 of a bake (scene sync, BVH, shader compile) small next to the rays."""
-BLOCK = 32
-"""Rays per block group: the probe is a chain of blocks, each a chain of rays."""
-RAY_LENGTH = 1.0e7
-"""How far a ray looks for an occluder, in scene units."""
-CORNER_INSET = 0.1
-"""A corner sample sits this fraction of the way from its corner to the face centre."""
 
 ALGORITHM = (
     "NREL SPA sun positions; Cycles Raycast nodes in an EMIT bake (one ray per sun "
@@ -106,15 +104,11 @@ ALGORITHM = (
 CLEAR_SKY = "Ineichen-Perez (2002), Kasten-Young air mass, solar constant 1366.1 W/m2"
 
 
-class SunHoursError(RuntimeError):
+class SunHoursError(RayBakeError):
     """The tool cannot run; the message says why."""
 
 
 # --- the probe shader ------------------------------------------------------------------------
-
-
-def _socket(tree, name: str, kind: str, in_out: str = "INPUT"):
-    return tree.interface.new_socket(name, in_out=in_out, socket_type=f"NodeSocket{kind}")
 
 
 def _ray_group(name: str):
@@ -127,8 +121,8 @@ def _ray_group(name: str):
     """
     tree = bpy.data.node_groups.new(name, "ShaderNodeTree")
     for socket in ("Sum", "Origin", "Normal", "Direction", "Weights"):
-        _socket(tree, socket, "Vector")
-    _socket(tree, "Sum", "Vector", "OUTPUT")
+        new_socket(tree, socket, "Vector")
+    new_socket(tree, "Sum", "Vector", "OUTPUT")
     nodes, links = tree.nodes, tree.links
     group_in = nodes.new("NodeGroupInput")
     group_out = nodes.new("NodeGroupOutput")
@@ -172,331 +166,63 @@ def _ray_group(name: str):
     return tree
 
 
-def _sums_group(name: str):
-    """An empty tree with the chain's sockets: inputs Sum, Origin, Normal; output Sum."""
-    tree = bpy.data.node_groups.new(name, "ShaderNodeTree")
-    for socket in ("Sum", "Origin", "Normal"):
-        _socket(tree, socket, "Vector")
-    _socket(tree, "Sum", "Vector", "OUTPUT")
-    return tree
+_BLANK = {"Direction": (0.0, 0.0, 0.0), "Weights": (0.0, 0.0, 0.0)}
+"""A spare ray slot: a zero direction is never in front, so never cast."""
 
 
-def _chain(tree, groups: list) -> list:
-    """Chain one node of each of ``groups`` through Sum; returns the nodes.
+def _probe(run: Run, offset: float) -> Probe:
+    """The sun probe: rays from the sample moved ``offset`` along its normal."""
 
-    Origin and Normal go to every node. (Building a node tree from Python, or
-    setting a socket value in one, slows down with the tree's size, so the
-    probe is two levels of short chains: blocks of rays, then blocks.)
-    """
-    nodes, links = tree.nodes, tree.links
-    group_in = nodes.new("NodeGroupInput")
-    group_out = nodes.new("NodeGroupOutput")
-    total = group_in.outputs["Sum"]
-    chained = []
-    for group in groups:
-        node = nodes.new("ShaderNodeGroup")
-        node.node_tree = group
-        links.new(total, node.inputs["Sum"])
-        links.new(group_in.outputs["Origin"], node.inputs["Origin"])
-        links.new(group_in.outputs["Normal"], node.inputs["Normal"])
-        total = node.outputs["Sum"]
-        chained.append(node)
-    links.new(total, group_out.inputs["Sum"])
-    return chained
-
-
-@dataclass
-class _Probe:
-    """The probe shader groups of a run: blocks of BLOCK rays, and probes of n blocks."""
-
-    run: _Run
-    offset: float
-    ray: object = None
-    blocks: list = field(default_factory=list)  # (tree, its ray nodes)
-    probes: dict = field(default_factory=dict)  # block count -> (probe tree, chain node)
-
-    def __post_init__(self) -> None:
-        self.ray = _ray_group(f"{TEMP_PREFIX} Ray")
-        self.run.groups.append(self.ray)
-
-    def _block(self, index: int):
-        while len(self.blocks) <= index:
-            tree = _sums_group(f"{TEMP_PREFIX} Block {len(self.blocks)}")
-            self.run.groups.append(tree)
-            self.blocks.append((tree, _chain(tree, [self.ray] * BLOCK)))
-        return self.blocks[index]
-
-    def load(self, rays: core.Rays, start: int, stop: int):
-        """The probe for rays ``start:stop``, with their directions and weights set."""
-        count = math.ceil((stop - start) / BLOCK)
-        for b in range(count):
-            _tree, ray_nodes = self._block(b)
-            for i, node in enumerate(ray_nodes):
-                k = start + b * BLOCK + i
-                inputs = node.inputs
-                if k < stop:
-                    inputs["Direction"].default_value = tuple(map(float, rays.directions[k]))
-                    inputs["Weights"].default_value = (rays.hours[k], rays.energy[k], 0.0)
-                else:  # no ray: a zero direction is never in front, so never cast
-                    inputs["Direction"].default_value = (0.0, 0.0, 0.0)
-                    inputs["Weights"].default_value = (0.0, 0.0, 0.0)
-        if count not in self.probes:
-            self.probes[count] = self._probe(count)
-        return self.probes[count]
-
-    def _probe(self, count: int):
-        """Inputs Position and Normal; output (hours, energy, 1) over ``count`` blocks."""
-        chain = _sums_group(f"{TEMP_PREFIX} Chain {count}")
-        self.run.groups.append(chain)
-        _chain(chain, [self._block(b)[0] for b in range(count)])
-        tree = bpy.data.node_groups.new(f"{TEMP_PREFIX} Probe {count}", "ShaderNodeTree")
-        self.run.groups.append(tree)
-        _socket(tree, "Position", "Vector")
-        _socket(tree, "Normal", "Vector")
-        _socket(tree, "Color", "Color", "OUTPUT")
-        nodes, links = tree.nodes, tree.links
-        group_in = nodes.new("NodeGroupInput")
-        group_out = nodes.new("NodeGroupOutput")
+    def head(tree, group_in) -> dict:
         normal = group_in.outputs["Normal"]
-        lift = nodes.new("ShaderNodeVectorMath")
+        lift = tree.nodes.new("ShaderNodeVectorMath")
         lift.operation = "SCALE"
-        lift.inputs["Scale"].default_value = float(self.offset)
-        links.new(normal, lift.inputs[0])
-        origin = nodes.new("ShaderNodeVectorMath")
+        lift.inputs["Scale"].default_value = float(offset)
+        tree.links.new(normal, lift.inputs[0])
+        origin = tree.nodes.new("ShaderNodeVectorMath")
         origin.operation = "ADD"
-        links.new(group_in.outputs["Position"], origin.inputs[0])
-        links.new(lift.outputs[0], origin.inputs[1])
-        mask = nodes.new("ShaderNodeCombineXYZ")  # the sums start at (0, 0, 1): "baked"
-        mask.inputs[2].default_value = 1.0
-        rays = nodes.new("ShaderNodeGroup")
-        rays.node_tree = chain
-        links.new(mask.outputs[0], rays.inputs["Sum"])
-        links.new(origin.outputs[0], rays.inputs["Origin"])
-        links.new(normal, rays.inputs["Normal"])
-        links.new(rays.outputs["Sum"], group_out.inputs["Color"])
-        return tree
+        tree.links.new(group_in.outputs["Position"], origin.inputs[0])
+        tree.links.new(lift.outputs[0], origin.inputs[1])
+        return {"Origin": origin.outputs[0], "Normal": normal}
+
+    ray = _ray_group(f"{TEMP_PREFIX} Ray")
+    run.groups.append(ray)
+    return Probe(run, TEMP_PREFIX, ray, ("Origin", "Normal"), head)
 
 
-def _probe_material(
-    name: str, group, image: bpy.types.Image, *, attributes: bool
-) -> bpy.types.Material:
-    """Emission of the probe group, with ``image`` as the active (bake) node.
-
-    ``attributes``: the sample position and normal come from the sample
-    object's face attributes; otherwise the shading position and true normal.
-    """
-    material = bpy.data.materials.new(name)
-    nodes, links = material.node_tree.nodes, material.node_tree.links
-    nodes.clear()
-    probe = nodes.new("ShaderNodeGroup")
-    probe.node_tree = group
-    if attributes:
-        for socket, attribute in (("Position", POSITION_ATTRIBUTE), ("Normal", NORMAL_ATTRIBUTE)):
-            node = nodes.new("ShaderNodeAttribute")
-            node.attribute_type = "GEOMETRY"
-            node.attribute_name = attribute
-            links.new(node.outputs["Vector"], probe.inputs[socket])
-    else:
-        geometry = nodes.new("ShaderNodeNewGeometry")
-        links.new(geometry.outputs["Position"], probe.inputs["Position"])
-        links.new(geometry.outputs["True Normal"], probe.inputs["Normal"])
-    emission = nodes.new("ShaderNodeEmission")
-    emission.inputs["Strength"].default_value = 1.0
-    links.new(probe.outputs["Color"], emission.inputs["Color"])
-    output = nodes.new("ShaderNodeOutputMaterial")
-    links.new(emission.outputs[0], output.inputs["Surface"])
-    texture = nodes.new("ShaderNodeTexImage")
-    texture.image = image
-    texture.interpolation = "Closest"
-    nodes.active = texture
-    return material
+def _load(probe: Probe, rays: core.Rays, start: int, stop: int):
+    """The probe for rays ``start:stop``, with their directions and weights set."""
+    values = [
+        {
+            "Direction": tuple(map(float, rays.directions[k])),
+            "Weights": (rays.hours[k], rays.energy[k], 0.0),
+        }
+        for k in range(start, stop)
+    ]
+    return probe.load(values, _BLANK)
 
 
-def _float_image(name: str, width: int, height: int) -> bpy.types.Image:
-    image = bpy.data.images.new(name, width, height, alpha=False, float_buffer=True, is_data=True)
-    image.colorspace_settings.name = "Non-Color"
-    return image
+def _probe_material(name: str, group, image, *, attributes: bool):
+    return probe_material(name, group, image, attributes=attributes)
 
 
-def _pixels(image: bpy.types.Image) -> np.ndarray:
-    pixels = np.empty(len(image.pixels), np.float32)
-    image.pixels.foreach_get(pixels)
-    return pixels.reshape(-1, 4)
+_float_image = float_image
+_pixels = pixels
+_Run = Run
+_setup_cycles = setup_cycles
 
 
 # --- samples for FACE and CORNER layers ------------------------------------------------------
 
 
-@dataclass
-class _Part:
-    obj: bpy.types.Object
-    start: int
-    count: int
+def collect_samples(scene: bpy.types.Scene, domain: Domain, depsgraph):
+    """World-space samples of every source object that can take the layer (see ray_bake)."""
+    return _collect_samples(scene, source_objects(scene), domain, depsgraph)
 
 
-@dataclass
-class _Samples:
-    parts: list[_Part] = field(default_factory=list)
-    points: list[np.ndarray] = field(default_factory=list)
-    normals: list[np.ndarray] = field(default_factory=list)
-    skipped: list[str] = field(default_factory=list)
-
-    @property
-    def total(self) -> int:
-        return sum(p.count for p in self.parts)
-
-
-def _world(matrix: np.ndarray, points: np.ndarray, normals: np.ndarray):
-    linear = matrix[:3, :3]
-    world = points @ linear.T + matrix[:3, 3]
-    # Normals are covectors: the inverse transpose keeps them perpendicular.
-    turned = normals @ np.linalg.inv(linear)
-    length = np.linalg.norm(turned, axis=1, keepdims=True)
-    turned = np.divide(turned, length, out=np.zeros_like(turned), where=length > 0)
-    return world, turned
-
-
-def _set_attribute(mesh: bpy.types.Mesh, name: str, field: str, values: np.ndarray) -> None:
-    mesh.attributes[name].data.foreach_set(field, np.ascontiguousarray(values).ravel())
-
-
-def _get_attribute(mesh: bpy.types.Mesh, name: str, field: str, dtype, size: int) -> np.ndarray:
-    values = np.empty(size, dtype)
-    mesh.attributes[name].data.foreach_get(field, values)
-    return values
-
-
-def _mesh_samples(mesh: bpy.types.Mesh, domain: Domain) -> tuple[np.ndarray, np.ndarray]:
-    """Local sample points and normals of a mesh, float64 (one per face or corner).
-
-    A face's centre is the mean of its corners, as Blender's ``polygon.center``.
-    """
-    faces = len(mesh.polygons)
-    starts = np.empty(faces, np.int32)
-    mesh.polygons.foreach_get("loop_start", starts)
-    sizes = np.diff(np.append(starts, len(mesh.loops)))
-    corner_vertex = _get_attribute(mesh, ".corner_vert", "value", np.int32, len(mesh.loops))
-    co = _get_attribute(mesh, "position", "vector", np.float32, len(mesh.vertices) * 3)
-    corners = co.reshape(-1, 3).astype(np.float64)[corner_vertex]
-    centres = np.add.reduceat(corners, starts, axis=0) / sizes[:, None]
-    normals = np.empty(faces * 3, np.float32)
-    mesh.polygon_normals.foreach_get("vector", normals)
-    normals = normals.reshape(-1, 3).astype(np.float64)
-    if domain is Domain.FACE:
-        return centres, normals
-    corner_face = np.repeat(np.arange(faces), sizes)
-    points = corners + CORNER_INSET * (centres[corner_face] - corners)
-    return points, normals[corner_face]
-
-
-def collect_samples(scene: bpy.types.Scene, domain: Domain, depsgraph) -> _Samples:
-    """World-space sample points and normals of every source object that can take the layer.
-
-    Values are written to the original mesh, so an object is skipped (with a
-    note) when its evaluated mesh has another topology, or when an earlier
-    object shares its mesh.
-    """
-    samples = _Samples()
-    objects = source_objects(scene)
-    for obj in objects:
-        if obj.data.is_editmode:
-            raise SunHoursError(f"{obj.name} is in Edit Mode; switch to Object Mode first.")
-    apply = apply_modifiers(scene)
-    seen: dict[int, str] = {}
-    start = 0
-    for obj, mesh in layer_meshes(scene, objects, depsgraph=depsgraph):
-        pointer = obj.data.as_pointer()
-        if pointer in seen:
-            samples.skipped.append(
-                f"{obj.name} shares its mesh with {seen[pointer]}; it has that object's values."
-            )
-            continue
-        seen[pointer] = obj.name
-        if apply and not same_topology(obj.data, mesh):
-            samples.skipped.append(
-                f"{obj.name}: its modifiers change the topology, so face values cannot be "
-                "stored on its mesh. Use a texture layer, or apply the modifiers."
-            )
-            continue
-        points, normals = _mesh_samples(mesh, domain)
-        if not len(points):
-            continue
-        matrix = np.array(obj.matrix_world, dtype=np.float64)
-        world, turned = _world(matrix, points, normals)
-        samples.parts.append(_Part(obj, start, len(points)))
-        samples.points.append(world)
-        samples.normals.append(turned)
-        start += len(points)
-    return samples
-
-
-def _texel_layout(count: int) -> tuple[int, int]:
-    width = max(1, math.ceil(math.sqrt(count)))
-    return width, max(1, math.ceil(count / width))
-
-
-def build_sample_object(
-    saved: _Saved, context: bpy.types.Context, points: np.ndarray, normals: np.ndarray
-) -> tuple[bpy.types.Object, int, int]:
-    """The temporary sample object: one tiny triangle per sample, each on its own texel.
-
-    Returns the object and its texel grid (width, height): sample ``i`` is
-    texel ``(i % width, i // width)``. The triangle's UVs surround that texel's
-    centre (and no other); its 3D shape is a few float32 steps across around
-    the point, and the exact point and normal are face attributes. Cycles
-    only bakes an object some ray type sees, so it is visible to camera rays,
-    and the Raycast node sees it too: but rays start 16 float32 steps off the
-    surface, away from their own triangle, and another sample's is hit only
-    by a ray passing within a few float32 steps of that sample's point.
-    """
-    n = len(points)
-    width, height = _texel_layout(n)
-    p32 = points.astype(np.float32)
-    size = 4.0 * np.spacing(np.maximum(np.abs(p32).max(axis=1), np.float32(1.0)))
-    offsets = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [-1.0, -1.0, 0.0]])
-    corners = (p32[:, None, :] + size[:, None, None] * offsets[None, :, :]).astype(np.float32)
-
-    mesh = bpy.data.meshes.new(f"{TEMP_PREFIX} Samples")
-    saved.temp_meshes.append(mesh)
-    mesh.vertices.add(3 * n)
-    mesh.loops.add(3 * n)
-    mesh.polygons.add(n)
-    # The attribute arrays take numpy buffers directly: far faster than
-    # vertices.co and loops.vertex_index, which go element by element.
-    _set_attribute(mesh, "position", "vector", corners)
-    _set_attribute(mesh, ".corner_vert", "value", np.arange(3 * n, dtype=np.int32))
-    mesh.polygons.foreach_set("loop_start", np.arange(0, 3 * n, 3, dtype=np.int32))
-    mesh.update(calc_edges=False)
-    for name, values in ((POSITION_ATTRIBUTE, p32), (NORMAL_ATTRIBUTE, normals)):
-        attr = mesh.attributes.new(name, "FLOAT_VECTOR", "FACE")
-        attr.data.foreach_set("vector", np.ascontiguousarray(values, np.float32).ravel())
-
-    index = np.arange(n)
-    centre = np.stack([(index % width + 0.5) / width, (index // width + 0.5) / height], axis=1)
-    angles = np.radians([90.0, 210.0, 330.0])
-    # 0.9 texel from the centre: the triangle holds its own texel centre (and the
-    # jitter around it), never a neighbour's, which is a full texel away.
-    spread = 0.9 * np.stack([np.cos(angles) / width, np.sin(angles) / height], axis=1)
-    uv = centre[:, None, :] + spread[None, :, :]
-    mesh.uv_layers.new(name=PROBE_UV)
-    _set_attribute(mesh, PROBE_UV, "vector", uv.astype(np.float32))
-
-    obj = bpy.data.objects.new(mesh.name, mesh)
-    saved.temp_objects.append(obj)
-    # Cycles bakes only an object some ray type can see, and the Raycast node
-    # then sees it too. Each triangle is a few float32 steps wide, horizontal,
-    # at its sample point, and rays leave 16 steps off the surface, so no ray
-    # meets one but by a chance of the order of (4 ulp / spacing)^2.
-    for flag in (
-        "visible_diffuse",
-        "visible_glossy",
-        "visible_transmission",
-        "visible_volume_scatter",
-        "visible_shadow",
-    ):
-        setattr(obj, flag, False)
-    context.scene.collection.objects.link(obj)
-    return obj, width, height
+def build_sample_object(saved: _Saved, context, points: np.ndarray, normals: np.ndarray):
+    """The temporary sample object at the sample points (``ray_bake.build_sample_object``)."""
+    return _build_sample_object(saved, context, points, normals, name=f"{TEMP_PREFIX} Samples")
 
 
 # --- running -------------------------------------------------------------------------------------
@@ -658,9 +384,8 @@ def _bake_batches(
     ``targets`` are (object, scratch image, UV map name). Objects with the same
     UV map name bake together.
     """
-    view_layer = context.view_layer
     materials = {}
-    probes = _Probe(run, offset)
+    probes = _probe(run, offset)
     totals: dict[str, np.ndarray] = {}
     batches = max(1, math.ceil(len(rays) / RAYS_PER_BAKE))
     wm = context.window_manager
@@ -668,7 +393,7 @@ def _bake_batches(
     try:
         for batch in range(batches):
             start, stop = batch * RAYS_PER_BAKE, min(len(rays), (batch + 1) * RAYS_PER_BAKE)
-            probe = probes.load(rays, start, stop)
+            probe = _load(probes, rays, start, stop)
             for material in materials.values():
                 node = next(n for n in material.node_tree.nodes if n.type == "GROUP")
                 node.node_tree = probe
@@ -688,30 +413,13 @@ def _bake_batches(
             for obj, _image, uv in targets:
                 by_uv.setdefault(uv, []).append(obj)
             for uv, objects in by_uv.items():
-                _deselect_all(view_layer)
-                for obj in objects:
-                    obj.select_set(True)
-                view_layer.objects.active = objects[0]
-                try:
-                    _run_bake(
-                        type="EMIT",
-                        target="IMAGE_TEXTURES",
-                        margin=margin,
-                        margin_type="EXTEND",
-                        use_clear=True,
-                        use_selected_to_active=False,
-                        use_cage=False,
-                        use_split_materials=False,
-                        uv_layer=uv,
-                    )
-                except RuntimeError as ex:
-                    raise SunHoursError(f"The bake failed: {ex}") from None
+                ray_bake(context, objects, uv, margin=margin, error=SunHoursError)
             for obj, image, _uv in targets:
-                pixels = _pixels(image)[:, :3].astype(np.float64)
+                baked = _pixels(image)[:, :3].astype(np.float64)
                 if obj.name in totals:
-                    totals[obj.name][:, :2] += pixels[:, :2]
+                    totals[obj.name][:, :2] += baked[:, :2]
                 else:
-                    totals[obj.name] = pixels
+                    totals[obj.name] = baked
             wm.progress_update(batch + 1)
     finally:
         wm.progress_end()
@@ -817,8 +525,7 @@ def compute(context: bpy.types.Context) -> dict:
             depsgraph = evaluated_depsgraph(scene)
             _setup_cycles(saved, scene)
             objects = source_objects(scene)
-            for obj in objects:
-                _show(saved, obj)
+            show(saved, objects)
             if domain is Domain.TEXTURE:
                 values, texels = _run_texture(context, saved, run, rays, names, depsgraph, notes)
                 count = texels
@@ -930,7 +637,7 @@ def _run_texture(context, saved, run, rays, names, depsgraph, notes):
         image = _float_image(f"{TEMP_PREFIX} {obj.name}", size, size)
         run.images.append(image)
         targets.append((obj, image, uv))
-        co = _get_attribute(mesh, "position", "vector", np.float32, len(mesh.vertices) * 3)
+        co = get_attribute(mesh, "position", "vector", np.float32, len(mesh.vertices) * 3)
         matrix = np.array(obj.matrix_world, dtype=np.float64)
         points.append(co.reshape(-1, 3)[:: max(1, len(co) // 3 // 4096)] @ matrix[:3, :3].T)
         points[-1] += matrix[:3, 3]

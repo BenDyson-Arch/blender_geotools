@@ -312,13 +312,14 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
     library, so the groups are appended from the bundled `.blend` (also
     marked as assets). Open items: Hesse's purge step of the local relief
     model has no clean stock-node form (the preset is the trend-removal step),
-    and sky-view factor and openness take three to four minutes at 10M
-    triangles (the local relief model about one); a raster horizon scan or a
-    Cycles bake is proposed for large sites. Shortest Edge Paths takes one cost
-    per edge, so least-cost routes use the mean of Tobler's uphill and downhill
-    times (the reported time is directional); a cumulative viewshed from
-    hundreds of observers on a 10M mesh takes minutes (a Cycles bake setup is
-    proposed).
+    and the local relief model takes about a minute at 10M triangles. Shortest
+    Edge Paths takes one cost per edge, so least-cost routes use the mean of
+    Tobler's uphill and downhill times (the reported time is directional).
+    Sky-view factor, openness and the cumulative viewshed, minutes at 10M in
+    Geometry Nodes, also have a **fast (bake) path**: the preset's own rays
+    cast by the sun-hours Cycles Raycast engine (now shared,
+    `ray_bake.py`) and stored once as a layer, chosen in Add Analysis
+    ([analysis-presets.md](analysis-presets.md#fast-bake-paths)).
   - Terrain shape: slope, aspect, curvature (plan and profile), roughness and
     rugosity, TPI and TRI.
   - Archaeological visualisation: local relief model, sky-view factor,
@@ -346,10 +347,11 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
   exit, each documented with its workaround:
   - a year of sun hours per face on 10M triangles takes about 2.5 min: use a
     texture layer or merge sun directions within 5° (both under a minute);
-  - sky-view factor and openness (2.5 to 3.5 min at 10M) and a cumulative
-    viewshed beyond about 25 observers exceed a minute in stock Geometry
-    Nodes. A bake-engine fast path, reusing the sun-hours Cycles Raycast
-    engine, is being added before 0.3.0;
+  - a cumulative viewshed from 100 observers on 10M triangles takes 49 to
+    65 s with its fast (bake) path on a shared 16-thread machine (229 s live),
+    about 16 s of it fixed cost; fewer observers, a smaller Max Distance or a
+    quieter machine bring it under a minute. Sky-view factor and openness
+    are within the exit with theirs (37 to 52 s at 10M; 2.5 to 3.5 min live);
   - least-cost paths use one cost per edge both ways (the mean of uphill and
     downhill Tobler times); a true one-way route stays with QGIS `r.walk`
     through M8.

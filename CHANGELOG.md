@@ -99,6 +99,18 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   obstructions summed in binary64. All use Geometry Nodes Raycast, measured
   faster than a bake for these ray counts; accuracy and timings at 1M and 10M
   triangles are in `docs/analysis-presets.md`.
+- Analysis presets (M5): **fast (bake) paths** for sky-view factor, positive
+  and negative openness and the cumulative viewshed. Add Analysis offers
+  "(Fast Bake)" entries and an Engine choice (Live (Geometry Nodes) or Fast
+  (bake)): the preset's own rays, inputs and formulas, cast by Cycles Raycast
+  shader nodes in one EMIT bake (the sun-hours engine, now shared as
+  `geotools/blender/ray_bake.py` by sun hours, the horizon profile and these
+  paths), stored once as a layer with origin analysis and a provenance naming
+  the preset version and the method. On 10M triangles: sky-view factor about
+  40 s and openness about 50 s (live: 163 s and about 210 s), and a
+  cumulative viewshed from 100 observers 49 to 65 s (live: 229 s). Identical
+  to the live presets on the analytic tests and to batch 2's segment-box test;
+  details in `docs/analysis-presets.md`.
 - Analysis (M5): **3D surface hydrology**, in a Hydrology sub-panel. Flow
   routing, flow accumulation (upslope contributing area in m², plan area of
   upward faces by default) and ponding on the mesh's own connectivity: faces
