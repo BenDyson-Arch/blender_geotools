@@ -154,10 +154,10 @@ def test_ingest_detects_offset_file() -> None:
         assert bpy.ops.geotools.ingest_source(filepath=str(path)) == {"FINISHED"}
         props = h.project()
         assert props.placement_mode == "SOURCE_CRS"
-        assert props.source_crs == ""  # left for the user
+        assert props.crs == ""  # left for the user
         assert Path(props.offset_file) == tmp / "site_offset.txt"
-        assert p.read_number(props, "source_offset_e") == 512345.987654321
-        assert p.read_number(props, "source_offset_n") == 6961000.123456
+        assert p.read_number(props, "origin_e") == 512345.987654321
+        assert p.read_number(props, "origin_n") == 6961000.123456
         assert p.read_number(props, "source_offset_a") == 12.5
         # The CRS is still missing, and the checks say so.
         issues = p.placement_from_props(props).validate()
@@ -173,7 +173,7 @@ def test_ingest_offset_report_asks_for_crs() -> None:
         fx.write_offset(tmp / "offset.txt", "1", "2", "3")
         level, message = source.detect_offset(h.project(), path)
         assert level == {"WARNING"} and "Set the source CRS" in message, (level, message)
-        h.project().source_crs = "EPSG:32760"
+        h.project().crs = "EPSG:32760"
         level, message = source.detect_offset(h.project(), path)
         assert level == {"INFO"} and "Set the source CRS" not in message, (level, message)
         # A broken offset file is reported and leaves the placement alone.

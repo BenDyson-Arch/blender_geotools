@@ -421,10 +421,10 @@ def inner_main(argv: list[str]) -> None:
 
     def place(props) -> None:
         props.placement_mode = "SOURCE_CRS"
-        props.source_crs = "EPSG:7856"
-        props.source_offset_e = "502000.0"
-        props.source_offset_n = "6961000.0"
-        props.source_offset_a = "12.0"
+        props.crs = "EPSG:7856"
+        props.origin_e = "502000.0"
+        props.origin_n = "6961000.0"
+        props.source_offset_a = "0.0"
 
     def run_op(op, **kwargs) -> None:
         try:

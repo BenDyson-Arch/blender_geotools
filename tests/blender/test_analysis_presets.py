@@ -308,9 +308,9 @@ def test_mga_true_north_uses_the_site_convergence() -> None:
     )
     props = h.project()
     props.placement_mode = "SOURCE_CRS"
-    props.source_crs = "EPSG:7856"
-    props.source_offset_e = repr(east)
-    props.source_offset_n = repr(north)
+    props.crs = "EPSG:7856"
+    props.origin_e = repr(east)
+    props.origin_n = repr(north)
     props.source_offset_a = "250.0"
     plane = _grid("Tilted", 8, 2.0, lambda x, y: y * TAN30)
     assert _add("aspect", north="TRUE") == {"FINISHED"}

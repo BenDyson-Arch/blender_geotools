@@ -34,7 +34,7 @@ from ..core.layers import Aggregation, DataType, Domain, Origin
 from ..core.placement import Placement, PlacementMode, Vec3
 from ..core.presentation import Blend, Target
 from ..core.ramps import DEFAULT_PALETTE, PALETTES
-from . import crs_picker
+from . import crs_picker, scene_georef
 
 # --- binary64 number fields ------------------------------------------------------
 
@@ -47,9 +47,26 @@ class NumberField:
 
 
 SOURCE_CRS_FIELDS: tuple[NumberField, ...] = (
-    NumberField("source_offset_e", "Offset E", "Source offset easting, in CRS units"),
-    NumberField("source_offset_n", "Offset N", "Source offset northing, in CRS units"),
-    NumberField("source_offset_a", "Offset A", "Source offset altitude, in metres"),
+    NumberField(
+        "origin_e",
+        "Offset E",
+        "Source offset easting, in CRS units: the scene origin's easting (the GeoScene "
+        "'crs x' key). Changing it moves the scene on Earth; objects keep their Blender "
+        "positions",
+    ),
+    NumberField(
+        "origin_n",
+        "Offset N",
+        "Source offset northing, in CRS units: the scene origin's northing (the GeoScene "
+        "'crs y' key). Changing it moves the scene on Earth; objects keep their Blender "
+        "positions",
+    ),
+    NumberField(
+        "source_offset_a",
+        "Offset A",
+        "Source offset altitude, in metres, added to Blender Z. Keep 0 for scenes shared "
+        "with BlenderGIS and other GeoScene tools, which read Z as absolute height",
+    ),
     NumberField(
         "height_offset",
         "Height Offset",
@@ -162,8 +179,8 @@ def placement_from_props(props: "GeoToolsProject") -> Placement:
         n = {f.attr: read_number(props, f.attr) for f in SOURCE_CRS_FIELDS}
         return Placement(
             mode=mode,
-            source_crs=crs_catalog.current_definition(props.source_crs.strip()),
-            source_offset=(n["source_offset_e"], n["source_offset_n"], n["source_offset_a"]),
+            source_crs=crs_catalog.current_definition(props.crs.strip()),
+            source_offset=(n["origin_e"], n["origin_n"], n["source_offset_a"]),
             height_offset=n["height_offset"],
         )
     return Placement(mode=PlacementMode.LOCAL)
@@ -179,8 +196,8 @@ def apply_source_offset(props: "GeoToolsProject", offset: Vec3, path: str = "") 
     The CRS is left as it is: an offset file does not say which CRS it is in.
     """
     props.placement_mode = "SOURCE_CRS"
-    write_number(props, "source_offset_e", offset[0])
-    write_number(props, "source_offset_n", offset[1])
+    write_number(props, "origin_e", offset[0])
+    write_number(props, "origin_n", offset[1])
     write_number(props, "source_offset_a", offset[2])
     props.offset_file = path
 
@@ -205,6 +222,17 @@ def _number(field: NumberField) -> StringProperty:
         name=field.label,
         description=f"{field.description}. Stored as text so the full double precision is kept",
         default="0",
+    )
+
+
+def _origin_number(field: NumberField, get, set_) -> StringProperty:
+    """Offset E or N: text over the GeoScene key (a double) or GeoTools' own text."""
+    return StringProperty(
+        name=field.label,
+        description=f"{field.description}. Read and written as exact text, so the full double "
+        "precision is kept",
+        get=get,
+        set=set_,
     )
 
 
@@ -747,14 +775,43 @@ class GeoToolsProject(bpy.types.PropertyGroup):
     """The GeoTools project of a scene."""
 
     # Placement ------------------------------------------------------------------
-    placement_mode: EnumProperty(name="Placement", items=PLACEMENT_MODE_ITEMS, default="LOCAL")
-    source_crs: StringProperty(
+    placement_mode: EnumProperty(
+        name="Placement",
+        items=PLACEMENT_MODE_ITEMS,
+        default="LOCAL",
+        update=scene_georef.placement_mode_changed,
+    )
+    # The project CRS and origin E/N: the scene's GeoScene keys (SRID, crs x, crs y)
+    # in a CRS project that has them, else GeoTools' own text below
+    # (blender.scene_georef, core.geoscene). Read and write these, never the text.
+    crs: StringProperty(
         name="CRS",
         description="Horizontal CRS of the source coordinates: an EPSG code such as "
-        '"EPSG:7856" (search by code or name), WKT or a PROJ definition',
+        '"EPSG:7856" (search by code or name), WKT or a PROJ definition. Kept as the '
+        "scene's GeoScene SRID key (the BlenderGIS convention) when it is an EPSG code or "
+        "a PROJ string",
+        get=scene_georef.get_crs,
+        set=scene_georef.set_crs,
         search=crs_picker.search_crs,
         search_options={"SUGGESTION"},
         update=crs_picker.crs_changed,
+    )
+    origin_e: _origin_number(
+        NUMBER_FIELDS["origin_e"], scene_georef.get_origin_e, scene_georef.set_origin_e
+    )
+    origin_n: _origin_number(
+        NUMBER_FIELDS["origin_n"], scene_georef.get_origin_n, scene_georef.set_origin_n
+    )
+    # GeoTools' own CRS and E/N text: the georeference only while the scene has no
+    # SRID key (LOCAL and ANCHOR projects, a CRS GeoScene cannot hold, no CRS yet).
+    # Earlier GeoTools versions kept the project here; file load moves it into the
+    # keys. Internal: use crs, origin_e and origin_n.
+    source_crs: StringProperty(name="GeoTools CRS Text", options={"HIDDEN"})
+    source_offset_e: StringProperty(name="GeoTools Offset E Text", default="0", options={"HIDDEN"})
+    source_offset_n: StringProperty(name="GeoTools Offset N Text", default="0", options={"HIDDEN"})
+    georef_notice: StringProperty(
+        name="Georeference Notice",
+        description="What the last georeference migration took from where (shown until dismissed)",
     )
     crs_near_site: BoolProperty(
         name="Near This Site",
@@ -769,9 +826,7 @@ class GeoToolsProject(bpy.types.PropertyGroup):
     offset_file: StringProperty(
         name="Offset File", description="Offset file the source offset was read from"
     )
-    # Number fields (binary64 text): see NUMBER_FIELDS.
-    source_offset_e: _number(NUMBER_FIELDS["source_offset_e"])
-    source_offset_n: _number(NUMBER_FIELDS["source_offset_n"])
+    # Number fields (binary64 text): see NUMBER_FIELDS (origin_e/n are above).
     source_offset_a: _number(NUMBER_FIELDS["source_offset_a"])
     height_offset: _number(NUMBER_FIELDS["height_offset"])
     anchor_lon: _number(NUMBER_FIELDS["anchor_lon"])

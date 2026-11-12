@@ -324,9 +324,9 @@ def test_projected_crs_turns_grid_to_true() -> None:
     )
     props = h.project()
     props.placement_mode = "SOURCE_CRS"
-    props.source_crs = "EPSG:7856"
-    props.source_offset_e = repr(east)
-    props.source_offset_n = repr(north)
+    props.crs = "EPSG:7856"
+    props.origin_e = repr(east)
+    props.origin_n = repr(north)
     props.source_offset_a = "100.0"
     _terrain()
     _observer()

@@ -56,6 +56,7 @@ from . import (
     links_ui,
     presentation,
     publish,
+    scene_georef,
     surface_ui,
     vector_publish,
 )
@@ -164,7 +165,7 @@ def placement_state(props: bpy.types.PropertyGroup) -> str:
     """Project header state: ERROR if the placement cannot be built or failed to verify."""
     if props.placement_mode == "LOCAL":
         return DONE
-    if props.placement_mode == "SOURCE_CRS" and not props.source_crs.strip():
+    if props.placement_mode == "SOURCE_CRS" and not props.crs.strip():
         return ERROR
     try:
         placement = placement_from_props(props)
@@ -203,6 +204,7 @@ class GEOTOOLS_PT_project(_GeoToolsPanel, bpy.types.Panel):
             _number_rows(col, props, ANCHOR_FIELDS[4:], ("Offset E", "N", "U"))
         else:
             _draw_source_crs(layout, context, props)
+        scene_georef.draw_notes(layout, context, props)
         layout.separator()
         _draw_verify(layout, context, props)
 
@@ -211,6 +213,7 @@ def _draw_source_crs(layout, context, props) -> None:
     crs_picker.draw_source_crs(layout, context, props)
     col = split_column(layout)
     _number_rows(col, props, SOURCE_CRS_FIELDS[:3], ("Offset E", "N", "A"))
+    scene_georef.draw_storage(layout, context, props)
     _number_rows(col, props, SOURCE_CRS_FIELDS[3:], ("Height Offset",))
     row = layout.row(align=True)
     row.operator("geotools.load_offset_file", icon="FILEBROWSER")

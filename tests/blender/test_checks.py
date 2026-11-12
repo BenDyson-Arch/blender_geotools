@@ -81,8 +81,9 @@ def test_run_checks_includes_placement() -> None:
     props.placement_mode = "SOURCE_CRS"  # with no CRS
     assert bpy.ops.geotools.run_checks() == {"FINISHED"}
     assert ("ERROR", "crs-missing") in _issue_codes(), _issue_codes()
-    props.source_crs = "EPSG:32760"
-    props.source_offset_e = "not a number"
+    # With no CRS yet the offset is GeoTools' own text, so a typo is kept and reported
+    # (a GeoScene key would refuse it).
+    props.origin_e = "not a number"
     assert bpy.ops.geotools.run_checks() == {"FINISHED"}
     codes = _issue_codes()
     assert ("ERROR", "invalid-number") in codes, codes
@@ -131,9 +132,9 @@ def test_verify_placement_matches_core_probe() -> None:
     p = h.submodule("blender.properties")
     props = h.project()
     props.placement_mode = "SOURCE_CRS"
-    props.source_crs = "EPSG:32756"
-    p.write_number(props, "source_offset_e", 500000.0)
-    p.write_number(props, "source_offset_n", 6961000.123456)
+    props.crs = "EPSG:32756"
+    p.write_number(props, "origin_e", 500000.0)
+    p.write_number(props, "origin_n", 6961000.123456)
     p.write_number(props, "source_offset_a", 10.0)
     assert _verify() is None
     assert props.probe_status == "OK", props.probe_error
@@ -148,7 +149,7 @@ def test_verify_placement_matches_core_probe() -> None:
     labels = [t for t, _i in h.labels(h.draw(h.submodule("blender.panels").GEOTOOLS_PT_project))]
     assert f"{got[0]:.7f}°" in labels, labels
     assert "Placement changed; verify again" not in labels
-    p.write_number(props, "source_offset_n", 6961001.0)
+    p.write_number(props, "origin_n", 6961001.0)
     labels = [t for t, _i in h.labels(h.draw(h.submodule("blender.panels").GEOTOOLS_PT_project))]
     assert "Placement changed; verify again" in labels, labels
 
@@ -180,9 +181,9 @@ def test_verify_placement_reports_unsupported_crs() -> None:
     p = h.submodule("blender.properties")
     props = h.project()
     props.placement_mode = "SOURCE_CRS"
-    props.source_crs = "EPSG:27700"  # British National Grid: needs a grid, refused
-    p.write_number(props, "source_offset_e", 530000.0)
-    p.write_number(props, "source_offset_n", 180000.0)
+    props.crs = "EPSG:27700"  # British National Grid: needs a grid, refused
+    p.write_number(props, "origin_e", 530000.0)
+    p.write_number(props, "origin_n", 180000.0)
     error = _verify()
     assert error and "Placement failed" in error, error
     assert props.probe_status == "FAILED"

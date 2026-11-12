@@ -156,10 +156,10 @@ def _texture(name: str, objects, size: int = 4) -> dict[str, np.ndarray]:
 def _mga56() -> None:
     props = h.project()
     props.placement_mode = "SOURCE_CRS"
-    props.source_crs = "EPSG:7856"
+    props.crs = "EPSG:7856"
     p = h.submodule("blender.properties")
-    p.write_number(props, "source_offset_e", 502_000.25)
-    p.write_number(props, "source_offset_n", 6_961_000.123456789)
+    p.write_number(props, "origin_e", 502_000.25)
+    p.write_number(props, "origin_n", 6_961_000.123456789)
     p.write_number(props, "source_offset_a", 12.5)
     p.write_number(props, "height_offset", 38.25)
 
@@ -392,7 +392,7 @@ def test_metadata_glb_values() -> None:
             assert doc["asset"]["extensions"] == {"KHR_xmp_json_ld": {"packet": 0}}
             assert packet["geotools:placement"] == "source_crs"
             assert packet["geotools:crs"] == "EPSG:7856"
-            assert packet["geotools:crsDefinition"] == h.project().source_crs
+            assert packet["geotools:crsDefinition"] == h.project().crs
             assert packet["geotools:sourceOffset"] == {
                 "@list": [502000.25, 6961000.123456789, 12.5]
             }

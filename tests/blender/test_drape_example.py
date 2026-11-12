@@ -208,8 +208,8 @@ def test_example_script_runs_and_the_recipe_holds() -> None:
 
         scene = bpy.context.scene
         props = scene.geotools
-        assert props.placement_mode == "SOURCE_CRS" and props.source_crs == "EPSG:32631"
-        assert float(props.source_offset_e) == E0 and float(props.source_offset_a) == A0
+        assert props.placement_mode == "SOURCE_CRS" and props.crs == "EPSG:32631"
+        assert float(props.origin_e) == E0 and float(props.source_offset_a) == A0
         terrain = bpy.data.objects["terrain"]
         contexts = bpy.data.objects["contexts"]
         volumes = bpy.data.objects["contexts.volumes"]

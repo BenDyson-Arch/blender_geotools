@@ -28,11 +28,9 @@ def _project(crs: str = "EPSG:7856", mode: str = "SOURCE_CRS") -> None:
     h.reset_scene()
     props = h.project()
     props.placement_mode = mode
-    props.source_crs = crs
+    props.crs = crs
     write = h.submodule("blender.properties").write_number
-    for attr, value in zip(
-        ("source_offset_e", "source_offset_n", "source_offset_a"), OFFSET, strict=True
-    ):
+    for attr, value in zip(("origin_e", "origin_n", "source_offset_a"), OFFSET, strict=True):
         write(props, attr, value)
 
 
@@ -271,9 +269,11 @@ def test_a_project_without_a_crs_is_offered_the_rasters() -> None:
         result, error = h.call_op(bpy.ops.geotools.use_data_origin, **pending["request"])
         assert result == {"FINISHED"}, error
     props = h.project()
-    assert props.placement_mode == "SOURCE_CRS" and props.source_crs == "EPSG:7856"
+    assert props.placement_mode == "SOURCE_CRS" and props.crs == "EPSG:7856"
     read = h.submodule("blender.properties").read_number
-    assert tuple(read(props, f"source_offset_{k}") for k in "ena") == OFFSET  # kept
+    assert (
+        tuple(read(props, k) for k in ("origin_e", "origin_n", "source_offset_a")) == OFFSET
+    )  # kept
 
 
 def test_unknown_crs_needs_confirming() -> None:
@@ -468,11 +468,11 @@ def test_projected_raster_in_a_local_or_anchor_project_offers_its_centre() -> No
             assert result == {"FINISHED"}, error
             props = h.project()
             assert props.placement_mode == "SOURCE_CRS"
-            assert props.source_crs == "EPSG:7856"
+            assert props.crs == "EPSG:7856"
             # Pixel edges: 512345 to 512379 E, 6961765 to 6961789 N.
             centre = (512_362.0, 6_961_777.0, 0.0)
             read = h.submodule("blender.properties").read_number
-            offset = tuple(read(props, f"source_offset_{k}") for k in "ena")
+            offset = tuple(read(props, k) for k in ("origin_e", "origin_n", "source_offset_a"))
             assert offset == centre, offset
             assert data_origin.pending_offer(bpy.context) is None
             obj = bpy.data.objects["far"]
