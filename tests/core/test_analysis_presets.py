@@ -45,7 +45,27 @@ def test_the_first_batch_is_complete() -> None:
     }
 
 
-@pytest.mark.parametrize("preset", presets.PRESETS, ids=lambda p: p.id)
+def test_the_second_batch_is_complete() -> None:
+    by = {c: {p.id for p in presets.by_category(c)} for c in presets.Category}
+    assert by[presets.Category.VISIBILITY] == {
+        "viewshed",
+        "viewshed_cumulative",
+        "intervisibility",
+        "line_of_sight",
+    }
+    assert by[presets.Category.CHANGE] == {"surface_distance", "feature_distance"}
+    assert by[presets.Category.VOLUMES] == {"cut_fill", "closed_volume"}
+    assert by[presets.Category.PATHS] == {"least_cost_path", "flow_path"}
+    assert set(presets.CATEGORY_LABELS) == set(presets.Category)
+    objects = {p.id for p in presets.PRESETS if p.output is presets.Output.OBJECT}
+    assert objects == {"intervisibility", "line_of_sight", "least_cost_path", "flow_path"}
+
+
+LAYER_PRESETS = tuple(p for p in presets.PRESETS if p.output is presets.Output.LAYER)
+OBJECT_PRESETS = tuple(p for p in presets.PRESETS if p.output is presets.Output.OBJECT)
+
+
+@pytest.mark.parametrize("preset", LAYER_PRESETS, ids=lambda p: p.id)
 def test_each_preset_makes_a_valid_layer(preset: presets.Preset) -> None:
     spec = presets.layer_spec(preset, inputs={"Window": 0.1}, objects=("Site",))
     assert [i for i in layers.validate(spec) if i.severity is Severity.ERROR] == []
@@ -66,6 +86,33 @@ def test_each_preset_makes_a_valid_layer(preset: presets.Preset) -> None:
     assert layers.from_record(layers.to_record(spec)) == spec
 
 
+@pytest.mark.parametrize("preset", OBJECT_PRESETS, ids=lambda p: p.id)
+def test_object_presets_make_lines_with_provenance(preset: presets.Preset) -> None:
+    assert preset.domain is None and preset.active_only
+    with pytest.raises(ValueError):
+        presets.layer_spec(preset)
+    names = [a.name for a in preset.attributes]
+    assert names and len(names) == len(set(names))
+    assert preset.attribute == names[0]
+    assert all(a.domain in {"POINT", "EDGE"} and a.description for a in preset.attributes)
+    # The surface is the active mesh: exactly one SURFACE input.
+    surfaces = [i for i in preset.object_inputs if i.fill is presets.Fill.SURFACE]
+    assert [i.name for i in surfaces] == ["Surface"]
+    record = presets.object_provenance(preset, inputs={"Surface": "Site"}, surface="Site")
+    assert record["tool"] == presets.TOOL and presets.preset_of(record) == preset.id
+    assert record["parameters"]["objects"] == ["Site"]
+    assert set(record["parameters"]["attributes"]) == set(names)
+
+
+def test_which_presets_go_on_the_active_object_only() -> None:
+    # An Empty observer leaves every selected mesh a target; a second mesh does not.
+    assert not presets.get("viewshed").active_only
+    assert not presets.get("slope").active_only
+    for preset_id in ("viewshed_cumulative", "surface_distance", "feature_distance", "cut_fill"):
+        assert presets.get(preset_id).active_only, preset_id
+    assert not presets.get("closed_volume").active_only
+
+
 @pytest.mark.parametrize("preset", presets.PRESETS, ids=lambda p: p.id)
 def test_inputs_are_well_formed(preset: presets.Preset) -> None:
     names = [i.name for i in preset.inputs]
@@ -73,8 +120,15 @@ def test_inputs_are_well_formed(preset: presets.Preset) -> None:
     assert presets.ATTRIBUTE_INPUT not in names and "Geometry" not in names
     assert (presets.CONVERGENCE_INPUT in names) == preset.north
     for spec in preset.inputs:
-        assert spec.kind in {"FLOAT", "INT", "BOOLEAN"}
+        assert spec.kind in {"FLOAT", "INT", "BOOLEAN", "STRING", "OBJECT", "COLLECTION"}
         assert spec.description.strip(), spec.name
+        if spec.kind in {"OBJECT", "COLLECTION"}:
+            assert spec.default is None
+        assert (spec.fill is not presets.Fill.NONE) <= (spec.kind == "OBJECT"), spec.name
+        if spec.kind == "OBJECT":
+            assert spec.fill is presets.Fill.NONE or spec.fill in presets.FILL_LABELS
+        if spec.kind == "STRING":
+            assert isinstance(spec.default, str)
         if spec.min is not None:
             assert spec.default >= spec.min, spec.name
         if spec.max is not None:

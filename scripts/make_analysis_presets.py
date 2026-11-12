@@ -6,10 +6,10 @@ Runs inside Blender, against the source checkout (nothing is installed):
         [--out geotools/assets/analysis_presets.blend] [--check]
 
 It builds one node group per preset in ``geotools/analysis/presets.py`` (the
-catalog: names, versions, inputs and defaults), plus four helper groups they
-share, marks the presets as assets in two catalogs (GeoTools/Terrain Shape and
-GeoTools/Archaeological Visualisation) and writes them to ``--out`` with a
-``blender_assets.cats.txt`` beside it. Every node is a stock node, so a user
+catalog: names, versions, inputs and defaults), plus the helper groups they
+share, marks the presets as assets in one catalog per category
+(GeoTools/Terrain Shape, GeoTools/Visibility, ...) and writes them to
+``--out`` with a ``blender_assets.cats.txt`` beside it. Every node is a stock node, so a user
 can open and edit any of them; GeoTools only appends them ("Add Analysis").
 
 ``--check`` builds the groups in memory and compares them, node by node, with
@@ -40,6 +40,10 @@ DEFAULT_OUT = REPO_ROOT / "geotools" / "assets" / catalog.LIBRARY_FILE
 CATALOG_IDS = {
     catalog.Category.TERRAIN: "7d1f6a52-3c1e-4f0b-9a57-2a8e5c4b6f01",
     catalog.Category.ARCHAEOLOGY: "b3c9e2d4-8a7f-4e61-b5d0-6f1a2c3e4d02",
+    catalog.Category.VISIBILITY: "4e8a1c27-95d3-4b6f-8e02-7c5d9a1b3f03",
+    catalog.Category.CHANGE: "c2f7b9e1-3a4d-4c58-9f16-0d8e2b7a5c04",
+    catalog.Category.VOLUMES: "9a3d5e82-1f6c-4e07-b4a9-5c2e8d1f7b05",
+    catalog.Category.PATHS: "e6b1f4a9-7c2d-4a83-95e0-3b8f1d6c2a06",
 }
 HELPER_VERSION = 1
 
@@ -47,6 +51,9 @@ WINDOW_HEIGHTS = "GeoTools Window Heights"
 DERIVATIVES = "GeoTools Surface Derivatives"
 MEAN_RISE = "GeoTools Mean Rise"
 HORIZON = "GeoTools Horizon"
+OBJECT_POINTS = "GeoTools Object Points"
+SIGHT_TARGET = "GeoTools Sight Target"
+DRAPE = "GeoTools Drape"
 
 GOLDEN_ANGLE = math.pi * (3.0 - math.sqrt(5.0))  # radians, for sunflower sampling
 NEIGHBOURS = ("NW", "N", "NE", "W", "E", "SW", "S", "SE")
@@ -69,7 +76,13 @@ _SOCKET_TYPES = {
     "BOOLEAN": "NodeSocketBool",
     "STRING": "NodeSocketString",
     "VECTOR": "NodeSocketVector",
+    "OBJECT": "NodeSocketObject",
+    "COLLECTION": "NodeSocketCollection",
 }
+
+TOBLER_KMH = 6.0  # Tobler (1993): v = 6 exp(-3.5 |S + 0.05|) km/h, S = dz/dx
+TOBLER_RATE = 3.5
+TOBLER_SHIFT = 0.05
 
 
 # --- a small builder over the node API ----------------------------------------------
@@ -230,16 +243,16 @@ class Tree:
     def normal(self):
         return self.node("GeometryNodeInputNormal").outputs["Normal"]
 
-    def named(self, name: str):
-        return self.node(
-            "GeometryNodeInputNamedAttribute", {"Name": name}, data_type="FLOAT"
-        ).outputs["Attribute"]
+    def named(self, name, kind: str = "FLOAT"):
+        return self.node("GeometryNodeInputNamedAttribute", {"Name": name}, data_type=kind).outputs[
+            "Attribute"
+        ]
 
-    def store(self, geometry, name, value, domain: str, label: str = ""):
+    def store(self, geometry, name, value, domain: str, label: str = "", kind: str = "FLOAT"):
         node = self.node(
             "GeometryNodeStoreNamedAttribute",
             {"Geometry": geometry, "Name": name, "Value": value},
-            data_type="FLOAT",
+            data_type=kind,
             domain=domain,
             label=label,
         )
@@ -252,14 +265,138 @@ class Tree:
             ).outputs["Geometry"]
         return geometry
 
-    def capture(self, geometry, domain: str, items: dict, label: str = ""):
+    def remove_temporaries(self, geometry):
+        """Remove every ``.gt_tmp_*`` attribute (a wildcard: no warning when there is none)."""
+        return self.node(
+            "GeometryNodeRemoveAttribute",
+            {"Geometry": geometry, "Pattern Mode": "Wildcard", "Name": TEMP_PREFIX + "*"},
+        ).outputs["Geometry"]
+
+    def capture(
+        self, geometry, domain: str, items: dict, label: str = "", kinds: dict | None = None
+    ):
         node = self.node("GeometryNodeCaptureAttribute", domain=domain, label=label)
         for name in items:
-            node.capture_items.new("FLOAT", name)
+            node.capture_items.new((kinds or {}).get(name, "FLOAT"), name)
         self.feed(node.inputs["Geometry"], geometry)
         for name, value in items.items():
             self.feed(node.inputs[name], value)
         return node.outputs["Geometry"], {name: node.outputs[name] for name in items}
+
+    def imath(self, op: str, *args, label: str = ""):
+        node = self.node("FunctionNodeIntegerMath", operation=op, label=label)
+        for index, arg in enumerate(args):
+            self.feed(node.inputs[index], arg)
+        return node.outputs[0]
+
+    def index(self):
+        return self.node("GeometryNodeInputIndex").outputs[0]
+
+    def length(self, vector):
+        return self.vmath("LENGTH", vector, out="Value")
+
+    def dot(self, a, b):
+        return self.vmath("DOT_PRODUCT", a, b, out="Value")
+
+    def vadd(self, a, b):
+        return self.vmath("ADD", a, b)
+
+    def vsub(self, a, b):
+        return self.vmath("SUBTRACT", a, b)
+
+    def scale(self, vector, factor):
+        node = self.node("ShaderNodeVectorMath", operation="SCALE")
+        self.feed(node.inputs[0], vector)
+        self.feed(node.inputs["Scale"], factor)
+        return node.outputs["Vector"]
+
+    def up(self, vector, height):
+        """``vector + (0, 0, height)``."""
+        return self.vadd(vector, self.combine(0.0, 0.0, height))
+
+    def object_info(self, obj, label: str = ""):
+        return self.node(
+            "GeometryNodeObjectInfo", {"Object": obj}, transform_space="RELATIVE", label=label
+        )
+
+    def realize(self, geometry):
+        return self.node("GeometryNodeRealizeInstances", {"Geometry": geometry}).outputs[0]
+
+    def join(self, *geometries):
+        node = self.node("GeometryNodeJoinGeometry")
+        for geometry in reversed(geometries):  # the last link comes first
+            self.feed(node.inputs[0], geometry)
+        return node.outputs[0]
+
+    def bound_box(self, geometry):
+        node = self.node("GeometryNodeBoundBox", {"Geometry": geometry})
+        return node.outputs["Min"], node.outputs["Max"]
+
+    def sample_index(self, geometry, value, index, kind: str = "FLOAT", domain: str = "POINT"):
+        node = self.node(
+            "GeometryNodeSampleIndex",
+            {"Geometry": geometry, "Value": value, "Index": index},
+            data_type=kind,
+            domain=domain,
+        )
+        return node.outputs["Value"]
+
+    def on_domain(self, value, domain: str, kind: str = "FLOAT"):
+        """``value`` evaluated on ``domain`` (and interpolated to where it is used)."""
+        node = self.node(
+            "GeometryNodeFieldOnDomain", {"Value": value}, domain=domain, data_type=kind
+        )
+        return node.outputs[0]
+
+    def delete(self, geometry, selection, domain: str, mode: str = "ALL"):
+        node = self.node(
+            "GeometryNodeDeleteGeometry",
+            {"Geometry": geometry, "Selection": selection},
+            domain=domain,
+            mode=mode,
+        )
+        return node.outputs[0]
+
+    def set_position(self, geometry, position, selection=None):
+        node = self.node("GeometryNodeSetPosition", {"Geometry": geometry, "Position": position})
+        if selection is not None:
+            self.feed(node.inputs["Selection"], selection)
+        return node.outputs[0]
+
+    def statistic(self, geometry, value, domain: str, selection=None):
+        node = self.node(
+            "GeometryNodeAttributeStatistic",
+            {"Geometry": geometry, "Attribute": value},
+            data_type="FLOAT",
+            domain=domain,
+        )
+        if selection is not None:
+            self.feed(node.inputs["Selection"], selection)
+        return node.outputs
+
+    def text(self, value, decimals: int = 0):
+        return self.node(
+            "FunctionNodeValueToString", {"Value": value, "Decimals": decimals}, data_type="FLOAT"
+        ).outputs[0]
+
+    def string(self, text: str):
+        node = self.node("FunctionNodeInputString")
+        node.string = text
+        return node.outputs[0]
+
+    def info(self, geometry, show, parts, label: str = "Totals"):
+        """Pass ``geometry`` through, showing ``parts`` (strings and sockets) on the modifier."""
+        join = self.node("GeometryNodeStringJoin", label=label)
+        for part in reversed(parts):  # a multi-input socket lists the last link first
+            self.feed(join.inputs["Strings"], self.string(part) if isinstance(part, str) else part)
+        warning = self.node(
+            "GeometryNodeWarning",
+            {"Show": show, "Message": join.outputs[0]},
+            warning_type="INFO",
+            label=label,
+        )
+        # The Warning node is evaluated only when its output is used.
+        return self.switch("GEOMETRY", warning.outputs["Show"], geometry, geometry)
 
     def raycast(self, target, source, direction, length, label: str = ""):
         node = self.node(
@@ -274,6 +411,18 @@ class Tree:
         )
         return node.outputs["Is Hit"], node.outputs["Hit Position"]
 
+    def raycast_node(self, target, source, direction, length, label: str = ""):
+        return self.node(
+            "GeometryNodeRaycast",
+            {
+                "Target Geometry": target,
+                "Source Position": source,
+                "Ray Direction": direction,
+                "Ray Length": length,
+            },
+            label=label,
+        )
+
     def group(self, tree, inputs: dict, label: str = ""):
         node = self.node("GeometryNodeGroup", label=label)
         node.node_tree = tree
@@ -281,11 +430,13 @@ class Tree:
             self.feed(node.inputs[key], value)
         return node
 
-    def repeat(self, geometry, iterations, label: str = ""):
-        """A Repeat zone carrying a geometry; returns (input node, output node)."""
+    def repeat(self, geometry, iterations, label: str = "", extra: tuple[str, ...] = ()):
+        """A Repeat zone carrying a geometry (and ``extra`` ones); returns (input, output)."""
         start = self.node("GeometryNodeRepeatInput", label=label)
         end = self.node("GeometryNodeRepeatOutput", label=label)
         start.pair_with_output(end)
+        for name in extra:
+            end.repeat_items.new("GEOMETRY", name)
         self.feed(start.inputs["Geometry"], geometry)
         self.feed(start.inputs["Iterations"], iterations)
         return start, end
@@ -562,13 +713,14 @@ MEAN_RISE_TEMPS = (TEMP_PREFIX + "rise_sum", TEMP_PREFIX + "rise_count")
 def _preset_tree(preset: catalog.Preset) -> Tree:
     t = Tree(preset.group, preset.description, preset.id, preset.version)
     t.socket("Geometry", "INPUT", "GEOMETRY")
-    t.socket(
-        catalog.ATTRIBUTE_INPUT,
-        "INPUT",
-        "STRING",
-        default=preset.attribute,
-        description="Attribute to store the result in (Add Analysis sets the layer's)",
-    )
+    if preset.output is catalog.Output.LAYER:
+        t.socket(
+            catalog.ATTRIBUTE_INPUT,
+            "INPUT",
+            "STRING",
+            default=preset.attribute,
+            description="Attribute to store the result in (Add Analysis sets the layer's)",
+        )
     for spec in preset.inputs:
         t.preset_input(spec)
     t.socket("Geometry", "OUTPUT", "GEOMETRY")
@@ -751,12 +903,636 @@ def build_horizon_preset(preset, horizon):
     return t.finish()
 
 
+# --- second batch: helpers ----------------------------------------------------------------
+
+
+def build_object_points():
+    t = Tree(
+        OBJECT_POINTS,
+        "The points of an object, in this object's space: the vertices of a mesh, the "
+        "points of a point cloud or curve, or the object's origin when it has none",
+        "_object_points",
+        HELPER_VERSION,
+    )
+    t.socket("Object", "INPUT", "OBJECT")
+    t.socket("Points", "OUTPUT", "GEOMETRY")
+    t.socket("Count", "OUTPUT", "INT")
+    info = t.object_info(t.i("Object"))
+    parts = t.node(
+        "GeometryNodeSeparateComponents", {"Geometry": t.realize(info.outputs["Geometry"])}
+    )
+    vertices = t.node(
+        "GeometryNodeMeshToPoints", {"Mesh": parts.outputs["Mesh"]}, mode="VERTICES"
+    ).outputs[0]
+    curve_points = t.node(
+        "GeometryNodeCurveToPoints", {"Curve": parts.outputs["Curve"]}, mode="EVALUATED"
+    ).outputs["Points"]
+    points = t.join(vertices, curve_points, parts.outputs["Point Cloud"])
+    count = t.node(
+        "GeometryNodeAttributeDomainSize", {"Geometry": points}, component="POINTCLOUD"
+    ).outputs["Point Count"]
+    origin = t.node(
+        "GeometryNodePoints", {"Count": 1, "Position": info.outputs["Location"]}, label="Origin"
+    ).outputs[0]
+    points = t.switch("GEOMETRY", t.compare("GREATER_THAN", count, 0, kind="INT"), origin, points)
+    t.output("Points", points)
+    t.output(
+        "Count",
+        t.node(
+            "GeometryNodeAttributeDomainSize", {"Geometry": points}, component="POINTCLOUD"
+        ).outputs["Point Count"],
+    )
+    return t.finish()
+
+
+def build_sight_target():
+    t = Tree(
+        SIGHT_TARGET,
+        "What blocks sight: the geometry and the objects of a collection (in this object's space)",
+        "_sight_target",
+        HELPER_VERSION,
+    )
+    t.socket("Geometry", "INPUT", "GEOMETRY")
+    t.socket("Occluders", "INPUT", "COLLECTION")
+    t.socket("Geometry", "OUTPUT", "GEOMETRY")
+    others = t.node(
+        "GeometryNodeCollectionInfo",
+        {"Collection": t.i("Occluders"), "Separate Children": False, "Reset Children": False},
+        transform_space="RELATIVE",
+    ).outputs[0]
+    t.output("Geometry", t.join(t.i("Geometry"), t.realize(others)))
+    return t.finish()
+
+
+def build_drape():
+    t = Tree(
+        DRAPE,
+        "Drops a position vertically onto the topmost surface (a ray down from above the "
+        "surface's bounding box); where it misses, the position is kept and Is Hit is false",
+        "_drape",
+        HELPER_VERSION,
+    )
+    t.socket("Surface", "INPUT", "GEOMETRY")
+    t.socket("Position", "INPUT", "VECTOR")
+    t.socket("Position", "OUTPUT", "VECTOR")
+    t.socket("Normal", "OUTPUT", "VECTOR", description="Surface normal there, facing up")
+    t.socket("Is Hit", "OUTPUT", "BOOLEAN")
+    low, high = t.bound_box(t.i("Surface"))
+    _lx, _ly, low_z = t.separate(low)
+    _hx, _hy, high_z = t.separate(high)
+    x, y, _z = t.separate(t.i("Position"))
+    top = t.add(high_z, 1.0)
+    ray = t.raycast_node(
+        t.i("Surface"),
+        t.combine(x, y, top),
+        (0.0, 0.0, -1.0),
+        t.add(t.sub(top, low_z), 1.0),
+        label="Down",
+    )
+    hit = ray.outputs["Is Hit"]
+    normal = ray.outputs["Hit Normal"]
+    flip = t.compare("LESS_THAN", t.separate(normal)[2], 0.0)
+    t.output("Position", t.switch("VECTOR", hit, t.i("Position"), ray.outputs["Hit Position"]))
+    t.output("Normal", t.switch("VECTOR", flip, normal, t.scale(normal, -1.0)))
+    t.output("Is Hit", hit)
+    return t.finish()
+
+
+def _sight_inputs(t: Tree, sight_target, geometry):
+    return t.group(sight_target, {"Geometry": geometry, "Occluders": t.i("Occluders")}).outputs[0]
+
+
+def _clear(t: Tree, target, point, eye):
+    """Whether nothing in ``target`` lies on the segment from ``point`` to ``eye``."""
+    d = t.vsub(eye, point)
+    hit, _where = t.raycast(target, point, t.vmath("NORMALIZE", d), t.length(d))
+    return t.boolean("NOT", hit)
+
+
+def _seen(t: Tree, target, eye):
+    """(seen, in range) for each face: its centre (raised by Target Height) seen from ``eye``."""
+    normal, centre = t.normal(), t.position()
+    point = t.up(t.vadd(centre, t.scale(normal, t.i("Ray Offset"))), t.i("Target Height"))
+    facing = t.boolean(
+        "OR",
+        t.compare("GREATER_THAN", t.i("Target Height"), 0.0),
+        t.compare("GREATER_THAN", t.dot(normal, t.vsub(eye, point)), 0.0),
+    )
+    seen = t.boolean("AND", facing, _clear(t, target, point, eye))
+    plan = t.length(t.vmath("MULTIPLY", t.vsub(eye, centre), (1.0, 1.0, 0.0)))
+    return seen, t.compare("LESS_EQUAL", plan, t.i("Max Distance"))
+
+
+def _object_points(t: Tree, name: str, surface=None):
+    """The points of an object input (draped when Drape is on), and their count."""
+    node = t.group(_HELPERS[OBJECT_POINTS], {"Object": t.i(name)})
+    points = node.outputs["Points"]
+    if surface is not None:
+        draped = t.group(_HELPERS[DRAPE], {"Surface": surface, "Position": t.position()})
+        moved = t.set_position(points, draped.outputs["Position"])
+        points = t.switch("GEOMETRY", t.i("Drape"), points, moved)
+    return points, node.outputs["Count"]
+
+
+_HELPERS: dict[str, object] = {}  # helper groups by name, once built (build_all)
+
+
+def _surface(t: Tree):
+    return t.realize(t.object_info(t.i("Surface")).outputs["Geometry"])
+
+
+# --- second batch: presets ----------------------------------------------------------------
+
+
+def build_viewshed(preset, sight_target):
+    t = _preset_tree(preset)
+    target = _sight_inputs(t, sight_target, t.i("Geometry"))
+    eye = t.up(t.object_info(t.i("Observer")).outputs["Location"], t.i("Observer Height"))
+    seen, in_range = _seen(t, target, eye)
+    value = t.or_nan(in_range, t.switch("FLOAT", seen, 0.0, 1.0))
+    _store_result(t, preset, t.i("Geometry"), value)
+    return t.finish()
+
+
+def build_viewshed_cumulative(preset, sight_target):
+    t = _preset_tree(preset)
+    target = _sight_inputs(t, sight_target, t.i("Geometry"))
+    points, count = _object_points(t, "Observers", t.i("Geometry"))
+    total = TEMP_PREFIX + "seen"
+    start, end = t.repeat(t.i("Geometry"), count, label="Each Observer")
+    where = t.sample_index(points, t.position(), start.outputs["Iteration"], "FLOAT_VECTOR")
+    seen, in_range = _seen(t, target, t.up(where, t.i("Observer Height")))
+    add = t.switch("FLOAT", t.boolean("AND", seen, in_range), 0.0, 1.0)
+    geometry = t.store(start.outputs["Geometry"], total, t.add(t.named(total), add), "FACE")
+    t.feed(end.inputs["Geometry"], geometry)
+    geometry = t.store(
+        end.outputs["Geometry"], t.i(catalog.ATTRIBUTE_INPUT), t.named(total), "FACE", preset.label
+    )
+    t.output("Geometry", t.remove_temporaries(geometry))
+    return t.finish()
+
+
+def _lines(t: Tree, points, weight, group=None):
+    """Points joined into curves (by ``group``, ordered by ``weight``), as a mesh of edges."""
+    curves = t.node("GeometryNodePointsToCurves", {"Points": points, "Weight": weight})
+    if group is not None:
+        t.feed(curves.inputs["Curve Group ID"], group)
+    return t.node("GeometryNodeCurveToMesh", {"Curve": curves.outputs[0]}).outputs[0]
+
+
+def _edge_ends(t: Tree):
+    node = t.node("GeometryNodeInputMeshEdgeVertices")
+    return node.outputs["Position 1"], node.outputs["Position 2"]
+
+
+def build_intervisibility(preset, sight_target):
+    t = _preset_tree(preset)
+    surface = _surface(t)
+    target = _sight_inputs(t, sight_target, surface)
+    points, n = _object_points(t, "Points", surface)
+    eyes = t.set_position(points, t.up(t.position(), t.i("Height")))
+    # Every ordered pair (i, j) as two points; pairs with i >= j are deleted.
+    k = t.index()
+    pair = t.imath("DIVIDE_FLOOR", k, 2)
+    end = t.imath("SUBTRACT", k, t.imath("MULTIPLY", pair, 2))
+    i = t.imath("DIVIDE_FLOOR", pair, n)
+    j = t.imath("SUBTRACT", pair, t.imath("MULTIPLY", i, n))
+    which = t.switch("INT", t.compare("EQUAL", end, 0, kind="INT"), j, i)
+    ends = t.node(
+        "GeometryNodePoints",
+        {
+            "Count": t.imath("MULTIPLY", t.imath("MULTIPLY", n, n), 2),
+            "Position": t.sample_index(eyes, t.position(), which, "FLOAT_VECTOR"),
+        },
+        label="Pair Ends",
+    ).outputs[0]
+    ends, captured = t.capture(
+        ends,
+        "POINT",
+        {"Pair": pair, "End": end},
+        label="Pairs",
+        kinds={"Pair": "INT", "End": "INT"},
+    )
+    ends = t.delete(ends, t.compare("GREATER_EQUAL", i, j, kind="INT"), "POINT")
+    mesh = _lines(t, ends, captured["End"], captured["Pair"])
+    a, b = _edge_ends(t)
+    d = t.vsub(b, a)
+    length = t.length(d)
+    direction = t.vmath("NORMALIZE", d)
+    offset = t.i("Ray Offset")
+    hit, _where = t.raycast(
+        target,
+        t.vadd(a, t.scale(direction, offset)),
+        direction,
+        t.math("MAXIMUM", t.sub(length, t.mul(offset, 2.0)), 0.0),
+    )
+    mesh = t.store(mesh, "visible", t.switch("FLOAT", hit, 1.0, 0.0), "EDGE")
+    mesh = t.store(mesh, "distance", length, "EDGE")
+    t.output("Geometry", mesh)
+    return t.finish()
+
+
+def build_line_of_sight(preset, sight_target):
+    t = _preset_tree(preset)
+    surface = _surface(t)
+    target = _sight_inputs(t, sight_target, surface)
+    parts = t.node(
+        "GeometryNodeSeparateComponents",
+        {"Geometry": t.realize(t.object_info(t.i("Line")).outputs["Geometry"])},
+    )
+    curve = t.join(
+        t.node("GeometryNodeMeshToCurve", {"Mesh": parts.outputs["Mesh"]}).outputs[0],
+        parts.outputs["Curve"],
+    )
+    profile = t.node(
+        "GeometryNodeResampleCurve",
+        {"Curve": curve, "Mode": "Length", "Length": t.i("Spacing")},
+        keep_last_segment=True,
+    ).outputs[0]
+    draped = t.group(_HELPERS[DRAPE], {"Surface": surface, "Position": t.position()})
+    profile, on = t.capture(
+        profile, "POINT", {"On Surface": draped.outputs["Is Hit"]}, kinds={"On Surface": "BOOLEAN"}
+    )
+    profile = t.set_position(profile, draped.outputs["Position"])
+    last = t.imath(
+        "SUBTRACT",
+        t.node("GeometryNodeAttributeDomainSize", {"Geometry": profile}, component="CURVE").outputs[
+            "Point Count"
+        ],
+        1,
+    )
+    eye = t.up(t.sample_index(profile, t.position(), 0, "FLOAT_VECTOR"), t.i("Observer Height"))
+    goal = t.up(t.sample_index(profile, t.position(), last, "FLOAT_VECTOR"), t.i("Target Height"))
+    # The profile: each point (raised by Target Height) seen from the eye or not.
+    point = t.up(t.position(), t.add(t.i("Target Height"), t.i("Ray Offset")))
+    seen = t.switch("FLOAT", _clear(t, target, point, eye), 0.0, 1.0)
+    profile = t.store(profile, TEMP_PREFIX + "visible", t.or_nan(on["On Surface"], seen), "POINT")
+    profile = t.node("GeometryNodeCurveToMesh", {"Curve": profile}).outputs[0]
+    profile = t.store(profile, "visible", t.named(TEMP_PREFIX + "visible"), "EDGE")
+    profile = t.remove_temporaries(profile)
+    # The sight line from the eye to the target, split at the first obstruction.
+    d = t.vsub(goal, eye)
+    ray = t.raycast_node(
+        target,
+        eye,
+        t.vmath("NORMALIZE", d),
+        t.math("MAXIMUM", t.sub(t.length(d), t.i("Ray Offset")), 0.0),
+        label="Sight Line",
+    )
+    blocked = ray.outputs["Is Hit"]
+    k = t.index()
+    corners = t.node("GeometryNodeIndexSwitch", {"Index": k}, data_type="VECTOR")
+    corners.index_switch_items.new()
+    for slot, value in enumerate((eye, ray.outputs["Hit Position"], goal)):
+        t.feed(corners.inputs[slot + 1], value)
+    sight = t.node(
+        "GeometryNodePoints", {"Count": 3, "Position": corners.outputs[0]}, label="Sight Line"
+    ).outputs[0]
+    sight = t.delete(
+        sight,
+        t.boolean("AND", t.compare("EQUAL", k, 1, kind="INT"), t.boolean("NOT", blocked)),
+        "POINT",
+    )
+    sight = _lines(t, sight, k)
+    sight = t.store(
+        sight, "visible", t.switch("FLOAT", t.compare("EQUAL", k, 0, kind="INT"), 0.0, 1.0), "EDGE"
+    )
+    sight = t.store(sight, "part", 1.0, "EDGE")
+    obstruction = t.node(
+        "GeometryNodePoints",
+        {"Count": t.switch("INT", blocked, 0, 1), "Position": ray.outputs["Hit Position"]},
+        label="Obstruction",
+    ).outputs[0]
+    obstruction = t.node("GeometryNodePointsToVertices", {"Points": obstruction}).outputs[0]
+    obstruction = t.store(obstruction, "obstruction", 1.0, "POINT")
+    t.output("Geometry", t.join(profile, sight, obstruction))
+    return t.finish()
+
+
+def build_surface_distance(preset):
+    t = _preset_tree(preset)
+    reference = t.realize(t.object_info(t.i("Reference")).outputs["Geometry"])
+    nearest = t.node(
+        "GeometryNodeProximity",
+        {"Geometry": reference, "Sample Position": t.position()},
+        target_element="FACES",
+    )
+    normal = t.node(
+        "GeometryNodeSampleNearestSurface",
+        {"Mesh": reference, "Value": t.on_domain(t.normal(), "FACE", "FLOAT_VECTOR")},
+        data_type="FLOAT_VECTOR",
+    ).outputs["Value"]
+    side = t.math("SIGN", t.dot(t.vsub(t.position(), nearest.outputs["Position"]), normal))
+    distance = nearest.outputs["Distance"]
+    valid = t.boolean(
+        "AND",
+        nearest.outputs["Is Valid"],
+        t.compare("LESS_EQUAL", distance, t.i("Max Distance")),
+    )
+    value = t.or_nan(valid, t.mul(side, distance))
+    geometry, captured = t.capture(t.i("Geometry"), "POINT", {"Value": value}, label="At Points")
+    _store_result(t, preset, geometry, captured["Value"])
+    return t.finish()
+
+
+def build_feature_distance(preset):
+    t = _preset_tree(preset)
+    parts = t.node(
+        "GeometryNodeSeparateComponents",
+        {"Geometry": t.realize(t.object_info(t.i("Feature")).outputs["Geometry"])},
+    )
+    feature = t.join(
+        parts.outputs["Mesh"],
+        t.node("GeometryNodeCurveToMesh", {"Curve": parts.outputs["Curve"]}).outputs[0],
+        t.node("GeometryNodePointsToVertices", {"Points": parts.outputs["Point Cloud"]}).outputs[0],
+    )
+    flat = t.vmath("MULTIPLY", t.position(), (1.0, 1.0, 0.0))
+    feature = t.switch("GEOMETRY", t.i("Horizontal"), feature, t.set_position(feature, flat))
+    where = t.switch("VECTOR", t.i("Horizontal"), t.position(), flat)
+    best = None
+    for element in ("FACES", "EDGES", "POINTS"):
+        node = t.node(
+            "GeometryNodeProximity",
+            {"Geometry": feature, "Sample Position": where},
+            target_element=element,
+        )
+        d = t.switch("FLOAT", node.outputs["Is Valid"], float("inf"), node.outputs["Distance"])
+        best = d if best is None else t.math("MINIMUM", best, d)
+    value = t.or_nan(t.compare("LESS_THAN", best, float("inf")), best)
+    geometry, captured = t.capture(t.i("Geometry"), "POINT", {"Value": value}, label="At Points")
+    _store_result(t, preset, geometry, captured["Value"])
+    return t.finish()
+
+
+def build_cut_fill(preset):
+    t = _preset_tree(preset)
+    reference = t.realize(t.object_info(t.i("Reference")).outputs["Geometry"])
+    below = t.group(_HELPERS[DRAPE], {"Surface": reference, "Position": t.position()})
+    _x, _y, z = t.separate(t.position())
+    hit = below.outputs["Is Hit"]
+    depth = t.sub(z, t.separate(below.outputs["Position"])[2])
+    value = t.or_nan(hit, depth)
+    # Totals on the modifier: depth x plan area (area x n_z) over the faces with a reference.
+    area = t.node("GeometryNodeInputMeshFaceArea").outputs["Area"]
+    plan = t.mul(area, t.separate(t.normal())[2])
+    volume = t.mul(t.switch("FLOAT", hit, 0.0, depth), plan)
+    geometry = t.i("Geometry")
+    fill = t.statistic(geometry, t.math("MAXIMUM", volume, 0.0), "FACE")["Sum"]
+    cut = t.statistic(geometry, t.math("MAXIMUM", t.mul(volume, -1.0), 0.0), "FACE")["Sum"]
+    covered = t.statistic(geometry, t.switch("FLOAT", hit, 0.0, plan), "FACE")["Sum"]
+    outside = t.statistic(geometry, t.switch("FLOAT", hit, plan, 0.0), "FACE")["Sum"]
+    geometry = t.info(
+        geometry,
+        True,
+        [
+            "Fill ",
+            t.text(fill, 3),
+            " m³, cut ",
+            t.text(cut, 3),
+            " m³, net ",
+            t.text(t.sub(fill, cut), 3),
+            " m³ over ",
+            t.text(covered, 2),
+            " m² (",
+            t.text(outside, 2),
+            " m² outside the reference)",
+        ],
+    )
+    _store_result(t, preset, geometry, value)
+    return t.finish()
+
+
+def build_closed_volume(preset):
+    t = _preset_tree(preset)
+    geometry = t.i("Geometry")
+    island = t.node("GeometryNodeInputMeshIsland").outputs["Island Index"]
+
+    def per_part(value, kind: str = "FLOAT"):
+        return t.node(
+            "GeometryNodeAccumulateField",
+            {"Value": value, "Group ID": island},
+            data_type=kind,
+            domain="FACE",
+        ).outputs["Total"]
+
+    # Divergence theorem: V = sum of (p - c) . n A / 3 over the faces of a closed part, for
+    # any point c; c is the mean of the part's face centres, which keeps float32 exact.
+    faces = per_part(1.0)
+    centre = t.scale(per_part(t.position(), "FLOAT_VECTOR"), t.div(1.0, faces))
+    area = t.node("GeometryNodeInputMeshFaceArea").outputs["Area"]
+    contribution = t.div(t.mul(t.dot(t.vsub(t.position(), centre), t.normal()), area), 3.0)
+    open_edge = t.compare(
+        "NOT_EQUAL",
+        t.node("GeometryNodeInputMeshEdgeNeighbors").outputs["Face Count"],
+        2,
+        kind="INT",
+    )
+    touches_open = t.on_domain(t.switch("FLOAT", open_edge, 0.0, 1.0), "EDGE")
+
+    closed = t.compare("EQUAL", per_part(touches_open), 0.0)
+    value = t.or_nan(closed, per_part(contribution))
+    share = t.div(1.0, faces)  # 1 / faces in the part: sums to the number of parts
+    total = t.statistic(geometry, contribution, "FACE", closed)["Sum"]
+    closed_parts = t.statistic(geometry, share, "FACE", closed)["Sum"]
+    open_parts = t.statistic(geometry, share, "FACE", t.boolean("NOT", closed))["Sum"]
+    geometry = t.info(
+        geometry,
+        True,
+        [
+            "Volume ",
+            t.text(total, 3),
+            " m³ in ",
+            t.text(closed_parts, 0),
+            " closed parts (",
+            t.text(open_parts, 0),
+            " open parts have no volume)",
+        ],
+    )
+    _store_result(t, preset, geometry, value)
+    return t.finish()
+
+
+def _tobler_time(t: Tree, run, rise):
+    """Seconds to walk ``run`` metres horizontally while rising ``rise`` (Tobler 1993)."""
+    slope = t.div(rise, t.math("MAXIMUM", run, 1e-9))
+    speed = t.mul(
+        TOBLER_KMH / 3.6,
+        t.math("EXPONENT", t.mul(t.math("ABSOLUTE", t.add(slope, TOBLER_SHIFT)), -TOBLER_RATE)),
+    )
+    return t.div(run, speed)
+
+
+def _run_rise(t: Tree, a, b):
+    ax, ay, az = t.separate(a)
+    bx, by, bz = t.separate(b)
+    run = t.length(t.combine(t.sub(bx, ax), t.sub(by, ay), 0.0))
+    return run, t.sub(bz, az)
+
+
+def build_least_cost_path(preset):
+    t = _preset_tree(preset)
+    surface = _surface(t)
+    cost_name, edge_cost = TEMP_PREFIX + "cost_factor", TEMP_PREFIX + "edge_cost"
+    # A face's cost factor (1 without a Cost Attribute), averaged onto its vertices.
+    named = t.node(
+        "GeometryNodeInputNamedAttribute", {"Name": t.i("Cost Attribute")}, data_type="FLOAT"
+    )
+    factor = t.switch("FLOAT", named.outputs["Exists"], 1.0, named.outputs["Attribute"])
+    surface = t.store(surface, cost_name, t.on_domain(factor, "FACE"), "POINT")
+    # Each edge: the mean of Tobler's times both ways (Shortest Edge Paths takes one cost
+    # per edge), times the mean factor of its ends; too steep or no factor is impassable.
+    a, b = _edge_ends(t)
+    run, rise = _run_rise(t, a, b)
+    both_ways = t.mul(
+        t.add(_tobler_time(t, run, rise), _tobler_time(t, run, t.mul(rise, -1.0))), 0.5
+    )
+    edge_factor = t.named(cost_name)  # read on edges: the mean of the two ends
+    slope = t.math("DEGREES", t.math("ARCTAN2", t.math("ABSOLUTE", rise), run))
+    walkable = t.boolean(
+        "AND",
+        t.compare("LESS_EQUAL", slope, t.i("Max Slope")),
+        t.compare("GREATER_THAN", edge_factor, 0.0),
+    )
+    surface = t.store(surface, edge_cost, t.mul(both_ways, edge_factor), "EDGE")
+    surface = t.delete(surface, t.boolean("NOT", walkable), "EDGE", mode="EDGE_FACE")
+
+    def nearest(name):
+        return t.node(
+            "GeometryNodeSampleNearest",
+            {"Geometry": surface, "Sample Position": t.object_info(t.i(name)).outputs["Location"]},
+            domain="POINT",
+        ).outputs["Index"]
+
+    k = t.index()
+    paths = t.node(
+        "GeometryNodeInputShortestEdgePaths",
+        {
+            "End Vertex": t.compare("EQUAL", k, nearest("End"), kind="INT"),
+            "Edge Cost": t.named(edge_cost),
+        },
+    )
+    curve = t.node(
+        "GeometryNodeEdgePathsToCurves",
+        {
+            "Mesh": surface,
+            "Start Vertices": t.compare("EQUAL", k, nearest("Start"), kind="INT"),
+            "Next Vertex Index": paths.outputs["Next Vertex Index"],
+        },
+    ).outputs[0]
+    # Along the path, from the start: Tobler's time in the direction walked.
+    previous = t.imath("MAXIMUM", t.imath("SUBTRACT", k, 1), 0)
+    before = t.sample_index(curve, t.position(), previous, "FLOAT_VECTOR")
+    factor_before = t.sample_index(curve, t.named(cost_name), previous)
+    run, rise = _run_rise(t, before, t.position())
+    step = t.mul(_tobler_time(t, run, rise), t.mul(t.add(factor_before, t.named(cost_name)), 0.5))
+    elapsed = t.node(
+        "GeometryNodeAccumulateField", {"Value": step}, data_type="FLOAT", domain="POINT"
+    ).outputs["Leading"]
+    curve = t.store(curve, "elapsed", elapsed, "POINT")
+    mesh = t.node("GeometryNodeCurveToMesh", {"Curve": curve}).outputs[0]
+    ends = t.node("GeometryNodeInputMeshEdgeVertices")
+    time = t.sub(
+        t.sample_index(mesh, t.named("elapsed"), ends.outputs["Vertex Index 2"]),
+        t.sample_index(mesh, t.named("elapsed"), ends.outputs["Vertex Index 1"]),
+    )
+    mesh = t.store(mesh, "time", t.math("ABSOLUTE", time), "EDGE")
+    mesh = t.remove_temporaries(mesh)  # quietly, also when there is no path
+    total = t.statistic(mesh, t.named("elapsed"), "POINT")["Max"]
+    length = t.node("GeometryNodeCurveLength", {"Curve": curve}).outputs[0]
+    found = t.compare(
+        "GREATER_THAN",
+        t.node("GeometryNodeAttributeDomainSize", {"Geometry": mesh}, component="MESH").outputs[
+            "Edge Count"
+        ],
+        0,
+        kind="INT",
+    )
+    mesh = t.info(
+        mesh,
+        found,
+        ["Walking time ", t.text(t.div(total, 60.0), 1), " min over ", t.text(length, 1), " m"],
+        label="Travel Time",
+    )
+    mesh = t.info(
+        mesh,
+        t.boolean("NOT", found),
+        ["No walkable path from Start to End (Max Slope, or impassable faces)"],
+        label="No Path",
+    )
+    t.output("Geometry", mesh)
+    return t.finish()
+
+
+def build_flow_path(preset):
+    t = _preset_tree(preset)
+    surface = _surface(t)
+    normal_name, seed_name = TEMP_PREFIX + "normal", TEMP_PREFIX + "seed"
+    seeds, _count = _object_points(t, "Seeds")
+    seeds = t.store(seeds, seed_name, t.index(), "POINT", kind="INT")
+    seeds = t.store(seeds, "step", 0, "POINT", kind="INT")
+    start = t.group(_HELPERS[DRAPE], {"Surface": surface, "Position": t.position()})
+    seeds, captured = t.capture(
+        seeds,
+        "POINT",
+        {
+            "Position": start.outputs["Position"],
+            "Normal": start.outputs["Normal"],
+            "Hit": start.outputs["Is Hit"],
+        },
+        kinds={"Position": "VECTOR", "Normal": "VECTOR", "Hit": "BOOLEAN"},
+    )
+    seeds = t.set_position(seeds, captured["Position"])
+    seeds = t.store(seeds, normal_name, captured["Normal"], "POINT", kind="FLOAT_VECTOR")
+    seeds = t.delete(seeds, t.boolean("NOT", captured["Hit"]), "POINT")
+
+    loop, loop_end = t.repeat(seeds, t.i("Max Steps"), label="Each Step", extra=("Heads",))
+    t.feed(loop.inputs["Heads"], seeds)
+    heads = loop.outputs["Heads"]
+    normal = t.named(normal_name, "FLOAT_VECTOR")
+    nx, ny, nz = t.separate(normal)
+    downhill = t.vmath("NORMALIZE", t.combine(nx, ny, 0.0))
+    slope = t.math("DEGREES", t.math("ARCCOSINE", t.math("MINIMUM", nz, 1.0)))
+    ahead = t.vadd(t.position(), t.scale(downhill, t.i("Step")))
+    step = t.group(_HELPERS[DRAPE], {"Surface": surface, "Position": ahead})
+    lower = t.compare(
+        "LESS_THAN", t.separate(step.outputs["Position"])[2], t.separate(t.position())[2]
+    )
+    moves = t.boolean(
+        "AND",
+        t.boolean("AND", step.outputs["Is Hit"], lower),
+        t.compare("GREATER_THAN", slope, t.i("Flat Slope")),
+    )
+    heads, captured = t.capture(
+        heads,
+        "POINT",
+        {"Position": step.outputs["Position"], "Normal": step.outputs["Normal"], "Moves": moves},
+        kinds={"Position": "VECTOR", "Normal": "VECTOR", "Moves": "BOOLEAN"},
+        label="Step Downhill",
+    )
+    heads = t.delete(heads, t.boolean("NOT", captured["Moves"]), "POINT")
+    heads = t.set_position(heads, captured["Position"])
+    heads = t.store(heads, normal_name, captured["Normal"], "POINT", kind="FLOAT_VECTOR")
+    heads = t.store(heads, "step", t.imath("ADD", t.named("step", "INT"), 1), "POINT", kind="INT")
+    t.feed(loop_end.inputs["Heads"], heads)
+    t.feed(loop_end.inputs["Geometry"], t.join(loop.outputs["Geometry"], heads))
+
+    trail = loop_end.outputs["Geometry"]
+    mesh = _lines(t, trail, t.named("step", "INT"), t.named(seed_name, "INT"))
+    mesh = t.store(mesh, "seed", t.named(seed_name, "INT"), "EDGE", kind="INT")
+    t.output("Geometry", t.remove_temporaries(mesh))
+    return t.finish()
+
+
 def build_all() -> dict[str, object]:
     """Every group of the library, by name, built into the current file."""
     window = build_window_heights()
     derivatives = build_derivatives(window)
     mean_rise = build_mean_rise()
     horizon = build_horizon()
+    _HELPERS.clear()
+    for helper in (build_object_points(), build_sight_target(), build_drape()):
+        _HELPERS[helper.name] = helper
+    sight_target = _HELPERS[SIGHT_TARGET]
     builders = {
         "slope": build_slope,
         "slope_percent": build_slope_percent,
@@ -771,9 +1547,19 @@ def build_all() -> dict[str, object]:
         "sky_view_factor": lambda p: build_horizon_preset(p, horizon),
         "openness_positive": lambda p: build_horizon_preset(p, horizon),
         "openness_negative": lambda p: build_horizon_preset(p, horizon),
+        "viewshed": lambda p: build_viewshed(p, sight_target),
+        "viewshed_cumulative": lambda p: build_viewshed_cumulative(p, sight_target),
+        "intervisibility": lambda p: build_intervisibility(p, sight_target),
+        "line_of_sight": lambda p: build_line_of_sight(p, sight_target),
+        "surface_distance": build_surface_distance,
+        "feature_distance": build_feature_distance,
+        "cut_fill": build_cut_fill,
+        "closed_volume": build_closed_volume,
+        "least_cost_path": build_least_cost_path,
+        "flow_path": build_flow_path,
     }
     assert set(builders) == {p.id for p in catalog.PRESETS}, "a preset has no builder"
-    groups = {g.name: g for g in (window, derivatives, mean_rise, horizon)}
+    groups = {g.name: g for g in (window, derivatives, mean_rise, horizon, *_HELPERS.values())}
     for preset in catalog.PRESETS:
         tree = builders[preset.id](preset)
         assert tree.name == preset.group, (tree.name, preset.group)

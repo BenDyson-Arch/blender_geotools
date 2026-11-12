@@ -26,10 +26,23 @@ a user can add its folder as an asset library by hand.
 The layer reads the evaluated mesh (M3), and the export applies modifiers, so
 the result publishes like any Geometry Nodes layer. The user edits the inputs
 on the modifier, or opens the group and edits it.
+
+Object inputs (an observer, a second surface, a line, points) are filled from
+the other selected objects, or with a new Empty or one-vertex mesh at the 3D
+cursor (``catalog.Fill``). Presets that take a mesh, line or points from the
+selection go on the active object only. **Object presets** (intervisibility,
+line of sight, least-cost paths, flow paths) create a new mesh object in the
+"GeoTools Analysis" collection whose modifier makes the lines, with their
+provenance as JSON in the ``geotools_provenance`` custom property.
+
+``geotools.analysis_totals`` reads totals from the evaluated meshes (cut and
+fill volumes, closed volumes, walking time, the obstruction) and reports them,
+summed in binary64; the groups also show float32 totals on the modifier.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -56,6 +69,10 @@ NORTH_ITEMS = (
     ("GRID", "Grid North (+Y)", "Measure from the scene's +Y axis"),
     ("TRUE", "True North", "Add the grid convergence at each object's centre (analysis.site)"),
 )
+
+
+ANALYSIS_COLLECTION = "GeoTools Analysis"
+"""Where object presets' new objects and the Empties made at the 3D cursor go."""
 
 
 class PresetError(RuntimeError):
@@ -151,6 +168,7 @@ def set_input(modifier: bpy.types.Modifier, name: str, value: object) -> None:
     if item is None:
         raise KeyError(name)
     getattr(modifier.properties.inputs, item.identifier).value = value
+    modifier.id_data.update_tag()  # setting the value from Python does not re-evaluate
 
 
 def preset_modifiers(obj: bpy.types.Object) -> list[tuple[bpy.types.Modifier, catalog.Preset]]:
@@ -192,6 +210,8 @@ def _inputs(modifier: bpy.types.Modifier, preset: catalog.Preset) -> dict[str, o
             value = get_input(modifier, spec.name)
         except KeyError:
             continue
+        if isinstance(value, bpy.types.ID):
+            value = value.name  # an object or collection: its name
         values[spec.name] = float(value) if isinstance(value, float) else value
     return values
 
@@ -242,6 +262,113 @@ def target_objects(context: bpy.types.Context) -> list[bpy.types.Object]:
     return sorted(objects, key=lambda o: o.name)
 
 
+def preset_targets(context: bpy.types.Context, preset: catalog.Preset) -> list[bpy.types.Object]:
+    """The meshes a preset goes on: the selected ones, or only the active one.
+
+    A preset that takes a mesh, line or points from the selection (and every
+    object preset, whose surface is the active mesh) uses the active object.
+    """
+    if not preset.active_only:
+        return target_objects(context)
+    active = context.active_object
+    if active is None or active.type != "MESH":
+        raise PresetError(f"{preset.label} works on the active object: make a mesh active.")
+    return [active]
+
+
+def analysis_collection(scene: bpy.types.Scene) -> bpy.types.Collection:
+    """The scene's "GeoTools Analysis" collection, created when missing (never the source)."""
+    collection = next(
+        (c for c in scene.collection.children_recursive if c.name == ANALYSIS_COLLECTION), None
+    )
+    if collection is None:
+        collection = bpy.data.collections.new(ANALYSIS_COLLECTION)
+        scene.collection.children.link(collection)
+    return collection
+
+
+def _new_object(scene, name: str, data) -> bpy.types.Object:
+    obj = bpy.data.objects.new(name, data)
+    analysis_collection(scene).objects.link(obj)
+    return obj
+
+
+def _cursor_point(scene, name: str) -> bpy.types.Object:
+    """A new Empty at the 3D cursor."""
+    obj = _new_object(scene, name, None)
+    obj.empty_display_type = "SINGLE_ARROW"
+    obj.location = scene.cursor.location
+    return obj
+
+
+def _cursor_points(scene, name: str) -> bpy.types.Object:
+    """A new mesh of one loose vertex at the 3D cursor (add more in Edit Mode)."""
+    mesh = bpy.data.meshes.new(name)
+    mesh.vertices.add(1)
+    obj = _new_object(scene, name, mesh)
+    obj.location = scene.cursor.location
+    return obj
+
+
+def _fits(obj: bpy.types.Object, fill: catalog.Fill) -> bool:
+    kind = obj.type
+    if fill is catalog.Fill.POINT:
+        return kind in {"EMPTY", "CAMERA", "LIGHT"}
+    if fill is catalog.Fill.POINTS:
+        return kind in {"MESH", "POINTCLOUD", "CURVE", "CURVES", "EMPTY"}
+    if fill is catalog.Fill.MESH:
+        return kind == "MESH" and len(obj.data.polygons) > 0
+    if fill is catalog.Fill.LINE:
+        return (kind == "MESH" and len(obj.data.edges) > 0) or kind in {"CURVE", "CURVES"}
+    if fill is catalog.Fill.FEATURE:
+        return kind in {"MESH", "CURVE", "CURVES", "POINTCLOUD"}
+    return False
+
+
+def fill_inputs(
+    context: bpy.types.Context, preset: catalog.Preset, targets: list[bpy.types.Object]
+) -> tuple[dict[str, bpy.types.Object], list[str]]:
+    """The objects for the preset's object inputs, and notes on what was made.
+
+    Each input takes the first fitting selected object (by name) that is not a
+    target and not already used; a POINT input otherwise gets a new Empty at
+    the 3D cursor, a POINTS input a new one-vertex mesh there. A missing
+    surface, mesh, line or feature raises ``PresetError`` (nothing is made).
+    """
+    scene = context.scene
+    used = {o.as_pointer() for o in targets}
+    selected = sorted(context.selected_objects, key=lambda o: o.name)
+    chosen: dict[str, bpy.types.Object | None] = {}
+    for spec in preset.object_inputs:
+        if spec.fill is catalog.Fill.NONE:
+            continue
+        if spec.fill is catalog.Fill.SURFACE:
+            chosen[spec.name] = targets[0]
+            continue
+        found = next(
+            (o for o in selected if o.as_pointer() not in used and _fits(o, spec.fill)), None
+        )
+        if found is None and spec.fill not in (catalog.Fill.POINT, catalog.Fill.POINTS):
+            raise PresetError(
+                f"{preset.label} needs {catalog.FILL_LABELS[spec.fill]} for {spec.name}: "
+                "select it as well as the active mesh."
+            )
+        chosen[spec.name] = found
+        if found is not None:
+            used.add(found.as_pointer())
+    notes, values = [], {}
+    for spec in preset.object_inputs:  # make the cursor objects only once nothing can fail
+        if spec.name not in chosen:
+            continue
+        obj = chosen[spec.name]
+        if obj is None:
+            make = _cursor_point if spec.fill is catalog.Fill.POINT else _cursor_points
+            obj = make(scene, spec.name)
+            notes.append(f"{spec.name}: new {obj.name} at the 3D cursor")
+        values[spec.name] = obj
+    return values, notes
+
+
 def _recorded_objects(provenance) -> list[str]:
     """The object names a preset layer's provenance lists (empty if it lists none)."""
     objects = (provenance or {}).get("parameters", {}).get("objects")
@@ -265,6 +392,8 @@ def add_preset(
     scene = context.scene
     if not objects:
         raise PresetError("Select one or more mesh objects first.")
+    if preset.output is catalog.Output.OBJECT:
+        return _add_object_preset(context, preset, objects[0], name=name, library=library)
     name = name.strip() or preset.layer
     item = find_layer(scene, name)
     if item is not None and catalog.preset_of(spec_from_props(item).provenance) != preset.id:
@@ -290,6 +419,10 @@ def add_preset(
 
     group = ensure_group(preset, library)
     attribute = attribute_name(name)
+    fills: dict[str, bpy.types.Object] = {}
+    notes: list[str] = []
+    if any(find_modifier(obj, group, attribute) is None for obj in objects):
+        fills, notes = fill_inputs(context, preset, objects)
     modifier_inputs: dict[str, dict[str, object]] = {}
     added = 0
     for obj in objects:
@@ -298,6 +431,8 @@ def add_preset(
             modifier = obj.modifiers.new(f"GeoTools {preset.label} ({name})", "NODES")
             modifier.node_group = group
             set_input(modifier, catalog.ATTRIBUTE_INPUT, attribute)
+            for input_name, value in fills.items():
+                set_input(modifier, input_name, value)
             added += 1
         if preset.north:
             set_input(modifier, catalog.CONVERGENCE_INPUT, angles.get(obj.name, 0.0))
@@ -325,7 +460,6 @@ def add_preset(
     layers = scene.geotools.layers
     scene.geotools.layers_index = next(i for i, layer in enumerate(layers) if layer.name == name)
 
-    notes = []
     if true_north:
         spread = ", ".join(f"{angles[o.name]:+.4f}°" for o in objects[:3])
         notes.append(f"Convergence {spread} ({north_label})")
@@ -339,7 +473,156 @@ def add_preset(
         refresh_layer(scene, item)
     except (RuntimeError, ValueError, KeyError):
         log.exception("could not refresh layer %s", name)
+    for obj in objects[:1]:
+        notes.extend(totals(context, obj))
     return name, notes
+
+
+def _add_object_preset(
+    context: bpy.types.Context,
+    preset: catalog.Preset,
+    surface: bpy.types.Object,
+    *,
+    name: str,
+    library: Path,
+) -> tuple[str, list[str]]:
+    """A new object whose modifier makes the preset's lines from ``surface`` and the inputs."""
+    if not len(surface.data.polygons):
+        raise PresetError(f"{preset.label} needs a surface: make a mesh with faces active.")
+    scene = context.scene
+    fills, notes = fill_inputs(context, preset, [surface])
+    group = ensure_group(preset, library)
+    obj = _new_object(scene, name.strip() or preset.label, bpy.data.meshes.new(preset.layer))
+    modifier = obj.modifiers.new(f"GeoTools {preset.label}", "NODES")
+    modifier.node_group = group
+    for input_name, value in fills.items():
+        set_input(modifier, input_name, value)
+    provenance = catalog.object_provenance(
+        preset,
+        inputs=_inputs(modifier, preset),
+        surface=surface.name,
+        geotools_version=extension_version(),
+    )
+    obj[catalog.PROVENANCE_KEY] = json.dumps(provenance, sort_keys=True)
+    for other in context.selected_objects:
+        other.select_set(False)
+    obj.select_set(True)
+    context.view_layer.objects.active = obj
+    notes.append(f"in {ANALYSIS_COLLECTION}")
+    notes.extend(totals(context, obj))
+    return obj.name, notes
+
+
+# --- totals ------------------------------------------------------------------------------------
+
+
+def _evaluated_mesh(context: bpy.types.Context, obj: bpy.types.Object) -> bpy.types.Mesh:
+    return obj.evaluated_get(context.evaluated_depsgraph_get()).data
+
+
+def _array(collection, key: str, width: int = 1, dtype=np.float32) -> np.ndarray:
+    values = np.empty(len(collection) * width, dtype)
+    collection.foreach_get(key, values)
+    return values.reshape(-1, width) if width > 1 else values
+
+
+def _attribute(mesh: bpy.types.Mesh, name: str) -> np.ndarray | None:
+    attribute = mesh.attributes.get(name)
+    if attribute is None:
+        return None
+    return _array(attribute.data, "value")
+
+
+def _face_frame(mesh: bpy.types.Mesh) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Face centres, unit normals and areas of ``mesh``, as binary64."""
+    centres = _array(mesh.polygons, "center", 3).astype(np.float64)
+    normals = _array(mesh.polygons, "normal", 3).astype(np.float64)
+    areas = _array(mesh.polygons, "area").astype(np.float64)
+    return centres, normals, areas
+
+
+def _cut_fill_totals(mesh: bpy.types.Mesh, attribute: str) -> str | None:
+    depth = _attribute(mesh, attribute)
+    if depth is None or len(depth) != len(mesh.polygons):
+        return None
+    _centres, normals, areas = _face_frame(mesh)
+    plan = areas * normals[:, 2]
+    covered = np.isfinite(depth)
+    volume = np.where(covered, depth.astype(np.float64), 0.0) * plan
+    fill, cut = volume[volume > 0].sum(), -volume[volume < 0].sum()
+    return (
+        f"fill {fill:,.3f} m³, cut {cut:,.3f} m³, net {fill - cut:,.3f} m³ over "
+        f"{plan[covered].sum():,.2f} m² ({plan[~covered].sum():,.2f} m² outside the reference)"
+    )
+
+
+def _closed_volume_totals(mesh: bpy.types.Mesh, attribute: str) -> str | None:
+    values = _attribute(mesh, attribute)
+    if values is None or len(values) != len(mesh.polygons):
+        return None
+    centres, normals, areas = _face_frame(mesh)
+    closed = np.isfinite(values)
+    if not closed.any():
+        return "no closed parts"
+    origin = centres.mean(axis=0)  # any point works for closed parts; near is exact
+    volume = (np.einsum("ij,ij->i", centres - origin, normals) * areas)[closed].sum() / 3.0
+    open_faces = int((~closed).sum())
+    return f"volume {volume:,.3f} m³" + (
+        f" ({open_faces:,} faces on open parts)" * bool(open_faces)
+    )
+
+
+def _edge_lengths(mesh: bpy.types.Mesh) -> np.ndarray:
+    co = _array(mesh.vertices, "co", 3).astype(np.float64)
+    ends = _array(mesh.edges, "vertices", 2, np.int32)
+    return np.linalg.norm(co[ends[:, 1]] - co[ends[:, 0]], axis=1)
+
+
+def _object_totals(mesh: bpy.types.Mesh, preset: catalog.Preset) -> str | None:
+    if preset.id == "least_cost_path":
+        elapsed = _attribute(mesh, "elapsed")
+        if elapsed is None or not len(mesh.edges):
+            return "no walkable path from Start to End"
+        minutes = float(elapsed.max()) / 60.0
+        return f"walking time {minutes:,.1f} min over {_edge_lengths(mesh).sum():,.1f} m"
+    if preset.id == "intervisibility":
+        visible = _attribute(mesh, "visible")
+        if visible is None:
+            return "no pairs of points"
+        return f"{int((visible > 0.5).sum())} of {len(visible)} pairs see each other"
+    if preset.id == "line_of_sight":
+        obstruction = _attribute(mesh, "obstruction")
+        if obstruction is None:
+            return None
+        blocked = np.flatnonzero(obstruction > 0.5)
+        if not len(blocked):
+            return "the target is in sight"
+        x, y, z = _array(mesh.vertices, "co", 3)[blocked[0]]
+        return f"the sight line is blocked at ({x:.3f}, {y:.3f}, {z:.3f})"
+    if preset.id == "flow_path":
+        return f"{len(mesh.edges):,} steps"
+    return None
+
+
+def totals(context: bpy.types.Context, obj: bpy.types.Object) -> list[str]:
+    """Totals of the object's presets that have them, read from its evaluated mesh."""
+    found = preset_modifiers(obj)
+    if not found:
+        return []
+    mesh = _evaluated_mesh(context, obj)
+    lines = []
+    for modifier, preset in found:
+        if preset.output is catalog.Output.OBJECT:
+            line = _object_totals(mesh, preset)
+        elif preset.id in ("cut_fill", "closed_volume"):
+            attribute = str(get_input(modifier, catalog.ATTRIBUTE_INPUT))
+            read = _cut_fill_totals if preset.id == "cut_fill" else _closed_volume_totals
+            line = read(mesh, attribute)
+        else:
+            line = None
+        if line:
+            lines.append(f"{preset.label}: {line}")
+    return lines
 
 
 # --- operator and menu -----------------------------------------------------------------------
@@ -355,8 +638,8 @@ class GEOTOOLS_OT_analysis_add(bpy.types.Operator):
     preset: EnumProperty(name="Preset", items=PRESET_ITEMS)
     name: StringProperty(
         name="Layer",
-        description="Layer name (lowercase letters, digits and underscores); empty for the "
-        "preset's own",
+        description="Layer name (lowercase letters, digits and underscores), or the new "
+        "object's name for presets that make lines; empty for the preset's own",
         options={"SKIP_SAVE"},
     )
     north: EnumProperty(
@@ -374,7 +657,17 @@ class GEOTOOLS_OT_analysis_add(bpy.types.Operator):
         except KeyError:
             return cls.__doc__
         cost = {"heavy": " Slow on large meshes: see the docs."}.get(preset.cost, "")
-        return f"{preset.description}.{cost}"
+        needs = [
+            catalog.FILL_LABELS[i.fill]
+            for i in preset.object_inputs
+            if i.fill not in (catalog.Fill.NONE, catalog.Fill.SURFACE)
+        ]
+        where = " Goes on the active mesh." if preset.active_only else ""
+        if needs:
+            where += " Uses " + "; ".join(needs) + "."
+        if preset.output is catalog.Output.OBJECT:
+            where += " Makes a new object of lines."
+        return f"{preset.description}.{where}{cost}"
 
     @classmethod
     def poll(cls, context: bpy.types.Context) -> bool:
@@ -388,26 +681,62 @@ class GEOTOOLS_OT_analysis_add(bpy.types.Operator):
             return False
         return True
 
+    def _is_object(self) -> bool:
+        return catalog.get(self.preset).output is catalog.Output.OBJECT
+
     def draw(self, _context: bpy.types.Context) -> None:
         layout = self.layout
         layout.use_property_split = True
         layout.prop(self, "preset")
-        layout.prop(self, "name")
+        layout.prop(self, "name", text="Object" if self._is_object() else "Layer")
         if catalog.get(self.preset).north:
             layout.prop(self, "north")
 
     def execute(self, context: bpy.types.Context) -> set[str]:
         preset = catalog.get(self.preset)
-        objects = target_objects(context)
         try:
+            objects = preset_targets(context, preset)
             name, notes = add_preset(context, preset, objects, name=self.name, north=self.north)
         except PresetError as exc:
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
         count = len(objects)
-        message = f"{preset.label} on {count} object{'s' * (count != 1)}, layer {name}"
+        if preset.output is catalog.Output.OBJECT:
+            message = f"{preset.label} on {objects[0].name}: new object {name}"
+        else:
+            message = f"{preset.label} on {count} object{'s' * (count != 1)}, layer {name}"
         self.report({"INFO"}, "; ".join([message, *notes]))
         redraw_ui(context)
+        return {"FINISHED"}
+
+
+TOTALS = frozenset(
+    {"cut_fill", "closed_volume", "least_cost_path", "intervisibility", "line_of_sight"}
+)
+"""Presets whose totals ``geotools.analysis_totals`` reads."""
+
+
+class GEOTOOLS_OT_analysis_totals(bpy.types.Operator):
+    """Read the totals of the active object's presets (volumes, walking time, obstruction), summed in binary64 from the evaluated mesh"""
+
+    bl_idname = "geotools.analysis_totals"
+    bl_label = "Read Totals"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context: bpy.types.Context) -> bool:
+        obj = context.active_object
+        if obj is None or obj.type != "MESH":
+            cls.poll_message_set("Make an object with an analysis preset active")
+            return False
+        return any(p.id in TOTALS for _m, p in preset_modifiers(obj))
+
+    def execute(self, context: bpy.types.Context) -> set[str]:
+        lines = totals(context, context.active_object)
+        if not lines:
+            self.report({"WARNING"}, "No totals to read")
+            return {"CANCELLED"}
+        self.report({"INFO"}, "; ".join(lines))
         return {"FINISHED"}
 
 
@@ -449,6 +778,11 @@ def draw_panel(layout: bpy.types.UILayout, context: bpy.types.Context) -> None:
         return
     col = layout.column(align=True)
     for modifier, preset in found:
+        icon = "MODIFIER_ON" if modifier.show_viewport else "MODIFIER_OFF"
+        if preset.output is catalog.Output.OBJECT:
+            names = ", ".join(a.name for a in preset.attributes)
+            col.label(text=f"{preset.label}: lines ({names})", icon=icon)
+            continue
         try:
             attribute = str(get_input(modifier, catalog.ATTRIBUTE_INPUT))
         except KeyError:
@@ -456,12 +790,13 @@ def draw_panel(layout: bpy.types.UILayout, context: bpy.types.Context) -> None:
         layer_name = attribute.removeprefix("gt_")
         item = find_layer(context.scene, layer_name)
         label = display_name(spec_from_props(item)) if item is not None else preset.label
-        icon = "MODIFIER_ON" if modifier.show_viewport else "MODIFIER_OFF"
         col.label(text=f"{label}: {attribute}", icon=icon)
+    if any(p.id in TOTALS for _m, p in found):
+        layout.operator(GEOTOOLS_OT_analysis_totals.bl_idname, icon="INFO")
     layout.label(text="Edit inputs on the modifier", icon="MODIFIER")
 
 
-classes = (GEOTOOLS_OT_analysis_add, GEOTOOLS_MT_analysis_presets)
+classes = (GEOTOOLS_OT_analysis_add, GEOTOOLS_OT_analysis_totals, GEOTOOLS_MT_analysis_presets)
 
 _register_classes, _unregister_classes = bpy.utils.register_classes_factory(classes)
 

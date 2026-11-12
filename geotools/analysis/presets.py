@@ -8,9 +8,20 @@ This module is the catalog both sides read: the group's name and version, its
 inputs and defaults, and the layer it produces (domain, units, aggregation,
 display range). It is bpy-free; the formulas are in ``docs/analysis-presets.md``.
 
-Every group has a string input ``Attribute`` (the attribute it stores, which
-the operator sets to the layer's ``gt_<name>``). Groups that need north have a
+Most presets are **layer** presets: a modifier on the selected meshes whose
+group has a string input ``Attribute`` (the attribute it stores, which the
+operator sets to the layer's ``gt_<name>``). Groups that need north have a
 ``Convergence`` input, filled from ``analysis.site`` when true north is asked.
+
+**Object** presets (intervisibility, line of sight, least-cost paths and flow
+paths) make lines rather than a layer: Add Analysis creates a new mesh object
+whose modifier builds them from its inputs (the surface, points or a line),
+with fixed POINT and EDGE attributes (``Preset.attributes``) that vector
+publish exports as columns.
+
+Object inputs (``kind="OBJECT"``) say how Add Analysis fills them (``Fill``):
+from the other selected objects, or a new Empty or one-vertex mesh at the 3D
+cursor.
 """
 
 from __future__ import annotations
@@ -41,16 +52,57 @@ ATTRIBUTE_INPUT = "Attribute"
 CONVERGENCE_INPUT = "Convergence"
 TOOL = "analysis_preset"
 """``provenance["tool"]`` of a layer made by Add Analysis."""
+PROVENANCE_KEY = "geotools_provenance"
+"""Custom property (JSON text) on an object preset's new object: its provenance."""
 
 
 class Category(StrEnum):
     TERRAIN = "TERRAIN"
     ARCHAEOLOGY = "ARCHAEOLOGY"
+    VISIBILITY = "VISIBILITY"
+    CHANGE = "CHANGE"
+    VOLUMES = "VOLUMES"
+    PATHS = "PATHS"
 
 
 CATEGORY_LABELS = {
     Category.TERRAIN: "Terrain Shape",
     Category.ARCHAEOLOGY: "Archaeological Visualisation",
+    Category.VISIBILITY: "Visibility",
+    Category.CHANGE: "Change and Distance",
+    Category.VOLUMES: "Volumes",
+    Category.PATHS: "Paths and Flow",
+}
+
+
+class Output(StrEnum):
+    LAYER = "LAYER"  # a modifier on the selected meshes, storing a FACE or CORNER layer
+    OBJECT = "OBJECT"  # a new mesh object of lines, made by the modifier from its inputs
+
+
+class Fill(StrEnum):
+    """How Add Analysis fills an OBJECT input."""
+
+    NONE = "NONE"  # left empty: optional
+    POINT = (
+        "POINT"  # a selected Empty, camera or light (its origin), else a new Empty at the 3D cursor
+    )
+    POINTS = (
+        "POINTS"  # a selected object (its vertices), else a new one-vertex mesh at the 3D cursor
+    )
+    SURFACE = "SURFACE"  # the active mesh: the surface an object preset works on
+    MESH = "MESH"  # another selected mesh with faces (required)
+    LINE = "LINE"  # a selected mesh with edges, or a curve (required)
+    FEATURE = "FEATURE"  # any other selected mesh or curve: points, lines or polygons (required)
+
+
+FILL_LABELS = {
+    Fill.POINT: "a point (an Empty, or the 3D cursor)",
+    Fill.POINTS: "points (a mesh whose vertices are the points, or the 3D cursor)",
+    Fill.SURFACE: "the surface (the active mesh)",
+    Fill.MESH: "a second surface (another selected mesh)",
+    Fill.LINE: "a line (a selected mesh with edges, or a curve)",
+    Fill.FEATURE: "a feature (another selected mesh or curve)",
 }
 
 
@@ -59,12 +111,23 @@ class PresetInput:
     """One input of a preset's node group (besides Geometry and Attribute)."""
 
     name: str
-    kind: str  # "FLOAT", "INT" or "BOOLEAN"
-    default: float | int | bool
+    kind: str  # "FLOAT", "INT", "BOOLEAN", "STRING", "OBJECT" or "COLLECTION"
+    default: float | int | bool | str | None
     description: str
     min: float | int | None = None
     max: float | int | None = None
     subtype: str = "NONE"  # "DISTANCE", "ANGLE" (stored in degrees, shown as a plain float)
+    fill: Fill = Fill.NONE  # OBJECT inputs: how Add Analysis fills it
+
+
+@dataclass(frozen=True, slots=True)
+class OutputAttribute:
+    """An attribute an object preset's lines carry (exported as a vector column)."""
+
+    name: str
+    domain: str  # "POINT" or "EDGE"
+    units: str
+    description: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,8 +137,8 @@ class Preset:
     group: str  # node group name in the library
     category: Category
     label: str  # menu and layer label
-    layer: str  # default layer name
-    domain: Domain  # FACE or CORNER
+    layer: str  # default layer name (an object preset: the new object's name)
+    domain: Domain | None  # FACE or CORNER; None for an object preset
     units: str
     aggregation: Aggregation
     description: str  # one sentence, for the layer and the group
@@ -85,10 +148,31 @@ class Preset:
     north: bool = False  # has a Convergence input
     cost: str = "light"  # "light", "medium", "heavy": a hint in the menu and the docs
     parameters: Mapping[str, object] = field(default_factory=dict)  # extra provenance
+    output: Output = Output.LAYER
+    attributes: tuple[OutputAttribute, ...] = ()  # an object preset's attributes
 
     @property
     def attribute(self) -> str:
+        """The attribute the preset stores: ``gt_<layer>``, or an object preset's first."""
+        if self.output is Output.OBJECT:
+            return self.attributes[0].name
         return attribute_name(self.layer)
+
+    @property
+    def object_inputs(self) -> tuple[PresetInput, ...]:
+        return tuple(i for i in self.inputs if i.kind == "OBJECT")
+
+    @property
+    def active_only(self) -> bool:
+        """Whether only the active object is the target (the other selected ones are inputs).
+
+        True for object presets and for layer presets that take a mesh, line,
+        feature or set of points from the selection; a preset whose only
+        object input is a POINT (an Empty) goes on every selected mesh.
+        """
+        return self.output is Output.OBJECT or any(
+            i.fill not in (Fill.NONE, Fill.POINT) for i in self.object_inputs
+        )
 
 
 # --- inputs shared by several presets ------------------------------------------------
@@ -157,6 +241,65 @@ def _window(default: float) -> PresetInput:
 
 _CURVATURE_INPUTS = (_window(0.1), _SEARCH_HEIGHT)
 _HORIZON_INPUTS = (_MAX_DISTANCE, _DIRECTIONS, _steps(8), _RAY_OFFSET)
+
+
+# --- inputs of the second batch -----------------------------------------------------------
+
+_OCCLUDERS = PresetInput(
+    "Occluders",
+    "COLLECTION",
+    None,
+    "Other objects that block sight as well as the surface (buildings, vegetation); optional",
+)
+_VIEW_RAY_OFFSET = PresetInput(
+    "Ray Offset",
+    "FLOAT",
+    0.01,
+    "Sight lines start this far from the surface, so it does not block itself",
+    min=0.0,
+    subtype="DISTANCE",
+)
+_OBSERVER_HEIGHT = PresetInput(
+    "Observer Height",
+    "FLOAT",
+    1.6,
+    "Eye height above each observer point",
+    min=0.0,
+    subtype="DISTANCE",
+)
+_TARGET_HEIGHT = PresetInput(
+    "Target Height",
+    "FLOAT",
+    0.0,
+    "Height above the surface that must be seen (0: the surface itself, seen from the front only)",
+    min=0.0,
+    subtype="DISTANCE",
+)
+_VIEW_DISTANCE = PresetInput(
+    "Max Distance",
+    "FLOAT",
+    1000.0,
+    "Horizontal reach of the view; faces further from every observer are not visible "
+    "(viewshed: no data)",
+    min=0.0,
+    subtype="DISTANCE",
+)
+_DRAPE = PresetInput(
+    "Drape",
+    "BOOLEAN",
+    False,
+    "Drop the points vertically onto the topmost surface first (for 2D points, such as "
+    "imported vector points at height 0)",
+)
+
+
+def _surface_input(description: str = "The surface the lines are traced on") -> PresetInput:
+    return PresetInput("Surface", "OBJECT", None, description, fill=Fill.SURFACE)
+
+
+_VISIBLE_EDGE = OutputAttribute(
+    "visible", "EDGE", "ratio", "1 where the sight line is clear, 0 where it is blocked"
+)
 
 
 PRESETS: tuple[Preset, ...] = (
@@ -465,16 +608,375 @@ PRESETS: tuple[Preset, ...] = (
         display_range=(60.0, 120.0),
         cost="heavy",
     ),
+    # --- visibility ---------------------------------------------------------------------
+    Preset(
+        id="viewshed",
+        version=1,
+        group="GeoTools Viewshed",
+        category=Category.VISIBILITY,
+        label="Viewshed",
+        layer="viewshed",
+        domain=Domain.FACE,
+        units="ratio",
+        aggregation=Aggregation.AREA_MEAN,
+        description="Whether each face can be seen from the observer: 1 visible, 0 hidden "
+        "(behind something, or facing away), no data beyond Max Distance",
+        inputs=(
+            PresetInput(
+                "Observer",
+                "OBJECT",
+                None,
+                "The observer: this object's origin (Add Analysis uses a selected Empty, or "
+                "adds one at the 3D cursor)",
+                fill=Fill.POINT,
+            ),
+            _OBSERVER_HEIGHT,
+            _TARGET_HEIGHT,
+            _VIEW_DISTANCE,
+            _VIEW_RAY_OFFSET,
+            _OCCLUDERS,
+        ),
+        palette="greys",
+        display_range=(0.0, 1.0),
+    ),
+    Preset(
+        id="viewshed_cumulative",
+        version=1,
+        group="GeoTools Cumulative Viewshed",
+        category=Category.VISIBILITY,
+        label="Cumulative Viewshed",
+        layer="viewshed_cumulative",
+        domain=Domain.FACE,
+        units="count",
+        aggregation=Aggregation.AREA_MEAN,
+        description="How many of the observer points see each face (0 where none does)",
+        inputs=(
+            PresetInput(
+                "Observers",
+                "OBJECT",
+                None,
+                "The observers: this object's vertices (or its origin if it has none)",
+                fill=Fill.POINTS,
+            ),
+            _OBSERVER_HEIGHT,
+            _TARGET_HEIGHT,
+            _VIEW_DISTANCE,
+            _VIEW_RAY_OFFSET,
+            _DRAPE,
+            _OCCLUDERS,
+        ),
+        palette="magma",
+        cost="medium",
+    ),
+    Preset(
+        id="intervisibility",
+        version=1,
+        group="GeoTools Intervisibility",
+        category=Category.VISIBILITY,
+        label="Intervisibility",
+        layer="intervisibility",
+        domain=None,
+        units="ratio",
+        aggregation=Aggregation.NONE,
+        description="A line between every pair of points, eye to eye, marked visible (1) "
+        "or blocked (0) by the surface",
+        inputs=(
+            PresetInput(
+                "Points",
+                "OBJECT",
+                None,
+                "The points: this object's vertices (or its origin if it has none)",
+                fill=Fill.POINTS,
+            ),
+            _surface_input("The surface that blocks sight"),
+            PresetInput(
+                "Height",
+                "FLOAT",
+                1.6,
+                "Eye height above each point, at both ends of each line",
+                min=0.0,
+                subtype="DISTANCE",
+            ),
+            _VIEW_RAY_OFFSET,
+            _DRAPE,
+            _OCCLUDERS,
+        ),
+        palette="greys",
+        output=Output.OBJECT,
+        attributes=(
+            _VISIBLE_EDGE,
+            OutputAttribute("distance", "EDGE", "m", "Length of the sight line, eye to eye"),
+        ),
+    ),
+    Preset(
+        id="line_of_sight",
+        version=1,
+        group="GeoTools Line of Sight",
+        category=Category.VISIBILITY,
+        label="Line of Sight",
+        layer="line_of_sight",
+        domain=None,
+        units="ratio",
+        aggregation=Aggregation.NONE,
+        description="The ground profile along a line, marked visible or hidden from an "
+        "observer at its first vertex, and the sight line to its last vertex, split at "
+        "the first obstruction",
+        inputs=(
+            PresetInput(
+                "Line",
+                "OBJECT",
+                None,
+                "The line: observer at its first vertex, target at its last",
+                fill=Fill.LINE,
+            ),
+            _surface_input("The surface the profile is taken on, and that blocks sight"),
+            _OBSERVER_HEIGHT,
+            PresetInput(
+                "Target Height",
+                "FLOAT",
+                0.0,
+                "Height above the ground that must be seen, along the profile and at the target",
+                min=0.0,
+                subtype="DISTANCE",
+            ),
+            PresetInput(
+                "Spacing",
+                "FLOAT",
+                0.5,
+                "Distance between profile points along the line",
+                min=0.001,
+                subtype="DISTANCE",
+            ),
+            _VIEW_RAY_OFFSET,
+            _OCCLUDERS,
+        ),
+        palette="greys",
+        output=Output.OBJECT,
+        attributes=(
+            OutputAttribute(
+                "visible",
+                "POINT",
+                "ratio",
+                "1 where the point is seen from the observer's eye, 0 where it is hidden "
+                "(on edges: the mean of the two ends)",
+            ),
+            OutputAttribute(
+                "obstruction",
+                "POINT",
+                "ratio",
+                "1 at the first point where the sight line to the target is blocked",
+            ),
+            OutputAttribute("part", "POINT", "", "0 on the ground profile, 1 on the sight line"),
+        ),
+    ),
+    # --- change and distance ------------------------------------------------------------
+    Preset(
+        id="surface_distance",
+        version=1,
+        group="GeoTools Surface Distance",
+        category=Category.CHANGE,
+        label="Distance to Surface",
+        layer="surface_distance",
+        domain=Domain.CORNER,
+        units="m",
+        aggregation=Aggregation.AREA_MEAN,
+        description="Signed distance from each vertex to the nearest point of the "
+        "reference surface, in metres: positive on the side its normals face (above), "
+        "negative behind (below)",
+        inputs=(
+            PresetInput(
+                "Reference",
+                "OBJECT",
+                None,
+                "The surface measured to (for change: the earlier survey)",
+                fill=Fill.MESH,
+            ),
+            PresetInput(
+                "Max Distance",
+                "FLOAT",
+                1.0,
+                "Farther than this from the reference is no data (beyond its edge, or no overlap)",
+                min=0.0,
+                subtype="DISTANCE",
+            ),
+        ),
+        palette="diverging_rdbu",
+    ),
+    Preset(
+        id="feature_distance",
+        version=1,
+        group="GeoTools Feature Distance",
+        category=Category.CHANGE,
+        label="Distance to Feature",
+        layer="feature_distance",
+        domain=Domain.CORNER,
+        units="m",
+        aggregation=Aggregation.AREA_MEAN,
+        description="Distance from each vertex to the nearest point, line or polygon of "
+        "a feature object (such as imported vectors), in metres",
+        inputs=(
+            PresetInput(
+                "Feature",
+                "OBJECT",
+                None,
+                "The feature: its vertices, edges and faces (curves too)",
+                fill=Fill.FEATURE,
+            ),
+            PresetInput(
+                "Horizontal",
+                "BOOLEAN",
+                True,
+                "Measure in plan (ignore heights), as a GIS buffer does; off: in 3D",
+            ),
+        ),
+        palette="viridis",
+    ),
+    # --- volumes -------------------------------------------------------------------------
+    Preset(
+        id="cut_fill",
+        version=1,
+        group="GeoTools Cut and Fill",
+        category=Category.VOLUMES,
+        label="Cut and Fill",
+        layer="cut_fill",
+        domain=Domain.FACE,
+        units="m",
+        aggregation=Aggregation.AREA_MEAN,
+        description="Height of each face above the reference surface vertically below or "
+        "above it, in metres: positive fill, negative cut; no data outside the reference",
+        inputs=(
+            PresetInput(
+                "Reference",
+                "OBJECT",
+                None,
+                "The surface compared with (for earthworks: the existing ground)",
+                fill=Fill.MESH,
+            ),
+        ),
+        palette="diverging_rdbu",
+    ),
+    Preset(
+        id="closed_volume",
+        version=1,
+        group="GeoTools Closed Volume",
+        category=Category.VOLUMES,
+        label="Closed Volume",
+        layer="closed_volume",
+        domain=Domain.FACE,
+        units="m3",
+        aggregation=Aggregation.NONE,
+        description="Volume enclosed by each closed part of the mesh, in cubic metres, on "
+        "every face of that part; no data on parts that are not closed",
+        palette="viridis",
+    ),
+    # --- paths and flow -----------------------------------------------------------------
+    Preset(
+        id="least_cost_path",
+        version=1,
+        group="GeoTools Least-Cost Path",
+        category=Category.PATHS,
+        label="Least-Cost Path",
+        layer="least_cost_path",
+        domain=None,
+        units="s",
+        aggregation=Aggregation.NONE,
+        description="The quickest walking route along the surface's edges from Start to "
+        "End (Tobler's hiking function), with its travel time",
+        inputs=(
+            _surface_input("The surface walked on"),
+            PresetInput(
+                "Start",
+                "OBJECT",
+                None,
+                "Where the path starts: the surface vertex nearest this object's origin",
+                fill=Fill.POINT,
+            ),
+            PresetInput(
+                "End",
+                "OBJECT",
+                None,
+                "Where the path ends: the surface vertex nearest this object's origin",
+                fill=Fill.POINT,
+            ),
+            PresetInput(
+                "Max Slope",
+                "FLOAT",
+                30.0,
+                "Edges steeper than this many degrees cannot be walked",
+                min=0.0,
+                max=90.0,
+            ),
+            PresetInput(
+                "Cost Attribute",
+                "STRING",
+                "",
+                "A FACE attribute (a layer's gt_<name>) that multiplies the walking time "
+                "of edges around each face; no data or 0 is impassable; empty for none",
+            ),
+        ),
+        palette="viridis",
+        cost="medium",
+        output=Output.OBJECT,
+        attributes=(
+            OutputAttribute("elapsed", "POINT", "s", "Walking time from the start to this point"),
+            OutputAttribute("time", "EDGE", "s", "Walking time along the edge"),
+        ),
+    ),
+    Preset(
+        id="flow_path",
+        version=1,
+        group="GeoTools Flow Path",
+        category=Category.PATHS,
+        label="Flow Path (Quick Look)",
+        layer="flow_path",
+        domain=None,
+        units="",
+        aggregation=Aggregation.NONE,
+        description="A quick look at where water would run: from each seed, steps of "
+        "fixed length down the steepest slope until a pit, a flat or the edge. Not "
+        "hydrology",
+        inputs=(
+            _surface_input("The surface the water runs on"),
+            PresetInput(
+                "Seeds",
+                "OBJECT",
+                None,
+                "Where the paths start: this object's vertices (or its origin)",
+                fill=Fill.POINTS,
+            ),
+            PresetInput(
+                "Step",
+                "FLOAT",
+                0.1,
+                "Horizontal length of each step downhill",
+                min=0.0001,
+                subtype="DISTANCE",
+            ),
+            PresetInput(
+                "Max Steps", "INT", 1000, "Most steps taken from each seed", min=1, max=100000
+            ),
+            PresetInput(
+                "Flat Slope",
+                "FLOAT",
+                0.5,
+                "A path stops where the surface is flatter than this many degrees",
+                min=0.0,
+                max=90.0,
+            ),
+        ),
+        palette="viridis",
+        cost="medium",
+        output=Output.OBJECT,
+        attributes=(
+            OutputAttribute("step", "POINT", "", "Steps from the seed (0 at the seed)"),
+            OutputAttribute("seed", "POINT", "", "Index of the seed the path starts from"),
+        ),
+    ),
 )
 
 
 PLANNED: tuple[tuple[str, str], ...] = (
-    ("Visibility", "viewshed, cumulative viewshed, intervisibility and line of sight"),
     ("Surface reading", "ambient occlusion and curvature bakes for worn surfaces"),
-    ("Change and distance", "distance between two surveys, distance to a feature"),
-    ("Volumes", "cut and fill between two surfaces, closed-mesh volumes"),
-    ("Least-cost paths", "Shortest Edge Paths with a Tobler walking cost"),
-    ("Flow paths", "quick-look flow tracing in a Repeat zone"),
 )
 """The next batch of presets (docs only)."""
 
@@ -506,15 +1008,9 @@ def layer_spec(
     values set on the modifiers, the objects and, for a north-aware preset,
     which north the values are measured from.
     """
-    parameters: dict[str, object] = {
-        "preset": preset.id,
-        "preset_version": preset.version,
-        "node_group": preset.group,
-        "library": LIBRARY_FILE,
-        "inputs": dict(inputs or {}),
-        "objects": list(objects),
-        **preset.parameters,
-    }
+    if preset.output is not Output.LAYER or preset.domain is None:
+        raise ValueError(f"{preset.id} makes an object, not a layer")
+    parameters = _parameters(preset, inputs, objects)
     if preset.north:
         parameters["north"] = north or "grid"
     return LayerSpec(
@@ -528,6 +1024,36 @@ def layer_spec(
         label=preset.label,
         provenance=make_provenance(TOOL, parameters, geotools_version),
     )
+
+
+def object_provenance(
+    preset: Preset,
+    *,
+    inputs: Mapping[str, object] | None = None,
+    surface: str = "",
+    geotools_version: str = "",
+) -> dict[str, object]:
+    """The provenance an object preset's new object records (``PROVENANCE_KEY``)."""
+    parameters = _parameters(preset, inputs, (surface,) if surface else ())
+    parameters["attributes"] = {
+        a.name: {"domain": a.domain, "units": a.units, "description": a.description}
+        for a in preset.attributes
+    }
+    return make_provenance(TOOL, parameters, geotools_version)
+
+
+def _parameters(
+    preset: Preset, inputs: Mapping[str, object] | None, objects: tuple[str, ...]
+) -> dict[str, object]:
+    return {
+        "preset": preset.id,
+        "preset_version": preset.version,
+        "node_group": preset.group,
+        "library": LIBRARY_FILE,
+        "inputs": dict(inputs or {}),
+        "objects": list(objects),
+        **preset.parameters,
+    }
 
 
 def preset_of(provenance: Mapping[str, object] | None) -> str | None:

@@ -211,9 +211,19 @@ def test_every_preset_is_a_marked_asset_with_the_catalog_inputs() -> None:
                 for i in group.interface.items_tree
                 if i.item_type == "SOCKET" and i.in_out == "INPUT"
             }
-            assert inputs[catalog.ATTRIBUTE_INPUT].default_value == preset.attribute
+            if preset.output == catalog.Output.LAYER:
+                assert inputs[catalog.ATTRIBUTE_INPUT].default_value == preset.attribute
+            else:  # an object preset stores fixed attribute names
+                assert catalog.ATTRIBUTE_INPUT not in inputs, preset.id
             for spec in preset.inputs:
-                default = inputs[spec.name].default_value
+                item = inputs[spec.name]
+                if spec.kind in ("OBJECT", "COLLECTION"):
+                    assert item.socket_type == f"NodeSocket{spec.kind.title()}", spec.name
+                    continue
+                default = item.default_value
+                if spec.kind == "STRING":
+                    assert default == spec.default, (preset.id, spec.name)
+                    continue
                 assert math.isclose(default, spec.default, rel_tol=1e-6), (preset.id, spec.name)
             # Stock nodes only: every group node is another group of the library.
             for node in group.nodes:
