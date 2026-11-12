@@ -14,6 +14,8 @@ The panels follow the workflow top to bottom, and each header shows its state
   - Bake: a Cycles bake into a texture layer's images (texture layers only).
   - Display: the colours of the layer's variant tileset.
   - Details: no-data, origin, aggregation and the other rarely changed fields.
+- Textures (``texture_ui``): paint setup with UV-overlap stencil, and the M6
+  cleanup tools (fill holes, remove masked objects, pad islands, balance pages).
 - Checks: preflight issues and their fixes.
   - Images: the source images and their remedies.
 - Publish: build profiles, output, format (.3tz, the metadata .glb or Vectors),
@@ -60,7 +62,10 @@ from . import (
     links_ui,
     presentation,
     publish,
+    scene_georef,
     surface_ui,
+    texture_state,
+    texture_ui,
     vector_publish,
 )
 from .common import draw_dependency_status, extension_version
@@ -168,7 +173,7 @@ def placement_state(props: bpy.types.PropertyGroup) -> str:
     """Project header state: ERROR if the placement cannot be built or failed to verify."""
     if props.placement_mode == "LOCAL":
         return DONE
-    if props.placement_mode == "SOURCE_CRS" and not props.source_crs.strip():
+    if props.placement_mode == "SOURCE_CRS" and not props.crs.strip():
         return ERROR
     try:
         placement = placement_from_props(props)
@@ -207,6 +212,7 @@ class GEOTOOLS_PT_project(_GeoToolsPanel, bpy.types.Panel):
             _number_rows(col, props, ANCHOR_FIELDS[4:], ("Offset E", "N", "U"))
         else:
             _draw_source_crs(layout, context, props)
+        scene_georef.draw_notes(layout, context, props)
         layout.separator()
         _draw_verify(layout, context, props)
 
@@ -215,6 +221,7 @@ def _draw_source_crs(layout, context, props) -> None:
     crs_picker.draw_source_crs(layout, context, props)
     col = split_column(layout)
     _number_rows(col, props, SOURCE_CRS_FIELDS[:3], ("Offset E", "N", "A"))
+    scene_georef.draw_storage(layout, context, props)
     _number_rows(col, props, SOURCE_CRS_FIELDS[3:], ("Height Offset",))
     row = layout.row(align=True)
     row.operator("geotools.load_offset_file", icon="FILEBROWSER")
@@ -691,6 +698,8 @@ class GEOTOOLS_PT_publish(_GeoToolsPanel, bpy.types.Panel):
         elif not rusty and profile.glb_earth_placed:
             layout.label(text="Earth-placed needs rusty-tiles", icon="ERROR")
 
+        if not vector_publish.is_vector(profile):
+            texture_state.draw_changes(layout, context, profile)
         if running and status_ is not None:
             publish.draw_progress(layout, context, status_)
             return
@@ -809,6 +818,7 @@ classes = (
     GEOTOOLS_PT_layers_bake,
     GEOTOOLS_PT_layers_display,
     GEOTOOLS_PT_layers_details,
+    *texture_ui.classes,
     GEOTOOLS_PT_checks,
     GEOTOOLS_PT_checks_images,
     GEOTOOLS_PT_publish,

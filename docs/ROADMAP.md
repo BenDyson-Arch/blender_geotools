@@ -33,6 +33,7 @@ GeoTools creates tilesets; it no longer imports them.
 | Versioning | Continue the 0.x line. First rebuild release is 0.3.0; 1.0.0 at M9 | |
 | CRS handling | rusty-tiles does all CRS maths at publish time (`source_crs`, `source_offset`, `height_offset`). Imports (M8) reproject vector points into the project CRS with a bundled pyproj, never GeoTools' own maths; rusty-tiles will not add general reprojection. Rasters are not reprojected (QGIS first). The source GLB is always standard glTF Y-up | |
 | Precision | Offsets, anchors and other geodetic numbers are binary64 Python floats, never Blender `FloatProperty` (single precision) | |
+| Scene georeference | BlenderGIS GeoScene keys are the authority; GeoTools does not depend on BlenderGIS; A = 0 default. A CRS project's CRS and E/N are the scene's `SRID`, `crs x` and `crs y` (lat/lon kept in sync); A and the height offset stay GeoTools properties; LOCAL and ANCHOR projects write no keys. See [docs/design/georeference-interop.md](design/georeference-interop.md) | Another Blender GIS convention becomes common |
 | Performance rule | No Python loops over faces or vertices. Use `foreach_get`/`foreach_set` with numpy, Geometry Nodes or Cycles bakes | |
 | Scope | Don't do what Blender already does. GeoTools reads and writes geo formats, handles georeference and publishes; modelling, draping, displacement and painting use Blender's own tools, with recipes in the docs | A task needs something Blender cannot do |
 
@@ -312,13 +313,14 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
     library, so the groups are appended from the bundled `.blend` (also
     marked as assets). Open items: Hesse's purge step of the local relief
     model has no clean stock-node form (the preset is the trend-removal step),
-    and sky-view factor and openness take three to four minutes at 10M
-    triangles (the local relief model about one); a raster horizon scan or a
-    Cycles bake is proposed for large sites. Shortest Edge Paths takes one cost
-    per edge, so least-cost routes use the mean of Tobler's uphill and downhill
-    times (the reported time is directional); a cumulative viewshed from
-    hundreds of observers on a 10M mesh takes minutes (a Cycles bake setup is
-    proposed).
+    and the local relief model takes about a minute at 10M triangles. Shortest
+    Edge Paths takes one cost per edge, so least-cost routes use the mean of
+    Tobler's uphill and downhill times (the reported time is directional).
+    Sky-view factor, openness and the cumulative viewshed, minutes at 10M in
+    Geometry Nodes, also have a **fast (bake) path**: the preset's own rays
+    cast by the sun-hours Cycles Raycast engine (now shared,
+    `ray_bake.py`) and stored once as a layer, chosen in Add Analysis
+    ([analysis-presets.md](analysis-presets.md#fast-bake-paths)).
   - Terrain shape: slope, aspect, curvature (plan and profile), roughness and
     rugosity, TPI and TRI.
   - Archaeological visualisation: local relief model, sky-view factor,
@@ -346,10 +348,11 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
   exit, each documented with its workaround:
   - a year of sun hours per face on 10M triangles takes about 2.5 min: use a
     texture layer or merge sun directions within 5° (both under a minute);
-  - sky-view factor and openness (2.5 to 3.5 min at 10M) and a cumulative
-    viewshed beyond about 25 observers exceed a minute in stock Geometry
-    Nodes. A bake-engine fast path, reusing the sun-hours Cycles Raycast
-    engine, is being added before 0.3.0;
+  - a cumulative viewshed from 100 observers on 10M triangles takes 49 to
+    65 s with its fast (bake) path on a shared 16-thread machine (229 s live),
+    about 16 s of it fixed cost; fewer observers, a smaller Max Distance or a
+    quieter machine bring it under a minute. Sky-view factor and openness
+    are within the exit with theirs (37 to 52 s at 10M; 2.5 to 3.5 min live);
   - least-cost paths use one cost per edge both ways (the mean of uphill and
     downhill Tobler times); a true one-way route stays with QGIS `r.walk`
     through M8.
@@ -363,6 +366,15 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
 - Changed images are marked dirty in the project. Publishing still means a
   full retile until B lands.
 - **Exit:** a painted source republishes, and coarse levels pick up the change.
+- *Status:* built ([texture-cleanup.md](texture-cleanup.md)). Painting, clone
+  and patch, smear, soften and masks stay Blender's, as recipes (the
+  projection Clone brush copies across UV islands). GeoTools adds a one-click
+  paint setup with UV overlaps as a stencil, push-pull hole filling and masked
+  object removal inside UV islands, island-aware edge padding, a per-page gain
+  and offset fitted across 3D seams, image hashes in `build.json` with "N
+  textures changed since last publish", and saving edited images before a
+  publish. A Blender test repaints a texture, republishes, and sees new
+  texture bytes in leaf and coarse tiles.
 
 ### M7 Output inspection (needs C: rusty-tiles #369, in 0.4.1)
 

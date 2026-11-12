@@ -257,9 +257,14 @@ are done.
 - `main` holds released code only. It moves when a release is merged.
 - `develop` is where work lands. Branch from it and open pull requests against
   it (`gh pr create --base develop`).
+- `release/X.Y.Z` is cut from `develop` when a release's scope is complete, so
+  `develop` can move on to the next version while the release waits (for
+  example on a rusty-tiles release). Only fixes for that release go to it,
+  through pull requests against it; merge the release branch back into
+  `develop` after each fix and after the release.
 - `legacy-0.2` keeps the 0.2 importer add-on. It is not developed.
 
-Both `main` and `develop` are protected by rulesets: no deletion or force
+`main`, `develop` and `release/*` are protected by rulesets: no deletion or force
 push, changes only through a pull request with review threads resolved, merge
 or squash only, and the `core (pytest, ruff)` and
 `blender (official 5.2 LTS, no wheels)` checks must pass. On `main` the branch
@@ -272,25 +277,28 @@ moved.
 Releases are cut from `main` by pushing a tag. `.github/workflows/release.yml`
 does the rest.
 
-1. On a branch from `develop`, set `version` in
-   `geotools/blender_manifest.toml`, for example from `0.3.0-dev` to `0.3.0`.
-   Use a suffix such as `0.3.0-rc.1` for a prerelease.
-2. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [0.3.0] - YYYY-MM-DD`,
-   add a new empty `## [Unreleased]` above it, and update the links at the
-   bottom. The release notes are this section, so it must not be empty.
-3. Merge that into `develop`, then open a pull request from `develop` to
-   `main` and merge it.
+1. When the release's scope is complete, cut `release/X.Y.Z` from `develop`.
+   On `develop`, move the changelog's `## [Unreleased]` entries under
+   `## [X.Y.Z] - Unreleased` (with a new empty `## [Unreleased]` above) before
+   cutting, then set `develop` to the next `-dev` version.
+2. On a branch from `release/X.Y.Z`, set `version` in
+   `geotools/blender_manifest.toml`, for example from `0.3.0-dev` to `0.3.0`
+   (a suffix such as `0.3.0-rc.1` makes a prerelease), and replace
+   `Unreleased` in the `## [0.3.0]` heading with the date. The release notes are
+   that section, so it must not be empty.
+3. Merge that into `release/X.Y.Z`, then open a pull request from
+   `release/X.Y.Z` to `main` and merge it.
 4. Tag the merge commit on `main` and push the tag:
    `git tag -a v0.3.0 -m "GeoTools 0.3.0" && git push origin v0.3.0`.
 5. The release workflow checks that the tag matches the manifest, is on
    `main` and has a changelog section. It then fetches the pinned wheels for
-   every platform from PyPI (for CPython 3.13), builds the four split zips,
+   every platform from PyPI (for CPython 3.13), builds the three split zips,
    checks each holds a rusty-tiles, pyproj and certifi wheel, tests the Linux zip in
    official Blender, and publishes a GitHub release with the zips and
    `SHA256SUMS`. A plain version becomes the latest release; a suffixed one is
    a prerelease.
-6. On `develop`, set the version to the next `-dev` version, for example
-   `0.4.0-dev`.
+6. Merge `main` back into `develop` (a pull request), and delete the release
+   branch.
 
 If the workflow fails after creating the draft release, fix the cause and
 re-run the failed jobs: it reuses the draft. A version that was published needs

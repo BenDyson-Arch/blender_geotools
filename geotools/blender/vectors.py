@@ -116,7 +116,7 @@ def offer_crs_if_unset(
     """A SOURCE_CRS project with no CRS yet: raise ``NeedsProjectOrigin`` offering the
     data's CRS (``data_origin.offer_project_crs``). Returns otherwise."""
     props = scene.geotools
-    if props.placement_mode != "SOURCE_CRS" or props.source_crs.strip():
+    if props.placement_mode != "SOURCE_CRS" or props.crs.strip():
         return
     try:
         placement = placement_from_props(props)

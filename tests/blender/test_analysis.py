@@ -58,9 +58,9 @@ def _utm13_project(a: float = 1830.14) -> tuple[float, float]:
     )
     props = h.project()
     props.placement_mode = "SOURCE_CRS"
-    props.source_crs = "EPSG:32613"
-    props.source_offset_e = repr(east)
-    props.source_offset_n = repr(north)
+    props.crs = "EPSG:32613"
+    props.origin_e = repr(east)
+    props.origin_n = repr(north)
     props.source_offset_a = repr(a)
     return east, north
 
@@ -74,9 +74,9 @@ def _mga56_edge_project() -> tuple[float, float]:
     )
     props = h.project()
     props.placement_mode = "SOURCE_CRS"
-    props.source_crs = "EPSG:7856"
-    props.source_offset_e = repr(east)
-    props.source_offset_n = repr(north)
+    props.crs = "EPSG:7856"
+    props.origin_e = repr(east)
+    props.origin_n = repr(north)
     props.source_offset_a = "250.0"
     return east, north
 
@@ -117,7 +117,7 @@ def test_place_sun_in_a_crs_project() -> None:
     if not _has_pyproj():
         props = h.project()
         props.placement_mode = "SOURCE_CRS"
-        props.source_crs = "EPSG:32613"
+        props.crs = "EPSG:32613"
         result, error = h.call_op(bpy.ops.geotools.sun_place)
         assert error is not None and "pyproj" in error, (result, error)
         assert "pyproj" in sun_props.error and sun_props.result == ""
@@ -248,7 +248,7 @@ def test_point_readout_and_distance() -> None:
     if not _has_pyproj():
         props = h.project()
         props.placement_mode = "SOURCE_CRS"
-        props.source_crs = "EPSG:7856"
+        props.crs = "EPSG:7856"
         result, error = h.call_op(bpy.ops.geotools.point_from_cursor, point="A")
         assert error is not None and "pyproj" in error
         assert "pyproj" in measure.error and measure.reading_a == ""
@@ -327,7 +327,7 @@ def test_area_of_selected_faces() -> None:
     if not _has_pyproj():
         props = h.project()
         props.placement_mode = "SOURCE_CRS"
-        props.source_crs = "EPSG:7856"
+        props.crs = "EPSG:7856"
         result, error = h.call_op(bpy.ops.geotools.measure_area)
         assert error is not None and "pyproj" in error
         return
@@ -354,7 +354,7 @@ def test_panels_draw() -> None:
     ui = h.submodule("blender.analysis_ui")
     props = h.project()
     props.placement_mode = "SOURCE_CRS"
-    props.source_crs = "EPSG:32613"
+    props.crs = "EPSG:32613"
     calls = h.draw(ui.GEOTOOLS_PT_analysis)
     assert ("pyproj" in h.label_text(calls)) is (not _has_pyproj())
     calls = h.draw(ui.GEOTOOLS_PT_analysis_sun)

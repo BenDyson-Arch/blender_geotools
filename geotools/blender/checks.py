@@ -5,12 +5,14 @@ import bpy
 from ..core import crs_catalog, deps, preflight, probe
 from ..core.issues import Issue, Severity
 from ..core.placement import Placement
+from . import scene_georef
 from .bake_texture import uv_overlap_issues
 from .common import redraw_ui
 from .crs_picker import migrate_scene
 from .layers import refresh_layers
 from .properties import SEVERITY_ICONS, FieldError, field_issues, placement_from_props
 from .source import refresh_summary
+from .texture_state import check_issues as texture_issues
 
 _SEVERITY_ORDER = {Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2}
 
@@ -94,6 +96,8 @@ def run_checks(context: bpy.types.Context) -> list[Issue]:
         issues = preflight.check(summary, placement, profile=profile)
         issues += crs_issues(placement, issues)
     issues += uv_overlap_issues(context)
+    issues += texture_issues(context)
+    issues += scene_georef.issues(context.scene)
     issues.sort(key=lambda i: _SEVERITY_ORDER[Severity(i.severity)])
     return issues
 

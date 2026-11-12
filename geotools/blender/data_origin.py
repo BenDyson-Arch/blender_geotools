@@ -14,6 +14,13 @@ SOURCE_CRS with the data's CRS and the centre of its extent, then runs the
 import again. When the project already has a source collection with objects,
 its invoke asks for confirmation first, because the switch changes how the
 existing scene is placed on Earth. Run from a script (EXEC), it does not ask.
+
+Unlike BlenderGIS's own origin edits, which translate the scene's objects to
+keep them on the same spot, this never moves objects: it defines where the
+scene's coordinates are. So a scene that already has a complete GeoScene
+georeference (``SRID``, ``crs x``, ``crs y``) is never given a new origin here;
+the project adopts the scene's georeference instead, and the data is imported
+against it (see docs/design/georeference-interop.md).
 """
 
 from __future__ import annotations
@@ -25,6 +32,7 @@ import bpy
 from bpy.props import BoolProperty, EnumProperty, IntProperty, StringProperty
 
 from ..core.data_origin import DataOrigin, NeedsProjectOrigin
+from . import scene_georef
 from .common import redraw_ui
 from .properties import write_number
 from .ui import wrapped
@@ -107,7 +115,9 @@ def draw_offer(layout: bpy.types.UILayout, context: bpy.types.Context, pending: 
     row = box.row(align=True)
     origin = DataOrigin.from_dict(pending.get("origin"))
     text = "Use This Data's Centre as the Project Origin"
-    if origin is not None and not origin.set_offset:
+    if context.scene is not None and scene_georef_held(context.scene):
+        text = "Use the Scene's BlenderGIS Georeference"
+    elif origin is not None and not origin.set_offset:
         text = f"Use {origin.epsg or 'the Data CRS'} as the Project CRS"
     op = row.operator(GEOTOOLS_OT_use_data_origin.bl_idname, text=text, icon="ORIENTATION_GLOBAL")
     fill(op, pending["request"])
@@ -134,30 +144,39 @@ def needs_confirmation(scene: bpy.types.Scene) -> bool:
     return source_object_count(scene) > 0
 
 
-def apply_origin(props: bpy.types.PropertyGroup, origin: DataOrigin) -> None:
-    """Switch the project to SOURCE_CRS with ``origin``'s CRS and offset (A is 0).
+def scene_georef_held(scene: bpy.types.Scene) -> bool:
+    """True when the scene has a complete GeoScene georeference (SRID and crs x/y).
 
-    An origin that only offers its CRS (``set_offset`` False) keeps the offset.
+    "Use data origin" then adopts it instead of moving the origin: objects
+    another GIS tool (BlenderGIS) placed against that origin stay where they are
+    on Earth. GeoTools never moves the origin of such a scene behind its back.
     """
-    props.placement_mode = "SOURCE_CRS"
-    props.source_crs = origin.source_crs
+    return scene_georef.read(scene).complete
+
+
+def apply_origin(props: bpy.types.PropertyGroup, origin: DataOrigin) -> bool:
+    """Switch the project to SOURCE_CRS with ``origin``'s CRS and E/N offset.
+
+    A LOCAL or ANCHOR project becomes a new CRS project, with offset A = 0
+    (``scene_georef.start_crs_project``): the data's centre says nothing about
+    heights, and GeoScene tools read Z as absolute height. A SOURCE_CRS project
+    keeps its A. An origin that only offers its CRS (``set_offset`` False) keeps
+    the offset. When the scene already holds a GeoScene georeference
+    (:func:`scene_georef_held`), the project adopts it instead, and nothing
+    moves. Returns True when it did.
+    """
+    scene = props.id_data
+    adopt = scene_georef_held(scene)
+    scene_georef.start_crs_project(props)  # reconciles: existing keys win
+    if adopt:
+        return True
+    props.crs = origin.source_crs
     if not origin.set_offset:
-        return
-    for attr, value in zip(
-        ("source_offset_e", "source_offset_n", "source_offset_a"), origin.offset, strict=True
-    ):
-        write_number(props, attr, value)
+        return False
+    write_number(props, "origin_e", origin.offset[0])
+    write_number(props, "origin_n", origin.offset[1])
     props.offset_file = ""
-
-
-_PLACEMENT_ATTRS = (
-    "placement_mode",
-    "source_crs",
-    "source_offset_e",
-    "source_offset_n",
-    "source_offset_a",
-    "offset_file",
-)
+    return False
 
 
 def _run_import(context: bpy.types.Context, request: dict[str, object]) -> list[str]:
@@ -201,22 +220,31 @@ def import_with_data_origin(
     """Import ``request``; if it needs the data's origin, apply that first.
 
     Returns the origin applied (None when the import went through as the
-    project was) and the report lines. On failure the placement is restored
-    and the error is raised.
+    project was, or when the scene already held a GeoScene georeference that the
+    project adopted instead, :func:`apply_origin`; the first report line then
+    says so) and the report lines. On failure the placement (mode, GeoScene keys,
+    GeoTools' own text) is restored exactly and the error is raised.
     """
-    props = context.scene.geotools
+    scene = context.scene
     try:
         return None, _run_import(context, request)
     except NeedsProjectOrigin as ex:
         origin = ex.origin
-    saved = {attr: getattr(props, attr) for attr in _PLACEMENT_ATTRS}
-    apply_origin(props, origin)
+    saved = scene_georef.snapshot(scene)
+    adopted = apply_origin(scene.geotools, origin)
     try:
         lines = _run_import(context, request)
     except Exception:
-        for attr, value in saved.items():
-            setattr(props, attr, value)
+        scene_georef.restore(scene, saved)
         raise
+    if adopted:
+        lines.insert(
+            0,
+            "Used the scene's existing BlenderGIS georeference "
+            f"({scene_georef.read(scene).describe()}) rather than the data's centre, so "
+            "objects already placed against it stay put",
+        )
+        return None, lines
     return origin, lines
 
 
@@ -224,7 +252,7 @@ def import_with_data_origin(
 
 
 class GEOTOOLS_OT_use_data_origin(bpy.types.Operator):
-    """Switch the project to the data's CRS, with the centre of its extent (whole metres) as the offset and A 0, then import the file. Asks first when the project already has a source collection"""
+    """Switch the project to the data's CRS, with the centre of its extent (whole metres) as the E/N offset and A 0 (a CRS project keeps its A), then import the file. A scene that already has a BlenderGIS (GeoScene) georeference keeps it instead. Asks first when the project already has a source collection"""
 
     bl_idname = "geotools.use_data_origin"
     bl_label = "Use This Data's Centre as the Project Origin"
@@ -273,6 +301,8 @@ class GEOTOOLS_OT_use_data_origin(bpy.types.Operator):
         pending = pending_offer(context)
         origin = DataOrigin.from_dict(pending.get("origin")) if pending else None
         target = origin.describe() if origin is not None else "the data's CRS and centre"
+        if scene_georef_held(scene):
+            target = f"the scene's BlenderGIS georeference ({scene_georef.read(scene).describe()})"
         text = (
             f"This switches the project from {mode} to {target}. The source collection "
             f"'{name}' ({count} object{'s' if count != 1 else ''}) is then read as "

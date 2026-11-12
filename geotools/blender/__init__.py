@@ -33,8 +33,11 @@ from . import (
     publish,
     raster_io,
     remedies,
+    scene_georef,
     source,
     sun_hours,
+    texture_cleanup,
+    texture_paint,
     vectors,
 )
 
@@ -44,6 +47,7 @@ MODULES: tuple[ModuleType, ...] = (
     preferences,
     properties,
     crs_picker,
+    scene_georef,
     operators,
     source,
     links,
@@ -65,6 +69,8 @@ MODULES: tuple[ModuleType, ...] = (
     analysis_presets,
     hydrology,
     contours,
+    texture_cleanup,
+    texture_paint,
     panels,  # last: the sidebar draws what the modules above register
 )
 

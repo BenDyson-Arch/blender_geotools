@@ -308,9 +308,9 @@ def test_mga_true_north_uses_the_site_convergence() -> None:
     )
     props = h.project()
     props.placement_mode = "SOURCE_CRS"
-    props.source_crs = "EPSG:7856"
-    props.source_offset_e = repr(east)
-    props.source_offset_n = repr(north)
+    props.crs = "EPSG:7856"
+    props.origin_e = repr(east)
+    props.origin_n = repr(north)
     props.source_offset_a = "250.0"
     plane = _grid("Tilted", 8, 2.0, lambda x, y: y * TAN30)
     assert _add("aspect", north="TRUE") == {"FINISHED"}
@@ -552,6 +552,7 @@ def test_panel_and_menu_draw() -> None:
     assert "Slope: gt_slope" in h.label_text(h.draw(panel))
     calls = h.draw(bpy.types.GEOTOOLS_MT_analysis_presets)
     operators = [c for c in calls if c[0] == "operator"]
-    assert len(operators) == len(_catalog().PRESETS) + 1  # aspect twice: grid and true north
+    # Aspect twice (grid and true north), and the four fast (bake) paths.
+    assert len(operators) == len(_catalog().PRESETS) + 1 + 4
     assert "Terrain Shape" in h.label_text(calls)
     _clear_trees()

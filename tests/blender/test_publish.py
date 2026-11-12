@@ -265,7 +265,13 @@ def test_publish_end_to_end() -> None:
         assert record["source"] == {
             "glb_sha256": record["source_glb"]["sha256"],
             "blend_sha256": None,  # never saved
+            "images": record["source"]["images"],
         }
+        # M6: the packed checker texture, hashed by its packed bytes.
+        assert [(i["name"], i["origin"]) for i in record["source"]["images"]] == [
+            ("Checker", "packed")
+        ]
+        assert len(record["source"]["images"][0]["sha256"]) == 64
         assert record["placement"]["crs_epsg"] is None
         assert record["output"] == str(output)
         assert record["settings"]["profile"] == "fast"

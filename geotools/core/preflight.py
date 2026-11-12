@@ -55,6 +55,10 @@ class ImageSummary:
     # when the exporter writes the pixels itself (always 8-bit).
     bit_depth: int | None = None
     remedy: ImageRemedy = NO_REMEDY  # the user's stored choice, never inferred
+    # Unsaved edits (painted, cleaned or generated pixels): where Publish saves
+    # them first, e.g. "its file albedo.png" or "the .blend (packed)"; None if
+    # the image has no unsaved edits. See blender.texture_state.
+    unsaved_target: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -298,6 +302,20 @@ def _one_material(material: MaterialSummary) -> list[Issue]:
 
 
 def _one_image(image: ImageSummary, profile: str | None = None) -> list[Issue]:
+    issues = _image_rules(image, profile)
+    if image.unsaved_target and (image.exists or image.packed):
+        issues.append(
+            _warn(
+                "image-unsaved",
+                f"Image {image.name} has unsaved edits; Publish saves them to "
+                f"{image.unsaved_target} first.",
+                image.name,
+            )
+        )
+    return issues
+
+
+def _image_rules(image: ImageSummary, profile: str | None = None) -> list[Issue]:
     name = image.name
     issues = _image_limits(image)
     if not image.exists and not image.packed:

@@ -1,14 +1,15 @@
 """The Project panel's CRS: a searchable EPSG field, rusty-tiles' verdict, preset migration.
 
-``scene.geotools.source_crs`` is a ``StringProperty`` with a search callback
+``scene.geotools.crs`` is a ``StringProperty`` with a search callback
 (:func:`search_crs`): clicking it lists every EPSG code the bundled
 rusty-tiles resolves as ``EPSG:7856 — GDA2020 / MGA zone 56`` (names and areas
 of use from pyproj, ``core.crs_catalog``), and typing filters by code or name
 words. When the project has a location (a verified placement, the current CRS
 and offset, or an anchor), the codes whose area of use holds it come first,
 and with "Near This Site" on they are the only ones listed. Choosing an entry
-stores only ``EPSG:7856`` (:func:`crs_changed`). Free text (WKT, PROJ) is kept
-as typed.
+stores only ``EPSG:7856`` (the field's setter). Free text (WKT, PROJ) is kept
+as typed. The field reads and writes the scene's GeoScene ``SRID`` key when it
+can hold the CRS (``blender.scene_georef``).
 
 Under the field the panel shows ``rusty_tiles.resolve_source_crs``'s verdict,
 cached by definition: the datum operation and its EPSG-stated accuracy, or the
@@ -17,7 +18,8 @@ one older than 0.4.1) the field still takes text, and the panel says why
 nothing can be listed or checked.
 
 Scenes saved with one of the old CRS presets' PROJ strings
-(``core.crs_migration``) are moved to the preset's EPSG code on file load,
+(``core.crs_migration``) in GeoTools' own CRS text are moved to the preset's
+EPSG code on file load (before that text moves into the GeoScene keys),
 when the extension is enabled, and when Run Checks or Publish first reads the
 placement (``properties.placement_from_props`` uses the migrated value even
 before it is written). ``crs_catalog.migrated`` only does so when rusty-tiles
@@ -34,6 +36,7 @@ from bpy.app.handlers import persistent
 
 from ..core import crs_catalog, deps
 from ..core.crs_catalog import LonLat
+from . import scene_georef
 from .ui import info_row, split_column, wrapped
 
 log = logging.getLogger(__name__)
@@ -60,9 +63,9 @@ def site_lon_lat(props: bpy.types.PropertyGroup) -> LonLat | None:
         lon, lat = _float(props.probe_lon), _float(props.probe_lat)
         if lon is not None and lat is not None:
             return lon, lat
-    easting, northing = _float(props.source_offset_e), _float(props.source_offset_n)
-    if props.source_crs.strip() and easting and northing:
-        found = crs_catalog.lon_lat_of(props.source_crs.strip(), easting, northing)
+    easting, northing = _float(props.origin_e), _float(props.origin_n)
+    if props.crs.strip() and easting and northing:
+        found = crs_catalog.lon_lat_of(props.crs.strip(), easting, northing)
         if found is not None:
             return found
     lon, lat = _float(props.anchor_lon), _float(props.anchor_lat)
@@ -78,7 +81,7 @@ def search_crs(self: bpy.types.PropertyGroup, _context: bpy.types.Context, edit_
     the site first.
     """
     try:
-        current = self.source_crs.strip()
+        current = self.crs.strip()
         query = edit_text or ""
         if query.strip() == current or crs_catalog.choice_value(query).strip() == current:
             query = ""
@@ -93,12 +96,13 @@ def search_crs(self: bpy.types.PropertyGroup, _context: bpy.types.Context, edit_
 
 
 def crs_changed(self: bpy.types.PropertyGroup, _context: bpy.types.Context) -> None:
-    """Store a chosen entry as its plain ``EPSG:nnnn``; forget a stale migration note."""
-    value = crs_catalog.choice_value(self.source_crs)
-    if value != self.source_crs:
-        self.source_crs = value  # runs this again, which then changes nothing
-        return
-    if self.crs_migrated_from and crs_catalog.migrated(self.crs_migrated_from) != value.strip():
+    """Forget a stale migration note.
+
+    A chosen entry is already stored as its plain ``EPSG:nnnn`` by the field's
+    setter (``scene_georef.set_crs``).
+    """
+    value = self.crs.strip()
+    if self.crs_migrated_from and crs_catalog.migrated(self.crs_migrated_from) != value:
         self.crs_migrated_from = ""
 
 
@@ -106,16 +110,21 @@ def crs_changed(self: bpy.types.PropertyGroup, _context: bpy.types.Context) -> N
 
 
 def migrate_scene(scene: bpy.types.Scene) -> str | None:
-    """Replace the scene's saved preset PROJ string by its EPSG code; return the code."""
+    """Replace GeoTools' saved preset PROJ string by its EPSG code; return the code.
+
+    Only GeoTools' own CRS text (``source_crs``) is migrated, before it moves into
+    the GeoScene keys (``scene_georef.reconcile_scene``). A ``SRID`` key is never
+    rewritten, whatever it holds: other tools own it too.
+    """
     props = getattr(scene, "geotools", None)
     if props is None:
         return None
-    old = props.source_crs.strip()
+    old = scene_georef.stored_crs(props).strip()
     code = crs_catalog.migrated(old)
     if code is None:
         return None
-    props.crs_migrated_from = old  # before source_crs, whose update keeps it
-    props.source_crs = code
+    props.crs_migrated_from = old
+    scene_georef.write_stored_crs(props, code)
     log.info("Scene %s: CRS preset migrated to %s (same definition)", scene.name, code)
     return code
 
@@ -132,14 +141,20 @@ def migrate_all() -> list[str]:
     return changed
 
 
+def migrate_and_reconcile() -> None:
+    """On load: migrate GeoTools' preset text, then move the georeference into the keys."""
+    migrate_all()
+    scene_georef.reconcile_all()
+
+
 @persistent
 def _on_load_post(*_args: object) -> None:
-    migrate_all()
+    migrate_and_reconcile()
 
 
 def _after_register() -> None:
     # bpy.data is restricted during register(); the file already open is migrated here.
-    migrate_all()
+    migrate_and_reconcile()
 
 
 # --- drawing ---------------------------------------------------------------------------
@@ -149,12 +164,12 @@ def draw_source_crs(
     layout: bpy.types.UILayout, context: bpy.types.Context, props: bpy.types.PropertyGroup
 ) -> None:
     """The CRS row of the Project panel: the search field, its name and rusty-tiles' verdict."""
-    definition = crs_catalog.current_definition(props.source_crs.strip())
+    definition = crs_catalog.current_definition(props.crs.strip())
     result = crs_catalog.resolve(definition)
     col = split_column(layout)
     row = col.row(align=True)
     row.alert = not definition or (result is not None and not result.accepted)
-    row.prop(props, "source_crs", placeholder="Search EPSG code or name")
+    row.prop(props, "crs", placeholder="Search EPSG code or name")
     row.prop(props, "crs_near_site", text="", icon="ORIENTATION_GLOBAL")
     if not crs_catalog.available():
         status = deps.probe_rusty_tiles()
@@ -185,14 +200,14 @@ def draw_source_crs(
 
 def details_poll(props: bpy.types.PropertyGroup) -> bool:
     """Whether the CRS Details sub-panel has anything to show."""
-    return props.placement_mode == "SOURCE_CRS" and bool(props.source_crs.strip())
+    return props.placement_mode == "SOURCE_CRS" and bool(props.crs.strip())
 
 
 def draw_details(
     layout: bpy.types.UILayout, context: bpy.types.Context, props: bpy.types.PropertyGroup
 ) -> None:
     """CRS Details: area of use, the definition rusty-tiles uses, the operation, the migration."""
-    definition = crs_catalog.current_definition(props.source_crs.strip())
+    definition = crs_catalog.current_definition(props.crs.strip())
     found = crs_catalog.entry(definition)
     if found is not None and found.area_name:
         wrapped(layout, context, f"Area of use: {found.area_name}.", icon="WORLD")

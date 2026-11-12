@@ -384,8 +384,8 @@ def build_blend(out: Path) -> Path:
     scene = bpy.context.scene
     props = scene.geotools
     props.placement_mode = "SOURCE_CRS"
-    props.source_crs = CRS
-    for attr, value in (("source_offset_e", E0), ("source_offset_n", N0), ("source_offset_a", A0)):
+    props.crs = CRS
+    for attr, value in (("origin_e", E0), ("origin_n", N0), ("source_offset_a", A0)):
         properties.write_number(props, attr, value)
     scene.unit_settings.system = "METRIC"
 

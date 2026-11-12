@@ -44,9 +44,9 @@ def _project(mode: str = "SOURCE_CRS") -> None:
     h.submodule("blender.data_origin").clear_offer(bpy.context)
     props = h.project()
     props.placement_mode = mode
-    props.source_crs = "EPSG:7856"
-    props.source_offset_e = repr(E0)
-    props.source_offset_n = repr(N0)
+    props.crs = "EPSG:7856"
+    props.origin_e = repr(E0)
+    props.origin_n = repr(N0)
     props.source_offset_a = repr(A0)
 
 
@@ -211,10 +211,12 @@ def test_projected_geojson_in_a_local_project_offers_its_centre() -> None:
             assert result == {"FINISHED"}, error
             props = h.project()
             assert props.placement_mode == "SOURCE_CRS"
-            assert props.source_crs == "EPSG:7856"
+            assert props.crs == "EPSG:7856"
             read = h.submodule("blender.properties").read_number
             centre = (E0 + 15.0, N0 + 15.0, 0.0)  # the extent is E0..E0+30, N0..N0+30
-            assert tuple(read(props, f"source_offset_{k}") for k in "ena") == centre
+            assert (
+                tuple(read(props, k) for k in ("origin_e", "origin_n", "source_offset_a")) == centre
+            )
             obj = bpy.data.objects["dig"]
             got = _positions(obj.data)
             assert got[:, 0].min() == -15.0 and got[:, 0].max() == 15.0, got
@@ -247,7 +249,7 @@ def test_projected_gpkg_without_a_preset_and_the_confirmation() -> None:
         result, error = h.call_op(bpy.ops.geotools.use_data_origin, **pending["request"])
         assert result == {"FINISHED"}, error
         props = h.project()
-        assert props.placement_mode == "SOURCE_CRS" and props.source_crs == "EPSG:32756"
+        assert props.placement_mode == "SOURCE_CRS" and props.crs == "EPSG:32756"
         assert "contexts" in bpy.data.objects
         # The project checks then say whether rusty-tiles takes EPSG:32756.
 
@@ -282,8 +284,8 @@ def test_a_project_without_a_crs_is_offered_the_datas() -> None:
     data_origin = h.submodule("blender.data_origin")
     _project()
     props = h.project()
-    props.source_crs = ""
-    props.source_offset_e = props.source_offset_n = props.source_offset_a = "0"
+    props.crs = ""
+    props.origin_e = props.origin_n = props.source_offset_a = "0"
     with _tmpdir() as tmp:
         path = vf.write_geojson(tmp / "dig.geojson", vf.contexts(2))  # EPSG:7856
         result, error = h.call_op(bpy.ops.geotools.import_geojson, filepath=str(path))
@@ -295,9 +297,9 @@ def test_a_project_without_a_crs_is_offered_the_datas() -> None:
         assert ("operator", "geotools.use_data_origin", "ORIENTATION_GLOBAL") in calls
         result, error = h.call_op(bpy.ops.geotools.use_data_origin, **pending["request"])
         assert result == {"FINISHED"}, error
-        assert props.source_crs == "EPSG:7856"
+        assert props.crs == "EPSG:7856"
         read = h.submodule("blender.properties").read_number
-        assert tuple(read(props, f"source_offset_{k}") for k in "ena") == (
+        assert tuple(read(props, k) for k in ("origin_e", "origin_n", "source_offset_a")) == (
             E0 + 15.0,
             N0 + 15.0,
             0.0,

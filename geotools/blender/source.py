@@ -146,7 +146,7 @@ def detect_offset(props: bpy.types.PropertyGroup, source: Path) -> tuple[set[str
         return {"WARNING"}, f"Found {found.name} but could not read it: {ex}"
     apply_source_offset(props, offset, str(found))
     message = f"Offset read from {found.name}; placement set to Source CRS."
-    if not props.source_crs.strip():
+    if not props.crs.strip():
         return {"WARNING"}, message + " Set the source CRS."
     return {"INFO"}, message
 
@@ -257,7 +257,7 @@ class GEOTOOLS_OT_load_offset_file(bpy.types.Operator):
         props = context.scene.geotools
         apply_source_offset(props, offset, str(path))
         message = f"Offset read from {path.name}; placement set to Source CRS."
-        if props.source_crs.strip():
+        if props.crs.strip():
             self.report({"INFO"}, message)
         else:
             self.report({"WARNING"}, message + " Set the source CRS.")
