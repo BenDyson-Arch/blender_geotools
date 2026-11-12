@@ -19,6 +19,24 @@ and the project follows semantic versioning where practical.
   `scripts/validation/terrain/make_references.py`, fixtures in
   `tests/data/validation/terrain/`, tests in normal CI.
 
+### Fixed
+
+- File paths GeoTools stores itself now work across Linux, macOS and Windows,
+  so a project folder (the `.blend` and its data) opens on any of them and
+  finds its files. Linked GeoJSON, GeoPackage and GeoTIFF files, the build
+  profile's output path, the last output and build record, the source file and
+  the offset file are stored as `//sub/file` (forward slashes) when they are
+  under the `.blend`'s folder, and stay absolute otherwise. `//` paths with
+  either separator resolve on every OS: a `//out\site.3tz` typed on Windows no
+  longer becomes a file named with a backslash on Linux or macOS. Saving to
+  another folder re-expresses them for it, as Blender does for its own paths;
+  a copy leaves the open file as it was. Older files with absolute or
+  backslash paths keep working and are rewritten only when GeoTools next sets
+  that path, never on load. Checks Linked Files reports Up to Date, Changed on
+  Disk and Missing for both forms, and GeoTools compares files by their
+  resolved paths (macOS `/var` and `/private/var`, Windows 8.3 short names).
+  The rule is in `geotools/core/paths.py` and CONTRIBUTING.md ("File paths").
+
 ## [0.3.0] - Unreleased
 
 GeoTools is being rebuilt to create, analyse and publish OGC 3D Tiles with
@@ -26,6 +44,17 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
 
 ### Added
 
+- A user guide in `docs/guide/` (index: `docs/guide/README.md`). Getting
+  started walks through installing the extension, reading the dependency
+  status, placing the synthetic `examples/drape-contexts` site in EPSG:32631
+  with its offset file, running Checks, publishing a `.3tz` and viewing it in
+  CesiumJS. One page per area: georeference and projects, layers and bakes,
+  checks and publishing, GLB with metadata, analysis (sun, sun hours, shadow
+  studies, archaeoastronomy, measurement, presets, hydrology, contours and
+  sections), texture cleanup, inspecting output, geo formats, and working
+  alongside BlenderGIS (the GeoScene keys GeoTools reads and writes, and what
+  stays GeoTools-only). The README is now a short overview that points into
+  the guide, and CONTRIBUTING links it.
 - Texture cleanup (M6), in a new **Textures** panel between Layers and Checks
   ([docs/texture-cleanup.md](docs/texture-cleanup.md)). Painting stays
   Blender's: the docs have recipes for clone and patch across UV islands
@@ -67,7 +96,7 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
     `scripts/bench_texture_cleanup.py` times the tools on 8K pages.
 - Output inspection (M7), in a new Inspect Output panel after Publish. List
   the tiles of the last published `.3tz` (or a chosen one) by depth, with role,
-  geometric error and triangle count, and **Open** a tile, one depth or every
+  geometric error and triangle count, and **Open Tiles**: a tile, one depth or every
   leaf (within a limit) as read-only objects in a "GeoTools Output"
   collection: built from rusty-tiles' decoded arrays with per-face
   `source_primitive` and `source_triangle` attributes, the tile's texture
@@ -112,7 +141,7 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   grid convergence. It is placed on a Blender Sun light, or keyframed over a
   day at a chosen step, with the light off below the horizon. Named IANA time
   zones are used where Python has a time zone database, else a fixed UTC
-  offset. **Coordinates:** read a point from the 3D cursor or a click as E, N,
+  offset. **Measure:** read a point from the 3D cursor or a click as E, N,
   RL and latitude and longitude at full binary64 precision, with the float32
   limit of the local position shown. Grid and ground distance between two
   points uses the combined scale factor (grid scale from pyproj, height factor
@@ -448,6 +477,34 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
     the `.blend`) without a warning.
 
 ### Changed
+
+- The sidebar is reorganised for a first-time user
+  ([docs/design/ui-structure.md](docs/design/ui-structure.md)). It follows
+  the workflow: Project, Source, Linked Data, **Analysis** (moved up from near
+  the bottom), Layers, Textures, Checks, Publish, Inspect Output, About.
+  Analysis has six sub-panels instead of eight side by side: Measure,
+  Presets, Hydrology, Contours and Sections, Sun (now with **Sun Hours** and
+  **Shadow Study** inside it, as they use its date, time zone and site) and
+  Archaeoastronomy. Sun starts closed.
+- Renamed labels, with no property or `bl_idname` changes, so saved files and
+  scripts are unaffected: the Coordinates sub-panel is **Measure**; Ingest
+  Source is **Import Source Mesh**; Make Contours and Make Sections are
+  **Create Contours** and **Create Sections**; the inspect **Open** button is
+  **Open Tiles**; Frames per Step is **Frame Step**; the Create Attributes and
+  Write Presentation operators take their buttons' names, **Create Empty
+  Attributes** and **Write Colours**.
+- No control is drawn twice: Archaeoastronomy no longer repeats Sun Hours'
+  **Use Horizon Profile** (it says whether Sun Hours uses the profile), and
+  Shadow Study no longer repeats Sun's **First Frame** (it says which frame
+  the keys start at).
+- In Publish, **Format** comes before **Output**, each labelled above its
+  field, so `.3tz .glb Vectors` is no longer cut off. Linked Data's import
+  buttons, Inspect Output's Quality buttons and the long hints in Sun Hours,
+  Shadow Study, Archaeoastronomy and Presets no longer get cut off either.
+- Every property and operator the sidebar draws has a tooltip (about 40
+  properties and 18 operator options had none, for example the sun's date and time, the layer domain and type,
+  and the Inspect Output options), and so does every option of every GeoTools
+  operator. `tests/blender/test_ui.py` keeps it that way.
 
 - New CRS projects start with offset A = 0, because GeoScene tools read
   Blender Z as absolute height. "Use data origin" from a local or anchor

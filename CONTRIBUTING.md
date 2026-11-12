@@ -4,6 +4,10 @@ GeoTools is a Blender 5.2+ extension that bundles rusty-tiles and pyproj. Read
 [docs/ROADMAP.md](docs/ROADMAP.md) first. It holds the plan and the decisions
 behind it.
 
+To learn what GeoTools does from a user's side, read the
+[user guide](docs/guide/README.md). When you change what a user sees (a panel,
+a button, an option or a workflow), update the guide page for that area too.
+
 ## Repository layout
 
 | Path | What it holds |
@@ -31,6 +35,40 @@ No Python loops over faces, vertices, loops or other mesh data. Use
 `foreach_get` and `foreach_set` with numpy arrays, Geometry Nodes, or Cycles
 bakes. Sources can have tens of millions of triangles, and a per-element Python
 loop is far too slow at that size.
+
+## File paths
+
+GeoTools ships for Linux, macOS and Windows, and a project folder (the `.blend`
+and its data) must open on any of them. Blender reads its own `//` paths with
+either separator, but `bpy.path.abspath` keeps backslashes on Linux and macOS,
+so every path GeoTools stores in its own properties goes through
+`geotools/core/paths.py` (pure Python, tested with `ntpath` and `posixpath`
+inputs on any OS) and its Blender glue `geotools/blender/blend_paths.py`:
+
+- **Writing:** `blend_paths.portable(path)`. A path under the `.blend`'s
+  folder is stored as `//sub/dir/file` with forward slashes; anything else
+  (another folder, another drive, a UNC share, an unsaved `.blend`) stays
+  absolute, as the OS spells it. A path property the user edits gets
+  `update=blend_paths.portable_update("<attr>")`.
+- **Reading:** `blend_paths.abspath(text)`, never `bpy.path.abspath`, for
+  GeoTools' own properties and for image files GeoTools reads or checks
+  (`blend_paths.image_path(image)`). `//` paths with `/` or `\` resolve
+  against the `.blend`'s folder; absolute paths are used as they are. Nothing
+  is searched for: a file that is not there is reported missing.
+- **Comparing:** `paths.same_file(a, b)`, which compares resolved paths
+  (macOS `/var` is `/private/var`; Windows temp folders can be 8.3 short names
+  such as `RUNNER~1`). Never compare path text.
+- **Saving elsewhere:** `blend_paths` re-expresses the stored `//` paths for
+  the new folder on Save As (and makes paths under the folder relative on the
+  first save); Save Copy leaves the open file's paths as they were. Loading a
+  file never rewrites a path: older absolute or backslash paths are read as
+  they are and stored portably the next time GeoTools sets them. A new path
+  property must be listed in `blend_paths.stored_paths`.
+
+Paths that only describe a build, such as `output` and `blend_file` in
+`build.json`, are records of where it ran and are never resolved. Add-on
+preferences (the rusty-tiles CLI, the Cesium folder) belong to one machine
+and stay absolute.
 
 ## Development setup
 

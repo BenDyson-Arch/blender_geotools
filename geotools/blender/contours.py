@@ -46,7 +46,12 @@ def _is_line_object(_self, obj: bpy.types.Object) -> bool:
 class GeoToolsContourSettings(bpy.types.PropertyGroup):
     """Settings and last results of contours and sections (``scene.geotools_contours``)."""
 
-    surface: EnumProperty(name="Surface", items=SURFACE_ITEMS, default="SOURCE")
+    surface: EnumProperty(
+        name="Surface",
+        description="The meshes the contours and sections cut",
+        items=SURFACE_ITEMS,
+        default="SOURCE",
+    )
     # Text, so the full binary64 value is kept (a FloatProperty is single precision).
     interval: StringProperty(
         name="Interval",
@@ -276,7 +281,7 @@ class GEOTOOLS_OT_contours(_Run, bpy.types.Operator):
     object with elevations (Export Vectors writes it as GeoPackage or GeoJSON lines with Z)"""
 
     bl_idname = "geotools.contours"
-    bl_label = "Make Contours"
+    bl_label = "Create Contours"
 
     def execute(self, context: bpy.types.Context) -> set[str]:
         return self._run(
@@ -295,7 +300,7 @@ class GEOTOOLS_OT_sections(_Run, bpy.types.Operator):
     (Export Vectors writes them as GeoPackage or GeoJSON lines with Z)"""
 
     bl_idname = "geotools.sections"
-    bl_label = "Make Sections"
+    bl_label = "Create Sections"
 
     def execute(self, context: bpy.types.Context) -> set[str]:
         return self._run(

@@ -196,7 +196,7 @@ CATEGORY), `layer-categories-missing`, `layer-nodata-invalid`,
   (`GEOTOOLS_PT_layers_bake`, TEXTURE layers only, section 3), **Display**
   (`GEOTOOLS_PT_layers_display`, section 4) and **Details**
   (`GEOTOOLS_PT_layers_details`, closed by default: domain, type, no-data,
-  origin, aggregation, description, provenance and Create Attributes).
+  origin, aggregation, description, provenance and Create Empty Attributes).
   Removing a layer asks whether to delete its attributes and images too.
   `update_value_range` also caches the automatic ramp range (`auto_min`,
   `auto_max`) for the Display sub-panel.

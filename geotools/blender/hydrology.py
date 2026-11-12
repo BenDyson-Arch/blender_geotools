@@ -81,8 +81,18 @@ class HydrologyRunError(RuntimeError):
 class GeoToolsHydrologySettings(bpy.types.PropertyGroup):
     """Settings and last result of 3D surface hydrology (``scene.geotools_hydrology``)."""
 
-    surface: EnumProperty(name="Surface", items=SURFACE_ITEMS, default="SOURCE")
-    area: EnumProperty(name="Area", items=AREA_ITEMS, default="PLAN")
+    surface: EnumProperty(
+        name="Surface",
+        description="The meshes water runs over",
+        items=SURFACE_ITEMS,
+        default="SOURCE",
+    )
+    area: EnumProperty(
+        name="Area",
+        description="Which area of a face catches rain for the flow accumulation",
+        items=AREA_ITEMS,
+        default="PLAN",
+    )
     accumulation_layer: StringProperty(
         name="Accumulation",
         description="Layer that receives the flow accumulation, m² (created if missing)",

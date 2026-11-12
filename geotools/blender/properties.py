@@ -34,7 +34,7 @@ from ..core.layers import Aggregation, DataType, Domain, Origin
 from ..core.placement import Placement, PlacementMode, Vec3
 from ..core.presentation import Blend, Target
 from ..core.ramps import DEFAULT_PALETTE, PALETTES
-from . import crs_picker, scene_georef
+from . import blend_paths, crs_picker, scene_georef
 
 # --- binary64 number fields ------------------------------------------------------
 
@@ -350,6 +350,8 @@ class GeoToolsBuildProfile(bpy.types.PropertyGroup):
         description="Where the .3tz archive (or .glb, for the GLB format) is written",
         subtype="FILE_PATH",
         options={"PATH_SUPPORTS_BLEND_RELATIVE"},
+        # Under the .blend's folder: stored as //sub/file, with forward slashes.
+        update=blend_paths.portable_update("output_path"),
     )
     glb_face_table: BoolProperty(
         name="Face Table", description=GLB_FACE_TABLE_DESCRIPTION, default=False
@@ -404,8 +406,13 @@ class GeoToolsBuildProfile(bpy.types.PropertyGroup):
     )
 
     # Last successful publish, written by geotools.publish (never while drawing).
-    last_output: StringProperty(name="Last Output", subtype="FILE_PATH")
-    last_record: StringProperty(name="Last Build Record", subtype="FILE_PATH")
+    # Stored portably (//sub/file under the .blend's folder): see blend_paths.
+    last_output: StringProperty(
+        name="Last Output", subtype="FILE_PATH", options={"PATH_SUPPORTS_BLEND_RELATIVE"}
+    )
+    last_record: StringProperty(
+        name="Last Build Record", subtype="FILE_PATH", options={"PATH_SUPPORTS_BLEND_RELATIVE"}
+    )
     last_build_utc: StringProperty(name="Last Build Time")
     last_seconds: FloatProperty(name="Last Build Seconds", default=0.0)
     last_validation: EnumProperty(
@@ -456,7 +463,12 @@ class GeoToolsImageRemedy(bpy.types.PropertyGroup):
     file and its pixels are never changed.
     """
 
-    kind: EnumProperty(name="Remedy", items=REMEDY_ITEMS, default="NONE")
+    kind: EnumProperty(
+        name="Remedy",
+        description="How the published copy of the image is made; the image itself never changes",
+        items=REMEDY_ITEMS,
+        default="NONE",
+    )
     quality: IntProperty(
         name="JPEG Quality",
         description="JPEG quality of the published copy (and of the downscale JPEG fallback)",
@@ -601,11 +613,27 @@ class GeoToolsLayerPresentation(bpy.types.PropertyGroup):
     ``range_max`` are binary64 text, empty for automatic (``core.ramps.auto_range``).
     """
 
-    target: EnumProperty(name="Target", items=PRESENT_TARGET_ITEMS, default=Target.COLOR_0.value)
-    blend: EnumProperty(name="Blend", items=PRESENT_BLEND_ITEMS, default=Blend.REPLACE.value)
-    palette: EnumProperty(name="Palette", items=PALETTE_ITEMS, default=DEFAULT_PALETTE)
+    target: EnumProperty(
+        name="Target",
+        description="Where the variant tileset's colours are written",
+        items=PRESENT_TARGET_ITEMS,
+        default=Target.COLOR_0.value,
+    )
+    blend: EnumProperty(
+        name="Blend",
+        description="How the layer's colours combine with the source's own colour and texture",
+        items=PRESENT_BLEND_ITEMS,
+        default=Blend.REPLACE.value,
+    )
+    palette: EnumProperty(
+        name="Palette",
+        description="Colour ramp the values are mapped onto",
+        items=PALETTE_ITEMS,
+        default=DEFAULT_PALETTE,
+    )
     scale: EnumProperty(
         name="Scale",
+        description="How values are spaced along the colour ramp",
         items=(
             ("LINEAR", "Linear", "Colours spaced evenly in value"),
             (
@@ -659,8 +687,18 @@ class GeoToolsLayer(bpy.types.PropertyGroup):
     label: StringProperty(
         name="Label", description="Display name; empty to show the layer's identifier"
     )
-    domain: EnumProperty(name="Domain", items=LAYER_DOMAIN_ITEMS, default=Domain.FACE.value)
-    data_type: EnumProperty(name="Type", items=LAYER_DATA_TYPE_ITEMS, default=DataType.FLOAT.value)
+    domain: EnumProperty(
+        name="Domain",
+        description="What the layer has one value for: a face, a face corner or a texel",
+        items=LAYER_DOMAIN_ITEMS,
+        default=Domain.FACE.value,
+    )
+    data_type: EnumProperty(
+        name="Type",
+        description="The kind of value the layer holds",
+        items=LAYER_DATA_TYPE_ITEMS,
+        default=DataType.FLOAT.value,
+    )
     units: StringProperty(name="Units", description='Units of the values, e.g. "deg", "m", "h"')
     nodata: StringProperty(
         name="No-Data",
@@ -668,14 +706,21 @@ class GeoToolsLayer(bpy.types.PropertyGroup):
         "is kept. Empty for none (float layers then use NaN)",
         default="",
     )
-    origin: EnumProperty(name="Origin", items=LAYER_ORIGIN_ITEMS, default=Origin.MANUAL.value)
+    origin: EnumProperty(
+        name="Origin",
+        description="What made the layer's values (recorded with the layer)",
+        items=LAYER_ORIGIN_ITEMS,
+        default=Origin.MANUAL.value,
+    )
     aggregation: EnumProperty(
         name="Aggregation",
         description="How coarse levels reduce the layer (recorded for queryable tiles)",
         items=LAYER_AGGREGATION_ITEMS,
         default=LAYER_AGGREGATION_DEFAULT,
     )
-    description: StringProperty(name="Description")
+    description: StringProperty(
+        name="Description", description="A note about the layer, kept in its metadata"
+    )
     categories: StringProperty(
         name="Categories",
         description="Category labels, one per line: line i is the label of value i",
@@ -777,6 +822,7 @@ class GeoToolsProject(bpy.types.PropertyGroup):
     # Placement ------------------------------------------------------------------
     placement_mode: EnumProperty(
         name="Placement",
+        description="How the scene is placed on Earth",
         items=PLACEMENT_MODE_ITEMS,
         default="LOCAL",
         update=scene_georef.placement_mode_changed,
@@ -847,6 +893,7 @@ class GeoToolsProject(bpy.types.PropertyGroup):
         name="Source File",
         description="File the source was last ingested from",
         subtype="FILE_PATH",
+        options={"PATH_SUPPORTS_BLEND_RELATIVE"},
     )
     # Cached summary, refreshed by operators (never computed while drawing).
     summary_valid: BoolProperty(default=False)
