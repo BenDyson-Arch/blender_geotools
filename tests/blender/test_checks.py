@@ -298,6 +298,8 @@ def test_panels_order_and_draw() -> None:
             "Archaeoastronomy",
             "Coordinates",
             "Presets",
+            "Hydrology",
+            "Contours and Sections",
         ],
     }, children
     for cls in panels.classes:

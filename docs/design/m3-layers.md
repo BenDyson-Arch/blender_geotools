@@ -526,13 +526,17 @@ tileset, else (in this order)
 
 ```json
 {"layer": "slope", "target": "COLOR_0", "blend": "REPLACE",
- "palette": "viridis",
+ "palette": "viridis", "scale": "LINEAR",
  "range": {"min": 0.0, "max": 45.0, "auto_min": true, "auto_max": false},
  "nodata_rgba": [128, 128, 128, 255],
  "ramp_stops": [{"value": 0.0, "rgba": [68, 1, 84, 255]}, ...]}
 ```
 
-For a CATEGORY layer `palette` and `range` are null and `ramp_stops` is
+`scale` is the presentation's **Scale**, `LINEAR` or `LOG` (added with M5
+hydrology): a log ramp spaces colours by `log10` between positive ends, and its
+automatic range runs from the 2nd percentile of the positive values to the
+largest; `ramp_stops` are then evenly spaced in `log10`. For a CATEGORY layer
+`palette`, `scale` and `range` are null and `ramp_stops` is
 replaced by `"categories": [{"value": 0, "label": "bare", "rgba": [...]}, ...]`.
 `range` is the range actually used; `auto_min`/`auto_max` say which ends came
 from `auto_range`. Colours are 8-bit sRGB RGBA. `ramp_stops` has 11 entries.

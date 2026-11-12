@@ -16,9 +16,11 @@ from . import (
     archaeo,
     bake_texture,
     checks,
+    contours,
     crs_picker,
     data_origin,
     glb_export,
+    hydrology,
     layers,
     links,
     operators,
@@ -59,6 +61,8 @@ MODULES: tuple[ModuleType, ...] = (
     sun_hours,
     archaeo,
     analysis_presets,
+    hydrology,
+    contours,
     panels,  # last: the sidebar draws what the modules above register
 )
 

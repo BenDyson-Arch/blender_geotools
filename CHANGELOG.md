@@ -80,6 +80,38 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   visualisation: local relief model (trend removal), sky-view factor and
   positive and negative openness. Formulas, inputs, accuracy against analytic
   surfaces and timings are in `docs/analysis-presets.md`.
+- Analysis (M5): **3D surface hydrology**, in a Hydrology sub-panel. Flow
+  routing, flow accumulation (upslope contributing area in m², plan area of
+  upward faces by default) and ponding on the mesh's own connectivity: faces
+  linked by shared edges, steepest descent by drop over 3D distance, so water
+  runs down walls; faces pointing down drip, and faces on an open edge with no
+  lower neighbour drop, straight down onto whatever Blender's Geometry Nodes
+  Raycast finds below (or the ground above a sunken wall's foot), across
+  objects. Depressions are filled to their spill level (priority-flood levels
+  from a Borůvka spanning tree of the basins, vectorised) and flow is routed
+  over the filled surface and across flats. Results are FACE layers (flow
+  accumulation, shown on a log scale; ponded depth; depression as a category,
+  largest volume first), an optional point object of the depressions at their
+  pour points (level, volume, area, depth, catchment) and an optional line
+  object of the main flow paths, both exportable with Export Vectors.
+  Geometric only: no rainfall, infiltration or hydraulics. 20 s on 10 million
+  triangles (`scripts/bench_hydrology.py`); a bowl's ponded volume is within
+  0.01 % of the analytic one.
+- Analysis (M5): **contours and sections**, in a Contours and Sections
+  sub-panel. Contours at an interval from a base in the project's height
+  datum (RL: local z plus the binary64 offset A), and sections along the edges
+  of a line object (drawn, or an imported line layer), cut from the evaluated
+  meshes by vectorised plane-triangle intersection and chained into open and
+  closed polylines. Output is a line object in a `GeoTools Analysis`
+  collection with `elevation`, `index`, `major` and `closed` per contour, and
+  `chainage` per point and `chainage_from`/`chainage_to` per section piece
+  (every piece of a multi-level surface is kept). Export Vectors writes them
+  as GeoPackage or GeoJSON lines with absolute Z, and a Vectors build profile
+  publishes them. 6 s for 1 m contours of 10 million triangles.
+- Layer display: a **Scale** of Linear or Log for ramps (Log spaces the
+  colours by decades, for values such as flow accumulation; its automatic
+  range runs from the 2nd percentile of the positive values to the largest).
+  The variant record in `build.json` gains `scale`.
 - Packaging as a Blender extension (`geotools/blender_manifest.toml`), with no
   `bl_info`.
 - Bundled rusty-tiles wheels, pinned to 0.4.0 in `pyproject.toml`, for Linux x64,
@@ -292,6 +324,9 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
 
 ### Changed
 
+- Export Vectors writes FLOAT attributes (float32 in Blender) as the shortest
+  decimal that reads back as the same value, so 123.4 is written as 123.4
+  rather than 123.40000152587891.
 - GeoTools needs rusty-tiles 0.4.1 or later (`supported_epsg_codes` and
   `resolve_source_crs`). A wheel without them is reported as not available, in
   About and Check Dependencies. The pin in `pyproject.toml` stays at 0.4.0

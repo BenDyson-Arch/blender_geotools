@@ -336,7 +336,9 @@ SAME, TOUCHED (stat changed, bytes the same: the new stat is stored), CHANGED
 and MISSING. A GeoPackage's `-wal` file is part of its fingerprint, because
 QGIS keeps committed edits there until a checkpoint.
 
-**Nulls and types.** FLOAT null is NaN (written back as NULL); INT, BOOLEAN
+**Nulls and types.** FLOAT attributes are float32 in Blender; export writes
+each as the shortest decimal that reads back as the same float32 (0.1, not
+0.10000000149011612). FLOAT null is NaN (written back as NULL); INT, BOOLEAN
 and STRING nulls become 0, False and "". Integers outside int32, and
 GeoPackage INTEGER columns holding them, become FLOAT. BLOB columns and
 all-null properties are skipped. Source names Blender reserves (`position`,

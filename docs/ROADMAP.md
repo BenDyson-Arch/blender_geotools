@@ -284,11 +284,18 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
     overhangs and multi-level surfaces work, which a 2.5D DEM cannot do.
     Vectorised numpy (pointer jumping, no vertex loops). Geometric only: no
     rainfall, infiltration or hydraulics.
+    *Status:* built: a face graph with drops cast by Blender's Raycast,
+    priority-flood levels from the basins' spanning tree, accumulation and
+    depressions as layers, flow paths and depression points as vector
+    objects; 20 s on 10M triangles ([design](design/m5-analysis.md#3d-surface-hydrology)).
   - **Coordinates and measurement:** pick a point to read E/N/RL and
     latitude/longitude at full precision; grid and ground distances and areas
     (combined scale factor).
   - **Contours and sections out:** contours at an interval and cross-sections
     along a line, as GeoPackage lines with elevation (M8 I/O).
+    *Status:* built: line objects with elevation or chainage in the project's
+    height datum, exported and published by M8
+    ([design](design/m5-analysis.md#contours-and-sections)).
 - **Preset library (Geometry Nodes groups and bake setups, shipped as a
   Blender asset library):** "Add Analysis" appends one as a modifier and
   creates the layer for its output attribute; the user can open and edit it.
