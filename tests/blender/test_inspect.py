@@ -103,9 +103,9 @@ def _place(mode: str) -> None:
         p.write_number(props, "heading", 25.0)
         p.write_number(props, "scene_offset_x", 3.0)
     elif mode == "SOURCE_CRS":
-        props.source_crs = "EPSG:7856"
-        p.write_number(props, "source_offset_e", 502000.0)
-        p.write_number(props, "source_offset_n", 6960000.0)
+        props.crs = "EPSG:7856"
+        p.write_number(props, "origin_e", 502000.0)
+        p.write_number(props, "origin_n", 6960000.0)
         p.write_number(props, "source_offset_a", 20.0)
         p.write_number(props, "height_offset", 40.0)
 
