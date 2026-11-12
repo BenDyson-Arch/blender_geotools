@@ -2,8 +2,8 @@
 
 rusty-tiles 0.4.1 resolves 3,211 EPSG codes (a GDAL-verified allow-list on top
 of WGS84 geographic, UTM and Mercator), and GeoTools needs its Python
-functions (``deps.CRS_FUNCTIONS``; ``deps.probe_rusty_tiles`` reports an older
-wheel as not available):
+functions (``deps.CRS_FUNCTIONS``, part of ``deps.REQUIRED_FUNCTIONS``;
+``deps.probe_rusty_tiles`` reports an older wheel as not available):
 
 - ``supported_epsg_codes()``: every accepted code as ``"EPSG:nnnn"``;
 - ``resolve_source_crs(definition)``: what the converters would do with a
