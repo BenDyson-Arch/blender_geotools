@@ -68,6 +68,9 @@ and the project follows semantic versioning where practical.
   source (Geometry Proximity), the texels per m² of each face, and levels
   compared one depth at a time or side by side. The design is in
   `docs/design/m7-output-inspection.md`; `scripts/bench_inspect.py` times it.
+- CI on macOS arm64 and Windows x64: the core tests, and the Blender tests
+  (no wheels) on the official, checksum-pinned Blender 5.2 LTS `.dmg` and
+  `.zip`. They are not required checks yet.
 
 ## [0.3.0] - Unreleased
 

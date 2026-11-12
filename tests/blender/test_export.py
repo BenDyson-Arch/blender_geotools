@@ -700,7 +700,9 @@ def test_images_referenced_in_place_or_saved_as_png() -> None:
             image_dir = (tmp / "images").resolve()
 
             ref = by_name[disk_image.name]
-            assert ref.path == on_disk.resolve() and ref.mime_type == "image/png"
+            # Referenced in place, as the user's path spells it; compare resolved paths,
+            # since a temp dir can sit behind a symlink (macOS /var -> /private/var).
+            assert ref.path.resolve() == on_disk.resolve() and ref.mime_type == "image/png"
 
             ref = by_name[packed_image.name]
             assert ref.path.parent == image_dir and ref.path.suffix == ".png"
