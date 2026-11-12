@@ -1,9 +1,10 @@
-# M5 design: the sun, sun hours, and coordinates and measurement
+# M5 design: the sun, sun hours, coordinates, hydrology, contours and sections
 
-Status: the first three GeoTools-code tools of M5 (see
-[ROADMAP.md](../ROADMAP.md#m5-analysis-library)). This note covers what they
-compute, how accurate it is, the north convention, and how the later M5 tools
-build on them.
+Status: the GeoTools-code tools of M5 built so far (see
+[ROADMAP.md](../ROADMAP.md#m5-analysis-library)): the sun, sun hours and
+insolation, coordinates and measurement, 3D surface hydrology, and contours
+and sections out. This note covers what they compute, how accurate it is, the
+north convention, and how the later M5 tools build on them.
 
 The scope rule decides the split. GeoTools computes only what needs the
 georeference: where the sun is from this site at this moment, and where a
@@ -22,12 +23,22 @@ shadows, Cycles and EEVEE render them, and Cycles casts the rays of sun hours.
 | `geotools/blender/analysis.py` | Settings and results on `scene.geotools_analysis`, and the sun and measurement operators. |
 | `geotools/blender/sun_hours.py` | The sun hours engine (Cycles bakes of Raycast nodes), the layers it writes, and the shadow study. |
 | `geotools/blender/analysis_ui.py` | The Analysis panel and its Sun, Sun Hours, Shadow Study and Coordinates sub-panels, before About. |
+| `geotools/analysis/hydrology.py` | 3D surface hydrology, bpy-free: the face graph, drops, filling, routing, accumulation and depressions. |
+| `geotools/analysis/slicing.py` | Contours and sections: plane-triangle cuts, levels in the height datum, chainage. |
+| `geotools/analysis/polylines.py` | Segments chained into open and closed polylines (pointer doubling). |
+| `geotools/blender/surface.py` | Evaluated meshes as one world-space array mesh, vertical rays through a Geometry Nodes Raycast, and line and point objects out. |
+| `geotools/blender/hydrology.py` | Hydrology settings (`scene.geotools_hydrology`), the operator and its layers and objects. |
+| `geotools/blender/contours.py` | Contour and section settings (`scene.geotools_contours`) and operators. |
+| `geotools/blender/surface_ui.py` | The Hydrology, and Contours and Sections, sub-panels (after Presets). |
 
 `geotools/analysis` is bpy-free, like `geotools/core`, and
 `tests/core/test_no_bpy.py` checks it. Its tests are `tests/core/test_sun.py`,
-`tests/core/test_site.py` and `tests/core/test_sun_hours.py`. The operators are
-tested in `tests/blender/test_analysis.py` and `tests/blender/test_sun_hours.py`.
-`scripts/bench_sun_hours.py` times sun hours on a synthetic town.
+`tests/core/test_site.py`, `tests/core/test_sun_hours.py`,
+`tests/core/test_hydrology.py` and `tests/core/test_slicing.py`. The operators
+are tested in `tests/blender/test_analysis.py`, `tests/blender/test_sun_hours.py`
+and `tests/blender/test_surface_tools.py`. `scripts/bench_sun_hours.py` times sun
+hours on a synthetic town, and `scripts/bench_hydrology.py` hydrology,
+contours and sections on a synthetic site.
 
 ## Sun position
 
@@ -446,6 +457,290 @@ a year on a large mesh, use a texture layer (1024² or 2048²), merge within
 5°, or both. Cost is samples × rays plus the fixed cost per bake, so the
 panel's numbers predict a run: the result shows samples, rays and bakes.
 
+## 3D surface hydrology
+
+**What it computes.** Where water would run over the surface, how much
+surface drains through each face (flow accumulation, m²), where it ponds,
+how deep, and each depression's spill level, pour point and volume. One click
+on **Compute Hydrology** in the Hydrology sub-panel, over the source
+collection or the selected objects, all objects at once (a roof's water
+lands on the terrain object under it). Geometric only: no rainfall,
+infiltration, evaporation or hydraulics, and the panel says so.
+
+**Why it is code.** Stock Blender has no hydrology. A GIS does it on a 2.5D
+DEM, which cannot hold a wall, an overhang or two levels at one place; that
+is what this tool is for. Catchment-scale 2.5D hydrology stays in the GIS
+(QGIS, WhiteboxTools), its results imported through M8. The planned
+"flow-path tracing for quick looks" preset ([analysis-presets.md](../analysis-presets.md))
+can step a point downhill in a Repeat zone, but accumulation needs every face
+in a topological order and filling needs a global priority flood: neither is
+a field evaluation, so neither fits Geometry Nodes. Where Blender does the
+work, it does it: the drops are Blender's Geometry Nodes Raycast.
+
+### The graph: faces, linked by shared edges
+
+Each face is a node at its centre (the mean of its corners, as
+`polygon.center`), linked to the faces it shares a mesh edge with. An edge of
+three or more faces (a wall standing on a slab, both welded) links all of
+them. Objects are joined only through drops, never by matching positions: the
+mesh's own connectivity is the graph.
+
+Faces rather than vertices, because:
+
+- a face has one orientation. A face whose normal points down is an
+  overhang's underside, and its water drips; a vertex where a wall meets the
+  ground has no such answer. Water is on the side the normal points to, so
+  normals must point out of solids (they do in photogrammetry and in
+  Blender's primitives);
+- the results are FACE layers (M3) with no interpolation, and contributing
+  area is a plain sum of face areas;
+- a triangle mesh has twice as many faces as vertices but about the same
+  number of links (one per interior edge), so the cost is close.
+
+The price is direction. A triangle has three neighbours, so a single flow
+direction can only leave it three ways, and on a regular triangulation side
+flow joins a valley at up to 45° off its true direction. In the V-valley test
+(side slope 0.3, fall 0.05 along it) the thalweg has everything from 20
+cells upstream (the valley's half-width) but not yet the side water that
+started closer: `test_v_valley_concentrates_down_the_valley`. This is the
+usual single-flow-direction bias (D8 has the same on a grid); a graph of
+faces sharing a vertex (about 12 neighbours) would narrow it, at four times
+the links (several GB more at 10 million faces).
+
+### Steepest descent, walls and drops
+
+A face drains to the neighbour with the largest drop over the 3D distance
+between their centres (the sine of the slope along the step), so the water
+on a wall goes down the wall: the face below it is a drop of its full height
+over that height. Water leaves the surface graph straight down, through a
+**drop**, in two cases:
+
+- **a face pointing down** (normal z below −0.1, more than about 5.7° past
+  vertical; `DRIP_NZ`) always drips, from just below its centre;
+- **a face on an open edge** (an edge of one face: a roof's eaves, the foot
+  of a wall not joined to the ground, the edge of the model) drops from just
+  outside and above the middle of its lowest open edge, when none of its
+  neighbours is lower. "Outside" is across the edge in the face's plane, seen
+  in plan, or, for a vertical face, the way it faces.
+
+Each drop is one vertical ray, cast by Blender: the faces under any drop's
+start (a summed-area table of the starts' grid cells against each face's plan
+box, which keeps every face a ray can hit) become a temporary target object
+with their face ids, the starts a point object with a Geometry Nodes Raycast
+modifier, evaluated once (`surface.cast_vertical`). The drop lands on the
+first face below; failing that on the first face above, if it faces up (the
+start is under the ground, as at the foot of a wall sunk into it); failing
+that, the water leaves the model. Rays start `ray_offset` off the surface (as
+for sun hours; 16 float32 steps or a millionth of the extent).
+
+### Filling: priority-flood levels from the basins
+
+A pit (a face with no lower neighbour and no drop out) holds water up to the
+lowest level at which it spills. Those levels are what a priority-flood would
+give, worked out on basins rather than faces, all vectorised:
+
+1. Steepest descent on the surface as it is, with drops, gives each face a
+   receiver; pointer jumping gives each face its basin (the root: a pit, or
+   the outside).
+2. Every link and drop between two basins is a pass, at the higher of its two
+   ends; each pair of basins keeps its lowest pass.
+3. The minimum spanning tree of this basin graph (Borůvka's algorithm: each
+   component takes its cheapest edge, components merge by pointer jumping,
+   O(log n) rounds) rooted at the outside gives each basin's spill level: the
+   highest pass on its way out (breadth-first down the tree).
+4. A face's filled height is the larger of its own and its basin's level.
+
+A part of the surface that never reaches the outside (a closed object whose
+drops all land on itself) drains at its lowest pit, with a count in the
+stats.
+
+### Routing, flats and accumulation
+
+Flow is routed again over the filled surface: steepest descent (by filled
+height), drops as above, and on a flat (a filled lake, or flat ground) to a
+neighbour nearer the flat's exit, breadth-first from the faces that already
+drain. Every face's water reaches an outlet; the receivers form a forest.
+**Accumulation** is each face's area plus everything upstream: depths by
+pointer jumping, then one `np.add.at` per depth, deepest first. The area is
+the plan area of upward faces by default (**Area: Plan**: the rain catch;
+walls and undersides add none), or the true area (**Surface**).
+
+### Depressions
+
+Ponded depth is filled minus actual height at the face centre. Connected
+ponded faces are one depression (adjacent ponded faces always share a level).
+Its **level** is the spill level; its **pour point** is the centre of the face
+its main exit (the exit with the most water) drains to, at the spill level;
+its **volume** is `sum(depth × signed plan area)`, so an underside below the
+water (negative plan area) takes out the solid above it; its **area** is the
+plan area of its upward faces; its **catchment** is the accumulation at the
+main exit. Depressions shallower than **Minimum Depth** (default 1 cm) are
+filled but not listed or labelled.
+
+### Outputs
+
+| Output | What |
+|---|---|
+| `flow_accumulation` | FACE, FLOAT, m², aggregation MAX, displayed on a **Log** scale (a new layer display option: colours spaced by decades, automatic range from the 2nd percentile of the positive values to the largest) |
+| `ponded_depth` | FACE, FLOAT, m, MAX; 0 where dry |
+| `depression` | FACE, CATEGORY, MODE: 0 None, then Depression 1, 2 ... by volume; past 1,000, one "Smaller" category |
+| **Depressions** object | A vertex per depression at its pour point: `depression`, `fid`, `level` (RL), `volume`, `area`, `max_depth`, `faces`, `catchment` |
+| **Flow Paths** object (optional) | Lines through the face centres (and drop landings) of faces draining at least **Channel From** m², for the **Networks** largest outlets, split at confluences and run downstream: `fid`, `accumulation`, `network`, `length` |
+
+Both objects are in the `GeoTools Analysis` collection and export with
+Export Vectors (points and lines with Z). Layers are written to the original
+meshes; an object whose modifiers change its topology still takes part but
+gets no values (a note says so), as for sun hours. The provenance records the
+graph, area mode, minimum depth, drip threshold, ray offset, combined scale
+factor, datum and objects.
+
+**Ground units.** In a CRS project with pyproj, areas and volumes are divided
+by the square of the combined scale factor at the surface's centre (one
+factor: it changes by about 10⁻⁵ across a kilometre). Depths and levels are
+heights and unchanged. Levels are reported in RL (plus offset A).
+
+### Accuracy
+
+- **Bowl** (`test_bowl_ponds_to_its_rim_with_the_analytic_volume`): a
+  paraboloid z = 0.5 r² up to its rim at 2 m, flat beyond, ponds to exactly
+  its rim. Its volume against the analytic πa²h/2:
+
+  | Grid cell | Volume error | Area error |
+  |---|---|---|
+  | 0.150 m (a/13) | −0.004 % | +7.3 % |
+  | 0.075 m | +0.010 % | +4.0 % |
+  | 0.038 m | −0.0002 % | +2.1 % |
+  | 0.019 m | +0.0003 % | +1.0 % |
+
+  The volume is nearly exact because a face centre's height is the mean of
+  its corners'; the area counts whole faces whose centre is under the water,
+  so it overstates by about a rim's worth of faces.
+- **Inclined plane:** every face drains to a lower one and the water leaves
+  only over the low edge; each column's mean accumulation is within 15 % of
+  its upslope strip (single-direction routing makes parallel streaks).
+- **Two levels:** a step joined by a wall routes down the wall and on; an
+  open roof sheet drops from its eaves onto the ground; a floating slab's
+  underside drips onto the ground straight below; a wall sunk into the ground
+  comes up through it; a closed box alone drains at its lowest point. In every
+  case the accumulation leaving the model is the whole plan area, to 10⁻⁹.
+- **Two pits** on a slope: the shallow one spills downhill into the deep
+  one's lake, which spills out over the low edge.
+
+**Limits.** Single flow direction (above). Heights are face centres, so a
+face is wet or dry as a whole. Faces are not welded across objects: two
+objects that touch exchange water only by drops, so a building closed at its
+base and sunk into the terrain drips from its base, which is under the ground
+(join walls to the ground, or leave the base open). Drops are vertical; water
+does not cling to an underside. Rays are cast at float32 world positions.
+
+### Timings
+
+`scripts/bench_hydrology.py`, Blender 5.2.4 on a 16-thread Linux machine
+shared with other work. A 1 km square terrain with 200 pits and 5 cm of noise
+(about a fifth of it ponds in small hollows), a closed building sunk into it,
+an open roof and a floating slab; LOCAL project; flow paths on.
+
+| Faces | Hydrology | Read | Graph | Drops | Analysis | Layers and objects | Peak RSS |
+|---|---|---|---|---|---|---|---|
+| 1.0M | 1.8 s | 0.2 s | 0.3 s | 0.4 s | 0.8 s | 0.15 s | 0.8 GB |
+| 10.0M | 20.4 s | 1.9 s | 2.6 s | 3.1 s | 11.5 s | 1.3 s | 5.2 GB |
+
+The 10M run found 324,812 depressions (most a few centimetres deep, from the
+noise) and cast 9,104 drops. Casting against the whole 10M-face mesh would
+cost about 14 s, nearly all of it building Blender's ray-cast tree, so only the
+faces under a drop go to the ray caster. The exit ("under a minute on 10M
+triangles") holds with about 40 s to spare.
+
+## Contours and sections
+
+**What they make.** **Make Contours** cuts the surface (the source collection
+or the selected objects, evaluated) at `base + k × interval` in the project's
+height datum and writes a line object, **Contours**, with `elevation`,
+`index` (k), `major` (k divisible by **Major Every**), `closed`, `length` and
+`fid` on each line. **Make Sections** cuts it with the vertical plane of each
+edge of a line object (drawn, or an imported M8 line layer; the chosen
+**Section Line** or the active object, all its edges or the selected ones)
+and writes **Sections**: 3D polylines of the surface with `chainage` on every
+point (plan distance along the section line from its first point) and
+`section`, `chainage_from`, `chainage_to`, `length` and `fid` on each piece.
+A multi-level surface (an overhang, a bridge, a closed object) gives several
+pieces, all kept. Both objects are in `GeoTools Analysis`.
+
+**Why it is code.** Blender's Bisect cuts one plane at a time in Edit Mode
+and changes the mesh; Geometry Nodes has no plane-mesh intersection; a
+Boolean against slabs gives faces, not lines, and is slow at 10M faces; a
+Raycast down along a line gives a 2.5D profile only (one hit, no walls, no
+second level). One numpy cut serves both tools, and the levels must be
+real-world heights.
+
+**The cut** (`slicing.plane_cuts`). A vertex is above a plane when its signed
+distance is ≥ the plane's, so a triangle crossing it has exactly two
+crossing edges and gives one segment, and a vertex exactly on a level is no
+special case: the level of the lowest vertices of a flat-bottomed surface
+crosses nothing, and the highest is drawn along its edge. A crossing point is
+named by its mesh edge (two vertex ids) and plane, or by the vertex when it
+falls exactly on one, so the two triangles of an edge share it; faces with
+more than three corners come in as Blender's loop triangles, whose diagonals
+work the same way. Contours try every level a triangle spans (`searchsorted`
+on the sorted levels), all levels in one pass.
+
+**Chaining** (`polylines.chain`). Segments become half-edges; a half-edge
+`u → v` continues with the other half-edge leaving `v` when `v` has exactly
+two segments, so every run is a path or a cycle. Pointer doubling labels each
+cycle with its smallest half-edge and cuts it there, then finds each path's
+last half-edge and each half-edge's distance to it; of a run and its reverse
+the one with the smaller last half-edge is kept. Closed lines repeat their
+first point. A point where three or more segments meet ends the lines (a
+saddle exactly on a level, a non-manifold edge). The line object's edges are
+written line by line, end to end, so Export Vectors joins them into one line
+string each.
+
+**Heights.** A SOURCE_CRS project's levels are RL in the source's vertical
+datum: local z + offset A, the binary64 offset, and **Interval** and **Base**
+are text fields (binary64, like the project offsets). Points are placed at
+exactly their level in the local frame and stored float32 in Blender; Export
+Vectors writes `A + local z` in binary64, so the GeoPackage Z is the level to
+the float32 step of the local z (8 mm at 100 km from the origin, far less near
+it). The `elevation` attribute is float32: exact for levels on a binary
+fraction (0.25, 0.5, 1, 5 m intervals), and Export Vectors now writes float32
+values as their shortest decimal, so 123.4 reads as 123.4 in a GIS. LOCAL and
+ANCHOR projects contour local z.
+
+**Sections.** Each segment of the section line cuts only the triangles whose
+plan box meets the segment's, and keeps what lies between its ends. A piece
+running past an end is clipped there, inside its triangle; the clipped point
+and a crossing that falls on the vertical line through a vertex of the
+section line (within 10⁻⁹ of the segment's scale) are named by that vertex,
+so the pieces of consecutive segments join into one polyline. Each line runs
+the way most of its edges were drawn, so an imported line's chainage starts
+at its first point; pieces run with increasing chainage.
+
+**Accuracy** (`tests/core/test_slicing.py`):
+
+| Case | Grid | Largest error |
+|---|---|---|
+| Cone z = 10 − r, contour radius | 0.4 m | 8.6 mm |
+| | 0.2 m | 3.1 mm |
+| | 0.1 m | 1.1 mm |
+| | 0.05 m | 0.3 mm |
+| Sphere r = 5 m, section 0.3 m off centre, distance from the circle | 32 × 16 UV sphere | 41 mm |
+| | 64 × 32 | 11 mm |
+| | 128 × 64 | 2.6 mm |
+
+These are the facets' own departure from the true surface (a cut is exact on
+the triangles); chainage is exact to binary64.
+
+**Export and publish.** Export Vectors writes either object as a GeoPackage
+table or GeoJSON of LineStrings with Z (absolute, in the project CRS) and
+their attributes; the Blender tests read them back. A Vectors build profile
+whose collection is `GeoTools Analysis` publishes them (the table of the
+Contours object is `Contours_lines`).
+
+**Timings** (same site as hydrology): 1 m contours of 1.0M faces in 0.7 s
+(1,889 lines at 44 levels); of 10.0M faces in 5.7 s (47,403 lines). A
+three-segment section across the 10.0M site in 7.0 s (most of it reading
+the meshes and one signed-distance pass over every vertex per segment).
+
 ## How the later M5 tools build on this
 
 - **Sun hours, insolation and shadow studies** are built: see the next
@@ -459,13 +754,8 @@ panel's numbers predict a run: the result shows samples, rays and bakes.
   `sun.py`. The horizon profile from a point is a numpy ray-march over the mesh
   (or a Blender ray cast batch), with directions turned by `site.sun_site`'s
   convergence. Alignment checks compare true bearings from `site.measure`.
-- **3D hydrology.** This needs no georeference beyond the scene's up axis. It
-  is a numpy tool on mesh connectivity (pointer jumping), writing FACE layers.
-  Its results report areas and volumes in ground units through
-  `site.face_areas` and the CSF.
-- **Coordinates out (contours and sections).** Lines are written in project
-  CRS coordinates as offset + local in binary64, the same addition as
-  `site.read_point`, through M8's GeoPackage writer.
+- **3D hydrology** and **contours and sections** are built: see their
+  sections below.
 - **Preset library.** Geometry Nodes presets (slope, aspect, viewshed and so
   on) run in Blender's own units. Where a preset needs north (aspect, sun
   direction inputs), the "Add Analysis" operator fills a group input with the
@@ -509,3 +799,19 @@ panel's numbers predict a run: the result shows samples, rays and bakes.
   ("GeoTools Sun", or a chosen one) and sets only its rotation and strength,
   plus the sun's 0.533° angular diameter when it creates the light. Animating
   replaces only GeoTools' own actions on it.
+- **Hydrology on faces, not vertices.** Faces have an orientation (an
+  underside drips) and are what FACE layers hold; the cost is three flow
+  directions per face, documented above. Single flow direction, not a
+  multiple-flow split: accumulation stays a tree, so it is vectorised.
+- **Filling on basins.** Priority-flood levels come from a spanning tree of
+  the basin graph, not a heap over faces, so there is no Python loop over
+  faces; the cost is one pass per tree depth for the levels and per flat
+  width for the flat routing, both small.
+- **Drops through Blender's Raycast.** Geometry Nodes casts them in one
+  evaluation, against only the faces under some drop; GeoTools does not ship
+  its own ray caster. Deferred: water clinging to undersides, and welding
+  objects that touch without sharing edges.
+- **Contours and sections share one cut**, in numpy, chained by pointer
+  doubling. Deferred: smoothing or simplifying contour lines (Blender's or a
+  GIS's tools do that), and drawing a 2D profile view of a section (the
+  `chainage` attribute and Z are there for a GIS or a Geometry Nodes setup).

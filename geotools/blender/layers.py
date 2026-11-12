@@ -499,7 +499,8 @@ def update_value_range(
     auto = None
     if found and DataType(spec.data_type) in (DataType.FLOAT, DataType.INT):
         try:
-            auto = auto_range(np.concatenate(values), nodata)
+            log = item.presentation.scale == "LOG"
+            auto = auto_range(np.concatenate(values), nodata, log=log)
         except ValueError:
             auto = None
     item.auto_min = format_number(auto[0] if auto else None)

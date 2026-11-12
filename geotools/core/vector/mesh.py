@@ -387,7 +387,7 @@ def _first_values(attrs: dict, element_index: np.ndarray, skip: set[str]) -> dic
         else:
             picked = np.asarray(values)[element_index]
             if ctype is ColumnType.FLOAT:
-                picked = picked.astype(np.float64)
+                picked = shortest_float64(picked)
             elif ctype is ColumnType.INT:
                 picked = picked.astype(np.int64)
         null = None
@@ -396,6 +396,16 @@ def _first_values(attrs: dict, element_index: np.ndarray, skip: set[str]) -> dic
             null = nan if nan.any() else None
         columns[name] = Column(name, ctype, picked, null)
     return columns
+
+
+def shortest_float64(values: np.ndarray) -> np.ndarray:
+    """Float values as binary64; float32 ones as the shortest decimal that reads back
+    as the same float32, so 0.1 stored in a Blender attribute is written as 0.1 and not
+    0.10000000149011612."""
+    values = np.asarray(values)
+    if values.dtype != np.float32:
+        return values.astype(np.float64)
+    return values.astype(str).astype(np.float64)
 
 
 def _cycle_order(next_index: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

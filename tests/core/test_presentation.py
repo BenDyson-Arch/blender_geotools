@@ -85,6 +85,7 @@ def test_variant_record_for_a_ramp() -> None:
         "target",
         "blend",
         "palette",
+        "scale",
         "range",
         "nodata_rgba",
         "ramp_stops",
@@ -115,3 +116,16 @@ def test_variant_record_for_categories() -> None:
         variant_record(SLOPE, "COLOR_0", "REPLACE", palette="viridis")
     assert isinstance(record["categories"][0]["rgba"][0], int)
     assert np.asarray(record["categories"][1]["rgba"]).dtype.kind == "i"
+
+
+def test_log_scale_needs_a_positive_range_and_is_recorded() -> None:
+    assert presentation_issues(SLOPE, "COLOR_0", "viridis", None, None, "LOG") == []
+    issues = presentation_issues(SLOPE, "COLOR_0", "viridis", 0.0, 10.0, "LOG")
+    assert [i.code for i in issues] == ["variant-range-invalid"]
+    record = variant_record(
+        SLOPE, "COLOR_0", "REPLACE", palette="viridis", value_range=(1.0, 1000.0), scale="LOG"
+    )
+    assert record["scale"] == "LOG"
+    assert [s["value"] for s in record["ramp_stops"]][::5] == pytest.approx(
+        [1.0, 31.6227766, 1000.0]
+    )

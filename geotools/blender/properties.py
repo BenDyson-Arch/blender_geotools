@@ -576,6 +576,21 @@ class GeoToolsLayerPresentation(bpy.types.PropertyGroup):
     target: EnumProperty(name="Target", items=PRESENT_TARGET_ITEMS, default=Target.COLOR_0.value)
     blend: EnumProperty(name="Blend", items=PRESENT_BLEND_ITEMS, default=Blend.REPLACE.value)
     palette: EnumProperty(name="Palette", items=PALETTE_ITEMS, default=DEFAULT_PALETTE)
+    scale: EnumProperty(
+        name="Scale",
+        items=(
+            ("LINEAR", "Linear", "Colours spaced evenly in value"),
+            (
+                "LOG",
+                "Log",
+                (
+                    "Colours spaced evenly in log10 of the value, for values spanning "
+                    "decades (flow accumulation); needs a positive range"
+                ),
+            ),
+        ),
+        default="LINEAR",
+    )
     range_min: StringProperty(
         name="Ramp Minimum",
         description="Value at the low end of the ramp, stored as text so the full double "

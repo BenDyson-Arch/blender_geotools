@@ -115,6 +115,7 @@ class PresentationSettings:
     range_min: float | None
     range_max: float | None
     nodata_rgba: tuple[int, int, int, int]
+    scale: str = "LINEAR"
 
 
 def _byte(value: float) -> int:
@@ -132,6 +133,7 @@ def presentation_settings(item: bpy.types.PropertyGroup) -> PresentationSettings
         range_min=parse_number(p.range_min),
         range_max=parse_number(p.range_max),
         nodata_rgba=(*(_byte(c) for c in p.nodata_color), 255),  # type: ignore[arg-type]
+        scale=p.scale,
     )
 
 
@@ -189,7 +191,12 @@ def variant_issues(scene: bpy.types.Scene, layer_name: str) -> list[Issue]:
     settings = presentation_settings(item)
     issues.extend(
         presentation_issues(
-            spec, settings.target, settings.palette, settings.range_min, settings.range_max
+            spec,
+            settings.target,
+            settings.palette,
+            settings.range_min,
+            settings.range_max,
+            settings.scale,
         )
     )
     objects = source_objects(scene)
@@ -307,7 +314,9 @@ def _resolve_range(
             kept = [v for v in values if v.size]
             try:
                 auto_low, auto_high = auto_range(
-                    np.concatenate(kept) if kept else np.empty(0, np.float32), _nodata(spec)
+                    np.concatenate(kept) if kept else np.empty(0, np.float32),
+                    _nodata(spec),
+                    log=settings.scale == "LOG",
                 )
             except ValueError:
                 raise PresentationError(
@@ -320,6 +329,10 @@ def _resolve_range(
         raise PresentationError(
             f"Layer {spec.name}: the ramp range {low!r} to {high!r} is not valid "
             "(one end is automatic; set both)."
+        )
+    if settings.scale == "LOG" and low <= 0:
+        raise PresentationError(
+            f"Layer {spec.name}: a log scale needs a positive ramp minimum, not {low!r}."
         )
     return (float(low), float(high)), auto
 
@@ -343,6 +356,7 @@ def _colours(
         settings.palette,
         nodata=_nodata(spec),
         nodata_rgba=settings.nodata_rgba,
+        log=settings.scale == "LOG",
     )
 
 
@@ -530,6 +544,7 @@ def _record(spec, settings, value_range, auto, categories) -> dict[str, object]:
         value_range=value_range,
         range_auto=auto,
         nodata_rgba=settings.nodata_rgba,
+        scale=settings.scale,
     )
 
 
@@ -538,7 +553,12 @@ def _settings_or_raise(item, spec: LayerSpec) -> PresentationSettings:
     problems = [
         i
         for i in presentation_issues(
-            spec, settings.target, settings.palette, settings.range_min, settings.range_max
+            spec,
+            settings.target,
+            settings.palette,
+            settings.range_min,
+            settings.range_max,
+            settings.scale,
         )
         if i.severity is Severity.ERROR
     ]
@@ -753,7 +773,12 @@ def display_issue_codes(item: bpy.types.PropertyGroup) -> set[str]:
     return {
         i.code
         for i in presentation_issues(
-            spec, settings.target, settings.palette, settings.range_min, settings.range_max
+            spec,
+            settings.target,
+            settings.palette,
+            settings.range_min,
+            settings.range_max,
+            settings.scale,
         )
         if i.severity is Severity.ERROR
     }
@@ -808,6 +833,7 @@ def draw_display(
             sub.label(text=f"... and {len(spec.categories) - CATEGORY_ROWS} more")
     else:
         col.prop(p, "palette")
+        col.prop(p, "scale")
         values = col.column(align=True)
         values.alert = "variant-range-invalid" in codes
         values.prop(p, "range_min", text="Minimum", placeholder=_auto_text(item, "min"))
