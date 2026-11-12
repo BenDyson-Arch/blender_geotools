@@ -36,8 +36,10 @@ second copy. So:
   other tool that reads these keys.
 - **Data imported with either tool** lands on the same coordinates.
 - **Tools that place things by the keys** see the same origin. For example,
-  blender_ogc3dtiles can place a streamed 3D Tiles tileset from the same
-  keys, so a published site and streamed context line up in one scene.
+  [blender_ogc3dtiles](https://github.com/jo-chemla/blender_ogc3dtiles), which
+  streams 3D Tiles into Blender, plans to place tilesets from the same keys
+  ([blender_ogc3dtiles#6](https://github.com/jo-chemla/blender_ogc3dtiles/issues/6)),
+  so a published site and streamed context would line up in one scene.
 
 ## What stays GeoTools-only
 
