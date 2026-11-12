@@ -677,7 +677,7 @@ class GEOTOOLS_OT_layer_write_presentation(bpy.types.Operator):
     topology), or 8-bit images for a texture layer. Publishing works them out again"""
 
     bl_idname = "geotools.layer_write_presentation"
-    bl_label = "Write Presentation"
+    bl_label = "Write Colours"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
@@ -840,7 +840,7 @@ def draw_display(
         values.prop(p, "range_max", text="Maximum", placeholder=_auto_text(item, "max"))
         col.prop(p, "nodata_color")
 
-    layout.operator("geotools.layer_write_presentation", text="Write Colours", icon="BRUSH_DATA")
+    layout.operator("geotools.layer_write_presentation", icon="BRUSH_DATA")
     props = context.scene.geotools
     profile = None
     if 0 <= props.build_profile_index < len(props.build_profiles):

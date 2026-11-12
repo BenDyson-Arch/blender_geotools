@@ -67,7 +67,12 @@ class GEOTOOLS_OT_set_image_remedy(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO", "INTERNAL"}
 
     image: StringProperty(name="Image", description="Name of the image")
-    remedy: EnumProperty(name="Remedy", items=REMEDY_ITEMS, default="NONE")
+    remedy: EnumProperty(
+        name="Remedy",
+        description="How the published copy of the image is made",
+        items=REMEDY_ITEMS,
+        default="NONE",
+    )
 
     @classmethod
     def description(cls, _context: bpy.types.Context, properties) -> str:

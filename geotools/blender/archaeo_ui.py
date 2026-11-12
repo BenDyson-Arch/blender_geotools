@@ -3,7 +3,9 @@
 Observer, horizon profile, events at an epoch (with how far back they can be
 trusted), sightlines and the alignment check, each with its last result and a
 copy button. Panels draw stored results only; the operators compute.
-``analysis_ui`` lists these classes among its own.
+``analysis_ui`` lists these classes among its own, after Sun. The horizon
+profile's switch for Sun Hours is drawn in Sun Hours only (Use Horizon
+Profile); this panel points to it.
 """
 
 from __future__ import annotations
@@ -63,7 +65,7 @@ def _draw_observer(layout, context, props) -> None:
     row.operator("geotools.archaeo_observer_pick", text="Pick", icon="EYEDROPPER")
     point = parse_vec(props.observer)
     if point is None:
-        layout.label(text="No observer: events use the Sun panel's site", icon="INFO")
+        wrapped(layout, context, "No observer yet: events use the site set in Sun.", "INFO")
         return
     col = layout.column(align=True)
     info_row(col, "Point", ", ".join(f"{v:,.2f}" for v in point))
@@ -121,8 +123,15 @@ def _draw_horizon(layout, context, props) -> None:
         )
     if data["closed"]:
         wrapped(box, context, f"{len(data['closed'])} azimuths are closed above 60°.", "INFO")
-    sun_hours = analysis.settings(context).sun_hours
-    box.prop(sun_hours, "horizon_profile", text="Far Horizon for Sun Hours")
+    used = analysis.settings(context).sun_hours.horizon_profile
+    wrapped(
+        box,
+        context,
+        "Sun Hours uses this profile as its far horizon."
+        if used
+        else "Sun Hours can use this profile as its far horizon (Use Horizon Profile).",
+        "LIGHT_SUN",
+    )
     box.operator("geotools.archaeo_clear_horizon", icon="X")
 
 
@@ -141,10 +150,12 @@ def _draw_events(layout, context, props) -> None:
     col.prop(props, "dated_events")
     if props.dated_events:
         sun_props = analysis.settings(context).sun
-        box.label(
-            text=f"Dated: {sun_props.year}, and {sun_props.year}-{sun_props.month:02d}-"
-            f"{sun_props.day:02d}; zone in Sun",
-            icon="TIME",
+        wrapped(
+            box,
+            context,
+            f"Dated for {sun_props.year} and {sun_props.year}-{sun_props.month:02d}-"
+            f"{sun_props.day:02d}, in the time zone set in Sun.",
+            "TIME",
         )
     big_button(box).operator("geotools.archaeo_events", icon="LIGHT_SUN")
     _error(box, context, props.events_error)

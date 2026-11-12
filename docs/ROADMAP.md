@@ -116,6 +116,12 @@ CRS allow-list that the EPSG picker needs. M6 and M7 follow in 0.4.0.
 | M9 Queryable metadata without retiling | M4 GLBs tiled with exact leaf metadata, then an annotate pass | #332 (rusty-tiles 0.5) | 1.0.0 |
 | M10 Large sites and texture-only rebuilds | Chunked working mode, texture-only republish | B | later |
 
+**Sidebar.** Each milestone adds its panels to the one GeoTools sidebar tab.
+Before 0.3.0 they were consolidated into workflow order (project, data in,
+analysis, layers and textures, checks, publish, output), with Analysis
+grouped and every control given a tooltip. New panels follow
+[docs/design/ui-structure.md](design/ui-structure.md).
+
 ### M0 Foundation
 
 - Keep the 0.2 code on the `legacy-0.2` branch and the `v0.2.0` tag, then

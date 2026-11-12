@@ -126,7 +126,12 @@ class GeoToolsTextureSettings(bpy.types.PropertyGroup):
         max=64,
     )
     # Remove Masked
-    mask_source: EnumProperty(name="Mask", items=MASK_SOURCE_ITEMS, default="KEY")
+    mask_source: EnumProperty(
+        name="Mask",
+        description="How Remove Masked finds what to remove",
+        items=MASK_SOURCE_ITEMS,
+        default="KEY",
+    )
     key_color: FloatVectorProperty(
         name="Key Colour",
         description="Paint over what to remove in this colour (a hard brush keeps edges clean)",
