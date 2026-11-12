@@ -359,6 +359,11 @@ def reset_scene() -> None:
             collection.remove(block)
     scene = bpy.context.scene
     scene.unit_settings.scale_length = 1.0
+    # The scene's GeoScene keys (the BlenderGIS convention) are the CRS project's
+    # georeference: clear them with the project.
+    for key in ("SRID", "crs x", "crs y", "latitude", "longitude", "scale", "zoom"):
+        if key in scene:
+            del scene[key]
     props = scene.geotools
     for prop in props.bl_rna.properties:
         name = prop.identifier

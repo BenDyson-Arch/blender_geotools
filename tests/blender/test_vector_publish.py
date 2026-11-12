@@ -46,9 +46,9 @@ def _project(mode: str = "SOURCE_CRS") -> None:
     props = h.project()
     props.placement_mode = mode
     if mode == "SOURCE_CRS":
-        props.source_crs = "EPSG:7856"
-        props.source_offset_e = repr(E0)
-        props.source_offset_n = repr(N0)
+        props.crs = "EPSG:7856"
+        props.origin_e = repr(E0)
+        props.origin_n = repr(N0)
         props.source_offset_a = repr(A0)
     elif mode == "ANCHOR":
         props.anchor_lon, props.anchor_lat, props.anchor_height = "153.02", "-27.47", "10.0"

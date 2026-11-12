@@ -33,6 +33,7 @@ GeoTools creates tilesets; it no longer imports them.
 | Versioning | Continue the 0.x line. First rebuild release is 0.3.0; 1.0.0 at M9 | |
 | CRS handling | rusty-tiles does all CRS maths at publish time (`source_crs`, `source_offset`, `height_offset`). Imports (M8) reproject vector points into the project CRS with a bundled pyproj, never GeoTools' own maths; rusty-tiles will not add general reprojection. Rasters are not reprojected (QGIS first). The source GLB is always standard glTF Y-up | |
 | Precision | Offsets, anchors and other geodetic numbers are binary64 Python floats, never Blender `FloatProperty` (single precision) | |
+| Scene georeference | BlenderGIS GeoScene keys are the authority; GeoTools does not depend on BlenderGIS; A = 0 default. A CRS project's CRS and E/N are the scene's `SRID`, `crs x` and `crs y` (lat/lon kept in sync); A and the height offset stay GeoTools properties; LOCAL and ANCHOR projects write no keys. See [docs/design/georeference-interop.md](design/georeference-interop.md) | Another Blender GIS convention becomes common |
 | Performance rule | No Python loops over faces or vertices. Use `foreach_get`/`foreach_set` with numpy, Geometry Nodes or Cycles bakes | |
 | Scope | Don't do what Blender already does. GeoTools reads and writes geo formats, handles georeference and publishes; modelling, draping, displacement and painting use Blender's own tools, with recipes in the docs | A task needs something Blender cannot do |
 

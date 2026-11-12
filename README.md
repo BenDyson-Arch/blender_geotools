@@ -86,6 +86,37 @@ metadata, the same metadata 3D Tiles 1.1 uses: a `.glb` build profile, or
 It is a separate file from the plain source GLB rusty-tiles tiles. See
 [docs/design/m4-glb-metadata.md](docs/design/m4-glb-metadata.md).
 
+## Interoperability
+
+GeoTools keeps a CRS project's georeference in the scene's **GeoScene keys**,
+the convention [BlenderGIS](https://github.com/domlysz/BlenderGIS) uses: the
+CRS in `SRID`, the scene origin in `crs x` and `crs y`, and the same origin in
+`latitude` and `longitude`. So:
+
+- A scene georeferenced by BlenderGIS opens in GeoTools as a CRS project. Data
+  imported with either tool lands on the same coordinates.
+- A scene set up in GeoTools is georeferenced for BlenderGIS and other tools
+  that read these keys.
+- GeoTools does not need BlenderGIS and works the same without it.
+- Files saved by earlier GeoTools versions are moved to the keys when you open
+  them. A notice says what was taken from where.
+
+Some things GeoScene cannot hold:
+
+- Local and anchor projects, and a CRS given as WKT or as a compound code,
+  have no keys. If a scene has keys while the project is local or anchor, the
+  Project panel warns and offers **Use the Scene's BlenderGIS Georeference**.
+- Offset A and the height offset stay GeoTools settings. GeoScene tools read
+  Blender Z as absolute height, so new CRS projects start with A = 0. When A
+  is not 0, the Project panel and Check warn that other tools will see heights
+  shifted by A.
+- Changing the origin in GeoTools moves the scene on Earth and leaves objects
+  where they are in Blender. BlenderGIS's own origin edits move the objects
+  instead.
+
+Details:
+[docs/design/georeference-interop.md](docs/design/georeference-interop.md).
+
 ## Coming next
 
 The plan is in [docs/ROADMAP.md](docs/ROADMAP.md).

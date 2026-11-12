@@ -12,6 +12,23 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
 
 ### Added
 
+- Interoperability with BlenderGIS and other Blender GIS tools. A CRS
+  project's CRS and origin are now kept in the scene's GeoScene keys (`SRID`,
+  `crs x` and `crs y`, with `latitude` and `longitude` kept in sync through the
+  bundled pyproj, using rusty-tiles' datum convention). These keys are the
+  BlenderGIS convention. A scene georeferenced by BlenderGIS is read as it is,
+  and a scene set up in GeoTools is georeferenced for those tools. GeoTools
+  does not depend on BlenderGIS. `SRID` is written only as a plain EPSG code
+  or a PROJ string, because BlenderGIS cannot read WKT or compound codes; such
+  a CRS stays a GeoTools setting and the scene gets no keys. Local and anchor
+  projects write no keys. If keys exist while the project is local or anchor,
+  the Project panel and Check warn and offer **Use the Scene's BlenderGIS
+  Georeference**. A `.blend` from an earlier GeoTools is migrated on load,
+  keeping its values and its A. Where both exist and differ, the keys win, and
+  a one-time notice names what was taken from where. "Use data origin" adopts
+  a scene's existing GeoScene georeference rather than moving it. See
+  `docs/design/georeference-interop.md`.
+
 - Analysis (M5), in a new Analysis panel. **Sun:** the sun's position from the
   project's site, date, time and time zone (NREL SPA, within 0.00001° of the
   paper's example), turned from true north to the scene's grid north by the
@@ -354,6 +371,16 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
     the `.blend`) without a warning.
 
 ### Changed
+
+- New CRS projects start with offset A = 0, because GeoScene tools read
+  Blender Z as absolute height. "Use data origin" from a local or anchor
+  project sets A to 0 as before, and now leaves a CRS project's A alone.
+  Existing scenes keep their A. When A is not 0, the Project panel and Check
+  warn that other GIS tools will see heights shifted by A. For scripts, the
+  project CRS and offset E/N are now `scene.geotools.crs`, `origin_e` and
+  `origin_n`. These read and write the GeoScene keys in a CRS project.
+  `source_crs`, `source_offset_e` and `source_offset_n` are GeoTools' own text,
+  used only when the scene has no keys.
 
 - Export Vectors writes FLOAT attributes (float32 in Blender) as the shortest
   decimal that reads back as the same value, so 123.4 is written as 123.4

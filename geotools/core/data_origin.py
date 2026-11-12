@@ -12,7 +12,9 @@ origin". That switches the project to SOURCE_CRS:
 - the CRS is the data's: ``EPSG:nnnn`` (or the data's definition when it has
   no code), and the project checks then say whether rusty-tiles supports it;
 - the E/N offset is the centre of the data's extent, rounded to a whole metre;
-- the A offset is 0.
+- the A offset is 0 for a LOCAL or ANCHOR project that becomes a CRS project
+  (heights stay absolute, as BlenderGIS and other GeoScene tools read them);
+  a CRS project keeps its own A.
 
 A SOURCE_CRS project with no CRS yet is offered the data's CRS the same way
 (:func:`offer_project_crs`): the CRS only, when the project already has an
@@ -47,17 +49,21 @@ class DataOrigin:
     crs_name: str | None
     """The CRS's name from the EPSG catalogue (``GDA2020 / MGA zone 56``), when known."""
     offset: tuple[float, float, float]
-    """(E, N, 0.0): the extent's centre in whole metres."""
+    """(E, N, 0.0): the extent's centre in whole metres. The 0.0 is never applied."""
     set_offset: bool = True
     """False to set only the CRS and keep the project's offset."""
 
     def describe(self) -> str:
-        """``"EPSG:7856 (GDA2020 / MGA zone 56), offset E 502000, N 6961000, A 0"``."""
+        """``"EPSG:7856 (GDA2020 / MGA zone 56), offset E 502000, N 6961000"``.
+
+        Offset A is not part of a data origin: a new CRS project starts at 0, an
+        existing one keeps its own.
+        """
         crs = self.crs_text()
         if not self.set_offset:  # "EPSG:7856 (...), keeping the project's offset"
             return f"{crs}, keeping the project's offset"
-        e, n, a = self.offset
-        return f"{crs}, offset E {e:.0f}, N {n:.0f}, A {a:.0f}"
+        e, n, _a = self.offset
+        return f"{crs}, offset E {e:.0f}, N {n:.0f}"
 
     def crs_text(self) -> str:
         """``"EPSG:7856 (GDA2020 / MGA zone 56)"``, or the start of the definition."""

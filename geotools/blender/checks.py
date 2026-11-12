@@ -5,6 +5,7 @@ import bpy
 from ..core import crs_catalog, deps, preflight, probe
 from ..core.issues import Issue, Severity
 from ..core.placement import Placement
+from . import scene_georef
 from .bake_texture import uv_overlap_issues
 from .common import redraw_ui
 from .crs_picker import migrate_scene
@@ -94,6 +95,7 @@ def run_checks(context: bpy.types.Context) -> list[Issue]:
         issues = preflight.check(summary, placement, profile=profile)
         issues += crs_issues(placement, issues)
     issues += uv_overlap_issues(context)
+    issues += scene_georef.issues(context.scene)
     issues.sort(key=lambda i: _SEVERITY_ORDER[Severity(i.severity)])
     return issues
 
