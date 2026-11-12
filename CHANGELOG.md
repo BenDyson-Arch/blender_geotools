@@ -7,6 +7,11 @@ and the project follows semantic versioning where practical.
 
 ## [Unreleased]
 
+## [0.3.0] - Unreleased
+
+GeoTools is being rebuilt to create, analyse and publish OGC 3D Tiles with
+rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
+
 ### Added
 
 - Texture cleanup (M6), in a new **Textures** panel between Layers and Checks
@@ -71,13 +76,6 @@ and the project follows semantic versioning where practical.
 - CI on macOS arm64 and Windows x64: the core tests, and the Blender tests
   (no wheels) on the official, checksum-pinned Blender 5.2 LTS `.dmg` and
   `.zip`. They are not required checks yet.
-
-## [0.3.0] - Unreleased
-
-GeoTools is being rebuilt to create, analyse and publish OGC 3D Tiles with
-rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
-
-### Added
 
 - Interoperability with BlenderGIS and other Blender GIS tools. A CRS
   project's CRS and origin are now kept in the scene's GeoScene keys (`SRID`,
