@@ -20,7 +20,7 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   with its offset file, running Checks, publishing a `.3tz` and viewing it in
   CesiumJS. One page per area: georeference and projects, layers and bakes,
   checks and publishing, GLB with metadata, analysis (sun, sun hours, shadow
-  studies, archaeoastronomy, coordinates, presets, hydrology, contours and
+  studies, archaeoastronomy, measurement, presets, hydrology, contours and
   sections), texture cleanup, inspecting output, geo formats, and working
   alongside BlenderGIS (the GeoScene keys GeoTools reads and writes, and what
   stays GeoTools-only). The README is now a short overview that points into
