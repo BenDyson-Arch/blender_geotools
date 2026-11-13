@@ -61,6 +61,41 @@ def wrapped(
         col.label(text=line, icon=icon if i == 0 else "BLANK1" if icon != "NONE" else "NONE")
 
 
+def clipped(text: str, chars: int) -> str:
+    """``text`` cut at the end to ``chars`` characters, with an ellipsis.
+
+    Blender elides an over-long label in the middle, which hides both the
+    subject's end and the detail's start; cutting at the end keeps the start
+    readable. ``chars`` below 8 is treated as 8.
+    """
+    chars = max(chars, 8)
+    if len(text) <= chars:
+        return text
+    return text[: chars - 1].rstrip(" ,;:") + "\u2026"
+
+
+def info_wrapped(
+    layout: bpy.types.UILayout,
+    context: bpy.types.Context | None,
+    label: str,
+    text: str,
+    icon: str = "NONE",
+    max_lines: int = 3,
+) -> None:
+    """Like :func:`info_row`, but ``text`` wraps in the value column instead of being cut."""
+    split = layout.split(factor=SPLIT_FACTOR)
+    left = split.column()
+    left.alignment = "RIGHT"
+    left.label(text=label)
+    right = split.column(align=True)
+    chars = max(int(wrap_chars(context) * (1.0 - SPLIT_FACTOR)), 12)
+    lines = textwrap.wrap(text, chars) or [""]
+    if len(lines) > max_lines:
+        lines = [*lines[: max_lines - 1], lines[max_lines - 1].rstrip(".,;") + " ..."]
+    for i, line in enumerate(lines):
+        right.label(text=line, icon=icon if i == 0 else "BLANK1" if icon != "NONE" else "NONE")
+
+
 def split_column(layout: bpy.types.UILayout) -> bpy.types.UILayout:
     """A column with ``use_property_split`` on and no decorators."""
     col = layout.column()
