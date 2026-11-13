@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import zipfile
 from pathlib import Path
 
@@ -57,15 +58,125 @@ def test_extract_for_web(tmp_path: Path) -> None:
 def test_extract_again_replaces_own_folder(tmp_path: Path) -> None:
     archive = _site(tmp_path)
     dest = web.extract_for_web(archive).path
-    (dest / "stale.txt").write_text("old")
+    marker = json.loads((dest / web.MARKER_NAME).read_text())
+    assert set(marker["files"]) == {"tileset.json", "content/a.glb", "index.html"}
     # A newer archive makes the folder stale until it is extracted again.
-    marker = dest / web.MARKER_NAME
-    later = marker.stat().st_mtime_ns + 5_000_000_000
+    _archive(archive, {"tileset.json": b'{"v": 2}', "content/b.glb": b"glb2"})
+    later = (dest / web.MARKER_NAME).stat().st_mtime_ns + 5_000_000_000
     os.utime(archive, ns=(later, later))
     assert web.is_stale(archive, dest)
-    web.extract_for_web(archive)
-    assert not (dest / "stale.txt").exists()
+    assert web.extract_for_web(archive) == web.WebFolder(dest, True)
+    # Files GeoTools wrote last time and the new archive lacks are gone.
+    assert not (dest / "content" / "a.glb").exists()
+    assert (dest / "content" / "b.glb").read_bytes() == b"glb2"
+    assert (dest / "tileset.json").read_bytes() == b'{"v": 2}'
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["site.3tz", "site.web"]
+
+
+def test_extract_again_keeps_the_users_files(tmp_path: Path) -> None:
+    archive = _site(tmp_path)
+    dest = web.extract_for_web(archive).path
+    (dest / "index.html").write_text("MY CUSTOM PAGE")
+    folder = web.extract_for_web(archive)
+    assert folder == web.WebFolder(dest, False, kept_page=True)
+    assert (dest / "index.html").read_text() == "MY CUSTOM PAGE"
+    assert json.loads((dest / web.MARKER_NAME).read_text())["viewer"] is None
+    # Still the user's page on the next extract: the marker does not claim it.
+    assert web.extract_for_web(archive).kept_page
+    assert (dest / "index.html").read_text() == "MY CUSTOM PAGE"
+
+    # Any other file the user added or changed stops the extract, and nothing is lost.
+    (dest / "notes.md").write_text("mine")
+    (dest / "content" / "a.glb").write_bytes(b"edited")
+    with pytest.raises(web.WebExtractError, match=r"content/a\.glb, notes\.md"):
+        web.extract_for_web(archive)
+    assert (dest / "notes.md").read_text() == "mine"
+    assert (dest / "content" / "a.glb").read_bytes() == b"edited"
+    assert (dest / "index.html").read_text() == "MY CUSTOM PAGE"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["site.3tz", "site.web"]
+
+    # A user page next to an archive that brings its own index.html is not overwritten.
+    (dest / "notes.md").unlink()
+    (dest / "content" / "a.glb").write_bytes(b"glb")
+    _archive(archive, {"tileset.json": b"{}", "index.html": b"theirs"})
+    with pytest.raises(web.WebExtractError, match="index.html"):
+        web.extract_for_web(archive)
+    assert (dest / "index.html").read_text() == "MY CUSTOM PAGE"
+
+
+def test_unreadable_marker_vouches_for_nothing(tmp_path: Path) -> None:
+    archive = _site(tmp_path)
+    dest = web.extract_for_web(archive).path
+    (dest / web.MARKER_NAME).write_text("not json")
+    with pytest.raises(web.WebExtractError, match="did not write"):
+        web.extract_for_web(archive)
     assert (dest / "tileset.json").is_file()
+
+
+@pytest.mark.parametrize("step", ["aside", "into place"])
+def test_failed_swap_keeps_the_previous_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, step: str
+) -> None:
+    archive = _site(tmp_path)
+    dest = web.extract_for_web(archive).path
+    before = sorted(p.relative_to(dest).as_posix() for p in dest.rglob("*"))
+    real_rename = Path.rename
+
+    def rename(self: Path, target: Path) -> Path:
+        moving_aside = self == dest
+        moving_in = (
+            Path(target) == dest and self.name.startswith(".site.web-") and "-old-" not in self.name
+        )
+        if (step == "aside" and moving_aside) or (step == "into place" and moving_in):
+            raise PermissionError("folder is in use")
+        return real_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", rename)
+    with pytest.raises(PermissionError):
+        web.extract_for_web(archive)
+    monkeypatch.undo()
+    assert web.is_geotools_web_dir(dest)
+    assert sorted(p.relative_to(dest).as_posix() for p in dest.rglob("*")) == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["site.3tz", "site.web"]
+    web.extract_for_web(archive)  # and the next extract works
+
+
+def test_failed_cleanup_still_swaps(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Deleting the old folder comes last, after the new one is in place."""
+    archive = _site(tmp_path)
+    dest = web.extract_for_web(archive).path
+    _archive(archive, {"tileset.json": b'{"v": 2}'})
+    real_rmtree = shutil.rmtree
+
+    def rmtree(path: Path, ignore_errors: bool = False) -> None:
+        if "-old-" in Path(path).name:
+            return  # as if a file in the old folder were held open
+        real_rmtree(path, ignore_errors=ignore_errors)
+
+    monkeypatch.setattr(web.shutil, "rmtree", rmtree)
+    web.extract_for_web(archive)
+    assert web.is_geotools_web_dir(dest)
+    assert (dest / "tileset.json").read_bytes() == b'{"v": 2}'
+    (left,) = [p for p in tmp_path.iterdir() if "-old-" in p.name]
+    assert left.name.startswith(".site.web-old-")
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="no os.symlink")
+def test_never_follows_a_symlinked_folder(tmp_path: Path) -> None:
+    archive = _site(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "keep.txt").write_text("keep me")
+    (elsewhere / web.MARKER_NAME).write_text("{}")  # even if it looks like GeoTools' own
+    try:
+        (tmp_path / "site.web").symlink_to(elsewhere, target_is_directory=True)
+    except OSError as ex:  # Windows without the symlink privilege
+        pytest.skip(f"cannot make a symlink: {ex}")
+    with pytest.raises(web.WebExtractError, match="not a folder"):
+        web.extract_for_web(archive)
+    assert sorted(p.name for p in elsewhere.iterdir()) == [web.MARKER_NAME, "keep.txt"]
+    assert (elsewhere / "keep.txt").read_text() == "keep me"
+    assert (tmp_path / "site.web").is_symlink()
 
 
 def test_never_replaces_a_folder_it_did_not_write(tmp_path: Path) -> None:

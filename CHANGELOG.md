@@ -10,13 +10,14 @@ and the project follows semantic versioning where practical.
 ### Added
 
 - **Extract for Web** in Last Build: writes a published `.3tz` as a folder any
-  web server can serve, next to it (`site.web/` for `site.3tz`, and one per
-  variant), with `tileset.json`, the tiles and an optional `index.html`
+  web server can serve, next to it (`site.web/` for `site.3tz`,
+  `site.slope.web/` for a variant), with `tileset.json`, the tiles and an optional `index.html`
   CesiumJS page. The page loads CesiumJS 1.146.0 from the jsDelivr CDN and uses
   the Natural Earth II imagery bundled with CesiumJS, so it needs no Cesium ion
   token, and no rusty-tiles CLI is needed to view a build. GeoTools only ever
-  replaces a folder it wrote itself, and the panel says when the folder is
-  older than the archive.
+  replaces a folder it wrote itself, keeps an `index.html` you edited, never
+  deletes a file you added, and the panel says when the folder is older than
+  the archive.
 
 ### Fixed
 

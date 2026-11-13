@@ -139,11 +139,14 @@ validation passed. **Folder** opens the output folder and **Record** opens
 can serve, next to it: `site.web/` for `site.3tz`, `site.slope.web/` for a
 variant. It holds `tileset.json` and the tiles, an `index.html` CesiumJS page
 (see [Viewing a .3tz elsewhere](#viewing-a-3tz-elsewhere)) and
-`.geotools-web.json`, which marks the folder as GeoTools' own. Pressing it
-again replaces the folder. GeoTools never replaces a folder of that name that
-it did not write: move or rename yours, or the button reports an error. The
-folder button beside it opens the folder. After a new publish the panel says
-the folder is older than the archive until you extract again.
+`.geotools-web.json`, which marks the folder as GeoTools' own and lists the
+files it wrote. Pressing it again replaces those files. If you edited or
+replaced `index.html`, your page is kept. Any other file you added or changed
+in the folder stops the extract, with an error that names it, until you move it
+out, so nothing of yours is deleted. GeoTools never replaces a folder of that
+name that it did not write: move or rename yours, or the button reports an
+error. The folder button beside it opens the folder. After a new publish the
+panel says the folder is older than the archive until you extract again.
 
 **Preview in Browser** serves the archive with `rusty-tiles preview` and opens
 it in your browser. It needs two things that are not bundled, set in the
@@ -221,8 +224,9 @@ Copy it into any folder that holds a `tileset.json` to view that tileset:
 ```
 
 For no imagery at all, replace the `baseLayer: ...` option with
-`baseLayer: false`. The page is not part of the tileset: delete it, or replace
-it with your own, and the tiles still load in any viewer.
+`baseLayer: false`. The page is not part of the tileset: the tiles load in any
+viewer without it. Edit `index.html` in the `.web` folder, or replace it with
+your own page, and Extract for Web keeps it when you extract again.
 
 Serve the page and the tiles from the same web server. A viewer on another
 origin, such as [Sandcastle](https://sandcastle.cesium.com/) or a page on

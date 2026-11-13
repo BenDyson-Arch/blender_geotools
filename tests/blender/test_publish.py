@@ -339,6 +339,14 @@ def test_publish_end_to_end() -> None:
         os.utime(output, ns=(later, later))
         calls = h.draw(panels.GEOTOOLS_PT_publish_last)
         assert "site.web is older than the archive" in h.label_text(calls), calls
+        # The user's own index.html survives extracting again; an added file stops it.
+        (web / "index.html").write_text("my page")
+        assert bpy.ops.geotools.extract_for_web() == {"FINISHED"}
+        assert (web / "index.html").read_text() == "my page"
+        (web / "notes.md").write_text("mine")
+        _result, error = h.call_op(bpy.ops.geotools.extract_for_web)
+        assert error and "notes.md" in error, error
+        assert (web / "notes.md").read_text() == "mine"
         # A folder GeoTools did not write is never replaced.
         shutil.rmtree(web)
         web.mkdir()

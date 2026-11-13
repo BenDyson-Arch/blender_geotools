@@ -796,6 +796,8 @@ class GEOTOOLS_OT_extract_for_web(bpy.types.Operator):
             self.report({"ERROR"}, f"Extract for Web failed: {ex}")
             return {"CANCELLED"}
         page = " with index.html" if folder.viewer else ""
+        if folder.kept_page:
+            page = "; kept your index.html"
         self.report({"INFO"}, f"Extracted to {folder.path}{page}; serve it with a web server")
         redraw_ui(context)
         return {"FINISHED"}
