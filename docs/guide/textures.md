@@ -29,10 +29,21 @@ The full page is [Texture cleanup](../texture-cleanup.md). In short:
 6. Run Checks and publish. Publish saves every edited image first, and the
    Publish panel says how many textures changed since the last publish.
 
+**Your source files are never overwritten.** Publish never saves over an
+image file that GeoTools did not write itself: a Metashape JPEG, a GeoTIFF
+orthophoto, or any other texture you brought. The edits go to a PNG copy,
+`textures/<image>.png` next to your `.blend`, and the image then uses that
+copy; later edits are saved to the same copy. This matters most for a
+GeoTIFF: Blender's image writer drops its georeference tags, so saving over
+it would leave a plain TIFF that GeoTools can no longer place. Save the
+`.blend` before you publish edited source textures; until you do, there is
+nowhere to put the copy, and Checks reports `image-unsaved` as an error.
+Refreshing an edited orthophoto moves its plane but keeps the copy: point its
+Image Texture back at the `.tif` to show the file's pixels instead.
+
 **Limits.**
 
 - Fill Holes and Remove Masked are smooth fills: they blur, and they do not
   invent texture. Use Blender's Clone brush for detail.
 - Every publish is a full retile, so a texture change rebuilds every tile.
-- A JPEG texture saved again is re-compressed. Paint on PNG textures where you
-  can.
+- The PNG copy of an edited JPEG is larger than the JPEG.

@@ -9,6 +9,17 @@ and the project follows semantic versioning where practical.
 
 ### Fixed
 
+- Publish no longer saves edited textures over the user's source files. A
+  painted or cleaned image whose file GeoTools did not write (a Metashape
+  JPEG, a linked GeoTIFF orthophoto) now has its edits saved to a PNG copy in
+  `//textures/` next to the `.blend`, and the image is pointed at that copy;
+  later edits are saved to the same copy. Saving over a GeoTIFF used to strip
+  its georeference tags, because Blender's image writer does not keep them.
+  With an unsaved `.blend`, `image-unsaved` is an error and Publish refuses
+  until the `.blend` is saved, rather than packing the pixels. Refreshing an
+  orthophoto whose image was redirected keeps the edited copy and warns that
+  the file's pixels were not reloaded. This reverses the M6 behaviour of
+  saving an edited image to its own file.
 - File paths GeoTools stores itself now work across Linux, macOS and Windows,
   so a project folder (the `.blend` and its data) opens on any of them and
   finds its files. Linked GeoJSON, GeoPackage and GeoTIFF files, the build
@@ -68,8 +79,8 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
     of the 3D seams between atlas pages, previewed with a shader node before
     it is applied to the pixels.
   - **Undo Cleanup** puts back the images the last tool changed (one level).
-  - Publish saves every edited source image first (repacked, saved to its
-    file, or saved as `//textures/<image>.png`), so a painted texture is never
+  - Publish saves every edited source image first (repacked, or saved as a
+    new `//textures/<image>.png`), so a painted texture is never
     lost or published stale. `build.json` records each source image's SHA-256
     in `source.images`. The Publish panel shows "N textures changed since last
     publish", and Run Checks reports `image-unsaved`, `textures-changed` and

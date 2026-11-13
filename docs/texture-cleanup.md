@@ -51,7 +51,9 @@ to try the tools.
    (see below). Each GeoTools tool marks the image as edited.
 4. **Run Checks.** Run Checks now also reports:
    - `image-unsaved` (warning): an image has edits that are not saved
-     anywhere. The message says where Publish will save them.
+     anywhere. The message says where Publish will save them. It is an error
+     when the image has a source file and the `.blend` was never saved (see
+     below).
    - `textures-changed` (note): which textures changed since the selected
      build profile's last publish.
    - `texture-balance-preview` (error): a material still shows the colour
@@ -63,12 +65,27 @@ to try the tools.
    before it writes the source GLB, so a painted texture is never lost or
    published stale:
    - an image packed into the `.blend` is packed again from its current pixels;
-   - an image with a file is saved to that file, as Blender's Image > Save
-     does. A JPEG file is saved as JPEG again, which is lossy, so paint on PNG
-     textures where you can;
+   - an image with a file is **never saved over that file** unless GeoTools
+     wrote it. The edits go to a copy, `//textures/<image>.png` next to the
+     saved `.blend` (numbered if that name is taken), and the image is pointed
+     at it. Later edits are saved to that copy, which is GeoTools' own. Your
+     Metashape JPEG or GeoTIFF orthophoto stays as it was. For a GeoTIFF this
+     is essential: Blender's image writer drops the GeoKeyDirectory,
+     ModelTiepoint and ModelPixelScale tags, so saving over one would leave a
+     plain TIFF, the link would show Changed on Disk, and a refresh could no
+     longer place it. If the `.blend` has never been saved there is no
+     `//textures/` folder for the copy, so Checks reports `image-unsaved` as
+     an error and Publish refuses: save the `.blend` first. GeoTools does not
+     pack the pixels into the `.blend` instead, because an orthophoto can be
+     very large;
    - an image with neither (a generated image you painted) is saved as
      `//textures/<image>.png` next to a saved `.blend`. If the `.blend` has
      never been saved, the image is packed into it instead.
+
+   Refreshing a linked orthophoto whose image was redirected to its copy
+   moves the plane as usual but keeps the copy, with your edits, and warns
+   that the file's pixels were not reloaded. To show the file again, point
+   the material's Image Texture back at the `.tif`; the copy keeps the edits.
 
    `build.json` then records, under `source.images`, each source image's name,
    whether it came from a file or was packed, and the SHA-256 of those bytes.

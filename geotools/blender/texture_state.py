@@ -6,7 +6,16 @@ source GLB, :func:`save_edited_images` saves every source image with unsaved
 edits:
 
 - an image packed into the ``.blend`` is packed again from its current pixels;
-- an image with a file is saved to that file (Blender's Image > Save);
+- an image with a file GeoTools did not write (a Metashape JPEG, a linked
+  GeoTIFF orthophoto, anything the user brought) is never saved over: the
+  edits go to a new PNG in ``//textures/`` next to the saved ``.blend``, and
+  the image is pointed at it. With an unsaved ``.blend`` there is nowhere to
+  put that copy, so the save is refused (``image-unsaved`` is then an error)
+  rather than packing a large orthophoto into the ``.blend``. Blender's TIFF
+  writer also drops a GeoTIFF's georeference tags, so saving over one would
+  destroy the source's georeference;
+- an image whose file GeoTools wrote (its ``//textures/`` copy, marked with
+  :data:`OWNED_KEY`) is saved to that file again;
 - an image with neither (generated, then painted) is saved as a PNG in
   ``//textures/`` next to a saved ``.blend``, or packed into an unsaved one.
 
@@ -49,7 +58,12 @@ from .nodes import output_node, upstream
 log = logging.getLogger(__name__)
 
 TEXTURE_DIR = "//textures"
-"""Where an edited image with no file is saved, next to a saved ``.blend``."""
+"""Where edits are saved, next to a saved ``.blend``: for an image with no file,
+or a copy of an image whose file GeoTools did not write."""
+
+OWNED_KEY = "geotools_texture_file"
+"""Image custom property: the ``//textures/`` file GeoTools saved the image to.
+The image's file is GeoTools' own, and saved over, only while it is that file."""
 
 PREVIEW_NODE = "GeoTools balance preview"
 """Name of the shader nodes the colour balance preview inserts (``texture_cleanup``)."""
@@ -115,14 +129,32 @@ def _safe_name(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("._") or "image"
 
 
+_IMAGE_EXTENSIONS = {".bmp", ".exr", ".jpeg", ".jpg", ".png", ".tga", ".tif", ".tiff", ".webp"}
+
+
 def _new_file(image: bpy.types.Image) -> str:
-    """``//textures/<image>.png``, numbered so it never overwrites another file."""
-    stem = f"{TEXTURE_DIR}/{_safe_name(image.name)}"
+    """``//textures/<image>.png``, numbered so it never overwrites another file.
+
+    An image named after its file (``ortho.tif``) drops that extension.
+    """
+    name, ext = os.path.splitext(image.name)
+    if ext.lower() not in _IMAGE_EXTENSIONS:
+        name = image.name
+    stem = f"{TEXTURE_DIR}/{_safe_name(name)}"
     rel, n = f"{stem}.png", 1
     while os.path.exists(blend_paths.abspath(rel)):
         rel = f"{stem}_{n}.png"
         n += 1
     return rel
+
+
+def owns_file(image: bpy.types.Image) -> bool:
+    """Whether ``image``'s file is one GeoTools wrote (its ``//textures/`` copy)."""
+    marker = image.get(OWNED_KEY)
+    path = _file_path(image)
+    if not (isinstance(marker, str) and marker and path and bpy.data.is_saved):
+        return False
+    return blend_paths.same_file(blend_paths.abspath(marker), path)
 
 
 def save_target(image: bpy.types.Image) -> str | None:
@@ -132,11 +164,28 @@ def save_target(image: bpy.types.Image) -> str | None:
     if image.packed_file is not None:
         return "the .blend (packed)"
     path = _file_path(image)
-    if path and os.path.isdir(os.path.dirname(path)):
+    if path and owns_file(image):
         return f"its file {os.path.basename(path)}"
+    if path:
+        if not bpy.data.is_saved:
+            return f"{TEXTURE_DIR}/ once the .blend is saved"
+        return f"{_new_file(image)} (a copy; {os.path.basename(path)} is left as it is)"
     if bpy.data.is_saved:
         return _new_file(image)
     return "the .blend (packed)"
+
+
+def save_blocker(image: bpy.types.Image) -> str | None:
+    """Why Publish cannot save ``image``'s edits yet, in words; None if it can."""
+    if not has_unsaved_edits(image) or image.packed_file is not None:
+        return None
+    path = _file_path(image)
+    if not path or bpy.data.is_saved or owns_file(image):
+        return None
+    return (
+        f"GeoTools never saves over its file {os.path.basename(path)}. Save the .blend "
+        f"first, so Publish can save the edits to a copy in {TEXTURE_DIR}/"
+    )
 
 
 # --- saving ---------------------------------------------------------------------------------
@@ -163,6 +212,9 @@ def save_edited_images(images: list[bpy.types.Image]) -> SaveReport:
         if not has_unsaved_edits(image):
             continue
         name = image.name
+        blocked = save_blocker(image)
+        if blocked:
+            raise SaveError(f"Image {name} has unsaved edits, but {blocked}")
         try:
             where, changes_blend = _save_one(image)
         except (RuntimeError, OSError) as ex:
@@ -182,17 +234,24 @@ def _save_one(image: bpy.types.Image) -> tuple[str, bool]:
         image.pack()
         return "packed", True
     path = _file_path(image)
-    if path and os.path.isdir(os.path.dirname(path)):
+    if path and owns_file(image):
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
         image.save()
         return path, False
     if not bpy.data.is_saved:
+        if path:  # save_blocker refuses this first; never pack a source file's pixels
+            raise SaveError(save_blocker(image) or f"{image.name} cannot be saved")
         image.pack()
         return "packed", True
+    # A file GeoTools did not write is never saved over: the edits go to a copy.
     rel = _new_file(image)
     Path(blend_paths.abspath(rel)).parent.mkdir(parents=True, exist_ok=True)
     image.filepath_raw = rel
     image.file_format = "PNG"
     image.save()
+    image[OWNED_KEY] = rel
+    if path:
+        return f"{rel} (a copy; {os.path.basename(path)} is left as it is)", True
     return rel, True
 
 

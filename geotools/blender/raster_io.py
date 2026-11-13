@@ -35,7 +35,7 @@ from ..core.crs_match import DataCrs
 from ..core.data_origin import NeedsProjectOrigin
 from ..core.geotiff import GeoTiffError, GeoTiffInfo
 from ..core.raster import RasterError
-from . import blend_paths, data_origin, links
+from . import blend_paths, data_origin, links, texture_state
 from .common import redraw_ui
 from .links import RefreshError, RefreshResult
 from .properties import FieldError, placement_from_scene
@@ -204,6 +204,26 @@ def ortho_image(path: str) -> bpy.types.Image:
         raise GeoTiffError(f"Blender cannot read {Path(path).name}: {ex}") from ex
 
 
+def edited_copy(obj: bpy.types.Object, path: str) -> bpy.types.Image | None:
+    """The image GeoTools saved ``obj``'s orthophoto edits to, if its material shows that.
+
+    Publish never saves over a GeoTIFF (``texture_state``): edits to an
+    orthophoto go to a ``//textures/`` copy, and the material is pointed at it.
+    None when the material still shows ``path`` itself, or no GeoTools copy.
+    """
+    images = [
+        i for slot in obj.material_slots for i in texture_state.material_images(slot.material)
+    ]
+    for image in images:
+        if (
+            image.source == "FILE"
+            and image.filepath
+            and blend_paths.same_file(blend_paths.image_path(image), path)
+        ):
+            return None
+    return next((i for i in images if texture_state.owns_file(i)), None)
+
+
 def ortho_material(name: str, image: bpy.types.Image, alpha: bool) -> bpy.types.Material:
     """A material showing ``image`` on the active UV map, unlit-looking (rough, no specular)."""
     material = bpy.data.materials.new(name)
@@ -333,8 +353,11 @@ def refresh(obj: bpy.types.Object) -> RefreshResult:
     A DEM gets a new grid mesh, swapped in with ``links.replace_mesh``. An
     orthophoto reloads its image and moves its plane's corners in place (a new
     plane only if the mesh is no longer a single quad). Modifiers, materials,
-    transform, parent and collections survive. Raises ``RefreshError``;
-    ``links.refresh_link`` sets the status and the fingerprint.
+    transform, parent and collections survive. An orthophoto whose material
+    shows GeoTools' edited copy (:func:`edited_copy`) keeps it: the plane moves,
+    the copy is not replaced by the file's pixels, and a warning says so.
+    Raises ``RefreshError``; ``links.refresh_link`` sets the status and the
+    fingerprint.
     """
     started = time.perf_counter()
     link = obj.geotools_link
@@ -346,6 +369,7 @@ def refresh(obj: bpy.types.Object) -> RefreshResult:
     step = max(1, int(options.get("step", 1)))
     confirmed = bool(options.get("assume_project_crs", False))
     scene = obj.users_scene[0] if obj.users_scene else bpy.context.scene
+    notes: tuple[str, ...] = ()
     try:
         info = core_geotiff.read_info(path)
         mode = resolve_mode(info, mode)
@@ -354,7 +378,18 @@ def refresh(obj: bpy.types.Object) -> RefreshResult:
             mesh, message = _dem_mesh(info, check.offset, step, obj.data.name)
             links.replace_mesh(obj, mesh)
         else:
-            image = ortho_image(info.path)  # reloaded from disk
+            copy = edited_copy(obj, info.path)
+            if copy is None:
+                image = ortho_image(info.path)  # reloaded from disk
+            else:  # the edits win; reloading would load pixels nothing shows
+                image = copy
+                name = Path(path).name
+                note = (
+                    f"{obj.name} shows {copy.filepath}, the copy Publish saved its "
+                    f"edits to, so the refresh did not reload {name}'s pixels. To show "
+                    f"them, point its Image Texture back at {name}; the copy keeps the edits."
+                )
+                notes = (note,)
             quad = core_raster.footprint(info, check.offset)
             message = _ortho_message(info, quad)
             if not update_plane(obj.data, quad):
@@ -367,7 +402,7 @@ def refresh(obj: bpy.types.Object) -> RefreshResult:
     seconds = time.perf_counter() - started
     return RefreshResult(
         message=f"refreshed {message}; {seconds:.2f} s",
-        warnings=check.warnings,
+        warnings=(*check.warnings, *notes),
         by_feature=False,
     )
 

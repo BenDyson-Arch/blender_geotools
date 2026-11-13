@@ -370,6 +370,70 @@ def test_ortho_refresh_reloads_the_image_and_moves_the_plane() -> None:
         assert tuple(obj.dimensions[:2]) == (8.0, 16.0)
 
 
+def test_an_edited_orthophoto_is_saved_to_a_copy_and_kept_on_refresh() -> None:
+    """Publish never saves over a GeoTIFF: Blender's writer would drop its georeference."""
+    state = h.submodule("blender.texture_state")
+    assert bpy.ops.wm.read_homefile(use_empty=True) == {"FINISHED"}
+    try:
+        _project()
+        with _tmpdir() as tmp:
+            assert bpy.ops.wm.save_as_mainfile(filepath=str(tmp / "site.blend")) == {"FINISHED"}
+            path = _write(tmp / "o.tif", gw.rgb(8, 8, seed=1), pixel_size=(1.0, 1.0))
+            result, error, obj = _import(path)
+            assert result == {"FINISHED"}, error
+            source = bpy.data.collections.new("Source")
+            bpy.context.scene.collection.children.link(source)
+            source.objects.link(obj)
+            h.project().source_collection = source
+            material = obj.active_material
+            node = next(n for n in material.node_tree.nodes if n.type == "TEX_IMAGE")
+            image = node.image
+            assert state.source_images(bpy.context.scene) == [image]
+            original = path.read_bytes()
+
+            # Blur a person, say: the image now has unsaved edits.
+            px = np.empty(len(image.pixels), np.float32)
+            image.pixels.foreach_get(px)
+            px[:16] = 1.0
+            image.pixels.foreach_set(px)
+            assert image.is_dirty
+            target = "//textures/o.png (a copy; o.tif is left as it is)"
+            assert state.save_target(image) == target
+            report = state.save_edited_images(state.source_images(bpy.context.scene))
+            assert report.saved == [f"{image.name} -> {target}"], report.saved
+            assert path.read_bytes() == original  # georeference tags and all
+            assert image.filepath == "//textures/o.png" and not image.is_dirty
+            assert _links().check_link(obj) == "OK"
+            assert _raster_io().edited_copy(obj, str(path)) == image
+            edited = np.empty(len(image.pixels), np.float32)
+            image.pixels.foreach_get(edited)
+
+            # A new survey in the same file: the plane moves, the edits stay.
+            _write(path, gw.rgb(16, 8, seed=2), pixel_size=(1.0, 1.0))
+            _bump_mtime(path)
+            count = len(bpy.data.images)
+            result = _refresh(obj)
+            assert any("did not reload o.tif" in w for w in result.warnings), result.warnings
+            assert node.image == image and image.filepath == "//textures/o.png"
+            assert tuple(image.size) == (8, 8)
+            now = np.empty(len(image.pixels), np.float32)
+            image.pixels.foreach_get(now)
+            np.testing.assert_array_equal(now, edited)
+            assert len(bpy.data.images) == count  # no unused copy of o.tif loaded
+            bpy.context.view_layer.update()
+            assert tuple(obj.dimensions[:2]) == (8.0, 16.0)
+            assert obj.geotools_link.status == "OK"
+
+            # Pointed back at the file, the refresh shows the file's pixels again.
+            node.image = bpy.data.images.load(str(path), check_existing=False)
+            result = _refresh(obj)
+            assert not any("did not reload" in w for w in result.warnings), result.warnings
+            assert tuple(node.image.size) == (8, 16)
+    finally:
+        assert bpy.ops.wm.read_homefile(use_empty=True) == {"FINISHED"}
+        h.reset_scene()
+
+
 def test_refresh_of_a_missing_file() -> None:
     _project()
     with _tmpdir() as tmp:
