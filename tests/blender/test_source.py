@@ -402,6 +402,8 @@ def test_summary_missing_image() -> None:
     tree.links.new(tex.outputs["Color"], principled.inputs["Base Color"])
     s = summarise.summarise_material(material)
     assert [i.name for i in s.images] == ["Gone"]
-    assert s.images[0].filepath == "/nonexistent/geotools/gone.png"
+    # A normalised path in the OS's own spelling (backslashes on Windows).
+    filepath = s.images[0].filepath
+    assert Path(filepath) == Path("/nonexistent/geotools/gone.png"), filepath
     assert not s.images[0].exists and not s.images[0].packed
     assert s.unsupported_nodes == ()

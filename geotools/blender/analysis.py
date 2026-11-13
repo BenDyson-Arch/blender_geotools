@@ -80,13 +80,28 @@ def _is_sun(_self, obj: bpy.types.Object) -> bool:
 class GeoToolsSunSettings(bpy.types.PropertyGroup):
     """Settings and last result of the sun tool (``scene.geotools_analysis.sun``)."""
 
-    year: IntProperty(name="Year", default=2026, min=1, max=9999)
-    month: IntProperty(name="Month", default=6, min=1, max=12)
-    day: IntProperty(name="Day", default=21, min=1, max=31)
-    hour: IntProperty(name="Hour", default=12, min=0, max=23)
-    minute: IntProperty(name="Minute", default=0, min=0, max=59)
-    second: IntProperty(name="Second", default=0, min=0, max=59)
-    tz_mode: EnumProperty(name="Time", items=TZ_MODE_ITEMS, default="ZONE")
+    year: IntProperty(
+        name="Year",
+        description="Year of the date (also the start date of Sun Hours and the year of "
+        "Shadow Study)",
+        default=2026,
+        min=1,
+        max=9999,
+    )
+    month: IntProperty(name="Month", description="Month of the date", default=6, min=1, max=12)
+    day: IntProperty(name="Day", description="Day of the month", default=21, min=1, max=31)
+    hour: IntProperty(
+        name="Hour", description="Local hour, in the time zone below", default=12, min=0, max=23
+    )
+    minute: IntProperty(name="Minute", description="Local minute", default=0, min=0, max=59)
+    second: IntProperty(name="Second", description="Local second", default=0, min=0, max=59)
+    tz_mode: EnumProperty(
+        name="Time",
+        description="How the local time is related to UTC: a named time zone (with its "
+        "daylight saving) or a fixed offset",
+        items=TZ_MODE_ITEMS,
+        default="ZONE",
+    )
     tz_name: StringProperty(
         name="Time Zone",
         description='IANA time zone name, e.g. "Australia/Brisbane" or "Europe/London"; '
@@ -102,7 +117,12 @@ class GeoToolsSunSettings(bpy.types.PropertyGroup):
         step=25,
         precision=2,
     )
-    site: EnumProperty(name="Site", items=SITE_ITEMS, default="ORIGIN")
+    site: EnumProperty(
+        name="Site",
+        description="Where on Earth the sun is worked out for",
+        items=SITE_ITEMS,
+        default="ORIGIN",
+    )
     refraction: BoolProperty(
         name="Refraction",
         description="Raise the sun by atmospheric refraction (standard pressure and "
@@ -140,8 +160,20 @@ class GeoToolsSunSettings(bpy.types.PropertyGroup):
     step_minutes: IntProperty(
         name="Step", description="Minutes between keyframes", default=15, min=1, max=720
     )
-    frame_start: IntProperty(name="First Frame", default=1, min=-1_048_574, max=1_048_574)
-    frames_per_step: IntProperty(name="Frames per Step", default=1, min=1, max=1000)
+    frame_start: IntProperty(
+        name="First Frame",
+        description="Frame of the first key, for Animate Day and Shadow Study",
+        default=1,
+        min=-1_048_574,
+        max=1_048_574,
+    )
+    frames_per_step: IntProperty(
+        name="Frame Step",
+        description="Frames between keys in Animate Day",
+        default=1,
+        min=1,
+        max=1000,
+    )
 
     # Last result (written by the operators). JSON of binary64 floats.
     result: StringProperty(default="")
@@ -167,10 +199,21 @@ class GeoToolsSunHoursSettings(bpy.types.PropertyGroup):
     The date, time zone, site and refraction are the Sun panel's.
     """
 
-    period: EnumProperty(name="Period", items=PERIOD_ITEMS, default="DAY")
-    end_year: IntProperty(name="End Year", default=2026, min=1, max=9999)
-    end_month: IntProperty(name="End Month", default=8, min=1, max=12)
-    end_day: IntProperty(name="End Day", default=31, min=1, max=31)
+    period: EnumProperty(
+        name="Period",
+        description="The days to add up, starting from the date in Sun",
+        items=PERIOD_ITEMS,
+        default="DAY",
+    )
+    end_year: IntProperty(
+        name="End Year", description="Year of the last day", default=2026, min=1, max=9999
+    )
+    end_month: IntProperty(
+        name="End Month", description="Month of the last day", default=8, min=1, max=12
+    )
+    end_day: IntProperty(
+        name="End Day", description="Last day, included", default=31, min=1, max=31
+    )
     step_minutes: IntProperty(
         name="Step",
         description="Minutes between sun positions; each counts for its whole step",
@@ -178,7 +221,12 @@ class GeoToolsSunHoursSettings(bpy.types.PropertyGroup):
         min=1,
         max=720,
     )
-    domain: EnumProperty(name="Values", items=SUN_HOURS_DOMAIN_ITEMS, default="FACE")
+    domain: EnumProperty(
+        name="Values",
+        description="Where the values are stored: per face, per face corner or per texel",
+        items=SUN_HOURS_DOMAIN_ITEMS,
+        default="FACE",
+    )
     hours_layer: StringProperty(
         name="Layer",
         description="Layer that receives the hours of direct sun (created if missing)",
@@ -261,10 +309,20 @@ class GeoToolsSunHoursSettings(bpy.types.PropertyGroup):
 class GeoToolsShadowStudySettings(bpy.types.PropertyGroup):
     """Solstice and equinox shadow-study frames (``.shadow_study``)."""
 
-    march: BoolProperty(name="March Equinox", default=True)
-    june: BoolProperty(name="June Solstice", default=True)
-    september: BoolProperty(name="September Equinox", default=False)
-    december: BoolProperty(name="December Solstice", default=True)
+    march: BoolProperty(
+        name="March Equinox", description="Key the March equinox of the year", default=True
+    )
+    june: BoolProperty(
+        name="June Solstice", description="Key the June solstice of the year", default=True
+    )
+    september: BoolProperty(
+        name="September Equinox",
+        description="Key the September equinox of the year",
+        default=False,
+    )
+    december: BoolProperty(
+        name="December Solstice", description="Key the December solstice of the year", default=True
+    )
     start_hour: FloatProperty(
         name="From",
         description="Local time of the first frame each day",
@@ -697,7 +755,9 @@ class GEOTOOLS_OT_point_from_cursor(bpy.types.Operator):
     bl_label = "From 3D Cursor"
     bl_options = {"REGISTER"}
 
-    point: EnumProperty(name="Point", items=POINT_ITEMS, default="A")
+    point: EnumProperty(
+        name="Point", description="Which point to set", items=POINT_ITEMS, default="A"
+    )
 
     def execute(self, context: bpy.types.Context) -> set[str]:
         location = tuple(context.scene.cursor.location)
@@ -711,7 +771,9 @@ class GEOTOOLS_OT_point_pick(bpy.types.Operator):
     bl_label = "Pick Point"
     bl_options = {"REGISTER"}
 
-    point: EnumProperty(name="Point", items=POINT_ITEMS, default="A")
+    point: EnumProperty(
+        name="Point", description="Which point to set", items=POINT_ITEMS, default="A"
+    )
 
     @classmethod
     def poll(cls, context: bpy.types.Context) -> bool:
@@ -910,7 +972,7 @@ class GEOTOOLS_OT_copy_reading(bpy.types.Operator):
     bl_label = "Copy"
     bl_options = {"REGISTER"}
 
-    what: EnumProperty(name="What", items=COPY_ITEMS, default="A")
+    what: EnumProperty(name="What", description="The result to copy", items=COPY_ITEMS, default="A")
 
     def execute(self, context: bpy.types.Context) -> set[str]:
         text = reading_text(context, self.what)

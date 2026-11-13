@@ -47,6 +47,7 @@ from pathlib import Path
 import bpy
 import numpy as np
 
+from ..core import paths
 from ..core.display import format_number
 from ..core.issues import Issue, Severity
 from ..core.layers import (
@@ -677,7 +678,7 @@ class GEOTOOLS_OT_layer_write_presentation(bpy.types.Operator):
     topology), or 8-bit images for a texture layer. Publishing works them out again"""
 
     bl_idname = "geotools.layer_write_presentation"
-    bl_label = "Write Presentation"
+    bl_label = "Write Colours"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
@@ -757,7 +758,7 @@ def variant_output_name(scene: bpy.types.Scene, layer_name: str) -> str | None:
     if not text:
         return None
     try:
-        return variant_output(Path(text.replace("//", "", 1)), layer_name).name
+        return variant_output(Path(paths.name(text)), layer_name).name
     except ValueError:
         return None
 
@@ -840,7 +841,7 @@ def draw_display(
         values.prop(p, "range_max", text="Maximum", placeholder=_auto_text(item, "max"))
         col.prop(p, "nodata_color")
 
-    layout.operator("geotools.layer_write_presentation", text="Write Colours", icon="BRUSH_DATA")
+    layout.operator("geotools.layer_write_presentation", icon="BRUSH_DATA")
     props = context.scene.geotools
     profile = None
     if 0 <= props.build_profile_index < len(props.build_profiles):

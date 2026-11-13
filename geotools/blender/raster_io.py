@@ -35,7 +35,7 @@ from ..core.crs_match import DataCrs
 from ..core.data_origin import NeedsProjectOrigin
 from ..core.geotiff import GeoTiffError, GeoTiffInfo
 from ..core.raster import RasterError
-from . import data_origin, links
+from . import blend_paths, data_origin, links
 from .common import redraw_ui
 from .links import RefreshError, RefreshResult
 from .properties import FieldError, placement_from_scene
@@ -188,20 +188,13 @@ def build_plane_mesh(name: str, quad: core_raster.Footprint) -> bpy.types.Mesh:
     return mesh
 
 
-def _same_file(a: str, b: str) -> bool:
-    try:
-        return os.path.samefile(a, b)
-    except OSError:
-        return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
-
-
 def ortho_image(path: str) -> bpy.types.Image:
     """The Blender image linked to ``path``, loaded or reloaded from disk."""
     for image in bpy.data.images:
         if (
             image.source == "FILE"
             and image.filepath
-            and _same_file(bpy.path.abspath(image.filepath, library=image.library), path)
+            and blend_paths.same_file(blend_paths.image_path(image), path)
         ):
             image.reload()
             return image
@@ -322,7 +315,7 @@ def import_geotiff(
 
     link = obj.geotools_link
     link.kind = "GEOTIFF"
-    link.filepath = path
+    links.store_path(link, path)
     link.layer = name
     link.crs = _crs_text(info)
     link.options = json.dumps(
@@ -412,7 +405,12 @@ plane. Linked to the file, so it can be refreshed"""
 
     filename_ext = ".tif"
     filter_glob: StringProperty(default="*.tif;*.tiff", options={"HIDDEN"})
-    mode: EnumProperty(name="As", items=MODE_ITEMS, default="AUTO")
+    mode: EnumProperty(
+        name="As",
+        description="Import as a DEM height mesh or an orthophoto on a plane",
+        items=MODE_ITEMS,
+        default="AUTO",
+    )
     step: IntProperty(
         name="Decimation",
         description="Use every nth pixel of a DEM; the spacing grows n times",
@@ -441,7 +439,7 @@ plane. Linked to the file, so it can be refreshed"""
         layout.use_property_split = True
         layout.use_property_decorate = False
         layout.prop(self, "mode")
-        info = _cached_info(bpy.path.abspath(self.filepath)) if self.filepath else None
+        info = _cached_info(blend_paths.abspath(self.filepath)) if self.filepath else None
         if isinstance(info, str):
             col = layout.column()
             col.alert = True
@@ -466,7 +464,7 @@ plane. Linked to the file, so it can be refreshed"""
         if not self.filepath:
             self.report({"ERROR"}, "No file selected")
             return {"CANCELLED"}
-        path = bpy.path.abspath(self.filepath)
+        path = blend_paths.abspath(self.filepath)
         if not os.path.isfile(path):
             self.report({"ERROR"}, f"File not found: {path}")
             return {"CANCELLED"}

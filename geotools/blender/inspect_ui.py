@@ -100,9 +100,9 @@ class GEOTOOLS_PT_inspect_quality(_InspectPanel, bpy.types.Panel):
         props = inspect.settings(context)
         col = split_column(layout)
         col.prop(props, "max_distance")
-        row = layout.row(align=True)
-        row.operator("geotools.inspect_distance", icon="MOD_SHRINKWRAP")
-        row.operator("geotools.inspect_texel_density", icon="TEXTURE")
+        col = layout.column(align=True)
+        col.operator("geotools.inspect_distance", icon="MOD_SHRINKWRAP")
+        col.operator("geotools.inspect_texel_density", icon="TEXTURE")
         col = split_column(layout)
         col.prop(props, "view")
         if props.view == "DEPTH":

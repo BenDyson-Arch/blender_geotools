@@ -1,5 +1,6 @@
 """Source collection: ingest a mesh, read an offset file, summarise."""
 
+import os
 from pathlib import Path
 
 import bpy
@@ -7,6 +8,7 @@ from bpy.props import EnumProperty, StringProperty
 
 from ..core import offsets
 from ..core.preflight import ImageSummary, SceneSummary
+from . import blend_paths
 from .common import redraw_ui
 from .properties import apply_source_offset, format_vec
 from .summarise import summarise_collection
@@ -144,7 +146,7 @@ def detect_offset(props: bpy.types.PropertyGroup, source: Path) -> tuple[set[str
         offset = offsets.read_offset_file(found)
     except (offsets.OffsetFileError, OSError) as ex:
         return {"WARNING"}, f"Found {found.name} but could not read it: {ex}"
-    apply_source_offset(props, offset, str(found))
+    apply_source_offset(props, offset, blend_paths.portable(found))
     message = f"Offset read from {found.name}; placement set to Source CRS."
     if not props.crs.strip():
         return {"WARNING"}, message + " Set the source CRS."
@@ -155,7 +157,7 @@ class GEOTOOLS_OT_ingest_source(bpy.types.Operator):
     """Import a source mesh (glTF, OBJ or PLY) into the source collection"""
 
     bl_idname = "geotools.ingest_source"
-    bl_label = "Ingest Source"
+    bl_label = "Import Source Mesh"
     bl_options = {"REGISTER", "UNDO"}
 
     filepath: StringProperty(subtype="FILE_PATH", options={"SKIP_SAVE"})
@@ -184,7 +186,7 @@ class GEOTOOLS_OT_ingest_source(bpy.types.Operator):
         if not self.filepath:
             self.report({"ERROR"}, "No file selected")
             return {"CANCELLED"}
-        path = Path(bpy.path.abspath(self.filepath))
+        path = Path(blend_paths.abspath(self.filepath))
         if path.suffix.lower() not in SOURCE_EXTENSIONS:
             self.report({"ERROR"}, f"{path.name}: choose a .glb, .gltf, .obj or .ply file")
             return {"CANCELLED"}
@@ -206,7 +208,7 @@ class GEOTOOLS_OT_ingest_source(bpy.types.Operator):
             self.report({"ERROR"}, f"{path.name} contained nothing to import")
             return {"CANCELLED"}
         move_into(new, collection)
-        props.source_filepath = str(path)
+        props.source_filepath = blend_paths.portable(path)
         refresh_summary(context)
 
         level, offset_message = detect_offset(props, path)
@@ -235,9 +237,9 @@ class GEOTOOLS_OT_load_offset_file(bpy.types.Operator):
         if not self.filepath:
             source = context.scene.geotools.source_filepath
             if source:
-                source_path = Path(bpy.path.abspath(source))
+                source_path = Path(blend_paths.abspath(source))
                 found = offsets.find_offset_file(source_path)
-                self.filepath = str(found) if found else str(source_path.parent) + "/"
+                self.filepath = str(found) if found else os.path.join(source_path.parent, "")
         context.window_manager.fileselect_add(self)
         return {"RUNNING_MODAL"}
 
@@ -245,7 +247,7 @@ class GEOTOOLS_OT_load_offset_file(bpy.types.Operator):
         if not self.filepath:
             self.report({"ERROR"}, "No file selected")
             return {"CANCELLED"}
-        path = Path(bpy.path.abspath(self.filepath))
+        path = Path(blend_paths.abspath(self.filepath))
         try:
             offset = offsets.read_offset_file(path)
         except offsets.OffsetFileError as ex:
@@ -255,7 +257,7 @@ class GEOTOOLS_OT_load_offset_file(bpy.types.Operator):
             self.report({"ERROR"}, f"Cannot read {path}: {ex.strerror or ex}")
             return {"CANCELLED"}
         props = context.scene.geotools
-        apply_source_offset(props, offset, str(path))
+        apply_source_offset(props, offset, blend_paths.portable(path))
         message = f"Offset read from {path.name}; placement set to Source CRS."
         if props.crs.strip():
             self.report({"INFO"}, message)

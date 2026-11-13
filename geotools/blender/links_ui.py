@@ -7,11 +7,10 @@ link state (status, options), never reads files.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import bpy
 
-from ..core import crs_match
+from ..core import crs_match, paths
 from ..core.reproject import format_accuracy
 from ..core.vector.options import VectorOptions
 from . import data_origin
@@ -82,8 +81,8 @@ class GEOTOOLS_PT_linked_data(bpy.types.Panel):
         col = row.column(align=True)
         col.operator("geotools.link_check", text="", icon="FILE_REFRESH")
 
+        layout.label(text="Import", icon="IMPORT")
         row = layout.row(align=True)
-        row.label(text="Import", icon="IMPORT")
         row.operator("geotools.import_geojson", text="GeoJSON")
         row.operator("geotools.import_gpkg", text="GeoPackage")
         if geotiff_available():
@@ -100,7 +99,7 @@ class GEOTOOLS_PT_linked_data(bpy.types.Panel):
             return
         link = obj.geotools_link
         box = layout.box()
-        name = Path(link.filepath).name
+        name = paths.name(link.filepath)
         if link.layer and link.kind == "GPKG":
             name = f"{name} ({link.layer})"
         box.label(text=name, icon=KIND_ICONS.get(link.kind, "FILE"))
