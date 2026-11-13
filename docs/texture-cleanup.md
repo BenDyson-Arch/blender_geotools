@@ -270,8 +270,9 @@ images back as they were before the last tool ran. There is one level of undo.
 - Blender's Ctrl+Z does not undo pixel changes made outside paint strokes, so
   use Undo Cleanup instead.
 - **Image > Reload** goes back to the saved file.
-- The copy lasts for the session only, and costs memory: 256 MiB for an 8K
-  8-bit image, and four times that for a float image.
+- The copy lasts until Blender quits or another file is opened, and costs
+  memory: 256 MiB for an 8K 8-bit image, and four times that for a float
+  image.
 
 ## Performance
 

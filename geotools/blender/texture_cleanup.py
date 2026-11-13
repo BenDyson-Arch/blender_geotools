@@ -18,9 +18,10 @@ Painting itself is Blender's (projection paint, clone, smear, soften, masks; see
 
 Every tool marks the image dirty (so Publish saves it first, see
 ``texture_state``) and keeps a copy of the pixels it changed: **Undo Cleanup**
-puts back the images as they were before the last tool ran. Blender's Ctrl+Z
-does not cover pixel edits made outside paint strokes; Image > Reload also
-goes back to the saved file.
+puts back the images as they were before the last tool ran (in this file:
+loading another file drops the copies). Blender's Ctrl+Z does not cover
+pixel edits made outside paint strokes; Image > Reload also goes back to the
+saved file.
 
 Settings and the last fit live in ``scene.geotools_texture``.
 """
@@ -35,6 +36,7 @@ from dataclasses import dataclass
 
 import bpy
 import numpy as np
+from bpy.app.handlers import persistent
 from bpy.props import (
     BoolProperty,
     CollectionProperty,
@@ -397,6 +399,17 @@ def undo_cleanup() -> list[str]:
         restored.append(image.name)
     begin_undo("")
     return restored
+
+
+@persistent
+def _on_load_pre(*_args: object) -> None:
+    """Forget the undo copies and the coverage cache before another file loads.
+
+    Undo Cleanup restores by image name and size only, so a copy kept from
+    the previous file would write its pixels over a same-named image here.
+    """
+    begin_undo("")
+    _coverage.clear()
 
 
 # --- masks ---------------------------------------------------------------------------------
@@ -1103,9 +1116,13 @@ _register_classes, _unregister_classes = bpy.utils.register_classes_factory(clas
 def register() -> None:
     _register_classes()
     bpy.types.Scene.geotools_texture = PointerProperty(type=GeoToolsTextureSettings)
+    if _on_load_pre not in bpy.app.handlers.load_pre:
+        bpy.app.handlers.load_pre.append(_on_load_pre)
 
 
 def unregister() -> None:
+    while _on_load_pre in bpy.app.handlers.load_pre:
+        bpy.app.handlers.load_pre.remove(_on_load_pre)
     del bpy.types.Scene.geotools_texture
     _coverage.clear()
     begin_undo("")

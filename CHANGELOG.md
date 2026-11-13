@@ -20,6 +20,11 @@ and the project follows semantic versioning where practical.
   orthophoto whose image was redirected keeps the edited copy and warns that
   the file's pixels were not reloaded. This reverses the M6 behaviour of
   saving an edited image to its own file.
+- Opening or loading another `.blend` now drops Texture Cleanup's undo copy.
+  Undo Cleanup restores images by name and size, so after a load it could
+  write the previous file's pixels over a same-named texture, which the next
+  Publish then saved. Loading also frees the copy (up to 256 MiB for an 8K
+  image) and the UV coverage cache.
 - File paths GeoTools stores itself now work across Linux, macOS and Windows,
   so a project folder (the `.blend` and its data) opens on any of them and
   finds its files. Linked GeoJSON, GeoPackage and GeoTIFF files, the build

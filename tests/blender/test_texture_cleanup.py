@@ -305,6 +305,32 @@ def test_fill_holes_inside_islands_only() -> None:
     assert result == {"CANCELLED"}, (result, error)
 
 
+def test_loading_a_file_drops_the_undo_copies() -> None:
+    """Undo Cleanup never writes one file's pixels over a same-named image in another."""
+    cleanup = _cleanup()
+    assert cleanup._on_load_pre in bpy.app.handlers.load_pre
+    _reset()
+    _obj, image, _truth, _inside = _textured()
+    px = _pixels(image)
+    px[28:34, 28:34, :3] = 0.0
+    image.pixels.foreach_set(px.ravel())
+    assert bpy.ops.geotools.texture_fill_holes() == {"FINISHED"}
+    assert bpy.ops.geotools.texture_cleanup_undo.poll()
+    assert cleanup._coverage
+    try:
+        assert bpy.ops.wm.read_homefile(use_empty=True) == {"FINISHED"}
+        h.reset_scene()
+        other = bpy.data.images.new("Albedo", 64, 64, alpha=True)
+        before = _pixels(other)
+        assert not bpy.ops.geotools.texture_cleanup_undo.poll()
+        assert cleanup.undo_label() == "" and not cleanup._coverage
+        assert cleanup.undo_cleanup() == []
+        assert np.array_equal(_pixels(other), before) and not other.is_dirty
+    finally:
+        assert bpy.ops.wm.read_homefile(use_empty=True) == {"FINISHED"}
+        h.reset_scene()
+
+
 def test_fill_holes_transparent() -> None:
     _reset()
     _obj, image, truth, _inside = _textured(background=False)
