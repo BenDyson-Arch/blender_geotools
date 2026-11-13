@@ -136,7 +136,7 @@ class GEOTOOLS_PT_textures_balance(_TexturePanel, bpy.types.Panel):
         layout = self.layout
         props = settings(context)
         col = split_column(layout)
-        col.prop(props, "balance_reference", placeholder="Most seam samples")
+        col.prop(props, "balance_reference", placeholder="Automatic")
         layout.operator("geotools.texture_balance_fit", icon="SEQ_HISTOGRAM")
         if not len(props.balance_pages):
             return

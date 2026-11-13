@@ -485,6 +485,11 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
   **Use Horizon Profile** (it says whether Sun Hours uses the profile), and
   Shadow Study no longer repeats Sun's **First Frame** (it says which frame
   the keys start at).
+- Less cut-off text in the sidebar: the Checks list cuts a long issue at its
+  end rather than its middle, so the subject stays readable (the box under the
+  list shows it whole); the CRS name under the picker wraps; a layer's
+  **Description** gets the full width; Sections' checkbox reads **Edges:
+  Selected Only**; Balance's empty **Reference** reads "Automatic".
 - In Publish, **Format** comes before **Output**, each labelled above its
   field, so `.3tz .glb Vectors` is no longer cut off. Linked Data's import
   buttons, Inspect Output's Quality buttons and the long hints in Sun Hours,

@@ -71,7 +71,14 @@ def test_run_checks_flags_shape_keys() -> None:
     assert ("template_list", "GEOTOOLS_UL_issues", "NONE") in calls, calls
     assert h.draw_header(panels.GEOTOOLS_PT_checks) == "CANCEL"
     row = h.draw_list_item(h.submodule("blender.checks").GEOTOOLS_UL_issues, h.project(), item)
-    assert row == [("label", item.message, "CANCEL")], row
+    # The list row keeps the start of the message and cuts at the end (Blender would elide
+    # the middle); the box under the list draws it whole.
+    assert len(row) == 1 and row[0][0] == "label" and row[0][2] == "CANCEL", row
+    text = row[0][1]
+    assert text == item.message or (
+        text.endswith("\u2026") and item.message.startswith(text[:-1])
+    ), (text, item.message)
+    assert text.startswith("Cube"), text
 
 
 def test_run_checks_includes_placement() -> None:
