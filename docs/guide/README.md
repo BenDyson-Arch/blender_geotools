@@ -48,7 +48,8 @@ The guide uses the synthetic site in
 [`examples/drape-contexts/`](../../examples/drape-contexts/): a 60 m terrain
 mesh with its offset file, and nine invented excavation contexts, at round
 coordinates in WGS 84 / UTM zone 31N (EPSG:32631). Every number in it is
-made up. `scripts/make_example_drape.py` makes the files again.
+made up. Each release also carries it as `geotools-demo-data-<version>.zip`.
+`scripts/make_example_drape.py` makes the files again.
 
 ## What GeoTools does not do
 

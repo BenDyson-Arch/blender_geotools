@@ -3,7 +3,10 @@ name: Release
 # Push a tag vX.Y.Z on main to publish a release. The tag must match the
 # manifest version, be on main, and have a matching CHANGELOG.md section. A
 # version with a suffix (0.4.0-rc.1) becomes a prerelease; any other becomes the
-# latest release.
+# latest release. The release body is docs/release-notes/<version>.md when there is
+# one (see scripts/release_notes.py), and the release carries the platform zips, the
+# demo data (examples/drape-contexts) as geotools-demo-data-<version>.zip, and
+# SHA256SUMS of every zip.
 
 on:
   push:
@@ -124,6 +127,13 @@ jobs:
         with:
           name: release-zips
           path: dist
+      - name: Zip the demo data
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          set -eu
+          python -m zipfile -c "dist/geotools-demo-data-${VERSION}.zip" examples/drape-contexts
+          python -m zipfile -l "dist/geotools-demo-data-${VERSION}.zip"
       - name: Attach checksums and publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

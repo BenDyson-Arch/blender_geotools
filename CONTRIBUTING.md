@@ -342,8 +342,11 @@ does the rest.
 2. On a branch from `release/X.Y.Z`, set `version` in
    `geotools/blender_manifest.toml`, for example from `0.3.0-dev` to `0.3.0`
    (a suffix such as `0.3.0-rc.1` makes a prerelease), and replace
-   `Unreleased` in the `## [0.3.0]` heading with the date. The release notes are
-   that section, so it must not be empty.
+   `Unreleased` in the `## [0.3.0]` heading with the date. That section must
+   not be empty. The release notes are `docs/release-notes/0.3.0.md` when it
+   exists (a prerelease uses its base version's page), with `{version}`
+   filled in and a link to the changelog; otherwise they are the changelog
+   section. `python scripts/release_notes.py 0.3.0` prints them.
 3. Merge that into `release/X.Y.Z`, then open a pull request from
    `release/X.Y.Z` to `main` and merge it.
 4. Tag the merge commit on `main` and push the tag:
@@ -352,9 +355,10 @@ does the rest.
    `main` and has a changelog section. It then fetches the pinned wheels for
    every platform from PyPI (for CPython 3.13), builds the three split zips,
    checks each holds a rusty-tiles, pyproj and certifi wheel, tests the Linux zip in
-   official Blender, and publishes a GitHub release with the zips and
-   `SHA256SUMS`. A plain version becomes the latest release; a suffixed one is
-   a prerelease.
+   official Blender, and publishes a GitHub release with the zips, the demo
+   data (`examples/drape-contexts/` as `geotools-demo-data-<version>.zip`) and
+   `SHA256SUMS` of all of them. A plain version becomes the latest release; a
+   suffixed one is a prerelease.
 6. Merge `main` back into `develop` (a pull request), and delete the release
    branch.
 
