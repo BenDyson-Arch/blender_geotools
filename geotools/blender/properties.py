@@ -948,9 +948,16 @@ def register() -> None:
     _register_classes()
     bpy.types.Scene.geotools = PointerProperty(type=GeoToolsProject)
     bpy.types.Image.geotools_remedy = PointerProperty(type=GeoToolsImageRemedy)
+    bpy.types.Image.geotools_texture_file = StringProperty(
+        name="GeoTools Texture File",
+        description="The textures/ file GeoTools saved this image's edits to (texture_state)",
+        subtype="FILE_PATH",
+    )
 
 
 def unregister() -> None:
+    if hasattr(bpy.types.Image, "geotools_texture_file"):
+        del bpy.types.Image.geotools_texture_file
     if hasattr(bpy.types.Image, "geotools_remedy"):
         del bpy.types.Image.geotools_remedy
     if hasattr(bpy.types.Scene, "geotools"):

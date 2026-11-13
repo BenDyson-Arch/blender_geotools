@@ -51,7 +51,9 @@ to try the tools.
    (see below). Each GeoTools tool marks the image as edited.
 4. **Run Checks.** Run Checks now also reports:
    - `image-unsaved` (warning): an image has edits that are not saved
-     anywhere. The message says where Publish will save them.
+     anywhere. The message says where Publish will save them. It is an error
+     when the image has a source file and the `.blend` was never saved (see
+     below).
    - `textures-changed` (note): which textures changed since the selected
      build profile's last publish.
    - `texture-balance-preview` (error): a material still shows the colour
@@ -63,12 +65,31 @@ to try the tools.
    before it writes the source GLB, so a painted texture is never lost or
    published stale:
    - an image packed into the `.blend` is packed again from its current pixels;
-   - an image with a file is saved to that file, as Blender's Image > Save
-     does. A JPEG file is saved as JPEG again, which is lossy, so paint on PNG
-     textures where you can;
+   - an image with a file is **never saved over that file** unless GeoTools
+     wrote it. The edits go to a copy, `//textures/<image>.png` next to the
+     saved `.blend` (numbered if that name is taken), and the image is pointed
+     at it. Later edits are saved to that copy, which is GeoTools' own. Your
+     Metashape JPEG or GeoTIFF orthophoto stays as it was. For a GeoTIFF this
+     is essential: Blender's image writer drops the GeoKeyDirectory,
+     ModelTiepoint and ModelPixelScale tags, so saving over one would leave a
+     plain TIFF, the link would show Changed on Disk, and a refresh could no
+     longer place it. If the `.blend` has never been saved there is no
+     `//textures/` folder for the copy, so Checks reports `image-unsaved` as
+     an error and Publish refuses: save the `.blend` first. GeoTools does not
+     pack the pixels into the `.blend` instead, because an orthophoto can be
+     very large;
    - an image with neither (a generated image you painted) is saved as
      `//textures/<image>.png` next to a saved `.blend`. If the `.blend` has
      never been saved, the image is packed into it instead.
+
+   Refreshing a linked orthophoto whose image was redirected to its copy
+   moves the plane as usual but keeps the copy, with your edits, and warns
+   that the file's pixels were not reloaded: the edited pixels, from the
+   earlier file, are placed on the new footprint. If the file's width or
+   height in pixels changed, the refresh is refused instead (the link shows
+   an error and nothing moves), so the copy is never stretched. To show the
+   file again, point the material's Image Texture back at the `.tif`; the
+   copy keeps the edits.
 
    `build.json` then records, under `source.images`, each source image's name,
    whether it came from a file or was packed, and the SHA-256 of those bytes.
@@ -232,8 +253,14 @@ fits a **gain and offset per page and per colour channel**:
   gain and offset, and the seam error before and after, in 8-bit levels of
   linear light.
 - **Apply.** **Apply Balance** writes the correction into the pixels and
-  removes the preview. **Clear Balance** removes the preview without touching
-  any pixels.
+  removes the preview. It changes every page or none. If a page has no pixels
+  (its file went missing), Apply refuses before changing any page, and Undo
+  Cleanup still undoes the previous tool. If a page fails part-way (memory ran
+  out), the pages already balanced are put back and there is nothing to undo.
+  Either way the fit and its preview stay. In the rare case that putting the
+  pages back fails too, the fit is cleared so Apply cannot run twice, and
+  **Undo Cleanup** puts the pages back. **Clear Balance** removes the preview
+  without touching any pixels.
 
 Limits:
 
@@ -253,8 +280,9 @@ images back as they were before the last tool ran. There is one level of undo.
 - Blender's Ctrl+Z does not undo pixel changes made outside paint strokes, so
   use Undo Cleanup instead.
 - **Image > Reload** goes back to the saved file.
-- The copy lasts for the session only, and costs memory: 256 MiB for an 8K
-  8-bit image, and four times that for a float image.
+- The copy lasts until Blender quits or another file is opened, and costs
+  memory: 256 MiB for an 8K 8-bit image, and four times that for a float
+  image.
 
 ## Performance
 

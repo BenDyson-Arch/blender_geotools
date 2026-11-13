@@ -40,6 +40,9 @@ from . import deps
 
 _UNAVAILABLE_DESCRIPTION = "unavailable until proj_trans is called"
 
+GRID_ADVICE = "Allow grid downloads, or install the grid, to use it."
+"""The end of the missing-grid note; the Blender layer rewords it when online access is off."""
+
 
 @dataclass(frozen=True, slots=True)
 class ReprojectionReport:
@@ -279,8 +282,7 @@ def _missing_grid_notes(
     return [
         (
             f"A more accurate operation is not available offline: {best.name} "
-            f"(accuracy {best.accuracy:g} m{grid_text}). Allow grid downloads, or install "
-            "the grid, to use it."
+            f"(accuracy {best.accuracy:g} m{grid_text}). {GRID_ADVICE}"
         )
     ]
 

@@ -13,7 +13,7 @@ What a layer does today:
 
 rusty-tiles 0.4 cannot carry metadata into tiles, so a variant is the way to
 see a layer in a 3D Tiles viewer. Queryable layers in the tiles themselves come
-with rusty-tiles 0.5 (roadmap milestone M9).
+with rusty-tiles 0.5 (see the [roadmap](../ROADMAP.md)).
 
 ## Add a layer
 
@@ -28,7 +28,8 @@ The analysis tools and presets add their own layers, so you often skip this.
 
 Under the list, the selected layer shows:
 
-- **Label** and **Units**, used in legends and metadata;
+- **Label** and **Units**: the label is the name shown in the list, and both
+  are written into the [GLB metadata](glb-metadata.md);
 - **Attribute** (face and corner layers): the mesh attribute the layer reads,
   `gt_<name>` unless you type another;
 - **Values**: the range of values present. The refresh button (**Update
