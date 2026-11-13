@@ -344,9 +344,8 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
   - 3D least-cost paths: Shortest Edge Paths with a walking cost (Tobler)
     from slope, a maximum walkable slope and per-face costs from layers.
   - Flow-path tracing for quick looks (a Repeat zone stepping downhill).
-  - Not built yet (the next batch, not in 0.3.0): surface reading, ambient
-    occlusion and curvature bakes for worn surfaces, rock art and
-    inscriptions.
+  - Not built yet (not in 0.3.0): surface reading, that is ambient occlusion
+    and curvature bakes for worn surfaces, rock art and inscriptions.
 - **Recipes:** docs and example `.blend` files for anything that does not
   earn a preset.
 - **Left to a GIS, results imported through M8:** catchment-scale 2.5D

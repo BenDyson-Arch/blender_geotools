@@ -316,10 +316,9 @@ are done.
   it (`gh pr create --base develop`).
 - `release/X.Y.Z` is cut from `develop` when a release's scope is complete, so
   `develop` can move on to the next version while the release waits (for
-  example on a rusty-tiles release). Only work that ships in that release
-  goes to it (fixes, or a feature moved into the release's scope), through
-  pull requests against it; merge the release branch back into `develop`
-  after each change and after the release.
+  example on a rusty-tiles release). Only fixes for that release go to it,
+  through pull requests against it; merge the release branch back into
+  `develop` after each fix and after the release.
 - `legacy-0.2` keeps the 0.2 importer add-on. It is not developed.
 
 `main`, `develop` and `release/*` are protected by rulesets: no deletion or force

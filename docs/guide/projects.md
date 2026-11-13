@@ -156,11 +156,6 @@ not move the scene. See [Working alongside BlenderGIS](blendergis.md).
   geometry towards the origin and put the shift in the offset.
 - Run Checks warns (`float-precision`) when single precision is coarser than
   1 mm at the largest coordinate.
-- Moving geometry towards the origin in Blender does not bring back precision
-  it lost when it was read in. Blender stores a mesh in single precision as it
-  imports it, so an OBJ or PLY written in full projected coordinates is
-  already rounded (to steps of 0.5 m at N 5,400,000). Export it again with a
-  local shift from the tool that made it, and use the offset file with it.
 - The scene's unit scale must be 1 (`unit-scale`), so one Blender unit is one
   source unit.
 - A geographic CRS (such as EPSG:4326) reads Blender units as degrees, which is

@@ -25,7 +25,6 @@ and the project follows semantic versioning where practical.
 - The user guide and roadmap no longer say GeoTools writes GeoTIFF: GeoTIFF is
   import only. Other stale or contradictory text in the roadmap, guide,
   CONTRIBUTING.md and the workflows is corrected.
-
 - File paths GeoTools stores itself now work across Linux, macOS and Windows,
   so a project folder (the `.blend` and its data) opens on any of them and
   finds its files. Linked GeoJSON, GeoPackage and GeoTIFF files, the build

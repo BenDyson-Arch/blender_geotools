@@ -70,10 +70,6 @@ BlenderGIS and GeoTools treat a change of origin differently:
   the objects where they are in Blender. The scene is read at the new origin,
   so the objects move on Earth.
 
-<!-- TODO(coordinator): "An import ... never moves the origin" is not yet true
-for Import Source Mesh, which loads an offset file found beside the mesh and so
-rewrites crs x and crs y. Keep this text if the planned import fix lands;
-otherwise reword it. -->
 GeoTools changes `crs x` and `crs y` only when you edit the origin yourself.
 An import, a CRS change or a change of placement never moves the origin. When
 an import offers the data's centre as the project origin and the scene already
