@@ -178,7 +178,7 @@ Build** shows:
 - **Triangles** 28,800 and **Tiles** 5;
 - **Validation** Passed;
 - **Folder** and **Record** buttons, which open the output folder and the
-  build record.
+  build record, and **Extract for Web** (step 8).
 
 Next to the `.blend` you now have:
 
@@ -200,28 +200,35 @@ fails or is cancelled.
 ## 8. View the result
 
 `site.3tz` is a 3D Tiles archive: one zip file that holds `tileset.json` and
-its tiles. Viewers that stream 3D Tiles from a web server, such as CesiumJS,
-cannot open a `.3tz` directly. Extract it and serve the folder:
+its tiles. Web viewers such as CesiumJS read a tileset from a web server, not
+from a `.3tz`, so GeoTools writes a folder you can serve:
 
-```sh
-python3 -m zipfile -e site.3tz site/
-python3 -m http.server 8000
-```
+1. In **Last Build**, press **Extract for Web**. GeoTools writes `site.web/`
+   next to `site.3tz`: `tileset.json` and the tiles, plus `index.html`, a
+   CesiumJS page that shows them. The folder button beside it opens the
+   folder.
+2. Serve the folder with any web server. Python has one; in a terminal in the
+   folder that holds `site.web/`, run:
 
-Then load `http://localhost:8000/site/tileset.json` in your viewer. In
-CesiumJS:
+   ```sh
+   python3 -m http.server 8000 --directory site.web   # Linux and macOS
+   py -m http.server 8000 --directory site.web        # Windows
+   ```
 
-```js
-const tileset = await Cesium.Cesium3DTileset.fromUrl(
-  "http://localhost:8000/site/tileset.json"
-);
-viewer.scene.primitives.add(tileset);
-viewer.zoomTo(tileset);
-```
+3. Open <http://localhost:8000/> in your browser.
 
-The tiles use meshopt geometry compression (`EXT_meshopt_compression`), and
-the lossy quality profiles use KTX2 textures. Use a viewer that supports both,
-such as a current CesiumJS.
+The site appears on a globe with low-resolution Natural Earth imagery, which
+ships inside CesiumJS, so you need no Cesium ion account or token. The page
+loads CesiumJS 1.146 from the jsDelivr CDN, so the browser needs to be online.
+Opening `index.html` directly from disk does not work: browsers do not let a
+page read `tileset.json` from a `file://` folder. The page says so.
+
+After you publish again, press **Extract for Web** again. Until you do, the
+panel says `site.web` is older than the archive. A variant has its own Last
+Build and writes its own folder, such as `site.slope.web/`.
+
+To show the tiles in a page of your own, or in another viewer, see
+[Viewing a .3tz elsewhere](publish.md#viewing-a-3tz-elsewhere).
 
 To preview from Blender, set the optional **rusty-tiles CLI** and a Cesium
 1.146 **Cesium Runtime** folder in the GeoTools preferences. Neither is bundled.

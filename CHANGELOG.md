@@ -7,7 +7,24 @@ and the project follows semantic versioning where practical.
 
 ## [Unreleased]
 
+### Added
+
+- **Extract for Web** in Last Build: writes a published `.3tz` as a folder any
+  web server can serve, next to it (`site.web/` for `site.3tz`, and one per
+  variant), with `tileset.json`, the tiles and an optional `index.html`
+  CesiumJS page. The page loads CesiumJS 1.146.0 from the jsDelivr CDN and uses
+  the Natural Earth II imagery bundled with CesiumJS, so it needs no Cesium ion
+  token, and no rusty-tiles CLI is needed to view a build. GeoTools only ever
+  replaces a folder it wrote itself, and the panel says when the folder is
+  older than the archive.
+
 ### Fixed
+
+- Getting started step 8 (View the result) works as written: it uses Extract
+  for Web and a complete viewer page instead of a snippet with an undefined
+  `viewer`, and gives the Windows `py` command for Python's web server. The
+  publish guide shows the page and explains why a viewer on another origin,
+  such as Sandcastle, is blocked by CORS.
 
 - File paths GeoTools stores itself now work across Linux, macOS and Windows,
   so a project folder (the `.blend` and its data) opens on any of them and

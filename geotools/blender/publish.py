@@ -39,6 +39,7 @@ from ..core.issues import Issue, Severity
 from ..core.presentation import variant_output
 from ..publish import preview as pv
 from ..publish import staging as st
+from ..publish import web
 from ..publish.job import BuildJob, BuildRequest, JobState
 from . import blend_paths, texture_state
 from .checks import count_issues, describe_counts, run_checks, store_issues
@@ -760,6 +761,65 @@ class GEOTOOLS_OT_open_build_record(bpy.types.Operator):
         return bpy.ops.wm.path_open(filepath=str(_last_record(context)))
 
 
+def _web_dir(context: bpy.types.Context) -> Path | None:
+    """Where Extract for Web writes the last published archive, or None for a ``.glb``."""
+    output = _last_output(context)
+    if output is None or output.suffix != ".3tz":
+        return None
+    return web.web_dir_for(output)
+
+
+class GEOTOOLS_OT_extract_for_web(bpy.types.Operator):
+    """Extract the last published archive to a <name>.web folder next to it, with a CesiumJS page, for any web server to serve"""
+
+    bl_idname = "geotools.extract_for_web"
+    bl_label = "Extract for Web"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context: bpy.types.Context) -> bool:
+        output = _last_output(context)
+        if output is None or output.suffix != ".3tz" or not output.is_file():
+            cls.poll_message_set("Publish a .3tz with this build profile first")
+            return False
+        status_ = status(context)
+        if is_running() and status_ is not None and paths.same_file(status_.output, output):
+            cls.poll_message_set("Wait for the publish to finish")
+            return False
+        return True
+
+    def execute(self, context: bpy.types.Context) -> set[str]:
+        output = _last_output(context)
+        try:
+            folder = web.extract_for_web(output, web.web_dir_for(output))
+        except (web.WebExtractError, OSError, ValueError) as ex:
+            self.report({"ERROR"}, f"Extract for Web failed: {ex}")
+            return {"CANCELLED"}
+        page = " with index.html" if folder.viewer else ""
+        self.report({"INFO"}, f"Extracted to {folder.path}{page}; serve it with a web server")
+        redraw_ui(context)
+        return {"FINISHED"}
+
+
+class GEOTOOLS_OT_open_web_folder(bpy.types.Operator):
+    """Open the folder Extract for Web wrote"""
+
+    bl_idname = "geotools.open_web_folder"
+    bl_label = "Open Web Folder"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context: bpy.types.Context) -> bool:
+        folder = _web_dir(context)
+        if folder is None or not web.is_geotools_web_dir(folder):
+            cls.poll_message_set("Extract for Web first")
+            return False
+        return True
+
+    def execute(self, context: bpy.types.Context) -> set[str]:
+        return bpy.ops.wm.path_open(filepath=str(_web_dir(context)))
+
+
 # --- preview --------------------------------------------------------------------------------
 
 
@@ -951,6 +1011,16 @@ def draw_last_build(
     row = col.row()
     row.alert = profile.last_validation == "FAILED"
     info_row(row, "Validation", validation[0], icon=validation[1])
+    if not profile.last_output.endswith(".3tz"):
+        return
+    row = layout.row(align=True)
+    row.operator("geotools.extract_for_web", icon="URL")
+    output = Path(blend_paths.abspath(profile.last_output))
+    folder = web.web_dir_for(output)
+    if web.is_geotools_web_dir(folder):
+        row.operator("geotools.open_web_folder", text="", icon="FILE_FOLDER")
+        if web.is_stale(output, folder):
+            wrapped(layout, context, f"{folder.name} is older than the archive", icon="INFO")
 
 
 def draw_preview(layout: bpy.types.UILayout, context: bpy.types.Context) -> None:
@@ -981,6 +1051,8 @@ classes = (
     GEOTOOLS_OT_cancel_publish,
     GEOTOOLS_OT_open_output_folder,
     GEOTOOLS_OT_open_build_record,
+    GEOTOOLS_OT_extract_for_web,
+    GEOTOOLS_OT_open_web_folder,
     GEOTOOLS_OT_preview_output,
     GEOTOOLS_OT_stop_preview,
 )
