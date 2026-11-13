@@ -5,7 +5,8 @@
      and waits for window.render.ready.
      Query: tileset (folder name), heading, pitch (degrees, to the site), range (metres), up
      (degrees the camera then tilts up), dz (metres: the site's height above the ellipsoid, so
-     it sits on the ellipsoid's surface instead of floating above it).
+     it sits on the ellipsoid's surface instead of floating above it), sun_az and sun_el (degrees:
+     a directional light from there, for the relief) and sun_i (its intensity).
      window.render.outside() counts the corners of the site's bounding box that are not on
      the canvas, so the script can check that the whole site is in frame. -->
 <html lang="en">
@@ -92,6 +93,21 @@
           const shift = Cesium.Cartesian3.subtract(down, up, new Cesium.Cartesian3());
           tileset.modelMatrix = Cesium.Matrix4.fromTranslation(shift);
           const target = Cesium.Cartesian3.add(centre, shift, new Cesium.Cartesian3());
+
+          // A low sun for the relief (sun_az clockwise from north, sun_el above the horizon,
+          // degrees, at the site); without them Cesium's own sun for the clock's time.
+          if (q.has("sun_az")) {
+            const az = Cesium.Math.toRadians(num("sun_az", 225));
+            const el = Cesium.Math.toRadians(num("sun_el", 35));
+            const enu = Cesium.Transforms.eastNorthUpToFixedFrame(target);
+            const toSun = new Cesium.Cartesian3(Math.sin(az) * Math.cos(el), Math.cos(az) * Math.cos(el), Math.sin(el));
+            const world = Cesium.Matrix4.multiplyByPointAsVector(enu, toSun, new Cesium.Cartesian3());
+            const direction = Cesium.Cartesian3.negate(Cesium.Cartesian3.normalize(world, world), world);
+            scene.light = new Cesium.DirectionalLight({ direction, intensity: num("sun_i", 2.6) });
+            // Less of the sky's even light, so the sun's side of each slope shows.
+            const ambient = num("ambient", 0.35);
+            tileset.imageBasedLighting.imageBasedLightingFactor = new Cesium.Cartesian2(ambient, ambient);
+          }
 
           const volume = tileset.root.boundingVolume;
           const box =

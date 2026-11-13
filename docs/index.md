@@ -9,8 +9,7 @@ hide:
 
 # GeoTools
 
-<!-- Hero option B (designed banner): assets/readme/hero-b.png (dark) or hero-b-light.png. -->
-![Four analyses of a synthetic site in Blender (slope and contours, a viewshed, solstice and lunar sightlines, flow paths) beside the site published as 3D Tiles in CesiumJS](assets/readme/hero-a.png)
+![Four analyses of synthetic hills in Blender (slope and contours, a viewshed, solstice and lunar sightlines from a hilltop enclosure, flow paths down the valleys) beside the hills published as 3D Tiles in CesiumJS, coloured by slope](assets/readme/hero-a.png)
 
 GeoTools brings GIS into Blender. Place a site in a real coordinate system,
 bring in GeoJSON, GeoPackage and GeoTIFF, and analyse the full 3D mesh, not a
@@ -46,7 +45,7 @@ the **GeoTools** tab of the 3D Viewport sidebar.
 
     [:octicons-arrow-right-24: Geo formats](guide/geo-formats.md)
 
--   ![The Presets and Layers panels with a viewshed on the terrain: the mound hides the ground behind it](assets/readme/feature-terrain.png)
+-   ![The Presets and Layers panels with a viewshed from a ridge: the hill hides the ground behind it](assets/readme/feature-terrain.png)
 
     **Terrain and visibility**
 
@@ -56,7 +55,7 @@ the **GeoTools** tab of the 3D Viewport sidebar.
 
     [:octicons-arrow-right-24: Analysis presets](guide/analysis.md#presets)
 
--   ![The Archaeoastronomy panel with solstice and lunar standstill sightlines from the top of a mound](assets/readme/feature-sky.png)
+-   ![The Archaeoastronomy panel with solstice and lunar standstill sightlines from a hilltop enclosure](assets/readme/feature-sky.png)
 
     **Sun and sky**
 
@@ -65,7 +64,7 @@ the **GeoTools** tab of the 3D Viewport sidebar.
 
     [:octicons-arrow-right-24: Sun and archaeoastronomy](guide/analysis.md#archaeoastronomy)
 
--   ![The Hydrology panel with flow paths and contour lines on the terrain](assets/readme/feature-hydrology.png)
+-   ![The Hydrology panel with flow paths down two valleys and contour lines on the hills](assets/readme/feature-hydrology.png)
 
     **Hydrology and measurement**
 
@@ -74,7 +73,7 @@ the **GeoTools** tab of the 3D Viewport sidebar.
 
     [:octicons-arrow-right-24: Hydrology, contours and measurement](guide/analysis.md#hydrology)
 
--   ![The Layers panel with the terrain coloured by slope](assets/readme/feature-layers.png)
+-   ![The Layers panel with a hilltop enclosure coloured by slope](assets/readme/feature-layers.png)
 
     **Layers**
 

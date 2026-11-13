@@ -11,20 +11,28 @@ What it does, in three stages (the same file runs in each):
    wheels, installs it into a throwaway profile, copies the synthetic demo
    (``examples/drape-contexts/``) into ``.scratch/readme-images/work`` and opens
    it in GUI Blender (``--inner``). A Blender window is on your screen for
-   about a minute; ``--enable-event-simulate`` makes Blender ignore your mouse
-   and keyboard meanwhile. Inside, the demo is prepared the way a user would:
-   a synthetic orthophoto texture, the Slope analysis preset, Verify
-   Placement, Run Checks, contours and hydrology flow paths, a synthetic DEM
-   GeoTIFF linked beside the GeoJSON, Fill Holes and Publish (``site.3tz`` and
-   the slope variant ``site.slope.3tz``), then solstice and lunar sightlines from
-   the mound (Archaeoastronomy) and a viewshed from the field's low corner. Each
-   shot shows only the GeoTools panels it is about, in a fresh workspace (a
+   about two minutes; ``--enable-event-simulate`` makes Blender ignore your
+   mouse and keyboard meanwhile. Two scenes, each prepared the way a user would:
+
+   * the drape demo, for the panels that need its photo texture and linked
+     files (Textures, Project, Linked Data, Publish): a synthetic orthophoto
+     texture, Verify Placement, Run Checks, a synthetic DEM GeoTIFF linked
+     beside the GeoJSON, Fill Holes and Publish (``site.3tz``);
+   * the hills (``hills_height``: a made-up 1.4 km landscape with about 190 m of
+     relief, since the 60 m demo is nearly flat) as the source collection, for
+     the analyses: the Slope preset with contours, hydrology flow paths, Publish
+     of the slope variant (``hills.slope.3tz``), solstice and lunar sightlines
+     from the hilltop enclosure (Archaeoastronomy) and a viewshed from the
+     ridge, lit by a low sun so the relief reads under the colours.
+
+   Each shot shows only the GeoTools panels it is about, in a fresh workspace (a
    region keeps each panel's open or closed state once it has drawn it); the
    analysis shots also take a centred view for the hero's montage.
 2. **Cesium**: the ``cesium@CESIUM`` package tarball (``npm pack``, checked
    against its pinned integrity; only its prebuilt ``Build/Cesium`` is used, so
-   no dependency is resolved) unpacked into the scratch folder, the slope
-   variant extracted beside a small page, rendered in headless Chromium with
+   no dependency is resolved) unpacked into the scratch folder, the hills'
+   slope variant and the drape site extracted beside a small page (the hills lit
+   by a directional sun), rendered in headless Chromium with
    Playwright (offline: no ion token, Cesium's bundled NaturalEarthII imagery
    and the default ellipsoid). The page waits until the tileset, the globe and
    every request have finished, and fails if the site is not wholly in frame.
@@ -42,9 +50,10 @@ and reuses its unpacked Cesium on the next run).
 
 Outputs (in ``--out``):
 
-* ``hero-a.png``: "Analyse in Blender", a montage of four analyses of the demo
-  (slope and contours, a viewshed, sightlines, flow paths), beside "Share", the
-  published slope variant in CesiumJS (transparent, for light and dark pages);
+* ``hero-a.png``: "Analyse in Blender", a montage of four analyses of the hills
+  (slope and contours, a viewshed, sightlines, flow paths), beside "Share it",
+  their published slope variant in CesiumJS (transparent, for light and dark
+  pages);
 * ``hero-b.png``, ``hero-b-light.png``: hero option B, the designed banner
   (the wordmark, tagline and both shots inset), dark and light, 1600x640;
 * ``social-a.png`` (the hero with the wordmark), ``social-b.png`` (the
@@ -52,7 +61,8 @@ Outputs (in ``--out``):
   (under 1 MB);
 * ``feature-*.png``: thumbnails of the main features, the GeoTools sidebar
   with a strip of the 3D Viewport (the publish one with the Cesium view), so
-  the sidebar text stays readable at half size.
+  the sidebar text stays readable at half size. Terrain, sky, hydrology and
+  layers show the hills; textures, georeference, formats and publish the demo.
 
 Needs: Blender 5.2 (``--blender`` or ``$BLENDER``), the rusty-tiles wheels in
 ``geotools/wheels/`` (``scripts/fetch_wheels.py``), npm, ``uv``
@@ -105,7 +115,7 @@ UV_PYTHON = "3.13.14"
 UV_EXCLUDE_NEWER = "2026-10-30T00:00:00Z"
 
 WINDOW = (1600, 1000)
-GUI_TIMEOUT = 600  # seconds
+GUI_TIMEOUT = 1500  # seconds
 # The feature thumbnails: the top-right of the 3D Viewport area, header included: the
 # sidebar and a 200 px strip of viewport. Small, so the README can show them two to a
 # row (about 380 px wide) with the sidebar text still readable. 536 px tall ends the
@@ -131,6 +141,136 @@ SHOTS = (
 
 class MakeError(RuntimeError):
     pass
+
+
+# --- the hills: a synthetic landscape with real relief (numpy only) ------------------------------
+#
+# The analysis shots need relief, which the 60 m drape demo hardly has. The hills are made
+# up: seeded value noise and a few shapes, not modelled on any real place. A 1.4 km square,
+# 2.5 m grid (561 x 561 vertices), about 175 m of relief:
+#
+# * a promontory hill south-west of centre, its flat top ringed by a small enclosure (a bank
+#   inside a ditch, with an entrance gap to the east), joined to the skyline by a saddle;
+# * a ridge along the north edge with a knoll on it, so the horizon has a shape;
+# * two valleys either side of the hill that meet south-east of it in one stream, which
+#   runs off the south edge;
+# * a regional fall to the south, so water leaves the square, and fBm roughness.
+#
+# Local metres, centred on 0, 0, +Y north; heights are above the project offset's A.
+
+SUN_NAME = "README Key Sun"  # the hills' viewport light
+HILLS_SIZE = 1400.0  # metres, the side
+HILLS_SPACING = 2.5  # metres between vertices
+HILLS_SEED = 20261114
+HILLTOP = (-120.0, -80.0)  # the enclosure's centre
+# The hero's Blender view of the hills: rotation (degrees), target (local x, y), distance.
+HERO_VIEW = ((68.0, 0.0, 36.0), (40.0, -150.0), 1350.0)
+KNOLL = (380.0, 470.0)  # the knoll on the north ridge: the viewshed's observer
+# Valley thalwegs (local x, y), north to south, and their depth and half-width (m).
+VALLEYS = (
+    (
+        ((-700.0, 640.0), (-490.0, 200.0), (-450.0, -220.0), (-260.0, -480.0), (150.0, -560.0)),
+        36.0,
+        70.0,
+    ),
+    (((560.0, 700.0), (310.0, 300.0), (230.0, -150.0), (150.0, -560.0)), 32.0, 65.0),
+    (((150.0, -560.0), (220.0, -660.0), (250.0, -760.0)), 36.0, 75.0),
+)
+
+
+def _value_noise(x, y, cell: float, seed: int):
+    """Smooth value noise in [-1, 1] at any points: a seeded lattice, smoothstep-blended."""
+    import numpy as np
+
+    n = int(HILLS_SIZE / cell) + 6
+    lattice = np.random.default_rng(seed).random((n, n)) * 2.0 - 1.0
+    gx = (np.asarray(x, float) + HILLS_SIZE / 2) / cell + 2.0
+    gy = (np.asarray(y, float) + HILLS_SIZE / 2) / cell + 2.0
+    ix = np.clip(np.floor(gx).astype(int), 0, n - 2)
+    iy = np.clip(np.floor(gy).astype(int), 0, n - 2)
+    fx = np.clip(gx - ix, 0.0, 1.0)
+    fy = np.clip(gy - iy, 0.0, 1.0)
+    fx, fy = fx * fx * (3 - 2 * fx), fy * fy * (3 - 2 * fy)
+    a, b = lattice[iy, ix], lattice[iy, ix + 1]
+    c, d = lattice[iy + 1, ix], lattice[iy + 1, ix + 1]
+    return a * (1 - fx) * (1 - fy) + b * fx * (1 - fy) + c * (1 - fx) * fy + d * fx * fy
+
+
+def _distance_to_polyline(x, y, points):
+    import numpy as np
+
+    best = np.full(np.shape(x), np.inf)
+    for (x1, y1), (x2, y2) in itertools.pairwise(points):
+        dx, dy = x2 - x1, y2 - y1
+        t = np.clip(((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy), 0.0, 1.0)
+        best = np.minimum(best, np.hypot(x - (x1 + t * dx), y - (y1 + t * dy)))
+    return best
+
+
+def _smoothstep(edge0: float, edge1: float, v):
+    import numpy as np
+
+    t = np.clip((v - edge0) / (edge1 - edge0), 0.0, 1.0)
+    return t * t * (3 - 2 * t)
+
+
+def hills_height(x, y):
+    """Height (m above the offset's A) of the hills at local x, y (arrays or scalars)."""
+    import numpy as np
+
+    x = np.asarray(x, float)
+    y = np.asarray(y, float)
+    # The regional fall to the south, and the ridge along the north edge with a knoll.
+    z = 0.045 * y
+    z = z + 75.0 * _smoothstep(250.0, 620.0, y) * (0.82 + 0.18 * np.cos((x + 150.0) / 210.0))
+    z = z + 38.0 * np.exp(-(((x - 380.0) / 170.0) ** 2 + ((y - 470.0) / 140.0) ** 2))
+    # The promontory: a flat-topped hill, and the saddle that joins it to the ridge.
+    hx, hy = HILLTOP
+    r = np.hypot(x - hx, (y - hy) / 1.15)
+    z = z + 92.0 * (1.0 - _smoothstep(60.0, 330.0, r))
+    saddle = _distance_to_polyline(x, y, ((hx, hy), (-60.0, 200.0), (-40.0, 520.0)))
+    z = z + 34.0 * np.exp(-((saddle / 120.0) ** 2)) * _smoothstep(120.0, 330.0, y)
+    # The valleys and the stream (the deepest cut wins where they meet), warped so they
+    # meander instead of running straight between their points.
+    wx = x + 55.0 * _value_noise(x, y, 320.0, HILLS_SEED + 4)
+    wy = y + 55.0 * _value_noise(x, y, 320.0, HILLS_SEED + 5)
+    cut = np.zeros_like(z)
+    floor = np.zeros_like(z)
+    for points, depth, width in VALLEYS:
+        d = _distance_to_polyline(wx, wy, points)
+        cut = np.maximum(cut, depth * np.exp(-((d / width) ** 2)))
+        floor = np.maximum(floor, np.exp(-((d / (width * 0.6)) ** 2)))
+    z = z - cut
+    # Roughness, calmer on the valley floors so the streams keep running downhill.
+    rough = (
+        7.0 * _value_noise(x, y, 260.0, HILLS_SEED)
+        + 2.6 * _value_noise(x, y, 90.0, HILLS_SEED + 1)
+        + 0.5 * _value_noise(x, y, 30.0, HILLS_SEED + 2)
+        + 0.06 * _value_noise(x, y, 9.0, HILLS_SEED + 3)
+    )
+    z = z + rough * (1.0 - 0.85 * floor)
+    # The enclosure on the hilltop: a bank inside a ditch, open to the east.
+    re = np.hypot(x - hx, y - hy)
+    gap = 1.0 - np.exp(-((np.angle(np.exp(1j * np.arctan2(y - hy, x - hx))) / 0.16) ** 2))
+    z = z + gap * (
+        2.4 * np.exp(-(((re - 52.0) / 5.0) ** 2)) - 2.2 * np.exp(-(((re - 64.0) / 4.5) ** 2))
+    )
+    return z
+
+
+def hills_grid():
+    """Vertices (n, 3) float32 and quads (m, 4) int32 of the hills, centred on 0, 0."""
+    import numpy as np
+
+    n = round(HILLS_SIZE / HILLS_SPACING) + 1
+    axis = np.linspace(-HILLS_SIZE / 2, HILLS_SIZE / 2, n)
+    xs, ys = np.meshgrid(axis, axis)
+    zs = hills_height(xs, ys)
+    co = np.stack([xs.ravel(), ys.ravel(), zs.ravel()], axis=1).astype(np.float32)
+    i = np.arange(n - 1)
+    a = (i[None, :] + n * i[:, None]).ravel()
+    quads = np.stack([a, a + 1, a + n + 1, a + n], axis=1).astype(np.int32)
+    return co, quads
 
 
 # --- host side ---------------------------------------------------------------------------------
@@ -246,7 +386,7 @@ def host_main(argv: list[str] | None = None) -> int:
             meta = json.loads(done.read_text())
             if meta.get("errors"):
                 raise MakeError("in Blender: " + "; ".join(meta["errors"]))
-        for name in ("site.3tz", "site.slope.3tz"):
+        for name in ("site.3tz", "hills.slope.3tz"):
             if not (work / name).is_file():
                 raise MakeError(f"the publish wrote no {name}")
         if args.skip_compose:
@@ -256,7 +396,7 @@ def host_main(argv: list[str] | None = None) -> int:
         remove_tree(web)
         web.mkdir(parents=True)
         _fetch_cesium(scratch / "cesium")
-        _extract_3tz(work / "site.slope.3tz", web / "site.slope")  # the hero: the slope layer
+        _extract_3tz(work / "hills.slope.3tz", web / "hills.slope")  # the hero: hills by slope
         _extract_3tz(work / "site.3tz", web / "site")  # Publish's Last Build: the textured site
 
         cmd = [
@@ -709,6 +849,7 @@ def inner_main(argv: list[str]) -> None:
         links.new(to_mesh.outputs["Mesh"], lift.inputs["Geometry"])
         links.new(lift.outputs["Geometry"], set_mat.inputs["Geometry"])
         links.new(set_mat.outputs["Geometry"], gout.inputs[0])
+        obj.visible_shadow = False  # no shadow lines across the ground under the key sun
         modifier = obj.modifiers.new("Display Tubes", "NODES")
         modifier.node_group = group
         modifier.show_render = False
@@ -747,21 +888,11 @@ def inner_main(argv: list[str]) -> None:
     state: dict = {}
 
     def prepare():
-        """Everything a user would have done on the demo before these shots."""
+        """Everything a user would have done on the drape demo before its shots (the
+        panels that need its photo texture and linked files)."""
         image = add_photo_texture()
         state["image"] = image
         select(terrain)
-        run_op(bpy.ops.geotools.analysis_add, preset="slope")
-        layers = mod("blender.layers")
-        for item in props.layers:
-            layers.refresh_layer(scene, item)
-        props.layers_index = list(props.layers.keys()).index("slope")
-        slope = props.layers["slope"]
-        slope.presentation.range_min = "0"  # the demo is gentle: 0 to 11 degrees
-        slope.presentation.range_max = "10"
-        run_op(bpy.ops.geotools.layer_write_presentation)
-        if "gt_present" not in terrain.data.color_attributes:
-            fail("Write Colours left no gt_present attribute")
         yield 0.2
         try:  # the "taken into the GeoScene keys" notice: a user reads it and closes it
             run_op(bpy.ops.geotools.dismiss_georef_notice)
@@ -770,14 +901,121 @@ def inner_main(argv: list[str]) -> None:
         run_op(bpy.ops.geotools.verify_placement)
         run_op(bpy.ops.geotools.run_checks)
 
+        layer_collection = bpy.context.view_layer.layer_collection.children["Contexts"]
+        bpy.context.view_layer.active_layer_collection = layer_collection
+        synthetic_dem()
+
+        state["photo_material"] = terrain.data.materials[0]
+        # How far Cesium lowers the site to sit it on the bare ellipsoid (its lowest point
+        # 5 cm above it): the offset's A plus the terrain's lowest local height.
+        zs = np.empty(len(terrain.data.vertices) * 3, np.float32)
+        terrain.data.vertices.foreach_get("co", zs)
+        meta["site_dz"] = round(demo.A0 + float(zs[2::3].min()) - 0.05, 3)
+        state["ghost_material"] = ghost_material(state["photo_material"])
+        bpy.context.view_layer.update()
+
+    def publish_site():
+        select(terrain)
+        run_op(bpy.ops.geotools.texture_fill_holes)
+        profile = props.build_profiles[0]  # "Site"
+        props.build_profile_index = 0
+        profile.overwrite = True
+        profile.variant_layer = ""
+        run_op(bpy.ops.geotools.publish)
+        yield from wait_publish()
+        if not (work / "site.3tz").is_file():
+            fail("the publish wrote no site.3tz")
+        run_op(bpy.ops.geotools.run_checks)
+
+    # -- the hills: the analysis shots ------------------------------------------------------
+
+    def hills_material() -> bpy.types.Material:
+        """Map-like ground for the hills: green valleys to tan tops, by height."""
+        material = bpy.data.materials.new("Hills Ground")
+        tree = material.node_tree
+        bsdf = next(n for n in tree.nodes if n.type == "BSDF_PRINCIPLED")
+        bsdf.inputs["Roughness"].default_value = 1.0
+        bsdf.inputs["Specular IOR Level"].default_value = 0.0
+        coords = tree.nodes.new("ShaderNodeTexCoord")
+        split = tree.nodes.new("ShaderNodeSeparateXYZ")
+        span = tree.nodes.new("ShaderNodeMapRange")
+        span.inputs["From Min"].default_value = state["hills_z"][0]
+        span.inputs["From Max"].default_value = state["hills_z"][1]
+        ramp = tree.nodes.new("ShaderNodeValToRGB")
+        stops = (
+            (0.0, (0.07, 0.15, 0.05, 1.0)),
+            (0.45, (0.19, 0.26, 0.09, 1.0)),
+            (0.8, (0.38, 0.33, 0.17, 1.0)),
+            (1.0, (0.50, 0.44, 0.30, 1.0)),
+        )
+        ramp.color_ramp.elements[0].position, ramp.color_ramp.elements[0].color = stops[0]
+        ramp.color_ramp.elements[1].position, ramp.color_ramp.elements[1].color = stops[-1]
+        for position, colour in stops[1:-1]:
+            ramp.color_ramp.elements.new(position).color = colour
+        tree.links.new(coords.outputs["Object"], split.inputs["Vector"])
+        tree.links.new(split.outputs["Z"], span.inputs["Value"])
+        tree.links.new(span.outputs["Result"], ramp.inputs["Fac"])
+        tree.links.new(ramp.outputs["Color"], bsdf.inputs["Base Color"])
+        material.diffuse_color = stops[1][1]
+        return material
+
+    def key_sun() -> None:
+        """A low sun from the south-west, so the relief reads under any colours."""
+        light = bpy.data.lights.new(SUN_NAME, "SUN")
+        light.energy = 5.5
+        light.angle = math.radians(2.0)
+        sun = bpy.data.objects.new(SUN_NAME, light)
+        azimuth, elevation = 225.0, 30.0  # degrees, clockwise from north; above the horizon
+        sun.rotation_euler = (math.radians(90.0 - elevation), 0.0, math.radians(180.0 - azimuth))
+        scene.collection.objects.link(sun)
+
+    def prepare_hills():
+        """Swap the source collection for the hills and run the analyses on them."""
+        view_layer = bpy.context.view_layer
+        collection = bpy.data.collections.new("Hills")
+        scene.collection.children.link(collection)
+        co, quads = hills_grid()
+        hills = bpy.data.objects.new("hills", demo._mesh("hills", co, quads))
+        collection.objects.link(hills)
+        props.source_collection = collection
+        for name in ("Site", "Contexts", "Volumes"):  # out of the scene, and its raycasts
+            child = view_layer.layer_collection.children.get(name)
+            if child is not None:
+                child.exclude = True
+        view_layer.active_layer_collection = view_layer.layer_collection.children["Hills"]
+        state["hills"] = hills
+        state["hills_z"] = (float(co[:, 2].min()), float(co[:, 2].max()))
+        meta["hills_dz"] = round(demo.A0 + state["hills_z"][0] - 0.05, 3)
+        meta["notes"].append(f"hills: {len(co)} vertices, {len(quads)} quads")
+        hills.data.materials.append(hills_material())
+        state["ground_material"] = hills.data.materials[0]
+        key_sun()
+        yield 0.3
+
+        select(hills)
+        run_op(bpy.ops.geotools.analysis_add, preset="slope")
+        layers = mod("blender.layers")
+        for item in props.layers:
+            layers.refresh_layer(scene, item)
+        props.layers_index = list(props.layers.keys()).index("slope")
+        slope = props.layers["slope"]
+        slope.presentation.range_min = "0"
+        slope.presentation.range_max = "35"
+        run_op(bpy.ops.geotools.layer_write_presentation)
+        if "gt_present" not in hills.data.color_attributes:
+            fail("Write Colours left no gt_present attribute on the hills")
+        state["slope_material"] = display_material("View Slope", "gt_present")
+        yield 0.2
+        run_op(bpy.ops.geotools.run_checks)
+
         contour = scene.geotools_contours
-        contour.interval = "0.25"
-        contour.major_every = 4
+        contour.interval = "10"
+        contour.major_every = 5
         run_op(bpy.ops.geotools.contours)
         hydro = scene.geotools_hydrology
         hydro.flow_lines = True
-        hydro.channel_area = 60.0
-        hydro.channel_count = 12
+        hydro.channel_area = 12000.0
+        hydro.channel_count = 3
         hydro.depression_points = False
         run_op(bpy.ops.geotools.hydrology)
         analysis = bpy.data.collections.get("GeoTools Analysis")
@@ -790,50 +1028,36 @@ def inner_main(argv: list[str]) -> None:
         if state["contours"] is None or state["flow"] is None:
             fail(f"expected contours and flow paths in {sorted(o.name for o in analysis.objects)}")
         ink = colour_material("Contour Ink", (0.10, 0.07, 0.05, 1.0))
-        water = colour_material("Flow Blue", (0.05, 0.35, 0.95, 1.0), emission=0.6)
-        tube_modifier(state["contours"], 0.06, ink)
-        tube_modifier(state["flow"], 0.11, water)
+        water = colour_material("Flow Blue", (0.05, 0.35, 0.95, 1.0), emission=0.8)
+        tube_modifier(state["contours"], 0.55, ink)
+        tube_modifier(state["flow"], 2.4, water)
         for layer in props.layers:
             layers.refresh_layer(scene, layer)
         props.layers_index = list(props.layers.keys()).index("slope")
-
-        layer_collection = bpy.context.view_layer.layer_collection.children["Contexts"]
-        bpy.context.view_layer.active_layer_collection = layer_collection
-        synthetic_dem()
-
-        state["photo_material"] = terrain.data.materials[0]
-        # How far Cesium lowers the site to sit it on the bare ellipsoid (its lowest point
-        # 5 cm above it): the offset's A plus the terrain's lowest local height.
-        zs = np.empty(len(terrain.data.vertices) * 3, np.float32)
-        terrain.data.vertices.foreach_get("co", zs)
-        meta["site_dz"] = round(demo.A0 + float(zs[2::3].min()) - 0.05, 3)
-        state["slope_material"] = display_material("View Slope", "gt_present")
-        state["ghost_material"] = ghost_material(state["photo_material"])
         bpy.context.view_layer.update()
 
-    def publish_all():
-        select(terrain)
-        run_op(bpy.ops.geotools.texture_fill_holes)
-        profile = props.build_profiles[0]  # "Site"
-        props.build_profile_index = 0
+    def publish_hills():
+        """The slope variant of the hills, for the Cesium half of the hero."""
+        select(state["hills"])
+        run_op(bpy.ops.geotools.build_profile_add)
+        profile = props.build_profiles[-1]
+        profile.name = "Hills"
+        profile.output_path = "//hills.3tz"
         profile.overwrite = True
         profile.variant_layer = "slope"
+        props.build_profile_index = len(props.build_profiles) - 1
         run_op(bpy.ops.geotools.publish)
         yield from wait_publish()
-        profile.variant_layer = ""
-        run_op(bpy.ops.geotools.publish)
-        yield from wait_publish()
-        for name in ("site.3tz", "site.slope.3tz"):
-            if not (work / name).is_file():
-                fail(f"the publish wrote no {name}")
+        if not (work / "hills.slope.3tz").is_file():
+            fail("the publish wrote no hills.slope.3tz")
         run_op(bpy.ops.geotools.run_checks)
 
     # -- viewport ------------------------------------------------------------------------
 
     def set_visible(show: set[str]) -> None:
-        """Show only these objects (by name)."""
+        """Show only these objects (by name), and the key sun if there is one."""
         for obj in bpy.context.view_layer.objects:
-            obj.hide_set(obj.name not in show)
+            obj.hide_set(obj.name not in show and obj.name != SUN_NAME)
 
     def frame(rotation_deg, target, distance, lens=50.0, shift_px=(0.0, 0.0)) -> None:
         """An oblique perspective view; ``shift_px`` moves the target on screen (right, up).
@@ -847,8 +1071,8 @@ def inner_main(argv: list[str]) -> None:
         r3d = space.region_3d
         r3d.view_perspective = "PERSP"
         space.lens = lens
-        space.clip_start = 0.1
-        space.clip_end = 2000.0
+        space.clip_start = 0.1 if distance < 300 else 1.0
+        space.clip_end = 20000.0
         rot = Euler([math.radians(a) for a in rotation_deg], "XYZ").to_quaternion()
         r3d.view_rotation = rot
         r3d.view_distance = distance
@@ -893,11 +1117,12 @@ def inner_main(argv: list[str]) -> None:
         shade = space.shading
         shade.type = shading
         if shading == "MATERIAL":
+            lit = SUN_NAME in bpy.data.objects  # the hills: the key sun, a dimmer sky
             shade.use_scene_world = False
-            shade.use_scene_lights = False
+            shade.use_scene_lights = lit
             shade.studio_light = "forest.exr"
             shade.studiolight_rotate_z = math.radians(120)
-            shade.studiolight_intensity = 1.15
+            shade.studiolight_intensity = 0.3 if lit else 1.15
             shade.studiolight_background_alpha = 0.0
             shade.studiolight_background_blur = 0.5
 
@@ -1068,8 +1293,9 @@ def inner_main(argv: list[str]) -> None:
         yield from shoot("textures", (40, 0, 24), state_hole, 40.0)
 
     def shot_hero():
-        terrain.data.materials[0] = state["slope_material"]
-        set_visible({"terrain", state["contours"].name})
+        hills = state["hills"]
+        hills.data.materials[0] = state["slope_material"]
+        set_visible({hills.name, state["contours"].name})
         select()
         show_panels(
             {
@@ -1091,7 +1317,7 @@ def inner_main(argv: list[str]) -> None:
             }
         )
         yield from use_fresh_workspace()
-        yield from shoot("hero", (58, 0, 36), (0.5, -1.0, 2.0), 78.0, thumb=False)
+        yield from shoot("hero", HERO_VIEW[0], hill_point(*HERO_VIEW[1]), HERO_VIEW[2], thumb=False)
 
     def shot_georef():
         terrain.data.materials[0] = state["photo_material"]
@@ -1115,8 +1341,9 @@ def inner_main(argv: list[str]) -> None:
         properties.write_number(props, "source_offset_a", demo.A0)
 
     def shot_layers():
-        terrain.data.materials[0] = state["slope_material"]
-        set_visible({"terrain"})
+        hills = state["hills"]
+        hills.data.materials[0] = state["slope_material"]
+        set_visible({hills.name})
         select()
         show_panels(
             {
@@ -1127,11 +1354,13 @@ def inner_main(argv: list[str]) -> None:
             }
         )
         yield from use_fresh_workspace()
-        yield from shoot("layers", (40, 0, 32), ring, 90.0)
+        # The hilltop: the enclosure's bank and ditch stand out in the slope colours.
+        yield from shoot("layers", (60, 0, 30), hill_point(*HILLTOP), 1100.0)
 
     def shot_water():
-        terrain.data.materials[0] = state["photo_material"]
-        set_visible({"terrain", state["contours"].name, state["flow"].name})
+        hills = state["hills"]
+        hills.data.materials[0] = state["ground_material"]
+        set_visible({hills.name, state["contours"].name, state["flow"].name})
         select()
         show_panels(
             {
@@ -1141,30 +1370,36 @@ def inner_main(argv: list[str]) -> None:
             }
         )
         yield from use_fresh_workspace()
+        # Down the east valley to where the two streams meet.
         yield from shoot(
-            "water", (40, 0, 40), ring, 100.0, wide=((55, 0, 30), (0.0, -2.0, 2.0), 82.0)
+            "water",
+            (62, 0, 20),
+            hill_point(200.0, -300.0),
+            1000.0,
+            wide=((66, 0, 18), hill_point(10.0, -250.0), 1500.0),
         )
 
-    def ground(x: float, y: float) -> tuple[float, float, float]:
-        return (x, y, float(demo.terrain_height(np.array(x), np.array(y))))
+    def hill_point(x: float, y: float) -> tuple[float, float, float]:
+        return (x, y, float(hills_height(x, y)))
 
     def shot_sky():
         """Solstice, equinox and lunar standstill sightlines from the top of the mound."""
-        terrain.data.materials[0] = state["photo_material"]
+        hills = state["hills"]
+        hills.data.materials[0] = state["ground_material"]
         archaeo = mod("blender.analysis").settings(bpy.context).archaeo
-        scene.cursor.location = ground(8.0, -6.0)
+        scene.cursor.location = hill_point(*HILLTOP)  # inside the enclosure
         run_op(bpy.ops.geotools.archaeo_observer_cursor)
         run_op(bpy.ops.geotools.archaeo_events)
-        archaeo.sightline_length = 26.0  # inside the 60 m demo
+        archaeo.sightline_length = 620.0  # inside the 1.4 km square
         before = {o.name for o in bpy.data.objects}
         run_op(bpy.ops.geotools.archaeo_sightlines)
         made = [o for o in bpy.data.objects if o.name not in before and o.type == "MESH"]
         if len(made) != 1:
             fail(f"Create Sightlines made {sorted(o.name for o in made)}, not one mesh")
         lines = made[0]
-        gold = colour_material("Sightline Gold", (1.0, 0.42, 0.02, 1.0), emission=0.5)
-        tube_modifier(lines, 0.12, gold)
-        set_visible({"terrain", lines.name})
+        gold = colour_material("Sightline Gold", (1.0, 0.42, 0.02, 1.0), emission=0.6)
+        tube_modifier(lines, 3.2, gold)
+        set_visible({hills.name, lines.name})
         select()
         show_panels(
             {
@@ -1175,26 +1410,46 @@ def inner_main(argv: list[str]) -> None:
         )
         yield from use_fresh_workspace()
         yield from shoot(
-            "sky", (48, 0, 30), (8.0, -6.0, 3.5), 95.0, wide=((50, 0, 30), (6.0, -5.0, 3.0), 80.0)
+            "sky",
+            (48, 0, 28),
+            hill_point(*HILLTOP),
+            1000.0,
+            wide=((66, 0, 32), hill_point(30.0, -170.0), 1450.0),
         )
 
     def shot_terrain():
-        """A viewshed from the field's low south-west corner: the mound hides its far side.
-        Last, as Write Colours replaces the slope colours in gt_present."""
-        scene.cursor.location = ground(-24.0, -18.0)
-        select(terrain)
+        """A viewshed from the knoll on the north ridge: it sees across the east valley to
+        the hill, and the hill hides the ground behind it. (From inside the enclosure its
+        own bank hides nearly everything.) Last, as Write Colours replaces the slope
+        colours in gt_present."""
+        hills = state["hills"]
+        scene.cursor.location = hill_point(*KNOLL)
+        select(hills)
         run_op(bpy.ops.geotools.analysis_add, preset="viewshed")
         layers = mod("blender.layers")
         for item in props.layers:
             layers.refresh_layer(scene, item)
         if "viewshed" not in props.layers:
             fail(f"Add Analysis made no viewshed layer: {sorted(props.layers.keys())}")
+        # Its Max Distance is for a site; the hills are 1.4 km across.
+        modifier = next(
+            (m for m in hills.modifiers if m.type == "NODES" and "viewshed" in m.name.lower()),
+            None,
+        )
+        if modifier is None:
+            fail(f"no viewshed modifier in {[m.name for m in hills.modifiers]}")
+        try:
+            demo._set_modifier_input(modifier, modifier.node_group, "Max Distance", 3000.0)
+        except StopIteration:
+            fail("the viewshed preset has no Max Distance input")
+        hills.update_tag()
+        bpy.context.view_layer.update()
         props.layers_index = list(props.layers.keys()).index("viewshed")
         props.layers["viewshed"].presentation.palette = "viridis"
         run_op(bpy.ops.geotools.layer_write_presentation)
-        terrain.data.materials[0] = state["slope_material"]  # it shows gt_present
-        set_visible({"terrain"})
-        select(terrain)  # Presets lists the active object's analyses
+        hills.data.materials[0] = state["slope_material"]  # it shows gt_present
+        set_visible({hills.name})
+        select(hills)  # Presets lists the active object's analyses
         show_panels(
             {
                 P + "analysis": True,
@@ -1208,10 +1463,10 @@ def inner_main(argv: list[str]) -> None:
         yield from use_fresh_workspace()
         yield from shoot(
             "terrain",
-            (48, 0, 28),
-            (10.0, -4.0, 3.0),
-            105.0,
-            wide=((52, 0, 28), (0.0, -2.0, 2.0), 92.0),
+            (64, 0, 20),
+            hill_point(60.0, 0.0),
+            2300.0,
+            wide=((66, 0, 20), hill_point(50.0, -190.0), 1500.0),
         )
 
     def shot_publish():
@@ -1255,15 +1510,19 @@ def inner_main(argv: list[str]) -> None:
         window.workspace = layout
         yield 0.5
         hide_other_tabs()
+        # The drape demo: the panels that need its photo texture and linked files.
         yield from prepare()
         yield from shot_textures()
-        yield from publish_all()
-        yield from shot_hero()
+        yield from publish_site()
         yield from shot_georef()
-        yield from shot_layers()
-        yield from shot_water()
         yield from shot_publish()
         yield from shot_formats()
+        # The hills: the analyses, which need relief.
+        yield from prepare_hills()
+        yield from publish_hills()
+        yield from shot_hero()
+        yield from shot_layers()
+        yield from shot_water()
         yield from shot_sky()
         yield from shot_terrain()
         restore_panels()
@@ -1298,7 +1557,15 @@ def inner_main(argv: list[str]) -> None:
 # Cesium cameras: about the hero's Blender view (58 degrees from straight down), the
 # site filling most of the frame; the hero's is checked to have the whole site in frame.
 # The publish thumbnail's is a narrow strip: the site's middle, under a band of sky.
-CESIUM_VIEW = {"heading": 324, "pitch": -35, "range": 100, "up": -4, "fit": 1}
+CESIUM_VIEW = {  # the hills, low and oblique, lit by a low sun from the south-west
+    "heading": 324,
+    "pitch": -30,
+    "range": 2200,
+    "up": -6,
+    "fit": 1,
+    "sun_az": 225,
+    "sun_el": 30,
+}
 CESIUM_THUMB_VIEW = {"heading": 324, "pitch": -26, "range": 75, "up": 10}
 THUMBS = {  # thumbnail -> Blender shot
     "feature-georeference.png": "georef",
@@ -1413,10 +1680,7 @@ def compose_main(argv: list[str]) -> int:
                 """Load at a quarter of the size (software WebGL draws a few frames a
                 second), then draw the full size once everything has loaded."""
                 page = page_for(max(width // 2, 320), max(height // 2, 200))
-                query = "&".join(
-                    f"{k}={v}"
-                    for k, v in {**view, "dz": meta["site_dz"], "tileset": tileset}.items()
-                )
+                query = "&".join(f"{k}={v}" for k, v in {**view, "tileset": tileset}.items())
                 page.goto(f"{base}/templates/cesium.html?{query}")
                 ready = "window.render && (window.render.ready || window.render.errors.length)"
                 try:
@@ -1446,11 +1710,12 @@ def compose_main(argv: list[str]) -> int:
                 check(image, path.name)
                 return image
 
-            cesium(size[0], size[1], CESIUM_VIEW, shots_dir / "cesium.png", "site.slope")
+            hero_view = {**CESIUM_VIEW, "dz": meta["hills_dz"]}
+            cesium(size[0], size[1], hero_view, shots_dir / "cesium.png", "hills.slope")
             cesium_thumb = cesium(
                 THUMB[0] - meta["shots"]["publish"]["sidebar"][2],
                 THUMB[1],
-                CESIUM_THUMB_VIEW,
+                {**CESIUM_THUMB_VIEW, "dz": meta["site_dz"]},
                 shots_dir / "cesium_thumb.png",
                 "site",
             )
