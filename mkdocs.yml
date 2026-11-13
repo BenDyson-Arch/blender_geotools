@@ -139,6 +139,7 @@ nav:
       - Contributing: contributing.md
       - Changelog: changelog.md
       - Roadmap: ROADMAP.md
+      - Backlog: BACKLOG.md
       - Design notes:
           - Sidebar structure: design/ui-structure.md
           - Scene georeference (BlenderGIS keys): design/georeference-interop.md
