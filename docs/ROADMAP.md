@@ -37,7 +37,7 @@ GeoTools creates tilesets; it no longer imports them.
 | Performance rule | No Python loops over faces or vertices. Use `foreach_get`/`foreach_set` with numpy, Geometry Nodes or Cycles bakes | |
 | Scope | Don't do what Blender already does. GeoTools reads and writes geo formats, handles georeference and publishes; modelling, draping, displacement and painting use Blender's own tools, with recipes in the docs | A task needs something Blender cannot do |
 
-## rusty-tiles constraints this plan is built around (0.4.0)
+## rusty-tiles constraints this plan is built around (0.4.1)
 
 1. Mesh input admits only POSITION, NORMAL, TANGENT, TEXCOORD_0/1 and COLOR_0
    (in [0, 1]) with core PBR materials, and refuses extras, extensions and
@@ -69,8 +69,6 @@ GeoTools creates tilesets; it no longer imports them.
 
 ## Upstream dependencies
 
-| rusty-tiles item | Release | Tracking | Gates |
-|---|---|---|---|
 Calibrated 2026-11-11 against the rusty-tiles 0.4.1, 0.4.2 and 0.4.3
 milestones. rusty-tiles 0.4.x adds no new public capability (fixes,
 operability and quality); new capabilities come in 0.5.
@@ -79,7 +77,7 @@ operability and quality); new capabilities come in 0.5.
 |---|---|---|---|
 | 0.4.0 release (wheel on PyPI and GitHub) | 0.4.0 | publishing 2026-11-11 | M0 wheel pin, CI gating on the PyPI wheel |
 | E. Blender 5.2 LTS in wheel acceptance | 0.4.1 | [#330](https://github.com/BenDyson-Arch/rusty-tiles/issues/330) | **0.3.0 release** |
-| CRS allow-list: GDAL-verified EPSG codes in the wheel | 0.4.1 (merged on develop) | [#337](https://github.com/BenDyson-Arch/rusty-tiles/issues/337) | M1 follow-up: EPSG picker replaces the PROJ-string presets (done on GeoTools develop; needs the 0.4.1 wheel) |
+| CRS allow-list: GDAL-verified EPSG codes in the wheel | 0.4.1 (merged on develop) | [#337](https://github.com/BenDyson-Arch/rusty-tiles/issues/337) | M1 follow-up: EPSG picker replaces the PROJ-string presets (done; ships in 0.3.0, on the 0.4.1 wheel) |
 | CRS resolve without converting, and the supported EPSG list, from Python | 0.4.1 | [#367](https://github.com/BenDyson-Arch/rusty-tiles/issues/367) | The picker lists only codes that will publish; Check shows the datum operation and accuracy before a bake |
 | Encoded images admitted by memory budget, not a fixed 32 MiB | 0.4.1 | [#338](https://github.com/BenDyson-Arch/rusty-tiles/issues/338) | Publishing 8K PNG photogrammetry without re-encoding; GeoTools drops its 32 MiB check |
 | C. Decoded tile export (`decode_tile` to plain GLB or arrays) | 0.4.1 | [#329](https://github.com/BenDyson-Arch/rusty-tiles/issues/329) | M7 (moved forward) |
@@ -108,6 +106,8 @@ CRS allow-list that the EPSG picker needs and the tile decoding M7 reads
 release: getting started on a synthetic demo site, then one page per feature
 area. Every change a user can see updates the page for its area.
 
+**Backlog.** Work reviewed for 0.3.0 but not scheduled is in [BACKLOG.md](BACKLOG.md).
+
 | Milestone | Delivers | Needs from rusty-tiles | Release |
 |---|---|---|---|
 | M0 Foundation | Clean scaffold, packaging, CI | 0.4.x wheel | none |
@@ -118,7 +118,7 @@ area. Every change a user can see updates the page for its area.
 | M5 Analysis library | Georeferenced sun, archaeoastronomy, 3D hydrology and measurement; a preset library of Geometry Nodes analyses | none | **0.3.0** |
 | M6 Texture cleanup | Paint, clean, publish | none | **0.3.0** |
 | M7 Output inspection | Open output tiles in Blender, quality checks | C (0.4.1, rusty-tiles #369) | **0.3.0** |
-| M8 Geo formats | GeoJSON, GeoPackage and GeoTIFF in and out of Blender, in the project frame | none | **0.3.0** |
+| M8 Geo formats | GeoJSON and GeoPackage in and out of Blender and GeoTIFF in, in the project frame | none | **0.3.0** |
 | M9 Queryable metadata without retiling | M4 GLBs tiled with exact leaf metadata, then an annotate pass | #332 (rusty-tiles 0.5) | 1.0.0 |
 | M10 Large sites and texture-only rebuilds | Chunked working mode, texture-only republish | B | later |
 
@@ -339,8 +339,6 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
     positive and negative openness.
   - Visibility: viewshed (point light and shadow bake), cumulative viewshed,
     intervisibility between points, line of sight.
-  - Surface reading: ambient occlusion and curvature bakes for worn surfaces,
-    rock art and inscriptions.
   - Change and distance: distance between two surveys or epochs, distance to
     a feature (M8 vectors).
   - Volumes: cut and fill between two surfaces, closed-mesh volumes (for
@@ -348,6 +346,8 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
   - 3D least-cost paths: Shortest Edge Paths with a walking cost (Tobler)
     from slope, a maximum walkable slope and per-face costs from layers.
   - Flow-path tracing for quick looks (a Repeat zone stepping downhill).
+  - Not built yet (not in 0.3.0): surface reading, that is ambient occlusion
+    and curvature bakes for worn surfaces, rock art and inscriptions.
 - **Recipes:** docs and example `.blend` files for anything that does not
   earn a preset.
 - **Left to a GIS, results imported through M8:** catchment-scale 2.5D
@@ -404,12 +404,13 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
   placement, traces both ways through the face map, and has the distance,
   texel-density and level views. The exit test
   (`tests/blender/test_inspect.py`) publishes a synthetic site, opens a leaf
-  and the coarse root, and traces each to its source faces. Merges once
-  rusty-tiles 0.4.1 is out.
+  and the coarse root, and traces each to its source faces. It needs the
+  0.4.1 wheel, which the 0.3.0 release waits for.
 
 ### M8 Geo formats: vectors and rasters (can run in parallel after M2)
 
-GeoTools reads and writes the geo formats Blender cannot, and stops there.
+GeoTools reads the geo formats Blender cannot (and writes the vector ones),
+and stops there.
 What users do with the data inside Blender (draping, offsetting, extruding,
 displacing) uses Blender's own tools, documented as recipes, not GeoTools code.
 
@@ -459,6 +460,12 @@ displacing) uses Blender's own tools, documented as recipes, not GeoTools code.
   recipe, exported back to GeoPackage with Z values a GIS reads correctly; an
   edit saved in QGIS re-drapes in Blender after a refresh; and
   a GeoTIFF DEM and orthophoto line up with the site mesh.
+- *Status:* built, shipping in 0.3.0 ([guide](guide/geo-formats.md),
+  [design](design/m8-geo-formats.md)): GeoJSON and GeoPackage import and
+  export, linked sources with Refresh, auto-refresh, filters and attribute
+  write-back, GeoTIFF import of DEMs and orthophotos, vector publishing, and
+  the draping recipe with its example file. GeoTIFF is read only: there is no
+  GeoTIFF export, and none was planned.
 
 ### M9 Queryable metadata without retiling (needs rusty-tiles #332, 0.5)
 
