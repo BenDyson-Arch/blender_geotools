@@ -62,8 +62,10 @@ TEXTURE_DIR = "//textures"
 or a copy of an image whose file GeoTools did not write."""
 
 OWNED_KEY = "geotools_texture_file"
-"""Image custom property: the ``//textures/`` file GeoTools saved the image to.
-The image's file is GeoTools' own, and saved over, only while it is that file."""
+"""``Image`` property (``properties.register``): the ``//textures/`` file
+GeoTools saved the image to, stored portably and re-expressed on Save As like
+every GeoTools path (``blend_paths.stored_paths``). The image's file is
+GeoTools' own, and saved over, only while it is that file."""
 
 PREVIEW_NODE = "GeoTools balance preview"
 """Name of the shader nodes the colour balance preview inserts (``texture_cleanup``)."""
@@ -150,7 +152,7 @@ def _new_file(image: bpy.types.Image) -> str:
 
 def owns_file(image: bpy.types.Image) -> bool:
     """Whether ``image``'s file is one GeoTools wrote (its ``//textures/`` copy)."""
-    marker = image.get(OWNED_KEY)
+    marker = getattr(image, OWNED_KEY, "")
     path = _file_path(image)
     if not (isinstance(marker, str) and marker and path and bpy.data.is_saved):
         return False
@@ -246,10 +248,16 @@ def _save_one(image: bpy.types.Image) -> tuple[str, bool]:
     # A file GeoTools did not write is never saved over: the edits go to a copy.
     rel = _new_file(image)
     Path(blend_paths.abspath(rel)).parent.mkdir(parents=True, exist_ok=True)
+    old_path, old_format = image.filepath_raw, image.file_format
     image.filepath_raw = rel
     image.file_format = "PNG"
-    image.save()
-    image[OWNED_KEY] = rel
+    try:
+        image.save()
+    except BaseException:  # keep the image on its source file, edits and all
+        image.filepath_raw = old_path
+        image.file_format = old_format
+        raise
+    setattr(image, OWNED_KEY, blend_paths.portable(blend_paths.abspath(rel)))
     if path:
         return f"{rel} (a copy; {os.path.basename(path)} is left as it is)", True
     return rel, True

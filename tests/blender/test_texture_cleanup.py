@@ -569,6 +569,68 @@ def test_balance_apply_failure_puts_back_the_pages_done() -> None:
     assert np.array_equal(_pixels(page_c), before_c)
 
 
+def test_balance_apply_puts_back_a_page_whose_write_failed_half_way() -> None:
+    """Pixels set but the update after it failing: that page is put back too."""
+    _reset()
+    _a, page_b, page_c = _three_pages()
+    before_b, before_c = _pixels(page_b), _pixels(page_c)
+    cleanup = _cleanup()
+    original = cleanup.forget
+    calls = []
+
+    def failing(image):
+        calls.append(image.name)
+        if calls == ["PageB", "PageC"]:  # page C's pixels are already written
+            raise RuntimeError("simulated update failure")
+        return original(image)
+
+    cleanup.forget = failing
+    try:
+        result, error = h.call_op(bpy.ops.geotools.texture_balance_apply)
+    finally:
+        cleanup.forget = original
+    assert result != {"FINISHED"}, (result, error)
+    assert "failed on PageC: simulated update failure; put back PageB, PageC" in error, error
+    assert np.array_equal(_pixels(page_b), before_b)
+    assert np.array_equal(_pixels(page_c), before_c)
+    assert len(_settings().balance_pages) == 3
+
+
+def test_balance_apply_keeps_undo_if_putting_back_fails() -> None:
+    """If the rollback fails too, Undo Cleanup still has the copies and Apply cannot rerun."""
+    _reset()
+    _a, page_b, page_c = _three_pages()
+    before_b, before_c = _pixels(page_b), _pixels(page_c)
+    cleanup = _cleanup()
+    original_apply, original_put_back = cleanup.apply_encoded, cleanup._put_back
+    calls = []
+
+    def failing(pixels, *args, **kwargs):
+        calls.append(1)
+        if len(calls) == 2:
+            raise MemoryError
+        return original_apply(pixels, *args, **kwargs)
+
+    def failing_put_back(_names):
+        raise MemoryError
+
+    cleanup.apply_encoded, cleanup._put_back = failing, failing_put_back
+    try:
+        result, error = h.call_op(bpy.ops.geotools.texture_balance_apply)
+    finally:
+        cleanup.apply_encoded, cleanup._put_back = original_apply, original_put_back
+    assert result != {"FINISHED"}, (result, error)
+    assert "Press Undo Cleanup" in error, error
+    assert not np.array_equal(_pixels(page_b), before_b)  # balanced, not put back
+    assert len(_settings().balance_pages) == 0 and not _settings().balance_preview
+    assert not _has_preview("B") and not _has_preview("C")
+    assert not bpy.ops.geotools.texture_balance_apply.poll()
+    assert cleanup.undo_label() == "Apply Balance"
+    assert bpy.ops.geotools.texture_cleanup_undo() == {"FINISHED"}
+    assert np.array_equal(_pixels(page_b), before_b)
+    assert np.array_equal(_pixels(page_c), before_c)
+
+
 def test_balance_needs_two_pages() -> None:
     _reset()
     _grid("A", 2, _material("A", _page("PageA", 0.0, (1, 1, 1), size=16)))
@@ -786,6 +848,67 @@ def test_an_unsaved_blend_never_saves_over_a_source_file() -> None:
         assert state.save_target(generated) == "the .blend (packed)"
         state.save_edited_images([generated])
         assert generated.packed_file is not None and not generated.is_dirty
+
+
+def test_a_failed_copy_leaves_the_image_on_its_source() -> None:
+    """A copy that cannot be written leaves the image on its file, still edited."""
+    state = _state()
+    paths = h.submodule("blender.blend_paths")
+    with _saved_blend() as tmp:
+        jpeg = tmp / "scan.jpg"
+        image = _image("scan.jpg", _gradient(32), pack=False)
+        image.filepath_raw = str(jpeg)
+        image.file_format = "JPEG"
+        image.save()
+        _grid("A", 2, _material("A", image))
+        _paint(image)
+        locked = tmp / "locked"
+        locked.mkdir()
+        locked.chmod(0o555)
+        original = state._new_file
+        state._new_file = lambda _image: str(locked / "scan.png")
+        try:
+            state.save_edited_images([image])
+        except state.SaveError as ex:
+            assert "Could not save the edits of image scan.jpg" in str(ex), ex
+        else:
+            raise AssertionError("saving into a read-only folder succeeded")
+        finally:
+            state._new_file = original
+            locked.chmod(0o755)
+        assert paths.same_file(paths.image_path(image), jpeg), image.filepath
+        assert image.file_format == "JPEG" and image.is_dirty
+        assert image.geotools_texture_file == "" and not state.owns_file(image)
+        assert not (locked / "scan.png").exists()
+
+        # Once the folder can be written, the next Publish saves the copy.
+        report = state.save_edited_images([image])
+        assert report.count == 1 and image.filepath == "//textures/scan.png"
+        assert state.owns_file(image) and not image.is_dirty
+
+
+def test_save_as_keeps_the_textures_copy_geotools_own() -> None:
+    """The ownership marker is a stored path: Save As re-expresses it with the image's."""
+    state = _state()
+    with _saved_blend() as tmp:
+        image = _file_image(tmp / "albedo.png")
+        _grid("A", 2, _material("A", image))
+        _paint(image)
+        state.save_edited_images([image])
+        assert image.geotools_texture_file == "//textures/FileAlbedo.png"
+        assert state.owns_file(image)
+        (tmp / "sub").mkdir()
+        blend = tmp / "sub" / "site.blend"
+        assert bpy.ops.wm.save_as_mainfile(filepath=str(blend)) == {"FINISHED"}
+        copy = tmp / "textures" / "FileAlbedo.png"
+        assert state.owns_file(image), (image.filepath, image.geotools_texture_file)
+        _paint(image, 0.2)
+        assert state.save_target(image) == "its file FileAlbedo.png"
+        before = _sha(copy)
+        report = state.save_edited_images([image])
+        assert report.count == 1 and not report.blend_changed
+        assert _sha(copy) != before
+        assert not (tmp / "sub" / "textures").exists()
 
 
 # --- the publish loop ----------------------------------------------------------------------
