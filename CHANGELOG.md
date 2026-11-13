@@ -50,9 +50,11 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
     of the 3D seams between atlas pages, previewed with a shader node before
     it is applied to the pixels.
   - **Undo Cleanup** puts back the images the last tool changed (one level).
-  - Publish saves every edited source image first (repacked, saved to its
-    file, or saved as `//textures/<image>.png`), so a painted texture is never
-    lost or published stale. `build.json` records each source image's SHA-256
+  - Publish saves every edited source image first (repacked, saved again to
+    the `//textures/` copy GeoTools wrote, or saved as a new
+    `//textures/<image>.png` copy; a source file is never saved over, and with
+    an unsaved `.blend` Publish refuses until it is saved), so a painted
+    texture is never lost or published stale. `build.json` records each source image's SHA-256
     in `source.images`. The Publish panel shows "N textures changed since last
     publish", and Run Checks reports `image-unsaved`, `textures-changed` and
     `texture-balance-preview` (an error: the preview node would publish a flat
@@ -445,6 +447,25 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
     `scripts/make_example_drape.py`.
   - Linked file paths and build profile output paths accept `//` (relative to
     the `.blend`) without a warning.
+- **Extract for Web** in Last Build: writes a published `.3tz` as a folder any
+  web server can serve, next to it (`site.web/` for `site.3tz`,
+  `site.slope.web/` for a variant), with `tileset.json`, the tiles and an optional `index.html`
+  CesiumJS page. The page loads CesiumJS 1.146.0 from the jsDelivr CDN and uses
+  the Natural Earth II imagery bundled with CesiumJS, so it needs no Cesium ion
+  token, and no rusty-tiles CLI is needed to view a build. GeoTools only ever
+  replaces a folder it wrote itself, keeps an `index.html` you edited, never
+  deletes a file you added, and the panel says when the folder is older than
+  the archive.
+- A user-facing release page for 0.3.0, `.github/release-notes/0.3.0.md`: the
+  downloads per platform, requirements, installing, checking a download
+  against `SHA256SUMS`, what is new since 0.2, known limitations, upgrading
+  from the 0.2 add-on and where to get help. The release workflow uses a
+  version's page as the GitHub release body (with a link to the changelog)
+  when there is one, and the changelog section otherwise, and refuses a page
+  that links to a file the tag does not have.
+- Each release attaches the synthetic demo site (`examples/drape-contexts/`)
+  as `geotools-demo-data-<version>.zip`, included in `SHA256SUMS`. Getting
+  started now points to it instead of to the repository.
 
 ### Changed
 
@@ -567,6 +588,48 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
 
 ### Fixed
 
+- Getting started step 8 (View the result) works as written: it uses Extract
+  for Web and a complete viewer page instead of a snippet with an undefined
+  `viewer`, and gives the Windows `py` command for Python's web server. The
+  publish guide shows the page and explains why a viewer on another origin,
+  such as Sandcastle, is blocked by CORS.
+- Publish no longer saves edited textures over the user's source files. A
+  painted or cleaned image whose file GeoTools did not write (a Metashape
+  JPEG, a linked GeoTIFF orthophoto) now has its edits saved to a PNG copy in
+  `//textures/` next to the `.blend`, and the image is pointed at that copy;
+  later edits are saved to the same copy. Saving over a GeoTIFF used to strip
+  its georeference tags, because Blender's image writer does not keep them.
+  With an unsaved `.blend`, `image-unsaved` is an error and Publish refuses
+  until the `.blend` is saved, rather than packing the pixels. Refreshing an
+  orthophoto whose image was redirected keeps the edited copy and moves the
+  plane, with a warning; if the file's width or height in pixels changed, the
+  refresh is refused, so the copy is never stretched over the new footprint.
+  A failed save leaves the image on its source file. This reverses the M6
+  behaviour of saving an edited image to its own file.
+- Opening or loading another `.blend` now drops Texture Cleanup's undo copy.
+  Undo Cleanup restores images by name and size, so after a load it could
+  write the previous file's pixels over a same-named texture, which the next
+  Publish then saved. Loading also frees the copy (up to 256 MiB for an 8K
+  image) and the UV coverage cache.
+- Apply Balance is all or nothing. It checks every page has pixels before
+  changing any, and if a page still fails part-way (out of memory, say) it
+  puts back the pages already balanced and keeps the fit and its preview.
+  Before, the pages done stayed balanced while Apply stayed available, so
+  pressing it again balanced them twice and dropped their undo copies.
+- The user guide and roadmap no longer say GeoTools writes GeoTIFF: GeoTIFF is
+  import only. Other stale or contradictory text in the roadmap, guide,
+  CONTRIBUTING.md and the workflows is corrected.
+- GeoTools now declares the `network` and `clipboard` permissions in its
+  manifest, next to `files`, so Blender's install dialog lists everything it
+  can do: optional PROJ grid downloads from cdn.proj.org, and copying analysis
+  results as tab-separated text.
+- Blender's Allow Online Access (Preferences > System, or `--offline-mode`) is
+  honoured. With it off, PROJ never downloads a grid, whether **Allow Grid
+  Downloads** was ticked in an import, carried into Use Data Origin or stored
+  in a linked file's options for Refresh, and the import dialogs grey the
+  option out with the reason. When a ticked or stored option was overridden,
+  the import and Refresh reports say grid downloads were skipped, and a
+  missing-grid note points to installing the grid or turning online access on.
 - File paths GeoTools stores itself now work across Linux, macOS and Windows,
   so a project folder (the `.blend` and its data) opens on any of them and
   finds its files. Linked GeoJSON, GeoPackage and GeoTIFF files, the build

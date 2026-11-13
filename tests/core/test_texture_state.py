@@ -6,6 +6,7 @@ import hashlib
 import os
 
 from geotools.core import preflight
+from geotools.core.issues import Severity
 from geotools.core.texture_state import (
     Change,
     HashCache,
@@ -144,3 +145,20 @@ def test_preflight_flags_unsaved_images() -> None:
     )
     codes = [i.code for i in preflight.check(scene(exr), Placement())]
     assert "image-format" in codes and "image-unsaved" in codes
+    # A source file with an unsaved .blend: nowhere to put the copy, so an error.
+    blocked = preflight.ImageSummary(
+        "ortho",
+        "/t/ortho.tif",
+        "TIFF",
+        False,
+        True,
+        64,
+        64,
+        unsaved_target="//textures/ once the .blend is saved",
+        unsaved_blocked="save the .blend first",
+    )
+    (issue,) = [
+        i for i in preflight.check(scene(blocked), Placement()) if i.code == "image-unsaved"
+    ]
+    assert issue.severity is Severity.ERROR and issue.subject == "ortho"
+    assert issue.message == "Image ortho has unsaved edits, but save the .blend first."

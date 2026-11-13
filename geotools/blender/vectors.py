@@ -26,7 +26,7 @@ at a time (about 0.4 s per million elements; see the M8 design).
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import bpy
@@ -51,6 +51,7 @@ from . import blend_paths, data_origin, links
 from .common import redraw_ui
 from .links import RefreshError, RefreshResult
 from .properties import FieldError, placement_from_props
+from .ui import wrapped
 
 log = logging.getLogger(__name__)
 
@@ -161,13 +162,52 @@ def accept_crs(frame: Frame, data_crs: DataCrs, what: str, assume_project_crs: b
     )
 
 
+ONLINE_ACCESS_OFF = "Online access is off (Preferences > System)"
+GRID_DOWNLOADS_SKIPPED = (
+    "Grid downloads were skipped: Blender's online access is off (Preferences > System)."
+)
+OFFLINE_GRID_ADVICE = (
+    "Install the grid, or turn on online access (Preferences > System) and "
+    "Allow Grid Downloads, to use it."
+)
+
+
+def online_access() -> bool:
+    """Blender's Allow Online Access (Preferences > System, or ``--offline-mode``).
+
+    A function so the Blender tests can patch it: ``bpy.app.online_access`` is
+    read-only.
+    """
+    return bool(bpy.app.online_access)
+
+
+def draw_grid_downloads(
+    layout: bpy.types.UILayout, context: bpy.types.Context, operator: bpy.types.Operator
+) -> None:
+    """Allow Grid Downloads, greyed out with the reason when online access is off."""
+    if online_access():
+        layout.prop(operator, "allow_grid_downloads")
+        return
+    col = layout.column()
+    col.enabled = False
+    col.prop(operator, "allow_grid_downloads")
+    wrapped(layout, context, ONLINE_ACCESS_OFF, "INFO", max_lines=3)
+
+
 def reproject_into(
     frame: Frame, data: VectorData, what: str, allow_network: bool
 ) -> tuple[VectorData, crs_match.ReprojectionReport | None]:
-    """``data`` reprojected into the project CRS, or raise :class:`ImportRefused`."""
+    """``data`` reprojected into the project CRS, or raise :class:`ImportRefused`.
+
+    Every reprojection (the import operators, Use Data Origin, Refresh from a
+    link's stored options) comes through here, so this is where Blender's
+    Allow Online Access is honoured: with it off, PROJ stays offline whatever
+    ``allow_network`` says, and the report's notes say so.
+    """
     assert frame.project is not None
+    online = online_access()
     try:
-        return reproject_data(data, frame.project, allow_network=allow_network)
+        data, report = reproject_data(data, frame.project, allow_network=allow_network and online)
     except crs_match.ReprojectionUnavailable as ex:
         raise ImportRefused(
             crs_match.mismatch_message(frame.project, data.crs, what, str(ex))
@@ -177,6 +217,12 @@ def reproject_into(
             f"Cannot reproject {what} from {data.crs.describe()} to "
             f"{frame.project.describe()}: {ex}"
         ) from None
+    if report is None or online:
+        return data, report
+    notes = [n.replace(core_reproject.GRID_ADVICE, OFFLINE_GRID_ADVICE) for n in report.notes]
+    if allow_network:
+        notes.append(GRID_DOWNLOADS_SKIPPED)
+    return data, replace(report, notes=tuple(notes))
 
 
 def check_local(frame: Frame, loaded: list[tuple[str, VectorData]]) -> None:
@@ -545,6 +591,8 @@ def refresh_vectors(obj: bpy.types.Object) -> RefreshResult:
     crs = decision.crs
     if report is not None:
         message = _reprojection_message(report, options.reprojection)
+        if GRID_DOWNLOADS_SKIPPED in report.notes:
+            message = f"{message} {GRID_DOWNLOADS_SKIPPED}"
     options.reprojection = crs_match.report_to_dict(report) if report else None
     if options.site_bbox is not None:
         data = data.select_rows(within_bbox(data, options.site_bbox))
@@ -844,13 +892,19 @@ class _ImportVectorBase:
         name="Allow Grid Downloads",
         description="When data in another CRS is reprojected, let PROJ download a "
         "transformation grid from cdn.proj.org if a more accurate operation needs one. Off: "
-        "imports stay offline and reproducible",
+        "imports stay offline and reproducible. Needs Blender's Allow Online Access",
         default=False,
     )
 
     @classmethod
     def poll(cls, context: bpy.types.Context) -> bool:
         return _object_mode(cls, context)
+
+    def draw(self, context: bpy.types.Context) -> None:
+        layout = self.layout
+        layout.prop(self, "within_site")
+        layout.prop(self, "assume_project_crs")
+        draw_grid_downloads(layout, context, self)
 
     def invoke(self, context: bpy.types.Context, event: bpy.types.Event) -> set[str]:
         context.window_manager.fileselect_add(self)
@@ -944,7 +998,7 @@ class GEOTOOLS_OT_import_gpkg(_ImportVectorBase, bpy.types.Operator):
         layout.prop(self, "where", placeholder="No filter")
         layout.prop(self, "within_site")
         layout.prop(self, "assume_project_crs")
-        layout.prop(self, "allow_grid_downloads")
+        draw_grid_downloads(layout, context, self)
 
     def execute(self, context: bpy.types.Context) -> set[str]:
         path = Path(blend_paths.abspath(self.filepath))
