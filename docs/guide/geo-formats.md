@@ -127,6 +127,11 @@ A DEM drops cells with no data, and gets UVs over the raster's extent, so an
 orthophoto of the same extent maps straight onto it. An orthophoto's image
 stays linked to its file. Both stay linked like vectors: **Refresh** re-reads
 a DEM, and reloads and moves an orthophoto.
+If you painted or cleaned the orthophoto, Publish saves the edits to a copy
+in `textures/` and the image uses it. **Refresh** then moves the plane but
+keeps the copy, and warns; if the file's width or height in pixels changed,
+it refuses instead, so the copy is never stretched. Point the Image Texture
+back at the `.tif` to reload the file. See [Texture cleanup](textures.md).
 
 GeoTools reads the georeference, the GeoKeys and the nodata value itself.
 Pixels go through Blender's image loader where it is exact (float32, int16,

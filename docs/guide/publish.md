@@ -36,7 +36,7 @@ Run Checks also refreshes every layer's value range and status.
 | `georef-keys-ignored` | The scene has a BlenderGIS georeference, but the project is Local or Anchor. | **Use the Scene's BlenderGIS Georeference** in the Project panel, or ignore it. |
 | `uv-overlap` | UV triangles share texels on an object with texture layers. | Fix the UVs, or bake anyway. See [Layers](layers.md#texture-layers-and-the-bake-sub-panel). |
 | `image-missing` | An image's file is missing and it is not packed. | Find the file, or pack the image. |
-| `image-unsaved` | An image has unsaved edits. | Nothing: Publish saves it first. |
+| `image-unsaved` | An image has unsaved edits. An error when its file is a source file and the `.blend` was never saved. | Nothing: Publish saves it first, to a `textures/` copy for a source file. For the error, save the `.blend`. |
 | `textures-changed` | Source images changed since the last publish. | Nothing; an info note. See [Texture cleanup](textures.md). |
 | `texture-balance-preview` | A colour-balance preview node is still in a material. | Apply or clear the balance. See [Texture cleanup](textures.md). |
 
