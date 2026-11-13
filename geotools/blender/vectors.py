@@ -26,7 +26,7 @@ at a time (about 0.4 s per million elements; see the M8 design).
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import bpy
@@ -163,6 +163,13 @@ def accept_crs(frame: Frame, data_crs: DataCrs, what: str, assume_project_crs: b
 
 
 ONLINE_ACCESS_OFF = "Online access is off (Preferences > System)"
+GRID_DOWNLOADS_SKIPPED = (
+    "Grid downloads were skipped: Blender's online access is off (Preferences > System)."
+)
+OFFLINE_GRID_ADVICE = (
+    "Install the grid, or turn on online access (Preferences > System) and "
+    "Allow Grid Downloads, to use it."
+)
 
 
 def online_access() -> bool:
@@ -195,12 +202,12 @@ def reproject_into(
     Every reprojection (the import operators, Use Data Origin, Refresh from a
     link's stored options) comes through here, so this is where Blender's
     Allow Online Access is honoured: with it off, PROJ stays offline whatever
-    ``allow_network`` says.
+    ``allow_network`` says, and the report's notes say so.
     """
     assert frame.project is not None
-    allow_network = allow_network and online_access()
+    online = online_access()
     try:
-        return reproject_data(data, frame.project, allow_network=allow_network)
+        data, report = reproject_data(data, frame.project, allow_network=allow_network and online)
     except crs_match.ReprojectionUnavailable as ex:
         raise ImportRefused(
             crs_match.mismatch_message(frame.project, data.crs, what, str(ex))
@@ -210,6 +217,12 @@ def reproject_into(
             f"Cannot reproject {what} from {data.crs.describe()} to "
             f"{frame.project.describe()}: {ex}"
         ) from None
+    if report is None or online:
+        return data, report
+    notes = [n.replace(core_reproject.GRID_ADVICE, OFFLINE_GRID_ADVICE) for n in report.notes]
+    if allow_network:
+        notes.append(GRID_DOWNLOADS_SKIPPED)
+    return data, replace(report, notes=tuple(notes))
 
 
 def check_local(frame: Frame, loaded: list[tuple[str, VectorData]]) -> None:
@@ -578,6 +591,8 @@ def refresh_vectors(obj: bpy.types.Object) -> RefreshResult:
     crs = decision.crs
     if report is not None:
         message = _reprojection_message(report, options.reprojection)
+        if GRID_DOWNLOADS_SKIPPED in report.notes:
+            message = f"{message} {GRID_DOWNLOADS_SKIPPED}"
     options.reprojection = crs_match.report_to_dict(report) if report else None
     if options.site_bbox is not None:
         data = data.select_rows(within_bbox(data, options.site_bbox))

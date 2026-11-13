@@ -219,6 +219,7 @@ def test_online_access_off_keeps_grid_downloads_off() -> None:
         return
     _project()
     links = h.submodule("blender.links")
+    skipped = h.submodule("blender.vectors").GRID_DOWNLOADS_SKIPPED
     with _tmpdir() as tmp:
         path, _lonlat = _wgs84_geojson(tmp / "finds.geojson")
         _bump(path)
@@ -230,10 +231,14 @@ def test_online_access_off_keeps_grid_downloads_off() -> None:
             assert seen == [False], seen
             obj = bpy.data.objects["finds"]
             # The link keeps what was asked for; Refresh is gated all the same.
-            assert json.loads(obj.geotools_link.options)["allow_grid_downloads"] is True
+            options = json.loads(obj.geotools_link.options)
+            assert options["allow_grid_downloads"] is True
+            # The import report's notes say the gate overrode the ticked option.
+            assert skipped in options["reprojection"]["notes"], options
             _wgs84_geojson(path, extra=1)
-            links.refresh_link(obj)
+            refreshed = links.refresh_link(obj)
             assert seen == [False, False], seen
+            assert skipped in refreshed.message, refreshed
         h.reset_scene()
         _project()
         with _online_access(True) as seen:
@@ -242,6 +247,63 @@ def test_online_access_off_keeps_grid_downloads_off() -> None:
             )
             assert result == {"FINISHED"}, error
             assert seen == [True], seen
+            notes = json.loads(bpy.data.objects["finds"].geotools_link.options)["reprojection"]
+            assert skipped not in notes["notes"], notes
+
+
+def test_online_access_off_rewords_the_missing_grid_note() -> None:
+    """With online access off, "Allow grid downloads" alone would not help; say what would."""
+    if not _has_pyproj():
+        return
+    from dataclasses import replace
+
+    vectors = h.submodule("blender.vectors")
+    advice = h.submodule("core.reproject").GRID_ADVICE
+    grid_note = f"A more accurate operation is not available offline: X (needs y.tif). {advice}"
+    original, original_online = vectors.reproject_data, vectors.online_access
+
+    def with_grid_note(data, project, *, allow_network=False):
+        moved, report = original(data, project, allow_network=False)
+        return moved, replace(report, notes=(*report.notes, grid_note))
+
+    _project()
+    with _tmpdir() as tmp:
+        path, _lonlat = _wgs84_geojson(tmp / "finds.geojson")
+        for allowed, ticked in ((False, True), (False, False), (True, True)):
+            h.reset_scene()
+            _project()
+            vectors.reproject_data = with_grid_note
+            vectors.online_access = lambda allowed=allowed: allowed
+            try:
+                result = vectors.import_vectors(
+                    bpy.context, "GEOJSON", path, ["finds"], allow_grid_downloads=ticked
+                )
+            finally:
+                vectors.reproject_data = original
+                vectors.online_access = original_online
+            text = " ".join(result.notes)
+            assert (vectors.OFFLINE_GRID_ADVICE in text) is not allowed, (allowed, text)
+            assert (advice in text) is allowed, (allowed, text)
+            assert (vectors.GRID_DOWNLOADS_SKIPPED in text) is (ticked and not allowed), text
+
+
+class _EnabledLayout(h.StubLayout):
+    """A :class:`StubLayout` that records each prop with whether its layout is enabled."""
+
+    def __init__(self, calls: list, drawn: list[tuple[str, bool]]) -> None:
+        super().__init__(calls)
+        self.drawn = drawn
+
+    def _child(self, **_kwargs: object) -> _EnabledLayout:
+        child = _EnabledLayout(self.calls, self.drawn)
+        child.enabled = self.enabled
+        return child
+
+    column = row = box = split = _child
+
+    def prop(self, data: object, prop: str, **kwargs: object) -> None:
+        super().prop(data, prop, **kwargs)
+        self.drawn.append((prop, self.enabled))
 
 
 def test_grid_downloads_toggle_says_when_online_access_is_off() -> None:
@@ -256,9 +318,13 @@ def test_grid_downloads_toggle_says_when_online_access_is_off() -> None:
         for allowed in (True, False):
             with _online_access(allowed):
                 calls = h.draw(cls, data=data)
+                drawn: list[tuple[str, bool]] = []
+                vectors.draw_grid_downloads(_EnabledLayout([], drawn), bpy.context, data)
             assert "allow_grid_downloads" in h.props_drawn(calls), (op, calls)
             off = "Online access is off" in h.label_text(calls)
             assert off is not allowed, (op, allowed, calls)
+            # Greyed out (not just labelled) when online access is off.
+            assert drawn == [("allow_grid_downloads", allowed)], (op, allowed, drawn)
 
 
 # --- LOCAL and ANCHOR projects -------------------------------------------------------------
