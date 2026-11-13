@@ -27,8 +27,10 @@ precision. Z is kept when the data has it.
   bundled pyproj. The report names the operation and its accuracy. GeoTools
   targets the project's EPSG code, so, for example, GDA94 data moves the real
   1.5 m or so into a GDA2020 project. Grid files are not downloaded unless you
-  tick **Allow Grid Downloads**. Without pyproj, such data is refused, with
-  both CRSs named.
+  tick **Allow Grid Downloads** and Blender's **Allow Online Access**
+  (Preferences > System) is on. With online access off, the option is greyed
+  out and every import and refresh stays offline. Without pyproj, such data is
+  refused, with both CRSs named.
 - **Data with no stated CRS** can be taken as being in the project CRS: tick
   **Data Is in Project CRS** when you import.
 - **Rasters in another CRS** are refused. Reproject them in QGIS first.
