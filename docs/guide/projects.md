@@ -71,7 +71,7 @@ tools such as Metashape ask for it when you export with a local shift.
   type (they are stored as text, at full double precision).
 - Or press **Load Offset File** and pick an offset file.
 - Or put the offset file next to the mesh before you import it. **Import
-  Mesh...** in the Source panel looks for `<name>_offset.txt`,
+  Source Mesh...** in the Source panel looks for `<name>_offset.txt`,
   `<name>.offset.txt` or `offset.txt` beside the mesh, in that order, and
   reads the first it finds. Reading an offset file switches the project to
   CRS, but does not set the CRS: the file does not say which CRS it is in.
@@ -156,6 +156,11 @@ not move the scene. See [Working alongside BlenderGIS](blendergis.md).
   geometry towards the origin and put the shift in the offset.
 - Run Checks warns (`float-precision`) when single precision is coarser than
   1 mm at the largest coordinate.
+- Moving geometry towards the origin in Blender does not bring back precision
+  it lost when it was read in. Blender stores a mesh in single precision as it
+  imports it, so an OBJ or PLY written in full projected coordinates is
+  already rounded (to steps of 0.5 m at N 5,400,000). Export it again with a
+  local shift from the tool that made it, and use the offset file with it.
 - The scene's unit scale must be 1 (`unit-scale`), so one Blender unit is one
   source unit.
 - A geographic CRS (such as EPSG:4326) reads Blender units as degrees, which is

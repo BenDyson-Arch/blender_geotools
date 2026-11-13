@@ -49,7 +49,7 @@ jobs:
             echo "::error::Tag $RELEASE_TAG does not match the manifest version $version"; exit 1
           fi
           if ! git merge-base --is-ancestor HEAD origin/main; then
-            echo "::error::$RELEASE_TAG is not on main; merge develop into main first"; exit 1
+            echo "::error::$RELEASE_TAG is not on main; merge its release/X.Y.Z branch into main first (CONTRIBUTING.md, Releasing)"; exit 1
           fi
           case "$version" in
             *-dev*) echo "::error::$version is a development version"; exit 1 ;;

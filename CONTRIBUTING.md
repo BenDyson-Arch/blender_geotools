@@ -109,18 +109,24 @@ The target platforms are `platforms` under `[tool.geotools]`.
 empties that directory first, and checks each wheel's name, version and Python
 tags against the pins and the target CPython.
 
-Once rusty-tiles 0.4.0 is on PyPI, download every wheel for every platform:
+Download every wheel for every platform:
 
 ```sh
 python scripts/fetch_wheels.py
 ```
+
+The rusty-tiles pin is still 0.4.0, which is on PyPI, but GeoTools needs
+0.4.1's functions (`supported_epsg_codes`, `resolve_source_crs`, `list_tiles`,
+`decode_tile`) and reports a 0.4.0 wheel as not available. Until 0.4.1 is on
+PyPI and the pin moves to it, take rusty-tiles from a local build of
+rusty-tiles develop (below).
 
 This uses `pip download` from the running Python, or `uvx pip` if that Python
 has no pip, so pip settings such as `PIP_INDEX_URL` apply.
 
 `--from-dir` copies wheels from a local directory instead. `--from-dir DIR`
 takes every pin from `DIR`; `--from-dir NAME=DIR` takes one pin from `DIR` and
-downloads the others. Until rusty-tiles is on PyPI, take it from a local
+downloads the others. Until rusty-tiles 0.4.1 is on PyPI, take it from a local
 directory, for example a rusty-tiles `dist/` folder:
 
 ```sh
@@ -248,8 +254,9 @@ and `develop`. It has these jobs:
 - `blender`: an official, checksum-pinned Blender 5.2 LTS runs the Blender
   tests with `--expect missing`, then uploads the zip.
 - `blender-wheel`: the same with the PyPI wheels (rusty-tiles, pyproj,
-  certifi). It doesn't gate until
-  rusty-tiles 0.4.0 is on PyPI; to make it gate, set the repository variable
+  certifi). It doesn't gate yet: the pinned rusty-tiles 0.4.0 is on PyPI, but
+  GeoTools refuses it, so the job fails in its Blender tests until 0.4.1 is
+  published and pinned. Then, to make it gate, set the repository variable
   `RUSTY_TILES_WHEEL_GATING` to `true` and add it to the required checks of
   the `main` and `develop` rulesets.
 - `core (pytest, macOS arm64)` and `core (pytest, Windows x64)`: the core
@@ -309,9 +316,10 @@ are done.
   it (`gh pr create --base develop`).
 - `release/X.Y.Z` is cut from `develop` when a release's scope is complete, so
   `develop` can move on to the next version while the release waits (for
-  example on a rusty-tiles release). Only fixes for that release go to it,
-  through pull requests against it; merge the release branch back into
-  `develop` after each fix and after the release.
+  example on a rusty-tiles release). Only work that ships in that release
+  goes to it (fixes, or a feature moved into the release's scope), through
+  pull requests against it; merge the release branch back into `develop`
+  after each change and after the release.
 - `legacy-0.2` keeps the 0.2 importer add-on. It is not developed.
 
 `main`, `develop` and `release/*` are protected by rulesets: no deletion or force
