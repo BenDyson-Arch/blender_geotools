@@ -862,24 +862,24 @@ def test_a_failed_copy_leaves_the_image_on_its_source() -> None:
         image.save()
         _grid("A", 2, _material("A", image))
         _paint(image)
-        locked = tmp / "locked"
-        locked.mkdir()
-        locked.chmod(0o555)
+        # A folder where the copy's file should go makes image.save() fail on every OS
+        # (a read-only folder does not stop writes on Windows).
+        blocked = tmp / "blocked" / "scan.png"
+        blocked.mkdir(parents=True)
         original = state._new_file
-        state._new_file = lambda _image: str(locked / "scan.png")
+        state._new_file = lambda _image: str(blocked)
         try:
             state.save_edited_images([image])
         except state.SaveError as ex:
             assert "Could not save the edits of image scan.jpg" in str(ex), ex
         else:
-            raise AssertionError("saving into a read-only folder succeeded")
+            raise AssertionError("saving onto a folder succeeded")
         finally:
             state._new_file = original
-            locked.chmod(0o755)
         assert paths.same_file(paths.image_path(image), jpeg), image.filepath
         assert image.file_format == "JPEG" and image.is_dirty
         assert image.geotools_texture_file == "" and not state.owns_file(image)
-        assert not (locked / "scan.png").exists()
+        assert blocked.is_dir() and not any(blocked.iterdir())
 
         # Once the folder can be written, the next Publish saves the copy.
         report = state.save_edited_images([image])
