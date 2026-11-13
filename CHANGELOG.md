@@ -25,6 +25,11 @@ and the project follows semantic versioning where practical.
   write the previous file's pixels over a same-named texture, which the next
   Publish then saved. Loading also frees the copy (up to 256 MiB for an 8K
   image) and the UV coverage cache.
+- Apply Balance is all or nothing. It checks every page has pixels before
+  changing any, and if a page still fails part-way (out of memory, say) it
+  puts back the pages already balanced and keeps the fit and its preview.
+  Before, the pages done stayed balanced while Apply stayed available, so
+  pressing it again balanced them twice and dropped their undo copies.
 - File paths GeoTools stores itself now work across Linux, macOS and Windows,
   so a project folder (the `.blend` and its data) opens on any of them and
   finds its files. Linked GeoJSON, GeoPackage and GeoTIFF files, the build

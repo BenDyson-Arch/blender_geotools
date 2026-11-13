@@ -249,8 +249,10 @@ fits a **gain and offset per page and per colour channel**:
   gain and offset, and the seam error before and after, in 8-bit levels of
   linear light.
 - **Apply.** **Apply Balance** writes the correction into the pixels and
-  removes the preview. **Clear Balance** removes the preview without touching
-  any pixels.
+  removes the preview. It changes every page or none: if one page cannot be
+  balanced (its file went missing, or memory ran out), the pages already done
+  are put back and the fit and preview stay. **Clear Balance** removes the
+  preview without touching any pixels.
 
 Limits:
 

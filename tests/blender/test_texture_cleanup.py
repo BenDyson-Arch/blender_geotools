@@ -490,6 +490,85 @@ def test_balance_fit_preview_apply_undo() -> None:
     assert np.array_equal(_pixels(page_b), before)
 
 
+def _three_pages():
+    """Pages A (the reference), B and C side by side, B and C off by a gain; fitted."""
+    pages = [
+        _page("PageA", 0.0, (1.0, 1.0, 1.0)),
+        _page("PageB", 1.0, (1.25, 1.0, 0.8)),
+        _page("PageC", 2.0, (0.8, 1.0, 1.2)),
+    ]
+    for x, page in enumerate(pages):
+        _grid(page.name[-1], 8, _material(page.name[-1], page), origin=(float(x), 0.0))
+    _anchor()
+    _settings().balance_reference = pages[0]
+    assert bpy.ops.geotools.texture_balance_fit() == {"FINISHED"}
+    assert [i.image.name for i in _settings().balance_pages] == ["PageA", "PageB", "PageC"]
+    return pages
+
+
+def _has_preview(name: str) -> bool:
+    tree = bpy.data.materials[name].node_tree
+    return any(n.name.startswith("GeoTools balance preview") for n in tree.nodes)
+
+
+def test_balance_apply_checks_every_page_first() -> None:
+    """A page with no pixels stops Apply before any page changes."""
+    _reset()
+    _a, page_b, page_c = _three_pages()
+    before = _pixels(page_b)
+    missing = bpy.data.images.new("Missing", 8, 8)
+    missing.source = "FILE"
+    missing.filepath = "/nonexistent/geotools-test/missing.png"
+    assert tuple(missing.size) == (0, 0)
+    _settings().balance_pages[2].image = missing
+    cleanup = _cleanup()
+    cleanup.begin_undo("Earlier Tool")
+    cleanup.keep_for_undo(page_c, _pixels(page_c))
+    result, error = h.call_op(bpy.ops.geotools.texture_balance_apply)
+    assert result != {"FINISHED"} and "no page was balanced" in error, (result, error)
+    assert np.array_equal(_pixels(page_b), before) and not page_b.is_dirty
+    assert _has_preview("B") and len(_settings().balance_pages) == 3
+    assert bpy.ops.geotools.texture_balance_apply.poll()
+    assert cleanup.undo_label() == "Earlier Tool"  # the last tool's undo is kept
+
+
+def test_balance_apply_failure_puts_back_the_pages_done() -> None:
+    """A failure part-way (here a MemoryError) never leaves pages half balanced."""
+    _reset()
+    _a, page_b, page_c = _three_pages()
+    before_b, before_c = _pixels(page_b), _pixels(page_c)
+    cleanup = _cleanup()
+    original = cleanup.apply_encoded
+    calls = []
+
+    def failing(pixels, *args, **kwargs):
+        calls.append(1)
+        if len(calls) == 2:
+            raise MemoryError
+        return original(pixels, *args, **kwargs)
+
+    cleanup.apply_encoded = failing
+    try:
+        result, error = h.call_op(bpy.ops.geotools.texture_balance_apply)
+    finally:
+        cleanup.apply_encoded = original
+    assert result != {"FINISHED"} and error, (result, error)
+    assert "failed on PageC: MemoryError; put back PageB" in error, error
+    assert np.array_equal(_pixels(page_b), before_b)
+    assert np.array_equal(_pixels(page_c), before_c)
+    assert _has_preview("B") and _has_preview("C") and len(_settings().balance_pages) == 3
+    assert cleanup.undo_label() == ""
+
+    # Apply again balances each page once.
+    assert bpy.ops.geotools.texture_balance_apply() == {"FINISHED"}
+    for page, x0 in ((page_b, 1.0), (page_c, 2.0)):
+        expected = _pixels(_page(f"Expected{x0}", x0, (1.0, 1.0, 1.0)))
+        assert np.abs(_pixels(page)[..., :3] - expected[..., :3]).max() < 0.03, page.name
+    assert bpy.ops.geotools.texture_cleanup_undo() == {"FINISHED"}
+    assert np.array_equal(_pixels(page_b), before_b)
+    assert np.array_equal(_pixels(page_c), before_c)
+
+
 def test_balance_needs_two_pages() -> None:
     _reset()
     _grid("A", 2, _material("A", _page("PageA", 0.0, (1, 1, 1), size=16)))
