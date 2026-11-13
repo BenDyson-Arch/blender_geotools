@@ -224,8 +224,9 @@ Opening `index.html` directly from disk does not work: browsers do not let a
 page read `tileset.json` from a `file://` folder. The page says so.
 
 After you publish again, press **Extract for Web** again. Until you do, the
-panel says `site.web` is older than the archive. A variant has its own Last
-Build and writes its own folder, such as `site.slope.web/`.
+panel says `site.web` is older than the archive. Last Build shows the build
+profile's latest publish: after you publish a variant, such as
+`site.slope.3tz`, Extract for Web writes `site.slope.web/` for it.
 
 To show the tiles in a page of your own, or in another viewer, see
 [Viewing a .3tz elsewhere](publish.md#viewing-a-3tz-elsewhere).
