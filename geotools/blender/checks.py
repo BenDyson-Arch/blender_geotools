@@ -13,6 +13,7 @@ from .layers import refresh_layers
 from .properties import SEVERITY_ICONS, FieldError, field_issues, placement_from_props
 from .source import refresh_summary
 from .texture_state import check_issues as texture_issues
+from .ui import clipped, wrap_chars
 
 _SEVERITY_ORDER = {Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2}
 
@@ -229,8 +230,10 @@ class GEOTOOLS_UL_issues(bpy.types.UIList):
         index: int = 0,
         flt_flag: int = 0,
     ) -> None:
-        # Messages already name their subject.
-        layout.label(text=item.message, icon=SEVERITY_ICONS.get(item.severity, "INFO"))
+        # Messages already name their subject. Cut at the end, not in the middle, so the
+        # subject stays readable; the box under the list shows the whole message.
+        text = clipped(item.message, wrap_chars(context) - 6)
+        layout.label(text=text, icon=SEVERITY_ICONS.get(item.severity, "INFO"))
 
 
 classes = (

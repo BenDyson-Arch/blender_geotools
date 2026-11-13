@@ -64,6 +64,7 @@ from ..core.layers import (
     validate,
 )
 from ..core.ramps import auto_range
+from . import blend_paths
 from .common import redraw_ui
 from .properties import (
     LAYER_AGGREGATION_DEFAULT,
@@ -588,7 +589,7 @@ def save_layer_image(item: GeoToolsLayer, obj: bpy.types.Object) -> Path:
             "Save the .blend first: layer images are saved next to it in geotools_layers/"
         )
     filepath = layer_image_filepath(item, obj)
-    path = Path(bpy.path.abspath(filepath))
+    path = Path(blend_paths.abspath(filepath))
     path.parent.mkdir(parents=True, exist_ok=True)
     image.filepath_raw = filepath
     image.file_format = "OPEN_EXR"
@@ -605,7 +606,7 @@ def image_is_saved(image: bpy.types.Image) -> bool:
         return False
     if not image.filepath:
         return False
-    return Path(bpy.path.abspath(image.filepath, library=image.library)).is_file()
+    return Path(blend_paths.image_path(image)).is_file()
 
 
 def remove_layer_data(scene: bpy.types.Scene, item: GeoToolsLayer) -> tuple[int, int]:
@@ -920,8 +921,18 @@ class GEOTOOLS_OT_layer_add(bpy.types.Operator):
         description="Lowercase letters, digits and underscores; empty for an automatic name",
         options={"SKIP_SAVE"},
     )
-    domain: EnumProperty(name="Domain", items=LAYER_DOMAIN_ITEMS, default="FACE")
-    data_type: EnumProperty(name="Type", items=LAYER_DATA_TYPE_ITEMS, default="FLOAT")
+    domain: EnumProperty(
+        name="Domain",
+        description="What the layer has one value for: a face, a face corner or a texel",
+        items=LAYER_DOMAIN_ITEMS,
+        default="FACE",
+    )
+    data_type: EnumProperty(
+        name="Type",
+        description="The kind of value the layer holds",
+        items=LAYER_DATA_TYPE_ITEMS,
+        default="FLOAT",
+    )
 
     @classmethod
     def poll(cls, context: bpy.types.Context) -> bool:
@@ -1068,7 +1079,7 @@ class GEOTOOLS_OT_layer_create_attributes(bpy.types.Operator):
     wrong domain or type is replaced. A layer computed by Geometry Nodes does not need this"""
 
     bl_idname = "geotools.layer_create_attributes"
-    bl_label = "Create Attributes"
+    bl_label = "Create Empty Attributes"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod

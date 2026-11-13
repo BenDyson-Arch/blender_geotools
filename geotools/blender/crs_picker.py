@@ -37,7 +37,7 @@ from bpy.app.handlers import persistent
 from ..core import crs_catalog, deps
 from ..core.crs_catalog import LonLat
 from . import scene_georef
-from .ui import info_row, split_column, wrapped
+from .ui import info_wrapped, split_column, wrapped
 
 log = logging.getLogger(__name__)
 
@@ -187,7 +187,7 @@ def draw_source_crs(
         return
     name = crs_catalog.name(definition)
     if name:
-        info_row(col, "", name)
+        info_wrapped(col, context, "", name)
     if result is None:
         return
     box = layout.column(align=True)

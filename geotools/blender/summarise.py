@@ -35,6 +35,7 @@ import numpy as np
 from ..core.images import encoded_bit_depth
 from ..core.placement import Vec3
 from ..core.preflight import ImageSummary, MaterialSummary, ObjectSummary, SceneSummary
+from . import blend_paths
 from .nodes import alpha_clip_nodes, blend_mode, from_node, output_node, upstream
 from .properties import image_remedy
 from .texture_state import save_target
@@ -104,7 +105,7 @@ def image_summary(image: bpy.types.Image) -> ImageSummary:
     packed = image.packed_file is not None
     filepath = ""
     if image.source in {"FILE", "SEQUENCE", "TILED"} and image.filepath:
-        filepath = os.path.normpath(bpy.path.abspath(image.filepath, library=image.library))
+        filepath = blend_paths.image_path(image)
     on_disk = bool(filepath) and os.path.isfile(filepath)
     # Generated and painted images are exportable too: the exporter saves their
     # current pixels as PNG.

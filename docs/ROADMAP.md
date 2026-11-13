@@ -104,6 +104,10 @@ CRS allow-list that the EPSG picker needs and the tile decoding M7 reads
 (C). M6 and M7 were first planned for 0.4.0 and moved into 0.3.0 on
 2026-11-13, once both were built and tested.
 
+**User guide.** [guide/](guide/README.md) is the user documentation for the
+release: getting started on a synthetic demo site, then one page per feature
+area. Every change a user can see updates the page for its area.
+
 | Milestone | Delivers | Needs from rusty-tiles | Release |
 |---|---|---|---|
 | M0 Foundation | Clean scaffold, packaging, CI | 0.4.x wheel | none |
@@ -117,6 +121,12 @@ CRS allow-list that the EPSG picker needs and the tile decoding M7 reads
 | M8 Geo formats | GeoJSON, GeoPackage and GeoTIFF in and out of Blender, in the project frame | none | **0.3.0** |
 | M9 Queryable metadata without retiling | M4 GLBs tiled with exact leaf metadata, then an annotate pass | #332 (rusty-tiles 0.5) | 1.0.0 |
 | M10 Large sites and texture-only rebuilds | Chunked working mode, texture-only republish | B | later |
+
+**Sidebar.** Each milestone adds its panels to the one GeoTools sidebar tab.
+Before 0.3.0 they were consolidated into workflow order (project, data in,
+analysis, layers and textures, checks, publish, output), with Analysis
+grouped and every control given a tooltip. New panels follow
+[docs/design/ui-structure.md](design/ui-structure.md).
 
 ### M0 Foundation
 

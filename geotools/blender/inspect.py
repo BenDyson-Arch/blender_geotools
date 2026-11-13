@@ -58,6 +58,7 @@ from ..core.inspect import (
 from ..core.output_frame import FrameError, SceneFrame
 from ..core.output_tiles import OutputTilesError, TileEntry
 from ..core.placement import PlacementMode
+from . import blend_paths
 from .common import redraw_ui
 from .properties import FieldError, placement_from_props
 
@@ -112,14 +113,32 @@ def _apply_view(self, context: bpy.types.Context) -> None:
 
 
 class GeoToolsInspectSettings(bpy.types.PropertyGroup):
-    source: EnumProperty(name="Archive", items=SOURCE_ITEMS, default="LAST")
-    filepath: StringProperty(name="File", subtype="FILE_PATH", description="A .3tz archive")
+    source: EnumProperty(
+        name="Archive",
+        description="Which .3tz archive to list and open",
+        items=SOURCE_ITEMS,
+        default="LAST",
+    )
+    filepath: StringProperty(
+        name="File",
+        subtype="FILE_PATH",
+        description="A .3tz archive",
+        options={"PATH_SUPPORTS_BLEND_RELATIVE"},
+        update=blend_paths.portable_update("filepath"),
+    )
     archive: StringProperty(name="Listed Archive", description="The archive the list shows")
     tiles: CollectionProperty(type=GeoToolsOutputTile)
     tiles_index: IntProperty(name="Tile", default=0)
     notes: StringProperty(name="Notes", description="What listing the archive found")
-    scope: EnumProperty(name="Open", items=SCOPE_ITEMS, default="SELECTED")
-    open_depth: IntProperty(name="Depth", min=0, default=0)
+    scope: EnumProperty(
+        name="Open",
+        description="Which tiles Open Tiles opens",
+        items=SCOPE_ITEMS,
+        default="SELECTED",
+    )
+    open_depth: IntProperty(
+        name="Depth", description="Tree depth of the tiles to open; 0 is the root", min=0, default=0
+    )
     limit: IntProperty(
         name="Limit",
         min=1,
@@ -134,9 +153,28 @@ class GeoToolsInspectSettings(bpy.types.PropertyGroup):
         description="Farther than this from the source is no data; 0: four times the "
         "tile's geometric error",
     )
-    view: EnumProperty(name="Levels", items=VIEW_ITEMS, default="ALL", update=_apply_view)
-    view_depth: IntProperty(name="Depth", min=0, default=0, update=_apply_view)
-    gap: FloatProperty(name="Gap", min=0.0, default=10.0, unit="LENGTH", update=_apply_view)
+    view: EnumProperty(
+        name="Levels",
+        description="How the opened tiles of different depths are shown",
+        items=VIEW_ITEMS,
+        default="ALL",
+        update=_apply_view,
+    )
+    view_depth: IntProperty(
+        name="Depth",
+        description="The depth to show; tiles at other depths are hidden",
+        min=0,
+        default=0,
+        update=_apply_view,
+    )
+    gap: FloatProperty(
+        name="Gap",
+        description="Space between the depths laid side by side",
+        min=0.0,
+        default=10.0,
+        unit="LENGTH",
+        update=_apply_view,
+    )
     result: StringProperty(name="Result", description="The last trace or quality result")
 
 
@@ -154,7 +192,7 @@ def last_output(scene: bpy.types.Scene) -> Path | None:
     profile = props.build_profiles[props.build_profile_index]
     if not profile.last_output or not profile.last_output.endswith(".3tz"):
         return None
-    return Path(profile.last_output)
+    return Path(blend_paths.abspath(profile.last_output))
 
 
 def chosen_archive(context: bpy.types.Context) -> Path | None:
@@ -163,7 +201,7 @@ def chosen_archive(context: bpy.types.Context) -> Path | None:
         return last_output(context.scene)
     if not props.filepath.strip():
         return None
-    return Path(bpy.path.abspath(props.filepath.strip()))
+    return Path(blend_paths.abspath(props.filepath.strip()))
 
 
 _frames: dict[str, tuple[tuple, SceneFrame, list[str]]] = {}
@@ -940,7 +978,7 @@ class GEOTOOLS_OT_inspect_open(bpy.types.Operator):
     """Open tiles of the listed archive as read-only objects placed over the source"""
 
     bl_idname = "geotools.inspect_open"
-    bl_label = "Open"
+    bl_label = "Open Tiles"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod

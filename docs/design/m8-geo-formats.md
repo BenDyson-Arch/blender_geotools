@@ -281,7 +281,7 @@ by vectors and GeoTIFF. Stream 2's stand-in (`blender/linked.py`, with a
 | Field | Type | Notes |
 |---|---|---|
 | `kind` | enum `NONE`, `GEOJSON`, `GPKG`, `GEOTIFF` | `NONE` (default) means not linked |
-| `filepath` | string (FILE_PATH) | read with `bpy.path.abspath` (`links.link_path`) |
+| `filepath` | string (FILE_PATH) | `//sub/file` under the `.blend`'s folder, else absolute (`links.store_path`); `//` with either separator resolves on every OS (`links.link_path`). See CONTRIBUTING.md, "File paths" |
 | `layer` | string | GeoPackage table; for GeoJSON and GeoTIFF the file's stem |
 | `fid_field` | string | GeoPackage primary key; GeoJSON `id`, or `@index` (position in the file, from 0) when the ids are not distinct integers |
 | `crs` | string | `crs_match.to_text(DataCrs)` JSON |

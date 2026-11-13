@@ -15,6 +15,7 @@ from . import (
     analysis_presets,
     archaeo,
     bake_texture,
+    blend_paths,
     checks,
     contours,
     crs_picker,
@@ -45,6 +46,7 @@ log = logging.getLogger(__name__)
 
 MODULES: tuple[ModuleType, ...] = (
     preferences,
+    blend_paths,
     properties,
     crs_picker,
     scene_georef,

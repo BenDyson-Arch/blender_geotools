@@ -1,7 +1,7 @@
 """Sidebar panels of the surface tools: Hydrology, and Contours and Sections.
 
-Sub-panels of Analysis (``analysis_ui.GEOTOOLS_PT_analysis``), registered by
-``panels`` after the other analysis panels. They draw stored settings and
+Sub-panels of Analysis (``analysis_ui.GEOTOOLS_PT_analysis``), listed by
+``analysis_ui`` after Measure and Presets. They draw stored settings and
 results only; the operators (``hydrology``, ``contours``) compute.
 """
 
@@ -123,7 +123,7 @@ class GEOTOOLS_PT_analysis_contours(_SurfacePanel, bpy.types.Panel):
         box.label(text="Sections", icon="SNAP_EDGE")
         col = split_column(box)
         col.prop(props, "line")
-        col.prop(props, "selected_edges")
+        col.row(heading="Edges").prop(props, "selected_edges", text="Selected Only")
         col.prop(props, "section_name")
         box.operator("geotools.sections", icon="SNAP_EDGE")
         if props.section_error:

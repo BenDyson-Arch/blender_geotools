@@ -65,9 +65,15 @@ def test_layers_registered() -> None:
     ):
         assert h.operator_available(idname), idname
     assert hasattr(bpy.types, "GEOTOOLS_UL_layers")
-    panels = [cls.__name__ for cls in h.submodule("blender.panels").classes]
-    # Source, then Linked Data (M8), then Layers.
-    assert panels.index("GEOTOOLS_PT_layers") == panels.index("GEOTOOLS_PT_source") + 2, panels
+    # Source, then Linked Data (M8) and Analysis (M5, with its sub-panels), then Layers.
+    classes = h.submodule("blender.panels").classes
+    top = [c.__name__ for c in classes if not getattr(c, "bl_parent_id", "")]
+    assert top[top.index("GEOTOOLS_PT_source") :][:4] == [
+        "GEOTOOLS_PT_source",
+        "GEOTOOLS_PT_linked_data",
+        "GEOTOOLS_PT_analysis",
+        "GEOTOOLS_PT_layers",
+    ], top
     props = h.project()
     assert "layers" in props.bl_rna.properties and "layers_index" in props.bl_rna.properties
 
@@ -759,8 +765,11 @@ def test_layers_survive_save_and_reopen() -> None:
             assert (tex.uv_map, tex.resolution, tex.margin) == ("UVMap", 4, 3)
             image = L.layer_image(tex, objects[0])
             assert image is not None and L.layer_image(tex, objects[1]) is None
-            assert image.filepath == "//geotools_layers/shade__Grid_A.exr"
-            assert Path(bpy.path.abspath(image.filepath)) == exr
+            # Blender may store the relative path with the OS's separator (Windows).
+            assert image.filepath.replace("\\", "/") == "//geotools_layers/shade__Grid_A.exr", (
+                image.filepath
+            )
+            assert Path(bpy.path.abspath(image.filepath)).resolve() == exr.resolve()
             back = np.empty(16 * 4, np.float32)
             image.pixels.foreach_get(back)
             back = back.reshape(-1, 4)

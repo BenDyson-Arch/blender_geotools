@@ -43,7 +43,7 @@ from ..core.issues import Issue, Severity
 from ..core.layers import DataType, Domain, LayerSpec, fill_value, validate
 from ..core.metadata_schema import SchemaError, Storage, property_type
 from ..core.placement import PlacementMode, blender_to_gltf
-from . import export
+from . import blend_paths, export
 from .common import extension_version, redraw_ui
 from .layers import (
     attribute_problem,
@@ -593,7 +593,7 @@ class GEOTOOLS_OT_export_glb(bpy.types.Operator, ExportHelper):
             )
             redraw_ui(context)
             return {"CANCELLED"}
-        path = Path(bpy.path.abspath(self.filepath))
+        path = Path(blend_paths.abspath(self.filepath))
         image_dir = Path(tempfile.mkdtemp(prefix="geotools-glb-"))
         try:
             prepared = prepare_glb(context, image_dir, options)

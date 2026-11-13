@@ -43,6 +43,7 @@ from ..core.texture_state import (
     sha256_bytes,
     summary_text,
 )
+from . import blend_paths
 from .nodes import output_node, upstream
 
 log = logging.getLogger(__name__)
@@ -107,7 +108,7 @@ def has_unsaved_edits(image: bpy.types.Image) -> bool:
 def _file_path(image: bpy.types.Image) -> str:
     if image.source != "FILE" or not image.filepath:
         return ""
-    return os.path.normpath(bpy.path.abspath(image.filepath, library=image.library))
+    return blend_paths.image_path(image)
 
 
 def _safe_name(name: str) -> str:
@@ -118,7 +119,7 @@ def _new_file(image: bpy.types.Image) -> str:
     """``//textures/<image>.png``, numbered so it never overwrites another file."""
     stem = f"{TEXTURE_DIR}/{_safe_name(image.name)}"
     rel, n = f"{stem}.png", 1
-    while os.path.exists(bpy.path.abspath(rel)):
+    while os.path.exists(blend_paths.abspath(rel)):
         rel = f"{stem}_{n}.png"
         n += 1
     return rel
@@ -188,7 +189,7 @@ def _save_one(image: bpy.types.Image) -> tuple[str, bool]:
         image.pack()
         return "packed", True
     rel = _new_file(image)
-    Path(bpy.path.abspath(rel)).parent.mkdir(parents=True, exist_ok=True)
+    Path(blend_paths.abspath(rel)).parent.mkdir(parents=True, exist_ok=True)
     image.filepath_raw = rel
     image.file_format = "PNG"
     image.save()
@@ -281,7 +282,7 @@ def read_record_images(record_path: str) -> list[ImageState] | None:
 
 def changes_since(scene: bpy.types.Scene, record_path: str) -> list[Change] | None:
     """Source textures changed since the build recorded at ``record_path``; None if unknown."""
-    recorded = read_record_images(record_path)
+    recorded = read_record_images(blend_paths.abspath(record_path) if record_path else "")
     if recorded is None:
         return None
     before = {r.name: r for r in recorded}
