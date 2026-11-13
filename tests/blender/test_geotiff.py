@@ -405,16 +405,43 @@ def test_an_edited_orthophoto_is_saved_to_a_copy_and_kept_on_refresh() -> None:
             assert image.filepath == "//textures/o.png" and not image.is_dirty
             assert _links().check_link(obj) == "OK"
             assert _raster_io().edited_copy(obj, str(path)) == image
+            # Save As elsewhere keeps the copy GeoTools' own (its marker is a stored path).
+            (tmp / "sub").mkdir()
+            blend = tmp / "sub" / "site.blend"
+            assert bpy.ops.wm.save_as_mainfile(filepath=str(blend)) == {"FINISHED"}
+            assert state.owns_file(image), (image.filepath, image.geotools_texture_file)
+            assert _raster_io().edited_copy(obj, str(path)) == image
+            copy_path = image.filepath  # as Save As re-expressed it
+            paths = h.submodule("blender.blend_paths")
+            assert paths.same_file(paths.abspath(copy_path), tmp / "textures" / "o.png")
             edited = np.empty(len(image.pixels), np.float32)
             image.pixels.foreach_get(edited)
 
-            # A new survey in the same file: the plane moves, the edits stay.
+            # A resurvey of another width or height in pixels would stretch the copy: refused.
             _write(path, gw.rgb(16, 8, seed=2), pixel_size=(1.0, 1.0))
             _bump_mtime(path)
             count = len(bpy.data.images)
+            try:
+                _refresh(obj)
+            except _links().RefreshError as ex:
+                assert "is now 8 x 16 pixels" in str(ex) and "is 8 x 8" in str(ex), ex
+            else:
+                raise AssertionError("a copy of another size was stretched over the plane")
+            assert obj.geotools_link.status == "ERROR"
+            assert node.image == image and image.filepath == copy_path
+            bpy.context.view_layer.update()
+            assert tuple(obj.dimensions[:2]) == (8.0, 8.0)
+            assert len(bpy.data.images) == count
+
+            # The same width and height in pixels, moved: the plane moves, the edits stay, a warning says so.
+            east, north = ORIGIN
+            _write(path, gw.rgb(8, 8, seed=3), origin=(east + 4.0, north), pixel_size=(1.0, 2.0))
+            _bump_mtime(path)
+            corner = min(tuple(v.co[:2]) for v in obj.data.vertices)
             result = _refresh(obj)
             assert any("did not reload o.tif" in w for w in result.warnings), result.warnings
-            assert node.image == image and image.filepath == "//textures/o.png"
+            assert any("new footprint" in w for w in result.warnings), result.warnings
+            assert node.image == image and image.filepath == copy_path
             assert tuple(image.size) == (8, 8)
             now = np.empty(len(image.pixels), np.float32)
             image.pixels.foreach_get(now)
@@ -422,13 +449,19 @@ def test_an_edited_orthophoto_is_saved_to_a_copy_and_kept_on_refresh() -> None:
             assert len(bpy.data.images) == count  # no unused copy of o.tif loaded
             bpy.context.view_layer.update()
             assert tuple(obj.dimensions[:2]) == (8.0, 16.0)
+            moved = min(tuple(v.co[:2]) for v in obj.data.vertices)
+            assert abs(moved[0] - corner[0] - 4.0) < 1e-3, (corner, moved)
             assert obj.geotools_link.status == "OK"
 
-            # Pointed back at the file, the refresh shows the file's pixels again.
+            # Pointed back at the file, the refresh shows the file's pixels again,
+            # whatever their size.
+            _write(path, gw.rgb(16, 8, seed=2), pixel_size=(1.0, 1.0))
+            _bump_mtime(path)
             node.image = bpy.data.images.load(str(path), check_existing=False)
             result = _refresh(obj)
             assert not any("did not reload" in w for w in result.warnings), result.warnings
             assert tuple(node.image.size) == (8, 16)
+            assert obj.geotools_link.status == "OK"
     finally:
         assert bpy.ops.wm.read_homefile(use_empty=True) == {"FINISHED"}
         h.reset_scene()

@@ -355,7 +355,10 @@ def refresh(obj: bpy.types.Object) -> RefreshResult:
     plane only if the mesh is no longer a single quad). Modifiers, materials,
     transform, parent and collections survive. An orthophoto whose material
     shows GeoTools' edited copy (:func:`edited_copy`) keeps it: the plane moves,
-    the copy is not replaced by the file's pixels, and a warning says so.
+    the copy is not replaced by the file's pixels, and a warning says so. If the
+    file's width and height in pixels no longer match the copy's, the copy would
+    be stretched over the new footprint, so the refresh is refused and nothing
+    changes.
     Raises ``RefreshError``; ``links.refresh_link`` sets the status and the
     fingerprint.
     """
@@ -384,10 +387,20 @@ def refresh(obj: bpy.types.Object) -> RefreshResult:
             else:  # the edits win; reloading would load pixels nothing shows
                 image = copy
                 name = Path(path).name
+                size = tuple(int(v) for v in copy.size[:2])
+                if size != (info.width, info.height):  # the copy would be stretched
+                    raise RefreshError(
+                        f"{name} is now {info.width} x {info.height} pixels, but the "
+                        f"edited copy {copy.filepath} is {size[0]} x {size[1]}. Point "
+                        f"the Image Texture back at {name} to refresh; the copy keeps "
+                        "the edits"
+                    )
                 note = (
                     f"{obj.name} shows {copy.filepath}, the copy Publish saved its "
-                    f"edits to, so the refresh did not reload {name}'s pixels. To show "
-                    f"them, point its Image Texture back at {name}; the copy keeps the edits."
+                    f"edits to, so the refresh did not reload {name}: the edited "
+                    f"pixels, from the earlier {name}, are now placed on its new "
+                    f"footprint. To show the file's pixels, point the Image Texture "
+                    f"back at {name}; the copy keeps the edits."
                 )
                 notes = (note,)
             quad = core_raster.footprint(info, check.offset)
