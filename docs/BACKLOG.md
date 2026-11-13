@@ -5,21 +5,34 @@ Status: written 2026-11-13. A reference list for work after 0.3.0, not a plan.
 ## Where this list comes from
 
 Before 0.3.0, `develop` at `ba9dd05` was reviewed from eight perspectives,
-each proposing candidate work. Every candidate was then vetted through two lenses: a value reviewer (is it
-worth doing, and when?) and a feasibility reviewer (is the claim true, what
-does it cost, what could break?). Each reviewer gave a score from 1 to 5.
+each proposing candidate work. Every candidate was then vetted through two
+lenses: a value reviewer (is it worth doing, and when?) and a feasibility
+reviewer (is the claim true, what does it cost, what could break?). Each
+reviewer gave a score from 1 to 5.
 
-The items that came out as **do now** went into 0.3.0. This page keeps the
-rest: the **worth doing** tier (both reviewers kept it, but it was not needed
-for the release) and the **later** tier (the reviewers split, or both put it
-after 0.3.0). The short list at the end records ideas that were considered and
-rejected, so they are not proposed again without new evidence.
+The items that came out as **do now** were taken up for 0.3.0:
+`sync-release-branch`, `manifest-permissions-online-access`,
+`publish-never-overwrite-source-images`, `import-no-silent-reorigin`,
+`texture-undo-clear-on-load`, `balance-apply-atomic`,
+`docs-stale-contradictions`, `user-facing-release-notes` and
+`web-viewing-extract-and-viewer-page`. This page was written before they
+merged. If any of them did not ship in 0.3.0, move it into the worth-doing
+tier here.
+
+This page keeps the rest: the **worth doing** tier (both reviewers kept it,
+but it was not needed for the release) and the **later** tier (the reviewers
+split, or both put it after 0.3.0). [Deferred parts of 0.3.0
+items](#deferred-parts-of-030-items) lists the pieces of do-now items that
+were put off rather than rejected. The short list at the end records ideas
+that were considered and rejected, so they are not proposed again without new
+evidence.
 
 **Check against the code before picking an item up.** File and line
 references point at `develop` around `ba9dd05` and will drift. Some items may
 have been done in passing, made moot, or changed by 0.3.0 work. Each item
-keeps its review id (in backticks) so it can be traced back to the review
-notes.
+keeps its review id (in backticks) as a stable label. The review notes
+themselves are not kept in the repository, so anything an item needs from
+them is written here.
 
 Each item gives its tier, effort (S, M, L) and the two reviewers' scores,
 then what and why, the reviewers' caveats, and the key evidence.
@@ -72,8 +85,9 @@ then what and why, the reviewers' caveats, and the key evidence.
 | [TEST-8](#test-8-paths-with-spaces-and-non-ascii-characters) | Paths with spaces and non-ASCII characters | Later | S |
 | [TEST-9](#test-9-real-blendergis-acceptance-test-in-ci) | Real-BlenderGIS acceptance test in CI | Later | S |
 
-Two worth-doing items are cheapest before a tag: [FMT-1](#fmt-1-a-stable-glb-metadata-namespace-uri)
-(the namespace URI is written into every metadata GLB) and
+Two worth-doing items are cheapest before a tag:
+[FMT-1](#fmt-1-a-stable-glb-metadata-namespace-uri) (the namespace URI is
+written into every metadata GLB) and
 [REL-1](#rel-1-an-update-channel-for-the-extension) (users who install from
 disk never see updates).
 
@@ -198,8 +212,8 @@ ids as the extension (`geotools.import_geojson`, `geotools.import_gpkg`,
 `GEOTOOLS_PT_layers`, `GEOTOOLS_PT_analysis`), and its unregister deletes
 `Scene.geotools_analysis`. Detect an enabled 0.2 add-on and tell the user to
 remove it, and test coexistence. The docs-only part (remove 0.2 first; the
-pip-installed pyproj and GDAL are no longer needed) was assigned to the 0.3.0
-release notes.
+pip-installed pyproj and GDAL are no longer needed) was scheduled for the
+0.3.0 release notes.
 
 **Caveats.** The install base is close to zero (the v0.2.0 release has no
 assets). Wait until real 0.2 users turn up. If it is built: no popup at
@@ -338,8 +352,10 @@ optional): shift in float64 before Blender sees the file.
 that E/N; a "round" shift would misplace data. Only an empty project gets a
 rounded centre. Map through `AXIS_KEYWORDS` for Y-up files, keep the OBJ stem,
 rewrite `mtllib` to an absolute path and keep `v`-line colours. A float32 PLY
-gets a warning only. Route the shift through the re-origin guard (the 0.3.0
-item `import-no-silent-reorigin`).
+gets a warning only. Route the shift through the re-origin guard (the do-now
+item `import-no-silent-reorigin`, scheduled for 0.3.0). Parts of that item
+could be deferred; see [Deferred parts of 0.3.0
+items](#deferred-parts-of-030-items).
 
 **Evidence.** `geotools/blender/source.py:118-130`;
 `geotools/core/preflight.py:168-200`; `docs/guide/projects.md:154-158`;
@@ -529,8 +545,8 @@ presets.
 
 **Caveats.** Both reviewers agreed not to build it for 0.3.0. It overlaps
 Blender's own AO bake. It means regenerating the binary
-`analysis_presets.blend`. Removing the roadmap claim was assigned to the 0.3.0
-docs fixes.
+`analysis_presets.blend`. The 0.3.0 docs fixes mark it in the roadmap as not
+built yet.
 
 **Evidence.** `docs/ROADMAP.md:317-323, :342-343, :359`;
 `docs/analysis-presets.md:821-825`; `geotools/analysis/presets.py:59-65, :978-981`.
@@ -697,9 +713,10 @@ indices in `pad_islands`, scale in place in `keep_for_undo`, catch
 the 8K ones.
 
 **Caveats.** The single-image tools write only at the end, so a failure leaves
-the image untouched. The real partial-write bug was taken into 0.3.0 as its own
-item (`balance-apply-atomic`: make Apply Balance all-or-nothing). int32 saves only about 2 GiB of the 12 GiB peak. On
-Linux the OOM killer usually acts before `MemoryError` is raised.
+the image untouched. The real partial-write bug was scheduled for 0.3.0 as its
+own item (`balance-apply-atomic`: make Apply Balance all-or-nothing). int32
+saves only about 2 GiB of the 12 GiB peak. On Linux the OOM killer usually
+acts before `MemoryError` is raised.
 
 **Evidence.** `geotools/blender/texture_cleanup.py:338-346, :472-610`;
 `geotools/core/texture_cleanup.py:379-388`; `geotools/core/gltf_writer.py:151`;
@@ -795,17 +812,19 @@ only ever run on the maintainer's desktop. The `blender-wheel` job fails at
 "Install and test in Blender" while the run reports success. Add a
 non-gating Linux job that builds the wheel with maturin-action
 (manylinux_2_28, `RUSTY_TILES_DISABLE_NATIVE_JPEG=1`, as rusty-tiles'
-wheel-acceptance does) from a pinned rusty-tiles SHA with the 0.4.1 API, caches
-it per SHA, and runs the Blender suite with `--expect available` and the core
-tests with the wheel installed. Add a small contract test for about six call
-sites.
+wheel-acceptance does) from a pinned rusty-tiles SHA with the 0.4.1 API (for
+example rusty-tiles `34e22f19`, still versioned 0.4.0 with the 0.4.1 API), and
+caches it per SHA. Then run `fetch_wheels.py --from-dir`, `build_extension.py`,
+the Blender suite with `--expect available`, and the core tests with the wheel
+installed. Add a small contract test for about six call sites.
 
-**Caveats.** Delete the job when the pin moves to a released 0.4.1 wheel; if that
-has happened, a plain job with the released wheel replaces it. The pinned SHA must still
-report the version the existing pin and `--expect-version` match. Expect the
-first run to turn up failures never seen on the desktop. A source build avoids
-a cross-repo token. The release-day gate catches the same failures, only later
-and all at once. Fix the stale `blender-wheel` comment and `CONTRIBUTING.md:112`.
+**Caveats.** Delete the job when the pin moves to a released 0.4.1 wheel; if
+that has happened, a plain job with the released wheel replaces it. The pinned
+SHA must still report the version the existing pin and `--expect-version`
+match. Expect the first run to turn up failures never seen on the desktop. A
+source build avoids a cross-repo token. The release-day gate catches the same
+failures, only later and all at once. Fix the stale `blender-wheel` comment
+and `CONTRIBUTING.md:112`.
 
 **Evidence.** `.github/workflows/ci.yml:84-111, :113-156, :158-170`;
 `geotools/core/deps.py:27-36, :136-151`; `tests/blender/test_publish.py:220-475`;
@@ -851,7 +870,9 @@ staging files and "already exists".
 The tile count and check list could drift with rusty-tiles 0.4.1 final. The
 publish, tile-count and staging part runs only where the wheel is available.
 Don't change the demo to A=0: that breaks `test_drape_example` and the guide's
-deliberate height-shift lesson.
+deliberate height-shift lesson. Fold in the `projects.md:73` rename ("Import
+Mesh..." to "Import Source Mesh...") if the 0.3.0 docs fixes have not already
+done it.
 
 **Evidence.** `docs/guide/getting-started.md:75-86, :120-196`;
 `tests/blender/test_drape_example.py:173-196`; `.github/workflows/release.yml:95-100`.
@@ -862,9 +883,13 @@ deliberate height-shift lesson.
 
 **What and why.** The manifest allows 5.2.0 and later, Blender 5.3.0 was
 released on 2026-11-10 (still CPython 3.13), and CI tests only 5.2.4. Make the
-Linux Blender job a matrix: 5.2.4 required, 5.2.0 and 5.3.0 non-gating
-(checksums were recorded in the review). Log `sys.version_info` and fail
-clearly if it differs from the wheels' Python (3.13).
+Linux Blender job a matrix: 5.2.4 required, 5.2.0 and 5.3.0 non-gating. Log
+`sys.version_info` and fail clearly if it differs from the wheels' Python
+(3.13). The SHA-256 checksums of the linux-x64 tarballs, from
+download.blender.org:
+
+- 5.2.0: `96f6c181a30f4950607839dc84d42a354b250d8a0231b098b59b7bc69c351c48`
+- 5.3.0: `dacb8264197a3f7fda6001285a5a506fc97ee943881261c2c3bd63c882f22e05`
 
 **Caveats.** Don't set `blender_version_max`. No weekly beta or daily job:
 builder.blender.org builds can't be checksum-pinned, and scheduled workflows
@@ -965,6 +990,29 @@ from `main`.
 `tests/blender/test_georef_interop.py:191`; `geotools/core/geoscene.py:60-65`;
 `ci.yml` never sets `GEOTOOLS_BLENDERGIS_ZIP`.
 
+## Deferred parts of 0.3.0 items
+
+These are pieces of do-now items that the review put off rather than
+rejected. Check the merged 0.3.0 work first: some may have shipped.
+
+- **Viewer compatibility table** (from `web-viewing-extract-and-viewer-page`).
+  Later tier, effort L. 0.3.0 was scoped to a dated check in CesiumJS 1.146
+  (Balanced/KTX2 and Lossless), plus QGIS if quick. The full table (ArcGIS,
+  iTwin.js, deck.gl and others) goes stale quickly and amounts to public
+  claims about other products, so any version of it needs dates and the
+  versions tested.
+- **Place imported objects at the project origin** (from
+  `import-no-silent-reorigin`). When an offset file differs from the project
+  origin, a second action next to "Use this offset file as the project
+  origin": translate only the new root objects by (file offset minus project
+  offset), computed in float64, with a warning when the difference is large,
+  because object location is float32. The review allowed it to be deferred if
+  it pushed the item to L. Relates to
+  [ROB-6](#rob-6-large-coordinate-objply-imports).
+- **Case (c) of the re-origin guard** (from `import-no-silent-reorigin`):
+  don't apply an offset file when the source collection already held objects
+  before the import. The review allowed it to be deferred on its own.
+
 ## Considered and rejected
 
 Don't propose these again without new evidence.
@@ -978,9 +1026,8 @@ Don't propose these again without new evidence.
   for 1k objects and 8 ms for 5k, so it matters only around 20k objects. A
   name-keyed cache goes stale after rename, undo, duplicate or append and would
   mislead users about link status.
-- **Viewer compatibility table** (ArcGIS, iTwin.js, deck.gl and others). Large,
-  goes stale, and amounts to public claims about other products. Also cut from
-  web viewing: an "also write folder" build-profile checkbox.
+- **An "also write folder" build-profile checkbox** for web viewing. Extract
+  for Web covers it.
 - **Preview CLI version check.** It puts a subprocess in poll and draw, and
   would warn every user while releases/latest is the 0.4.0 CLI.
 - **Re-cutting `release/0.3.0`** and a CHANGELOG-ancestry drift detector. The
@@ -991,7 +1038,7 @@ Don't propose these again without new evidence.
   workflow files), or reusing wheel-acceptance run 42992725222 (it lacks the
   0.4.1 API).
 - **A `.orig` backup of source textures on publish**, and recording the
-  original SHA in `build.json`. 0.3.0 took the direct fix instead
+  original SHA in `build.json`. The direct fix was scheduled for 0.3.0 instead
   (`publish-never-overwrite-source-images`).
 - **An `as_pointer()` check for Texture Cleanup undo.** Memfile undo
   reallocates IDs, so it would block valid undos.
