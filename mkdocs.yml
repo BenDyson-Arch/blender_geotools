@@ -10,8 +10,8 @@
 
 site_name: GeoTools
 site_description: >-
-  A Blender 5.2 extension that creates, analyses and publishes OGC 3D Tiles
-  with rusty-tiles.
+  GIS for Blender: georeference a site, bring in geodata, analyse the full 3D
+  mesh, and publish it as OGC 3D Tiles with rusty-tiles.
 site_url: https://bendyson-arch.github.io/blender_geotools/
 repo_url: https://github.com/BenDyson-Arch/blender_geotools
 repo_name: BenDyson-Arch/blender_geotools

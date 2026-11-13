@@ -1,10 +1,14 @@
 # GeoTools
 
 <!-- Hero option B (designed banner): docs/assets/readme/hero-b.png (dark) or hero-b-light.png. Swap the src below to use it. -->
-<img src="docs/assets/readme/hero-a.png" alt="A synthetic terrain coloured by slope in Blender's GeoTools sidebar, and the same terrain published as 3D Tiles and streamed in CesiumJS" width="100%">
+<img src="docs/assets/readme/hero-a.png" alt="Four analyses of a synthetic site in Blender (slope and contours, a viewshed, solstice and lunar sightlines, flow paths) beside the site published as 3D Tiles in CesiumJS" width="100%">
 
-GeoTools is a Blender 5.2 extension that places a site on Earth, analyses it,
-and publishes it as OGC 3D Tiles with
+GeoTools brings GIS into Blender. Place a site in a real coordinate system,
+bring in GeoJSON, GeoPackage and GeoTIFF, and analyse the full 3D mesh, not a
+2.5D raster: terrain shape, archaeological visualisation, visibility, sun and
+shadow, archaeoastronomy, hydrology, measurement, contours and sections.
+Results are layers you can view, export as vectors or GLB metadata, and
+publish as OGC 3D Tiles with
 [rusty-tiles](https://github.com/BenDyson-Arch/rusty-tiles).
 
 [![CI](https://github.com/BenDyson-Arch/blender_geotools/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/BenDyson-Arch/blender_geotools/actions/workflows/ci.yml?query=branch%3Adevelop)
@@ -33,18 +37,35 @@ and kept linked to their files.
 </tr>
 <tr>
 <td width="50%" valign="top">
+<a href="docs/guide/analysis.md#presets"><img src="docs/assets/readme/feature-terrain.png" alt="The Presets and Layers panels with a viewshed on the terrain: the mound hides the ground behind it" width="380"></a><br>
+<b>Terrain and visibility</b><br>
+Slope, aspect, curvature, TPI and TRI; local relief, sky-view factor and
+openness; viewsheds, intervisibility and line of sight; volumes and
+least-cost paths. Editable Geometry Nodes presets.
+<a href="docs/guide/analysis.md#presets">Guide</a>
+</td>
+<td width="50%" valign="top">
+<a href="docs/guide/analysis.md#archaeoastronomy"><img src="docs/assets/readme/feature-sky.png" alt="The Archaeoastronomy panel with solstice and lunar standstill sightlines from the top of a mound" width="380"></a><br>
+<b>Sun and sky</b><br>
+Place the Sun for a date and place, map hours of sun, key a shadow study,
+and find solstice, equinox and lunar standstill events on the real horizon.
+<a href="docs/guide/analysis.md#archaeoastronomy">Guide</a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<a href="docs/guide/analysis.md#hydrology"><img src="docs/assets/readme/feature-hydrology.png" alt="The Hydrology panel with flow paths and contour lines on the terrain" width="380"></a><br>
+<b>Hydrology and measurement</b><br>
+Where water runs and ponds on the 3D surface, contours and sections, and
+points, distances and areas in real coordinates.
+<a href="docs/guide/analysis.md#hydrology">Guide</a>
+</td>
+<td width="50%" valign="top">
 <a href="docs/guide/layers.md"><img src="docs/assets/readme/feature-layers.png" alt="The Layers panel with the terrain coloured by slope" width="380"></a><br>
 <b>Layers</b><br>
 Values per face, corner or texel, shown as colours and published as variant
 tilesets.
 <a href="docs/guide/layers.md">Guide</a>
-</td>
-<td width="50%" valign="top">
-<a href="docs/guide/analysis.md"><img src="docs/assets/readme/feature-contours.png" alt="The Contours and Sections panel with contour lines on the terrain" width="380"></a><br>
-<b>Analysis</b><br>
-Sun and shadow studies, archaeoastronomy, hydrology, contours, sections and
-editable Geometry Nodes presets.
-<a href="docs/guide/analysis.md">Guide</a>
 </td>
 </tr>
 <tr>

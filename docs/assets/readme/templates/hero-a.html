@@ -1,8 +1,8 @@
 <!doctype html>
-<!-- The hero, "screenshots": Blender and Cesium side by side.
+<!-- The hero, "screenshots": a montage of analyses in Blender beside the published site in Cesium.
      ?mode=hero   1600 px wide, the height of its content, for the README;
      ?mode=social 1280x640, with the wordmark, for GitHub's social preview.
-     Rendered by scripts/make_readme_images.py from shots/blender.png and shots/cesium.png. -->
+     Rendered by scripts/make_readme_images.py from shots/tile-*.png and shots/cesium.png. -->
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -46,6 +46,41 @@
       }
       .shot {
         width: 100%;
+        aspect-ratio: 1.6;
+        object-fit: cover;
+      }
+      .montage {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: 1fr 1fr;
+        gap: var(--tile-gap);
+        aspect-ratio: 1.6;
+      }
+      .tile {
+        position: relative;
+        min-height: 0;
+      }
+      .tile img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+        border-radius: 10px;
+        box-shadow: var(--shadow);
+        outline: 1px solid rgba(255, 255, 255, 0.1);
+        outline-offset: -1px;
+      }
+      .tile span {
+        position: absolute;
+        left: 10px;
+        bottom: 10px;
+        font-size: var(--tag);
+        font-weight: 600;
+        color: #f2f5fa;
+        background: rgba(11, 18, 32, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 999px;
+        padding: 4px 12px;
       }
       .caption {
         display: flex;
@@ -90,6 +125,8 @@
         --sub: 23px;
         --step-size: 20px;
         --caption: 70px;
+        --tile-gap: 12px;
+        --tag: 17px;
       }
       body.hero .caption {
         flex-direction: row;
@@ -112,6 +149,8 @@
         --sub: 18px;
         --step-size: 16px;
         --caption: 40px;
+        --tile-gap: 8px;
+        --tag: 13px;
       }
       body.social .caption p {
         display: none;
@@ -136,16 +175,21 @@
       <div class="content">
         <div class="head">
           <h1 class="wordmark"><span class="geo">Geo</span>Tools</h1>
-          <p class="tagline">Create, analyse and publish OGC 3D Tiles from Blender</p>
+          <p class="tagline">GIS for Blender: georeference, analyse and publish 3D sites</p>
         </div>
         <div class="row">
           <div>
-            <img class="shot" src="../shots/blender.png" alt="" />
+            <div class="montage">
+              <div class="tile"><img src="../shots/tile-slope.png" alt="" /><span>Slope and contours</span></div>
+              <div class="tile"><img src="../shots/tile-viewshed.png" alt="" /><span>Viewshed</span></div>
+              <div class="tile"><img src="../shots/tile-sky.png" alt="" /><span>Solstice and lunar sightlines</span></div>
+              <div class="tile"><img src="../shots/tile-water.png" alt="" /><span>Flow paths</span></div>
+            </div>
             <div class="caption">
               <span class="step">1</span>
               <div>
-                <h2>Author in Blender</h2>
-                <p>Georeference, analyse and check in the GeoTools sidebar</p>
+                <h2>Analyse in Blender</h2>
+                <p>Terrain, visibility, sun and sky, and water, on the real site</p>
               </div>
             </div>
           </div>
@@ -159,8 +203,8 @@
             <div class="caption">
               <span class="step">2</span>
               <div>
-                <h2>Stream as 3D Tiles</h2>
-                <p>Publish validated 3D Tiles for CesiumJS and other viewers</p>
+                <h2>Share it</h2>
+                <p>3D Tiles for CesiumJS, vectors, or a GLB with metadata</p>
               </div>
             </div>
           </div>

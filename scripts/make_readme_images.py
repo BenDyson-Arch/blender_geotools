@@ -16,9 +16,11 @@ What it does, in three stages (the same file runs in each):
    a synthetic orthophoto texture, the Slope analysis preset, Verify
    Placement, Run Checks, contours and hydrology flow paths, a synthetic DEM
    GeoTIFF linked beside the GeoJSON, Fill Holes and Publish (``site.3tz`` and
-   the slope variant ``site.slope.3tz``). Each shot shows only the GeoTools
-   panels it is about, in a fresh workspace (a region keeps each panel's open
-   or closed state once it has drawn it).
+   the slope variant ``site.slope.3tz``), then solstice and lunar sightlines from
+   the mound (Archaeoastronomy) and a viewshed from the field's low corner. Each
+   shot shows only the GeoTools panels it is about, in a fresh workspace (a
+   region keeps each panel's open or closed state once it has drawn it); the
+   analysis shots also take a centred view for the hero's montage.
 2. **Cesium**: the ``cesium@CESIUM`` package tarball (``npm pack``, checked
    against its pinned integrity; only its prebuilt ``Build/Cesium`` is used, so
    no dependency is resolved) unpacked into the scratch folder, the slope
@@ -40,10 +42,9 @@ and reuses its unpacked Cesium on the next run).
 
 Outputs (in ``--out``):
 
-* ``hero-a.png``: GUI Blender (the demo with the slope layer and contours, the
-  GeoTools sidebar beside it) and the published slope variant in CesiumJS side
-  by side, "Author in Blender" to "Stream as 3D Tiles" (transparent, for light
-  and dark pages);
+* ``hero-a.png``: "Analyse in Blender", a montage of four analyses of the demo
+  (slope and contours, a viewshed, sightlines, flow paths), beside "Share", the
+  published slope variant in CesiumJS (transparent, for light and dark pages);
 * ``hero-b.png``, ``hero-b-light.png``: hero option B, the designed banner
   (the wordmark, tagline and both shots inset), dark and light, 1600x640;
 * ``social-a.png`` (the hero with the wordmark), ``social-b.png`` (the
@@ -120,9 +121,11 @@ SHOTS = (
     "hero",
     "georef",
     "layers",
-    "contours",
+    "water",
     "publish",
     "formats",
+    "sky",
+    "terrain",
 )
 
 
@@ -135,7 +138,8 @@ class MakeError(RuntimeError):
 
 def _run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
     print("$ " + " ".join(str(c) for c in cmd), flush=True)
-    return subprocess.run(cmd, check=False, **kwargs)
+    check = kwargs.pop("check", False)
+    return subprocess.run(cmd, check=check, **kwargs)
 
 
 def host_main(argv: list[str] | None = None) -> int:
@@ -1027,7 +1031,9 @@ def inner_main(argv: list[str]) -> None:
         visible_h = THUMB[1] - header
         return main.width / 2 - visible_w / 2, main.height / 2 - visible_h / 2
 
-    def shoot(name: str, rotation, target, distance, thumb: bool = True):
+    def shoot(name: str, rotation, target, distance, thumb: bool = True, wide=None):
+        """``wide``: (rotation, target, distance) of a second, centred view of the same
+        scene, ``<name>_wide``, for the hero's montage (its 3D Viewport region only)."""
         if thumb:
             dx, dy = thumb_shift()
             frame(rotation, target, distance, shift_px=(dx, dy))
@@ -1035,6 +1041,10 @@ def inner_main(argv: list[str]) -> None:
             frame(rotation, target, distance)
         yield from settle()
         screenshot(name)
+        if wide is not None:
+            frame(*wide)
+            yield from settle()
+            screenshot(f"{name}_wide")
 
     # The ring ditch around the mound: what a thumbnail's narrow viewport strip shows,
     # looked at steeply enough that the terrain fills the strip.
@@ -1119,19 +1129,90 @@ def inner_main(argv: list[str]) -> None:
         yield from use_fresh_workspace()
         yield from shoot("layers", (40, 0, 32), ring, 90.0)
 
-    def shot_contours():
+    def shot_water():
         terrain.data.materials[0] = state["photo_material"]
-        set_visible({"terrain", state["contours"].name})
+        set_visible({"terrain", state["contours"].name, state["flow"].name})
         select()
         show_panels(
             {
                 P + "analysis": True,
-                P + "analysis_hydrology": False,
-                P + "analysis_contours": True,
+                P + "analysis_hydrology": True,
+                P + "analysis_contours": False,
             }
         )
         yield from use_fresh_workspace()
-        yield from shoot("contours", (40, 0, 40), ring, 100.0)
+        yield from shoot(
+            "water", (40, 0, 40), ring, 100.0, wide=((55, 0, 30), (0.0, -2.0, 2.0), 82.0)
+        )
+
+    def ground(x: float, y: float) -> tuple[float, float, float]:
+        return (x, y, float(demo.terrain_height(np.array(x), np.array(y))))
+
+    def shot_sky():
+        """Solstice, equinox and lunar standstill sightlines from the top of the mound."""
+        terrain.data.materials[0] = state["photo_material"]
+        archaeo = mod("blender.analysis").settings(bpy.context).archaeo
+        scene.cursor.location = ground(8.0, -6.0)
+        run_op(bpy.ops.geotools.archaeo_observer_cursor)
+        run_op(bpy.ops.geotools.archaeo_events)
+        archaeo.sightline_length = 26.0  # inside the 60 m demo
+        before = {o.name for o in bpy.data.objects}
+        run_op(bpy.ops.geotools.archaeo_sightlines)
+        made = [o for o in bpy.data.objects if o.name not in before and o.type == "MESH"]
+        if len(made) != 1:
+            fail(f"Create Sightlines made {sorted(o.name for o in made)}, not one mesh")
+        lines = made[0]
+        gold = colour_material("Sightline Gold", (1.0, 0.42, 0.02, 1.0), emission=0.5)
+        tube_modifier(lines, 0.12, gold)
+        set_visible({"terrain", lines.name})
+        select()
+        show_panels(
+            {
+                P + "analysis": True,
+                P + "analysis_sun": False,
+                P + "analysis_archaeo": True,
+            }
+        )
+        yield from use_fresh_workspace()
+        yield from shoot(
+            "sky", (48, 0, 30), (8.0, -6.0, 3.5), 95.0, wide=((50, 0, 30), (6.0, -5.0, 3.0), 80.0)
+        )
+
+    def shot_terrain():
+        """A viewshed from the field's low south-west corner: the mound hides its far side.
+        Last, as Write Colours replaces the slope colours in gt_present."""
+        scene.cursor.location = ground(-24.0, -18.0)
+        select(terrain)
+        run_op(bpy.ops.geotools.analysis_add, preset="viewshed")
+        layers = mod("blender.layers")
+        for item in props.layers:
+            layers.refresh_layer(scene, item)
+        if "viewshed" not in props.layers:
+            fail(f"Add Analysis made no viewshed layer: {sorted(props.layers.keys())}")
+        props.layers_index = list(props.layers.keys()).index("viewshed")
+        props.layers["viewshed"].presentation.palette = "viridis"
+        run_op(bpy.ops.geotools.layer_write_presentation)
+        terrain.data.materials[0] = state["slope_material"]  # it shows gt_present
+        set_visible({"terrain"})
+        select(terrain)  # Presets lists the active object's analyses
+        show_panels(
+            {
+                P + "analysis": True,
+                P + "analysis_presets": True,
+                P + "layers": True,
+                P + "layers_bake": False,
+                P + "layers_display": True,
+                P + "layers_details": False,
+            }
+        )
+        yield from use_fresh_workspace()
+        yield from shoot(
+            "terrain",
+            (48, 0, 28),
+            (10.0, -4.0, 3.0),
+            105.0,
+            wide=((52, 0, 28), (0.0, -2.0, 2.0), 92.0),
+        )
 
     def shot_publish():
         terrain.data.materials[0] = state["photo_material"]
@@ -1180,9 +1261,11 @@ def inner_main(argv: list[str]) -> None:
         yield from shot_hero()
         yield from shot_georef()
         yield from shot_layers()
-        yield from shot_contours()
+        yield from shot_water()
         yield from shot_publish()
         yield from shot_formats()
+        yield from shot_sky()
+        yield from shot_terrain()
         restore_panels()
 
     steps = run()
@@ -1220,11 +1303,22 @@ CESIUM_THUMB_VIEW = {"heading": 324, "pitch": -26, "range": 75, "up": 10}
 THUMBS = {  # thumbnail -> Blender shot
     "feature-georeference.png": "georef",
     "feature-layers.png": "layers",
-    "feature-contours.png": "contours",
+    "feature-terrain.png": "terrain",
+    "feature-sky.png": "sky",
+    "feature-hydrology.png": "water",
     "feature-textures.png": "textures",
     "feature-formats.png": "formats",
     "feature-publish.png": "publish",  # with the Cesium view on the left
 }
+# The hero's montage: tile -> the Blender shot whose 3D Viewport region it shows, and
+# how much of that region's middle it keeps (a centre crop, 16:10, then scaled).
+MONTAGE = {
+    "tile-slope.png": ("hero", 0.86),
+    "tile-viewshed.png": ("terrain_wide", 0.9),
+    "tile-sky.png": ("sky_wide", 0.9),
+    "tile-water.png": ("water_wide", 0.9),
+}
+MONTAGE_SIZE = (800, 500)
 CHROMIUM_ARGS = [
     "--use-angle=swiftshader",  # software WebGL: works headless, same pixels everywhere
     "--enable-unsafe-swiftshader",
@@ -1277,6 +1371,19 @@ def compose_main(argv: list[str]) -> int:
     check(blender, "blender.png")
     blender.save(shots_dir / "blender.png")
     size = blender.size
+
+    for filename, (name, keep) in MONTAGE.items():
+        shot = meta["shots"][name]
+        x, y, w, h = shot["main"]
+        region = Image.open(raw / shot["file"]).convert("RGB").crop((x, y, x + w, y + h))
+        aspect = MONTAGE_SIZE[0] / MONTAGE_SIZE[1]
+        cw = min(w * keep, h * keep * aspect)
+        ch = cw / aspect
+        left, top = (w - cw) / 2, (h - ch) / 2
+        tile = region.crop((round(left), round(top), round(left + cw), round(top + ch)))
+        tile = tile.resize(MONTAGE_SIZE, Image.Resampling.LANCZOS)
+        check(tile, filename)
+        tile.save(shots_dir / filename)
 
     handler = functools.partial(_QuietHandler, directory=str(web))
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)

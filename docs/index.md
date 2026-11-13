@@ -1,8 +1,8 @@
 ---
 title: GeoTools
 description: >-
-  A Blender 5.2 extension that places a site on Earth, analyses it, and
-  publishes it as OGC 3D Tiles with rusty-tiles.
+  GIS for Blender: georeference a site, bring in geodata, analyse the full 3D
+  mesh, and publish it as OGC 3D Tiles with rusty-tiles.
 hide:
   - toc
 ---
@@ -10,14 +10,16 @@ hide:
 # GeoTools
 
 <!-- Hero option B (designed banner): assets/readme/hero-b.png (dark) or hero-b-light.png. -->
-![A synthetic terrain coloured by slope in Blender's GeoTools sidebar, and the same terrain published as 3D Tiles and streamed in CesiumJS](assets/readme/hero-a.png)
+![Four analyses of a synthetic site in Blender (slope and contours, a viewshed, solstice and lunar sightlines, flow paths) beside the site published as 3D Tiles in CesiumJS](assets/readme/hero-a.png)
 
-GeoTools is a Blender 5.2 extension that places a site on Earth, analyses it,
-and publishes it as OGC 3D Tiles with
+GeoTools brings GIS into Blender. Place a site in a real coordinate system,
+bring in GeoJSON, GeoPackage and GeoTIFF, and analyse the full 3D mesh, not a
+2.5D raster: terrain shape, archaeological visualisation, visibility, sun and
+shadow, archaeoastronomy, hydrology, measurement, contours and sections.
+Results are layers you can view, export as vectors or GLB metadata, and
+publish as OGC 3D Tiles with
 [rusty-tiles](https://github.com/BenDyson-Arch/rusty-tiles). Everything is on
-the **GeoTools** tab of the 3D Viewport sidebar, and the result is a standard
-`.3tz` archive of OGC 3D Tiles: extract and serve it to stream it in CesiumJS or
-any 3D Tiles viewer ([how](guide/publish.md#viewing-a-3tz-elsewhere)).
+the **GeoTools** tab of the 3D Viewport sidebar.
 
 [Get started](guide/getting-started.md){ .md-button .md-button--primary }
 [Read the user guide](guide/README.md){ .md-button }
@@ -39,35 +41,54 @@ any 3D Tiles viewer ([how](guide/publish.md#viewing-a-3tz-elsewhere)).
 
     **Geo formats**
 
-    GeoJSON, GeoPackage and GeoTIFF in, vectors out, all in the project's
-    frame and kept linked to their files.
+    GeoJSON, GeoPackage and GeoTIFF in, vectors out, all in the project's frame
+    and kept linked to their files.
 
     [:octicons-arrow-right-24: Geo formats](guide/geo-formats.md)
+
+-   ![The Presets and Layers panels with a viewshed on the terrain: the mound hides the ground behind it](assets/readme/feature-terrain.png)
+
+    **Terrain and visibility**
+
+    Slope, aspect, curvature, TPI and TRI; local relief, sky-view factor and
+    openness; viewsheds, intervisibility and line of sight; volumes and
+    least-cost paths. Editable Geometry Nodes presets.
+
+    [:octicons-arrow-right-24: Analysis presets](guide/analysis.md#presets)
+
+-   ![The Archaeoastronomy panel with solstice and lunar standstill sightlines from the top of a mound](assets/readme/feature-sky.png)
+
+    **Sun and sky**
+
+    Place the Sun for a date and place, map hours of sun, key a shadow study,
+    and find solstice, equinox and lunar standstill events on the real horizon.
+
+    [:octicons-arrow-right-24: Sun and archaeoastronomy](guide/analysis.md#archaeoastronomy)
+
+-   ![The Hydrology panel with flow paths and contour lines on the terrain](assets/readme/feature-hydrology.png)
+
+    **Hydrology and measurement**
+
+    Where water runs and ponds on the 3D surface, contours and sections, and
+    points, distances and areas in real coordinates.
+
+    [:octicons-arrow-right-24: Hydrology, contours and measurement](guide/analysis.md#hydrology)
 
 -   ![The Layers panel with the terrain coloured by slope](assets/readme/feature-layers.png)
 
     **Layers**
 
-    Values per face, corner or texel, shown as colours and published as
-    variant tilesets.
+    Values per face, corner or texel, shown as colours and published as variant
+    tilesets.
 
     [:octicons-arrow-right-24: Layers and bakes](guide/layers.md)
-
--   ![The Contours and Sections panel with contour lines on the terrain](assets/readme/feature-contours.png)
-
-    **Analysis**
-
-    Sun and shadow studies, archaeoastronomy, hydrology, contours, sections
-    and editable Geometry Nodes presets.
-
-    [:octicons-arrow-right-24: Analysis](guide/analysis.md)
 
 -   ![The Textures panel's Cleanup tools next to holes in a terrain texture](assets/readme/feature-textures.png)
 
     **Texture cleanup**
 
-    Fill photogrammetry holes, remove masked objects, pad UV islands and
-    balance atlas pages.
+    Fill photogrammetry holes, remove masked objects, pad UV islands and balance
+    atlas pages.
 
     [:octicons-arrow-right-24: Texture cleanup](guide/textures.md)
 
@@ -75,8 +96,8 @@ any 3D Tiles viewer ([how](guide/publish.md#viewing-a-3tz-elsewhere)).
 
     **Publish**
 
-    Checks first, then a validated `.3tz` archive of 3D Tiles to extract and
-    serve to CesiumJS or any 3D Tiles viewer, or a GLB with metadata.
+    Checks first, then a validated `.3tz` archive of 3D Tiles to
+    extract and serve to CesiumJS or any 3D Tiles viewer, or a GLB with metadata.
 
     [:octicons-arrow-right-24: Checks and publishing](guide/publish.md)
 
