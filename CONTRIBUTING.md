@@ -109,18 +109,24 @@ The target platforms are `platforms` under `[tool.geotools]`.
 empties that directory first, and checks each wheel's name, version and Python
 tags against the pins and the target CPython.
 
-Once rusty-tiles 0.4.0 is on PyPI, download every wheel for every platform:
+Download every wheel for every platform:
 
 ```sh
 python scripts/fetch_wheels.py
 ```
+
+The rusty-tiles pin is still 0.4.0, which is on PyPI, but GeoTools needs
+0.4.1's functions (`supported_epsg_codes`, `resolve_source_crs`, `list_tiles`,
+`decode_tile`) and reports a 0.4.0 wheel as not available. Until 0.4.1 is on
+PyPI and the pin moves to it, take rusty-tiles from a local build of
+rusty-tiles develop (below).
 
 This uses `pip download` from the running Python, or `uvx pip` if that Python
 has no pip, so pip settings such as `PIP_INDEX_URL` apply.
 
 `--from-dir` copies wheels from a local directory instead. `--from-dir DIR`
 takes every pin from `DIR`; `--from-dir NAME=DIR` takes one pin from `DIR` and
-downloads the others. Until rusty-tiles is on PyPI, take it from a local
+downloads the others. Until rusty-tiles 0.4.1 is on PyPI, take it from a local
 directory, for example a rusty-tiles `dist/` folder:
 
 ```sh
@@ -248,8 +254,9 @@ and `develop`. It has these jobs:
 - `blender`: an official, checksum-pinned Blender 5.2 LTS runs the Blender
   tests with `--expect missing`, then uploads the zip.
 - `blender-wheel`: the same with the PyPI wheels (rusty-tiles, pyproj,
-  certifi). It doesn't gate until
-  rusty-tiles 0.4.0 is on PyPI; to make it gate, set the repository variable
+  certifi). It doesn't gate yet: the pinned rusty-tiles 0.4.0 is on PyPI, but
+  GeoTools refuses it, so the job fails in its Blender tests until 0.4.1 is
+  published and pinned. Then, to make it gate, set the repository variable
   `RUSTY_TILES_WHEEL_GATING` to `true` and add it to the required checks of
   the `main` and `develop` rulesets.
 - `core (pytest, macOS arm64)` and `core (pytest, Windows x64)`: the core
@@ -334,8 +341,13 @@ does the rest.
 2. On a branch from `release/X.Y.Z`, set `version` in
    `geotools/blender_manifest.toml`, for example from `0.3.0-dev` to `0.3.0`
    (a suffix such as `0.3.0-rc.1` makes a prerelease), and replace
-   `Unreleased` in the `## [0.3.0]` heading with the date. The release notes are
-   that section, so it must not be empty.
+   `Unreleased` in the `## [0.3.0]` heading with the date. That section must
+   not be empty. The release notes are `.github/release-notes/0.3.0.md` when it
+   exists (a prerelease uses its base version's page), with `{version}`
+   filled in and a link to the changelog; otherwise they are the changelog
+   section. `python scripts/release_notes.py 0.3.0` prints them, and fails if
+   the page links to a file at the tag that the branch does not have, so a
+   page must reach `release/X.Y.Z` together with the guide pages it links to.
 3. Merge that into `release/X.Y.Z`, then open a pull request from
    `release/X.Y.Z` to `main` and merge it.
 4. Tag the merge commit on `main` and push the tag:
@@ -344,9 +356,10 @@ does the rest.
    `main` and has a changelog section. It then fetches the pinned wheels for
    every platform from PyPI (for CPython 3.13), builds the three split zips,
    checks each holds a rusty-tiles, pyproj and certifi wheel, tests the Linux zip in
-   official Blender, and publishes a GitHub release with the zips and
-   `SHA256SUMS`. A plain version becomes the latest release; a suffixed one is
-   a prerelease.
+   official Blender, and publishes a GitHub release with the zips, the demo
+   data (`examples/drape-contexts/` as `geotools-demo-data-<version>.zip`) and
+   `SHA256SUMS` of all of them. A plain version becomes the latest release; a
+   suffixed one is a prerelease.
 6. Merge `main` back into `develop` (a pull request), and delete the release
    branch.
 
