@@ -17,9 +17,11 @@ and the project follows semantic versioning where practical.
   its georeference tags, because Blender's image writer does not keep them.
   With an unsaved `.blend`, `image-unsaved` is an error and Publish refuses
   until the `.blend` is saved, rather than packing the pixels. Refreshing an
-  orthophoto whose image was redirected keeps the edited copy and warns that
-  the file's pixels were not reloaded. This reverses the M6 behaviour of
-  saving an edited image to its own file.
+  orthophoto whose image was redirected keeps the edited copy and moves the
+  plane, with a warning; if the file's width or height in pixels changed, the
+  refresh is refused, so the copy is never stretched over the new footprint.
+  A failed save leaves the image on its source file. This reverses the M6
+  behaviour of saving an edited image to its own file.
 - Opening or loading another `.blend` now drops Texture Cleanup's undo copy.
   Undo Cleanup restores images by name and size, so after a load it could
   write the previous file's pixels over a same-named texture, which the next
@@ -89,9 +91,11 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
     of the 3D seams between atlas pages, previewed with a shader node before
     it is applied to the pixels.
   - **Undo Cleanup** puts back the images the last tool changed (one level).
-  - Publish saves every edited source image first (repacked, or saved as a
-    new `//textures/<image>.png`), so a painted texture is never
-    lost or published stale. `build.json` records each source image's SHA-256
+  - Publish saves every edited source image first (repacked, saved again to
+    the `//textures/` copy GeoTools wrote, or saved as a new
+    `//textures/<image>.png` copy; a source file is never saved over, and with
+    an unsaved `.blend` Publish refuses until it is saved), so a painted
+    texture is never lost or published stale. `build.json` records each source image's SHA-256
     in `source.images`. The Publish panel shows "N textures changed since last
     publish", and Run Checks reports `image-unsaved`, `textures-changed` and
     `texture-balance-preview` (an error: the preview node would publish a flat

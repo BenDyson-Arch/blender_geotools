@@ -84,8 +84,12 @@ to try the tools.
 
    Refreshing a linked orthophoto whose image was redirected to its copy
    moves the plane as usual but keeps the copy, with your edits, and warns
-   that the file's pixels were not reloaded. To show the file again, point
-   the material's Image Texture back at the `.tif`; the copy keeps the edits.
+   that the file's pixels were not reloaded: the edited pixels, from the
+   earlier file, are placed on the new footprint. If the file's width or
+   height in pixels changed, the refresh is refused instead (the link shows
+   an error and nothing moves), so the copy is never stretched. To show the
+   file again, point the material's Image Texture back at the `.tif`; the
+   copy keeps the edits.
 
    `build.json` then records, under `source.images`, each source image's name,
    whether it came from a file or was packed, and the SHA-256 of those bytes.
@@ -249,10 +253,14 @@ fits a **gain and offset per page and per colour channel**:
   gain and offset, and the seam error before and after, in 8-bit levels of
   linear light.
 - **Apply.** **Apply Balance** writes the correction into the pixels and
-  removes the preview. It changes every page or none: if one page cannot be
-  balanced (its file went missing, or memory ran out), the pages already done
-  are put back and the fit and preview stay. **Clear Balance** removes the
-  preview without touching any pixels.
+  removes the preview. It changes every page or none. If a page has no pixels
+  (its file went missing), Apply refuses before changing any page, and Undo
+  Cleanup still undoes the previous tool. If a page fails part-way (memory ran
+  out), the pages already balanced are put back and there is nothing to undo.
+  Either way the fit and its preview stay. In the rare case that putting the
+  pages back fails too, the fit is cleared so Apply cannot run twice, and
+  **Undo Cleanup** puts the pages back. **Clear Balance** removes the preview
+  without touching any pixels.
 
 Limits:
 

@@ -38,8 +38,10 @@ GeoTIFF: Blender's image writer drops its georeference tags, so saving over
 it would leave a plain TIFF that GeoTools can no longer place. Save the
 `.blend` before you publish edited source textures; until you do, there is
 nowhere to put the copy, and Checks reports `image-unsaved` as an error.
-Refreshing an edited orthophoto moves its plane but keeps the copy: point its
-Image Texture back at the `.tif` to show the file's pixels instead.
+Refreshing an edited orthophoto moves its plane but keeps the copy (if the
+file's width or height in pixels changed, it refuses, so the copy is never
+stretched): point its Image Texture back at the `.tif` to show the file's
+pixels instead.
 
 **Limits.**
 
