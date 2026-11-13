@@ -399,7 +399,10 @@ def _put_back(names: Iterable[str]) -> list[str]:
         image = bpy.data.images.get(name)
         if saved is None or image is None:
             continue
-        pixels = saved if saved.dtype == np.float32 else saved.astype(np.float32) / 255.0
+        if saved.dtype == np.float32:
+            pixels = saved
+        else:  # one float32 array, not two: this runs when memory may be short
+            pixels = np.divide(saved, np.float32(255.0), dtype=np.float32)
         if pixels.size != len(image.pixels):
             continue
         write_pixels(image, pixels)
@@ -1024,7 +1027,9 @@ class GEOTOOLS_OT_texture_balance_apply(bpy.types.Operator):
         """All pages or none: a page that fails puts back the pages already balanced.
 
         Otherwise the fit (and its preview) would stay, and Apply again would
-        balance those pages twice and drop their undo copies.
+        balance those pages twice and drop their undo copies. If putting them
+        back fails too, the undo copies stay for Undo Cleanup and the fit is
+        cleared, so Apply cannot run again on half-restored pages.
         """
         started = time.perf_counter()
         props = settings(context)
@@ -1045,28 +1050,44 @@ class GEOTOOLS_OT_texture_balance_apply(bpy.types.Operator):
             self.report({"ERROR"}, f"{ex}; no page was balanced")
             return {"CANCELLED"}
         begin_undo("Apply Balance")
-        written: list[str] = []  # name_full of each page written, for putting back
+        written: list[str] = []  # name_full of each page that may be written, to put back
         changed: list[str] = []
         image = None
+        pixels = None
         try:
             for item in pages:
                 image = item.image
                 pixels = read_pixels(image)
                 keep_for_undo(image, pixels)
                 apply_encoded(pixels, item.gain, item.offset, _linearise(image), not image.is_float)
+                written.append(image.name_full)  # before writing: a write can fail half-way
                 write_pixels(image, pixels)
-                written.append(image.name_full)
                 changed.append(image.name)
-                del pixels
+                pixels = None
         except Exception as ex:  # CleanupError, MemoryError, anything: never half-applied
+            pixels = None  # free the failed page before putting the others back
             log.exception("Apply Balance failed")
-            restored = _put_back(written)
+            name = image.name if image is not None else "a page"
+            reason = str(ex) or type(ex).__name__
+            try:
+                restored = _put_back(written)
+            except Exception:
+                # The undo copies stay, so Undo Cleanup can still put the pages
+                # back; the fit goes, so Apply cannot balance them a second time.
+                log.exception("putting back the pages Apply Balance changed failed")
+                remove_preview(_all_materials(objects))
+                props.balance_pages.clear()
+                props.balance_preview = False
+                self.report(
+                    {"ERROR"},
+                    f"Apply Balance failed on {name}: {reason}, and putting back the "
+                    "pages it balanced failed too. Press Undo Cleanup to put them back",
+                )
+                redraw_ui(context)
+                return {"CANCELLED"}
             begin_undo("")
             back = f"; put back {', '.join(restored)}" if restored else ""
-            name = image.name if image is not None else "a page"
-            self.report(
-                {"ERROR"}, f"Apply Balance failed on {name}: {str(ex) or type(ex).__name__}{back}"
-            )
+            self.report({"ERROR"}, f"Apply Balance failed on {name}: {reason}{back}")
             return {"CANCELLED"}
         remove_preview(_all_materials(objects))
         props.balance_pages.clear()
