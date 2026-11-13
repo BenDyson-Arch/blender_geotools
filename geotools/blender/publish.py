@@ -1018,7 +1018,10 @@ def draw_last_build(
     row = layout.row(align=True)
     row.operator("geotools.extract_for_web", icon="URL")
     output = Path(blend_paths.abspath(profile.last_output))
-    folder = web.web_dir_for(output)
+    try:
+        folder = web.web_dir_for(output)
+    except ValueError:  # e.g. a // path of an unsaved .blend (a bare UNC root on Windows)
+        return
     if web.is_geotools_web_dir(folder):
         row.operator("geotools.open_web_folder", text="", icon="FILE_FOLDER")
         if web.is_stale(output, folder):

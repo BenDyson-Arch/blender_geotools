@@ -355,6 +355,13 @@ def test_publish_end_to_end() -> None:
         assert error and "not written by Extract for Web" in error, error
         assert (web / "mine.txt").read_text() == "keep"
 
+        # A last output that names no archive (an unsaved .blend's // path reads as a bare
+        # UNC root on Windows) still draws: Extract for Web is offered, the folder is not.
+        profile.last_output = "//.3tz"
+        calls = h.draw(panels.GEOTOOLS_PT_publish_last)
+        assert ("operator", "geotools.extract_for_web", "URL") in calls
+        assert ("operator", "geotools.open_web_folder", "FILE_FOLDER") not in calls
+
 
 @contextmanager
 def _gated_tiling():
