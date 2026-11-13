@@ -41,7 +41,7 @@ To build the zip from source instead, see
 ## 2. Check the bundled libraries
 
 The zip carries everything GeoTools needs. There is nothing to install with
-pip and nothing is downloaded.
+pip and nothing is downloaded at install.
 
 | Library | What GeoTools uses it for |
 |---|---|

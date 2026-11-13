@@ -27,6 +27,17 @@ and the project follows semantic versioning where practical.
   publish guide shows the page and explains why a viewer on another origin,
   such as Sandcastle, is blocked by CORS.
 
+- GeoTools now declares the `network` and `clipboard` permissions in its
+  manifest, next to `files`, so Blender's install dialog lists everything it
+  can do: optional PROJ grid downloads from cdn.proj.org, and copying analysis
+  results as tab-separated text.
+- Blender's Allow Online Access (Preferences > System, or `--offline-mode`) is
+  honoured. With it off, PROJ never downloads a grid, whether **Allow Grid
+  Downloads** was ticked in an import, carried into Use Data Origin or stored
+  in a linked file's options for Refresh, and the import dialogs grey the
+  option out with the reason. When a ticked or stored option was overridden,
+  the import and Refresh reports say grid downloads were skipped, and a
+  missing-grid note points to installing the grid or turning online access on.
 - File paths GeoTools stores itself now work across Linux, macOS and Windows,
   so a project folder (the `.blend` and its data) opens on any of them and
   finds its files. Linked GeoJSON, GeoPackage and GeoTIFF files, the build
