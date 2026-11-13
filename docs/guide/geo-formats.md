@@ -1,9 +1,9 @@
 # Geo formats: GeoJSON, GeoPackage and GeoTIFF
 
-GeoTools reads and writes the geo formats Blender cannot, in the project's
-frame. What you then do with the data (drape it, offset it, extrude it) uses
-Blender's own tools. The [draping recipe](../recipes/drape-contexts.md) shows
-how.
+GeoTools reads the geo formats Blender cannot, in the project's frame, and
+writes GeoJSON and GeoPackage back. GeoTIFF is read only. What you then do
+with the data (drape it, offset it, extrude it) uses Blender's own tools.
+The [draping recipe](../recipes/drape-contexts.md) shows how.
 
 | Format | Import | Export | Publish |
 |---|---|---|---|
@@ -27,8 +27,10 @@ precision. Z is kept when the data has it.
   bundled pyproj. The report names the operation and its accuracy. GeoTools
   targets the project's EPSG code, so, for example, GDA94 data moves the real
   1.5 m or so into a GDA2020 project. Grid files are not downloaded unless you
-  tick **Allow Grid Downloads**. Without pyproj, such data is refused, with
-  both CRSs named.
+  tick **Allow Grid Downloads** and Blender's **Allow Online Access**
+  (Preferences > System) is on. With online access off, the option is greyed
+  out and every import and refresh stays offline. Without pyproj, such data is
+  refused, with both CRSs named.
 - **Data with no stated CRS** can be taken as being in the project CRS: tick
   **Data Is in Project CRS** when you import.
 - **Rasters in another CRS** are refused. Reproject them in QGIS first.
@@ -125,6 +127,11 @@ A DEM drops cells with no data, and gets UVs over the raster's extent, so an
 orthophoto of the same extent maps straight onto it. An orthophoto's image
 stays linked to its file. Both stay linked like vectors: **Refresh** re-reads
 a DEM, and reloads and moves an orthophoto.
+If you painted or cleaned the orthophoto, Publish saves the edits to a copy
+in `textures/` and the image uses it. **Refresh** then moves the plane but
+keeps the copy, and warns; if the file's width or height in pixels changed,
+it refuses instead, so the copy is never stretched. Point the Image Texture
+back at the `.tif` to reload the file. See [Texture cleanup](textures.md).
 
 GeoTools reads the georeference, the GeoKeys and the nodata value itself.
 Pixels go through Blender's image loader where it is exact (float32, int16,

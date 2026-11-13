@@ -17,6 +17,16 @@ def _assert_fully_unregistered(classes: list[type]) -> None:
     assert not h.operator_available("geotools.ingest_source")
     assert not hasattr(bpy.types.Scene, "geotools"), "Scene.geotools left behind"
     assert not hasattr(bpy.types.Image, "geotools_remedy"), "Image.geotools_remedy left behind"
+    assert not hasattr(bpy.types.Image, "geotools_texture_file"), (
+        "Image.geotools_texture_file left behind"
+    )
+    package = h.CONFIG.package
+    for name in dir(bpy.app.handlers):
+        handlers = getattr(bpy.app.handlers, name)
+        if not isinstance(handlers, list):
+            continue
+        ours = [f.__name__ for f in handlers if getattr(f, "__module__", "").startswith(package)]
+        assert not ours, f"bpy.app.handlers.{name} still has {ours} after disable"
 
 
 def _assert_fully_registered(classes: list[type]) -> None:

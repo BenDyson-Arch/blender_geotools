@@ -19,3 +19,5 @@ license = ["SPDX:GPL-3.0-or-later"]
 [permissions]
 # Blender limits permission reasons to 64 characters, no trailing punctuation.
 files = "Read source meshes and images, write 3D Tiles and build records"
+network = "Optional PROJ grid downloads from cdn.proj.org"
+clipboard = "Copy analysis results as tab-separated text"

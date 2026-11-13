@@ -8,11 +8,12 @@ You will:
 
 1. install the extension;
 2. check the bundled libraries;
-3. place the project on Earth;
-4. bring in a mesh;
-5. run the checks;
-6. publish `site.3tz`;
-7. view the result.
+3. get the demo data;
+4. place the project on Earth;
+5. bring in a mesh;
+6. run the checks;
+7. publish `site.3tz`;
+8. view the result.
 
 You need the Blender basics: the 3D Viewport, the sidebar, and saving a file.
 
@@ -41,7 +42,7 @@ To build the zip from source instead, see
 ## 2. Check the bundled libraries
 
 The zip carries everything GeoTools needs. There is nothing to install with
-pip and nothing is downloaded.
+pip and nothing is downloaded at install.
 
 | Library | What GeoTools uses it for |
 |---|---|
@@ -72,9 +73,12 @@ that actually loaded.
 
 ## 3. Get the demo data
 
-The demo is the synthetic site in
-[`examples/drape-contexts/`](../../examples/drape-contexts/). Download the
-GeoTools repository, or just that folder. You need three files:
+The demo is a synthetic site. Download `geotools-demo-data-<version>.zip` (for
+example `geotools-demo-data-0.3.0.zip`) from the same
+[release](https://github.com/BenDyson-Arch/blender_geotools/releases) as the
+extension and unzip it anywhere. It holds a `drape-contexts` folder, the
+same as [`examples/drape-contexts/`](../../examples/drape-contexts/) in the
+repository. You need three files from it:
 
 | File | What it is |
 |---|---|
@@ -178,7 +182,7 @@ Build** shows:
 - **Triangles** 28,800 and **Tiles** 5;
 - **Validation** Passed;
 - **Folder** and **Record** buttons, which open the output folder and the
-  build record.
+  build record, and **Extract for Web** (step 8).
 
 Next to the `.blend` you now have:
 
@@ -200,28 +204,36 @@ fails or is cancelled.
 ## 8. View the result
 
 `site.3tz` is a 3D Tiles archive: one zip file that holds `tileset.json` and
-its tiles. Viewers that stream 3D Tiles from a web server, such as CesiumJS,
-cannot open a `.3tz` directly. Extract it and serve the folder:
+its tiles. Web viewers such as CesiumJS read a tileset from a web server, not
+from a `.3tz`, so GeoTools writes a folder you can serve:
 
-```sh
-python3 -m zipfile -e site.3tz site/
-python3 -m http.server 8000
-```
+1. In **Last Build**, press **Extract for Web**. GeoTools writes `site.web/`
+   next to `site.3tz`: `tileset.json` and the tiles, plus `index.html`, a
+   CesiumJS page that shows them. The folder button beside it opens the
+   folder.
+2. Serve the folder with any web server. Python has one; in a terminal in the
+   folder that holds `site.web/`, run:
 
-Then load `http://localhost:8000/site/tileset.json` in your viewer. In
-CesiumJS:
+   ```sh
+   python3 -m http.server 8000 --directory site.web   # Linux and macOS
+   py -m http.server 8000 --directory site.web        # Windows
+   ```
 
-```js
-const tileset = await Cesium.Cesium3DTileset.fromUrl(
-  "http://localhost:8000/site/tileset.json"
-);
-viewer.scene.primitives.add(tileset);
-viewer.zoomTo(tileset);
-```
+3. Open <http://localhost:8000/> in your browser.
 
-The tiles use meshopt geometry compression (`EXT_meshopt_compression`), and
-the lossy quality profiles use KTX2 textures. Use a viewer that supports both,
-such as a current CesiumJS.
+The site appears on a globe with low-resolution Natural Earth imagery, which
+ships inside CesiumJS, so you need no Cesium ion account or token. The page
+loads CesiumJS 1.146 from the jsDelivr CDN, so the browser needs to be online.
+Opening `index.html` directly from disk does not work: browsers do not let a
+page read `tileset.json` from a `file://` folder. The page says so.
+
+After you publish again, press **Extract for Web** again. Until you do, the
+panel says `site.web` is older than the archive. Last Build shows the build
+profile's latest publish: after you publish a variant, such as
+`site.slope.3tz`, Extract for Web writes `site.slope.web/` for it.
+
+To show the tiles in a page of your own, or in another viewer, see
+[Viewing a .3tz elsewhere](publish.md#viewing-a-3tz-elsewhere).
 
 To preview from Blender, set the optional **rusty-tiles CLI** and a Cesium
 1.146 **Cesium Runtime** folder in the GeoTools preferences. Neither is bundled.

@@ -18,9 +18,10 @@ Painting itself is Blender's (projection paint, clone, smear, soften, masks; see
 
 Every tool marks the image dirty (so Publish saves it first, see
 ``texture_state``) and keeps a copy of the pixels it changed: **Undo Cleanup**
-puts back the images as they were before the last tool ran. Blender's Ctrl+Z
-does not cover pixel edits made outside paint strokes; Image > Reload also
-goes back to the saved file.
+puts back the images as they were before the last tool ran (in this file:
+loading another file drops the copies). Blender's Ctrl+Z does not cover
+pixel edits made outside paint strokes; Image > Reload also goes back to the
+saved file.
 
 Settings and the last fit live in ``scene.geotools_texture``.
 """
@@ -35,6 +36,7 @@ from dataclasses import dataclass
 
 import bpy
 import numpy as np
+from bpy.app.handlers import persistent
 from bpy.props import (
     BoolProperty,
     CollectionProperty,
@@ -335,12 +337,18 @@ def image_coverage(
 # --- pixels and undo -----------------------------------------------------------------------
 
 
-def read_pixels(image: bpy.types.Image) -> np.ndarray:
-    """``(H, W, C)`` float32 pixels, row 0 at the bottom (``Image.pixels`` order)."""
+def pixel_shape(image: bpy.types.Image) -> tuple[int, int, int]:
+    """``(H, W, C)`` of ``image``'s pixels, without reading them; CleanupError if none."""
     width, height = (int(v) for v in image.size[:2])
     channels = int(image.channels)
     if not width or not height or not channels:
         raise CleanupError(f"Image {image.name} has no pixels (is its file missing?)")
+    return height, width, channels
+
+
+def read_pixels(image: bpy.types.Image) -> np.ndarray:
+    """``(H, W, C)`` float32 pixels, row 0 at the bottom (``Image.pixels`` order)."""
+    height, width, channels = pixel_shape(image)
     pixels = np.empty(width * height * channels, np.float32)
     image.pixels.foreach_get(pixels)
     return pixels.reshape(height, width, channels)
@@ -382,21 +390,42 @@ def undo_label() -> str:
     return str(_undo["label"]) if _undo["images"] else ""
 
 
-def undo_cleanup() -> list[str]:
-    """Put back the images as they were before the last tool; return their names."""
+def _put_back(names: Iterable[str]) -> list[str]:
+    """Write the kept copies of the images ``names`` (``name_full``) back; return their names."""
     images: dict = _undo["images"]  # type: ignore[assignment]
     restored = []
-    for name, saved in images.items():
+    for name in names:
+        saved = images.get(name)
         image = bpy.data.images.get(name)
-        if image is None:
+        if saved is None or image is None:
             continue
-        pixels = saved if saved.dtype == np.float32 else saved.astype(np.float32) / 255.0
+        if saved.dtype == np.float32:
+            pixels = saved
+        else:  # one float32 array, not two: this runs when memory may be short
+            pixels = np.divide(saved, np.float32(255.0), dtype=np.float32)
         if pixels.size != len(image.pixels):
             continue
         write_pixels(image, pixels)
         restored.append(image.name)
+    return restored
+
+
+def undo_cleanup() -> list[str]:
+    """Put back the images as they were before the last tool; return their names."""
+    restored = _put_back(list(_undo["images"]))  # type: ignore[arg-type]
     begin_undo("")
     return restored
+
+
+@persistent
+def _on_load_pre(*_args: object) -> None:
+    """Forget the undo copies and the coverage cache before another file loads.
+
+    Undo Cleanup restores by image name and size only, so a copy kept from
+    the previous file would write its pixels over a same-named image here.
+    """
+    begin_undo("")
+    _coverage.clear()
 
 
 # --- masks ---------------------------------------------------------------------------------
@@ -995,24 +1024,71 @@ class GEOTOOLS_OT_texture_balance_apply(bpy.types.Operator):
         return True
 
     def execute(self, context: bpy.types.Context) -> set[str]:
+        """All pages or none: a page that fails puts back the pages already balanced.
+
+        Otherwise the fit (and its preview) would stay, and Apply again would
+        balance those pages twice and drop their undo copies. If putting them
+        back fails too, the undo copies stay for Undo Cleanup and the fit is
+        cleared, so Apply cannot run again on half-restored pages.
+        """
         started = time.perf_counter()
         props = settings(context)
         objects = candidate_objects(context)
+        pages = [
+            item
+            for item in props.balance_pages
+            if item.image is not None
+            and item.image.library is None
+            and not _identity(item.gain, item.offset)
+        ]
+        # Check every page before changing any. Sizes only: reading all the
+        # pages first would hold them all at once (an 8K float page is 512 MiB).
+        try:
+            for item in pages:
+                pixel_shape(item.image)
+        except CleanupError as ex:
+            self.report({"ERROR"}, f"{ex}; no page was balanced")
+            return {"CANCELLED"}
         begin_undo("Apply Balance")
-        changed = []
-        for item in props.balance_pages:
-            image = item.image
-            if image is None or _identity(item.gain, item.offset) or image.library is not None:
-                continue
-            try:
+        written: list[str] = []  # name_full of each page that may be written, to put back
+        changed: list[str] = []
+        image = None
+        pixels = None
+        try:
+            for item in pages:
+                image = item.image
                 pixels = read_pixels(image)
-            except CleanupError as ex:
-                self.report({"ERROR"}, str(ex))
+                keep_for_undo(image, pixels)
+                apply_encoded(pixels, item.gain, item.offset, _linearise(image), not image.is_float)
+                written.append(image.name_full)  # before writing: a write can fail half-way
+                write_pixels(image, pixels)
+                changed.append(image.name)
+                pixels = None
+        except Exception as ex:  # CleanupError, MemoryError, anything: never half-applied
+            pixels = None  # free the failed page before putting the others back
+            log.exception("Apply Balance failed")
+            name = image.name if image is not None else "a page"
+            reason = str(ex) or type(ex).__name__
+            try:
+                restored = _put_back(written)
+            except Exception:
+                # The undo copies stay, so Undo Cleanup can still put the pages
+                # back; the fit goes, so Apply cannot balance them a second time.
+                log.exception("putting back the pages Apply Balance changed failed")
+                remove_preview(_all_materials(objects))
+                props.balance_pages.clear()
+                props.balance_preview = False
+                self.report(
+                    {"ERROR"},
+                    f"Apply Balance failed on {name}: {reason}, and putting back the "
+                    "pages it balanced failed too. Press Undo Cleanup to put them back",
+                )
+                redraw_ui(context)
                 return {"CANCELLED"}
-            keep_for_undo(image, pixels)
-            apply_encoded(pixels, item.gain, item.offset, _linearise(image), not image.is_float)
-            write_pixels(image, pixels)
-            changed.append(image.name)
+            begin_undo("")
+            back = f"; put back {', '.join(restored)}" if restored else ""
+            self.report({"ERROR"}, f"Apply Balance failed on {name}: {reason}{back}")
+            return {"CANCELLED"}
         remove_preview(_all_materials(objects))
         props.balance_pages.clear()
         props.balance_preview = False
@@ -1103,9 +1179,13 @@ _register_classes, _unregister_classes = bpy.utils.register_classes_factory(clas
 def register() -> None:
     _register_classes()
     bpy.types.Scene.geotools_texture = PointerProperty(type=GeoToolsTextureSettings)
+    if _on_load_pre not in bpy.app.handlers.load_pre:
+        bpy.app.handlers.load_pre.append(_on_load_pre)
 
 
 def unregister() -> None:
+    while _on_load_pre in bpy.app.handlers.load_pre:
+        bpy.app.handlers.load_pre.remove(_on_load_pre)
     del bpy.types.Scene.geotools_texture
     _coverage.clear()
     begin_undo("")

@@ -3,7 +3,8 @@
 GeoTools is a Blender 5.2 extension. You prepare a site in Blender, analyse it,
 clean its textures, and publish it as OGC 3D Tiles with
 [rusty-tiles](https://github.com/BenDyson-Arch/rusty-tiles). GeoTools also
-reads and writes GeoJSON, GeoPackage and GeoTIFF in the site's coordinates.
+reads and writes GeoJSON and GeoPackage, and reads GeoTIFF, in the site's
+coordinates.
 
 Everything is in the 3D Viewport sidebar (press **N**), on the **GeoTools**
 tab. The panels follow the workflow from top to bottom. Each panel header
@@ -27,7 +28,7 @@ minutes.
 | [Analysis](analysis.md) | Analysis | Sun, sun hours, shadow studies, archaeoastronomy, coordinates and measurement, presets, hydrology, contours and sections. |
 | [Texture cleanup](textures.md) | Textures | Painting setup, filling holes, removing masked objects, padding, balancing pages. |
 | [Inspecting output](inspect-output.md) | Inspect Output | Opening published tiles in Blender and tracing them to the source. |
-| [Geo formats](geo-formats.md) | Linked Data, File > Import and Export | GeoJSON, GeoPackage and GeoTIFF in and out; linked files; vector publishing. |
+| [Geo formats](geo-formats.md) | Linked Data, File > Import and Export | GeoJSON and GeoPackage in and out, GeoTIFF in; linked files; vector publishing. |
 | [Working alongside BlenderGIS](blendergis.md) | Project | The shared scene georeference, and what stays GeoTools-only. |
 
 ## Reference pages
@@ -47,12 +48,13 @@ The guide uses the synthetic site in
 [`examples/drape-contexts/`](../../examples/drape-contexts/): a 60 m terrain
 mesh with its offset file, and nine invented excavation contexts, at round
 coordinates in WGS 84 / UTM zone 31N (EPSG:32631). Every number in it is
-made up. `scripts/make_example_drape.py` makes the files again.
+made up. Each release also carries it as `geotools-demo-data-<version>.zip`.
+`scripts/make_example_drape.py` makes the files again.
 
 ## What GeoTools does not do
 
-GeoTools reads and writes geo formats, handles the georeference, analyses and
-publishes. Modelling, draping, displacement and painting use Blender's own
-tools; the guide points to recipes where that helps. It does not import 3D
-Tiles for editing (only for [inspection](inspect-output.md)), and it does not
-reproject rasters.
+GeoTools reads and writes geo formats (GeoTIFF is read only), handles the
+georeference, analyses and publishes. Modelling, draping, displacement and
+painting use Blender's own tools; the guide points to recipes where that
+helps. It does not import 3D Tiles for editing (only for
+[inspection](inspect-output.md)), and it does not reproject rasters.

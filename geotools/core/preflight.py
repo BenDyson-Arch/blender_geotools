@@ -56,9 +56,13 @@ class ImageSummary:
     bit_depth: int | None = None
     remedy: ImageRemedy = NO_REMEDY  # the user's stored choice, never inferred
     # Unsaved edits (painted, cleaned or generated pixels): where Publish saves
-    # them first, e.g. "its file albedo.png" or "the .blend (packed)"; None if
-    # the image has no unsaved edits. See blender.texture_state.
+    # them first, e.g. "//textures/albedo.png (a copy; albedo.jpg is left as it
+    # is)" or "the .blend (packed)"; None if the image has no unsaved edits.
+    # See blender.texture_state.
     unsaved_target: str | None = None
+    # Why Publish cannot save them yet (a source file and an unsaved .blend),
+    # which makes image-unsaved an error; None if it can.
+    unsaved_blocked: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -303,7 +307,15 @@ def _one_material(material: MaterialSummary) -> list[Issue]:
 
 def _one_image(image: ImageSummary, profile: str | None = None) -> list[Issue]:
     issues = _image_rules(image, profile)
-    if image.unsaved_target and (image.exists or image.packed):
+    if image.unsaved_blocked:
+        issues.append(
+            _error(
+                "image-unsaved",
+                f"Image {image.name} has unsaved edits, but {image.unsaved_blocked}.",
+                image.name,
+            )
+        )
+    elif image.unsaved_target and (image.exists or image.packed):
         issues.append(
             _warn(
                 "image-unsaved",
