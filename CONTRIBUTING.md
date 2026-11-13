@@ -316,9 +316,15 @@ are done.
   it (`gh pr create --base develop`).
 - `release/X.Y.Z` is cut from `develop` when a release's scope is complete, so
   `develop` can move on to the next version while the release waits (for
-  example on a rusty-tiles release). Only fixes for that release go to it,
-  through pull requests against it; merge the release branch back into
-  `develop` after each fix and after the release.
+  example on a rusty-tiles release). Work for the release still lands on
+  `develop` first. Whenever work in the release's scope lands, bring it over
+  with a pull request that merges `develop` into the release branch (a plain
+  merge, no cherry-picks), and once more before the tag. In that pull request,
+  set `blender_manifest.toml` back to the release's `X.Y.Z-dev` version and
+  move the new CHANGELOG entries from `[Unreleased]` into the release's
+  section. A fix that only the release needs goes straight to the release
+  branch; merge the release branch back into `develop` afterwards and after
+  the release.
 - `legacy-0.2` keeps the 0.2 importer add-on. It is not developed.
 
 `main`, `develop` and `release/*` are protected by rulesets: no deletion or force
