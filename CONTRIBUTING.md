@@ -343,10 +343,12 @@ does the rest.
    `geotools/blender_manifest.toml`, for example from `0.3.0-dev` to `0.3.0`
    (a suffix such as `0.3.0-rc.1` makes a prerelease), and replace
    `Unreleased` in the `## [0.3.0]` heading with the date. That section must
-   not be empty. The release notes are `docs/release-notes/0.3.0.md` when it
+   not be empty. The release notes are `.github/release-notes/0.3.0.md` when it
    exists (a prerelease uses its base version's page), with `{version}`
    filled in and a link to the changelog; otherwise they are the changelog
-   section. `python scripts/release_notes.py 0.3.0` prints them.
+   section. `python scripts/release_notes.py 0.3.0` prints them, and fails if
+   the page links to a file at the tag that the branch does not have, so a
+   page must reach `release/X.Y.Z` together with the guide pages it links to.
 3. Merge that into `release/X.Y.Z`, then open a pull request from
    `release/X.Y.Z` to `main` and merge it.
 4. Tag the merge commit on `main` and push the tag:

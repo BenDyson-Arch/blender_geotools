@@ -2,14 +2,16 @@
 
     python scripts/release_notes.py 0.3.0
 
-The notes are the release page ``docs/release-notes/<version>.md`` when there
+The notes are the release page ``.github/release-notes/<version>.md`` when there
 is one (for a prerelease such as ``0.3.0-rc.1``, the page of ``0.3.0`` is used
 if it has none of its own), with ``{version}`` replaced by the version and a
 link to the full changelog added. Without a page, they are the CHANGELOG.md
 section of the version.
 
 Exits non-zero if the changelog has no ``## [<version>]`` section or the
-section is empty, so a release cannot go out without a changelog entry.
+section is empty, so a release cannot go out without a changelog entry, and if
+the notes link to a file at the tag (``.../blob/v<version>/<path>``) that this
+checkout does not have, so a release body cannot go out with dead links.
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CHANGELOG = ROOT / "CHANGELOG.md"
-PAGES = ROOT / "docs" / "release-notes"
+PAGES = ROOT / ".github" / "release-notes"
 REPOSITORY = "https://github.com/BenDyson-Arch/blender_geotools"
 
 PLACEHOLDER = "{version}"
@@ -72,15 +74,29 @@ def notes(version: str, changelog: str, pages: Path = PAGES) -> str | None:
     return render_page(page.read_text(encoding="utf-8"), version)
 
 
+def missing_files(body: str, version: str, root: Path = ROOT) -> list[str]:
+    """The repository paths ``body`` links to at tag ``v<version>`` that are not files under ``root``."""
+    link = re.compile(rf"{re.escape(REPOSITORY)}/blob/v{re.escape(version)}/([^)#\s]+)")
+    paths = dict.fromkeys(link.findall(body))
+    return [path for path in paths if not (root / path).is_file()]
+
+
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     if len(args) != 1:
         print("usage: release_notes.py VERSION", file=sys.stderr)
         return 2
     version = args[0].removeprefix("v")
-    body = notes(version, CHANGELOG.read_text(encoding="utf-8"))
+    body = notes(version, CHANGELOG.read_text(encoding="utf-8"), pages=PAGES)
     if body is None:
         print(f"error: CHANGELOG.md has no non-empty section for [{version}]", file=sys.stderr)
+        return 1
+    missing = missing_files(body, version)
+    if missing:
+        for path in missing:
+            print(
+                f"error: the release notes link to {path}, which is not in the tag", file=sys.stderr
+            )
         return 1
     print(body)
     return 0

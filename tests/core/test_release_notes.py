@@ -100,8 +100,31 @@ def test_a_page_still_needs_a_changelog_section(tmp_path) -> None:
     assert release_notes.notes("0.9.0", CHANGELOG, pages=tmp_path) is None
 
 
+def test_missing_files_names_links_to_files_the_tag_lacks(tmp_path) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs/here.md").write_text("", encoding="utf-8")
+    blob = f"{release_notes.REPOSITORY}/blob/v0.3.0"
+    body = (
+        f"[a]({blob}/docs/here.md#section) [b]({blob}/docs/gone.md) "
+        f"[c]({blob}/docs/gone.md) [d]({release_notes.REPOSITORY}/blob/v0.2.0/docs/old.md)"
+    )
+    assert release_notes.missing_files(body, "0.3.0", root=tmp_path) == ["docs/gone.md"]
+
+
+def test_main_refuses_notes_with_dead_links(tmp_path, monkeypatch, capsys) -> None:
+    (tmp_path / "0.3.0.md").write_text(
+        f"[x]({release_notes.REPOSITORY}/blob/v{{version}}/docs/no-such-page.md)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(release_notes, "PAGES", tmp_path)
+    monkeypatch.setattr(release_notes, "CHANGELOG", tmp_path / "CHANGELOG.md")
+    (tmp_path / "CHANGELOG.md").write_text(CHANGELOG, encoding="utf-8")
+    assert release_notes.main(["0.3.0"]) == 1
+    assert "docs/no-such-page.md" in capsys.readouterr().err
+
+
 def test_the_030_page_has_what_a_first_time_user_needs() -> None:
-    page = (ROOT / "docs/release-notes/0.3.0.md").read_text(encoding="utf-8")
+    page = (ROOT / ".github/release-notes/0.3.0.md").read_text(encoding="utf-8")
     body = release_notes.render_page(page, "0.3.0")
     for heading in (
         "## Download",
@@ -122,3 +145,7 @@ def test_the_030_page_has_what_a_first_time_user_needs() -> None:
     assert "{version}" not in body and "<!--" not in body
     # Relative links do not work in a release body.
     assert "](docs/" not in body and "](../" not in body
+    # Every page it links to at the tag is in this checkout, so a release branch
+    # that has the page but not the guide fails here, before the tag.
+    assert "/blob/v0.3.0/docs/guide/getting-started.md" in body
+    assert release_notes.missing_files(body, "0.3.0") == []

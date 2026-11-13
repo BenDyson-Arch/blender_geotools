@@ -73,9 +73,10 @@ that actually loaded.
 
 ## 3. Get the demo data
 
-The demo is a synthetic site. Download `geotools-demo-data-0.3.0.zip` from the
-same [release](https://github.com/BenDyson-Arch/blender_geotools/releases) as
-the extension and unzip it anywhere. It holds a `drape-contexts` folder, the
+The demo is a synthetic site. Download `geotools-demo-data-<version>.zip` (for
+example `geotools-demo-data-0.3.0.zip`) from the same
+[release](https://github.com/BenDyson-Arch/blender_geotools/releases) as the
+extension and unzip it anywhere. It holds a `drape-contexts` folder, the
 same as [`examples/drape-contexts/`](../../examples/drape-contexts/) in the
 repository. You need three files from it:
 

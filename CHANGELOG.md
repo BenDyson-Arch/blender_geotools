@@ -9,12 +9,13 @@ and the project follows semantic versioning where practical.
 
 ### Added
 
-- A user-facing release page for 0.3.0, `docs/release-notes/0.3.0.md`: the
+- A user-facing release page for 0.3.0, `.github/release-notes/0.3.0.md`: the
   downloads per platform, requirements, installing, checking a download
   against `SHA256SUMS`, what is new since 0.2, known limitations, upgrading
   from the 0.2 add-on and where to get help. The release workflow uses a
   version's page as the GitHub release body (with a link to the changelog)
-  when there is one, and the changelog section otherwise.
+  when there is one, and the changelog section otherwise, and refuses a page
+  that links to a file the tag does not have.
 - Each release attaches the synthetic demo site (`examples/drape-contexts/`)
   as `geotools-demo-data-<version>.zip`, included in `SHA256SUMS`. Getting
   started now points to it instead of to the repository.

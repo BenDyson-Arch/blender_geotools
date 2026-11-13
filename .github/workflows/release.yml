@@ -3,10 +3,11 @@ name: Release
 # Push a tag vX.Y.Z on main to publish a release. The tag must match the
 # manifest version, be on main, and have a matching CHANGELOG.md section. A
 # version with a suffix (0.4.0-rc.1) becomes a prerelease; any other becomes the
-# latest release. The release body is docs/release-notes/<version>.md when there is
-# one (see scripts/release_notes.py), and the release carries the platform zips, the
-# demo data (examples/drape-contexts) as geotools-demo-data-<version>.zip, and
-# SHA256SUMS of every zip.
+# latest release. The release body is .github/release-notes/<version>.md when
+# there is one (see scripts/release_notes.py, which also fails the check job if
+# the page links to a file the tag does not have), and the release carries the
+# platform zips, the demo data (examples/drape-contexts) as
+# geotools-demo-data-<version>.zip, and SHA256SUMS of every zip.
 
 on:
   push:
@@ -132,8 +133,19 @@ jobs:
           VERSION: ${{ needs.check.outputs.version }}
         run: |
           set -eu
+          # python -m zipfile writes an empty zip (and exits 0) for a missing folder.
+          for f in drape-contexts.blend terrain.ply terrain_offset.txt contexts.geojson; do
+            test -f "examples/drape-contexts/$f" || { echo "::error::examples/drape-contexts/$f is missing"; exit 1; }
+          done
           python -m zipfile -c "dist/geotools-demo-data-${VERSION}.zip" examples/drape-contexts
           python -m zipfile -l "dist/geotools-demo-data-${VERSION}.zip"
+          python - "dist/geotools-demo-data-${VERSION}.zip" <<'PY'
+          import sys, zipfile
+          names = zipfile.ZipFile(sys.argv[1]).namelist()
+          for f in ("drape-contexts.blend", "terrain.ply", "terrain_offset.txt", "contexts.geojson"):
+              if f"drape-contexts/{f}" not in names:
+                  sys.exit(f"::error::the demo data zip has no drape-contexts/{f}")
+          PY
       - name: Attach checksums and publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
