@@ -1,9 +1,9 @@
 # Geo formats: GeoJSON, GeoPackage and GeoTIFF
 
-GeoTools reads and writes the geo formats Blender cannot, in the project's
-frame. What you then do with the data (drape it, offset it, extrude it) uses
-Blender's own tools. The [draping recipe](../recipes/drape-contexts.md) shows
-how.
+GeoTools reads the geo formats Blender cannot, in the project's frame, and
+writes GeoJSON and GeoPackage back. GeoTIFF is read only. What you then do
+with the data (drape it, offset it, extrude it) uses Blender's own tools.
+The [draping recipe](../recipes/drape-contexts.md) shows how.
 
 | Format | Import | Export | Publish |
 |---|---|---|---|

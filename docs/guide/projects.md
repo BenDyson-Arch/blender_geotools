@@ -71,7 +71,7 @@ tools such as Metashape ask for it when you export with a local shift.
   type (they are stored as text, at full double precision).
 - Or press **Load Offset File** and pick an offset file.
 - Or put the offset file next to the mesh before you import it. **Import
-  Mesh...** in the Source panel looks for `<name>_offset.txt`,
+  Source Mesh...** in the Source panel looks for `<name>_offset.txt`,
   `<name>.offset.txt` or `offset.txt` beside the mesh, in that order, and
   reads the first it finds. Reading an offset file switches the project to
   CRS, but does not set the CRS: the file does not say which CRS it is in.

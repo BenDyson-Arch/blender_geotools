@@ -8,11 +8,12 @@ You will:
 
 1. install the extension;
 2. check the bundled libraries;
-3. place the project on Earth;
-4. bring in a mesh;
-5. run the checks;
-6. publish `site.3tz`;
-7. view the result.
+3. get the demo data;
+4. place the project on Earth;
+5. bring in a mesh;
+6. run the checks;
+7. publish `site.3tz`;
+8. view the result.
 
 You need the Blender basics: the 3D Viewport, the sidebar, and saving a file.
 
@@ -72,9 +73,12 @@ that actually loaded.
 
 ## 3. Get the demo data
 
-The demo is the synthetic site in
-[`examples/drape-contexts/`](../../examples/drape-contexts/). Download the
-GeoTools repository, or just that folder. You need three files:
+The demo is a synthetic site. Download `geotools-demo-data-<version>.zip` (for
+example `geotools-demo-data-0.3.0.zip`) from the same
+[release](https://github.com/BenDyson-Arch/blender_geotools/releases) as the
+extension and unzip it anywhere. It holds a `drape-contexts` folder, the
+same as [`examples/drape-contexts/`](../../examples/drape-contexts/) in the
+repository. You need three files from it:
 
 | File | What it is |
 |---|---|
