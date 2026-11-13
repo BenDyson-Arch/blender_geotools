@@ -106,6 +106,9 @@ def stored_paths() -> Iterator[PathRef]:
         inspect = getattr(scene, "geotools_inspect", None)
         if inspect is not None:
             yield inspect, "filepath"
+    for image in bpy.data.images:
+        if image.library is None and getattr(image, "geotools_texture_file", ""):
+            yield image, "geotools_texture_file"
 
 
 def remap(old_dir: str | None, new_dir: str) -> list[tuple[PathRef, str]]:

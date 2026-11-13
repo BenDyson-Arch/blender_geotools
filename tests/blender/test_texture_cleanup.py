@@ -305,6 +305,32 @@ def test_fill_holes_inside_islands_only() -> None:
     assert result == {"CANCELLED"}, (result, error)
 
 
+def test_loading_a_file_drops_the_undo_copies() -> None:
+    """Undo Cleanup never writes one file's pixels over a same-named image in another."""
+    cleanup = _cleanup()
+    assert cleanup._on_load_pre in bpy.app.handlers.load_pre
+    _reset()
+    _obj, image, _truth, _inside = _textured()
+    px = _pixels(image)
+    px[28:34, 28:34, :3] = 0.0
+    image.pixels.foreach_set(px.ravel())
+    assert bpy.ops.geotools.texture_fill_holes() == {"FINISHED"}
+    assert bpy.ops.geotools.texture_cleanup_undo.poll()
+    assert cleanup._coverage
+    try:
+        assert bpy.ops.wm.read_homefile(use_empty=True) == {"FINISHED"}
+        h.reset_scene()
+        other = bpy.data.images.new("Albedo", 64, 64, alpha=True)
+        before = _pixels(other)
+        assert not bpy.ops.geotools.texture_cleanup_undo.poll()
+        assert cleanup.undo_label() == "" and not cleanup._coverage
+        assert cleanup.undo_cleanup() == []
+        assert np.array_equal(_pixels(other), before) and not other.is_dirty
+    finally:
+        assert bpy.ops.wm.read_homefile(use_empty=True) == {"FINISHED"}
+        h.reset_scene()
+
+
 def test_fill_holes_transparent() -> None:
     _reset()
     _obj, image, truth, _inside = _textured(background=False)
@@ -464,6 +490,147 @@ def test_balance_fit_preview_apply_undo() -> None:
     assert np.array_equal(_pixels(page_b), before)
 
 
+def _three_pages():
+    """Pages A (the reference), B and C side by side, B and C off by a gain; fitted."""
+    pages = [
+        _page("PageA", 0.0, (1.0, 1.0, 1.0)),
+        _page("PageB", 1.0, (1.25, 1.0, 0.8)),
+        _page("PageC", 2.0, (0.8, 1.0, 1.2)),
+    ]
+    for x, page in enumerate(pages):
+        _grid(page.name[-1], 8, _material(page.name[-1], page), origin=(float(x), 0.0))
+    _anchor()
+    _settings().balance_reference = pages[0]
+    assert bpy.ops.geotools.texture_balance_fit() == {"FINISHED"}
+    assert [i.image.name for i in _settings().balance_pages] == ["PageA", "PageB", "PageC"]
+    return pages
+
+
+def _has_preview(name: str) -> bool:
+    tree = bpy.data.materials[name].node_tree
+    return any(n.name.startswith("GeoTools balance preview") for n in tree.nodes)
+
+
+def test_balance_apply_checks_every_page_first() -> None:
+    """A page with no pixels stops Apply before any page changes."""
+    _reset()
+    _a, page_b, page_c = _three_pages()
+    before = _pixels(page_b)
+    missing = bpy.data.images.new("Missing", 8, 8)
+    missing.source = "FILE"
+    missing.filepath = "/nonexistent/geotools-test/missing.png"
+    assert tuple(missing.size) == (0, 0)
+    _settings().balance_pages[2].image = missing
+    cleanup = _cleanup()
+    cleanup.begin_undo("Earlier Tool")
+    cleanup.keep_for_undo(page_c, _pixels(page_c))
+    result, error = h.call_op(bpy.ops.geotools.texture_balance_apply)
+    assert result != {"FINISHED"} and "no page was balanced" in error, (result, error)
+    assert np.array_equal(_pixels(page_b), before) and not page_b.is_dirty
+    assert _has_preview("B") and len(_settings().balance_pages) == 3
+    assert bpy.ops.geotools.texture_balance_apply.poll()
+    assert cleanup.undo_label() == "Earlier Tool"  # the last tool's undo is kept
+
+
+def test_balance_apply_failure_puts_back_the_pages_done() -> None:
+    """A failure part-way (here a MemoryError) never leaves pages half balanced."""
+    _reset()
+    _a, page_b, page_c = _three_pages()
+    before_b, before_c = _pixels(page_b), _pixels(page_c)
+    cleanup = _cleanup()
+    original = cleanup.apply_encoded
+    calls = []
+
+    def failing(pixels, *args, **kwargs):
+        calls.append(1)
+        if len(calls) == 2:
+            raise MemoryError
+        return original(pixels, *args, **kwargs)
+
+    cleanup.apply_encoded = failing
+    try:
+        result, error = h.call_op(bpy.ops.geotools.texture_balance_apply)
+    finally:
+        cleanup.apply_encoded = original
+    assert result != {"FINISHED"} and error, (result, error)
+    assert "failed on PageC: MemoryError; put back PageB" in error, error
+    assert np.array_equal(_pixels(page_b), before_b)
+    assert np.array_equal(_pixels(page_c), before_c)
+    assert _has_preview("B") and _has_preview("C") and len(_settings().balance_pages) == 3
+    assert cleanup.undo_label() == ""
+
+    # Apply again balances each page once.
+    assert bpy.ops.geotools.texture_balance_apply() == {"FINISHED"}
+    for page, x0 in ((page_b, 1.0), (page_c, 2.0)):
+        expected = _pixels(_page(f"Expected{x0}", x0, (1.0, 1.0, 1.0)))
+        assert np.abs(_pixels(page)[..., :3] - expected[..., :3]).max() < 0.03, page.name
+    assert bpy.ops.geotools.texture_cleanup_undo() == {"FINISHED"}
+    assert np.array_equal(_pixels(page_b), before_b)
+    assert np.array_equal(_pixels(page_c), before_c)
+
+
+def test_balance_apply_puts_back_a_page_whose_write_failed_half_way() -> None:
+    """Pixels set but the update after it failing: that page is put back too."""
+    _reset()
+    _a, page_b, page_c = _three_pages()
+    before_b, before_c = _pixels(page_b), _pixels(page_c)
+    cleanup = _cleanup()
+    original = cleanup.forget
+    calls = []
+
+    def failing(image):
+        calls.append(image.name)
+        if calls == ["PageB", "PageC"]:  # page C's pixels are already written
+            raise RuntimeError("simulated update failure")
+        return original(image)
+
+    cleanup.forget = failing
+    try:
+        result, error = h.call_op(bpy.ops.geotools.texture_balance_apply)
+    finally:
+        cleanup.forget = original
+    assert result != {"FINISHED"}, (result, error)
+    assert "failed on PageC: simulated update failure; put back PageB, PageC" in error, error
+    assert np.array_equal(_pixels(page_b), before_b)
+    assert np.array_equal(_pixels(page_c), before_c)
+    assert len(_settings().balance_pages) == 3
+
+
+def test_balance_apply_keeps_undo_if_putting_back_fails() -> None:
+    """If the rollback fails too, Undo Cleanup still has the copies and Apply cannot rerun."""
+    _reset()
+    _a, page_b, page_c = _three_pages()
+    before_b, before_c = _pixels(page_b), _pixels(page_c)
+    cleanup = _cleanup()
+    original_apply, original_put_back = cleanup.apply_encoded, cleanup._put_back
+    calls = []
+
+    def failing(pixels, *args, **kwargs):
+        calls.append(1)
+        if len(calls) == 2:
+            raise MemoryError
+        return original_apply(pixels, *args, **kwargs)
+
+    def failing_put_back(_names):
+        raise MemoryError
+
+    cleanup.apply_encoded, cleanup._put_back = failing, failing_put_back
+    try:
+        result, error = h.call_op(bpy.ops.geotools.texture_balance_apply)
+    finally:
+        cleanup.apply_encoded, cleanup._put_back = original_apply, original_put_back
+    assert result != {"FINISHED"}, (result, error)
+    assert "Press Undo Cleanup" in error, error
+    assert not np.array_equal(_pixels(page_b), before_b)  # balanced, not put back
+    assert len(_settings().balance_pages) == 0 and not _settings().balance_preview
+    assert not _has_preview("B") and not _has_preview("C")
+    assert not bpy.ops.geotools.texture_balance_apply.poll()
+    assert cleanup.undo_label() == "Apply Balance"
+    assert bpy.ops.geotools.texture_cleanup_undo() == {"FINISHED"}
+    assert np.array_equal(_pixels(page_b), before_b)
+    assert np.array_equal(_pixels(page_c), before_c)
+
+
 def test_balance_needs_two_pages() -> None:
     _reset()
     _grid("A", 2, _material("A", _page("PageA", 0.0, (1, 1, 1), size=16)))
@@ -491,10 +658,35 @@ def _file_image(path: Path, size: int = 32) -> bpy.types.Image:
     return image
 
 
-def test_dirty_tracking_and_checks() -> None:
+def _sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _paint(image: bpy.types.Image, value: float = 0.9) -> None:
+    px = _pixels(image)
+    px[:4, :4, :3] = value
+    image.pixels.foreach_set(px.ravel())
+    assert image.is_dirty
+
+
+@contextmanager
+def _saved_blend():
+    """A temporary folder with the open ``.blend`` saved in it as ``site.blend``."""
     _reset()
+    assert bpy.ops.wm.read_homefile(use_empty=True) == {"FINISHED"}
+    h.reset_scene()
+    try:
+        with _tmpdir() as tmp:
+            assert bpy.ops.wm.save_as_mainfile(filepath=str(tmp / "site.blend")) == {"FINISHED"}
+            yield tmp
+    finally:
+        assert bpy.ops.wm.read_homefile(use_empty=True) == {"FINISHED"}
+        h.reset_scene()
+
+
+def test_dirty_tracking_and_checks() -> None:
     state = _state()
-    with _tmpdir() as tmp:
+    with _saved_blend() as tmp:
         file_image = _file_image(tmp / "albedo.png")
         packed = _image("PackedAlbedo", _gradient(16, tint=(0.5, 1, 1)))
         _grid("A", 2, _material("A", file_image))
@@ -505,7 +697,7 @@ def test_dirty_tracking_and_checks() -> None:
             ("FileAlbedo", "file"),
             ("PackedAlbedo", "packed"),
         ]
-        file_sha = hashlib.sha256((tmp / "albedo.png").read_bytes()).hexdigest()
+        file_sha = _sha(tmp / "albedo.png")
         assert records[0]["sha256"] == file_sha
         assert records[1]["sha256"] == hashlib.sha256(packed.packed_file.data).hexdigest()
         # A build record of this state: nothing changed since.
@@ -521,9 +713,7 @@ def test_dirty_tracking_and_checks() -> None:
 
         # Paint: both images get unsaved edits.
         for image in (file_image, packed):
-            px = _pixels(image)
-            px[:4, :4, :3] = 0.9
-            image.pixels.foreach_set(px.ravel())
+            _paint(image)
         changes = state.changes_since(bpy.context.scene, str(record_path))
         assert [(c.name, c.reason.value) for c in changes] == [
             ("FileAlbedo", "edited"),
@@ -533,18 +723,30 @@ def test_dirty_tracking_and_checks() -> None:
         labels = h.label_text(h.draw(panels.GEOTOOLS_PT_publish))
         assert "2 textures changed since last publish" in labels, labels
         issues = h.submodule("blender.checks").run_checks(bpy.context)
-        unsaved = {i.subject: i.message for i in issues if i.code == "image-unsaved"}
+        unsaved = {i.subject: i for i in issues if i.code == "image-unsaved"}
         assert set(unsaved) == {"FileAlbedo", "PackedAlbedo"}, issues
-        assert "its file albedo.png" in unsaved["FileAlbedo"]
-        assert "the .blend (packed)" in unsaved["PackedAlbedo"]
+        assert unsaved["FileAlbedo"].message == (
+            "Image FileAlbedo has unsaved edits; Publish saves them to "
+            "//textures/FileAlbedo.png (a copy; albedo.png is left as it is) first."
+        )
+        assert unsaved["FileAlbedo"].severity.value == "warning"
+        assert "the .blend (packed)" in unsaved["PackedAlbedo"].message
         assert any(i.code == "textures-changed" for i in issues), issues
 
-        # Saving flushes both; the hashes now differ from the record.
+        # Saving flushes both. The image's own file is kept: the edits go to a
+        # copy GeoTools writes, and the image now uses it.
         report = state.save_edited_images(state.source_images(bpy.context.scene))
         assert report.count == 2 and report.blend_changed
+        assert report.saved[0] == (
+            "FileAlbedo -> //textures/FileAlbedo.png (a copy; albedo.png is left as it is)"
+        )
         assert not file_image.is_dirty and not packed.is_dirty
         assert packed.packed_file is not None
-        assert hashlib.sha256((tmp / "albedo.png").read_bytes()).hexdigest() != file_sha
+        assert _sha(tmp / "albedo.png") == file_sha
+        copy = tmp / "textures" / "FileAlbedo.png"
+        assert file_image.filepath == "//textures/FileAlbedo.png", file_image.filepath
+        assert copy.read_bytes()[:4] == b"\x89PNG"
+        assert state.owns_file(file_image)
         changes = state.changes_since(bpy.context.scene, str(record_path))
         assert [(c.name, c.reason.value) for c in changes] == [
             ("FileAlbedo", "changed"),
@@ -553,14 +755,21 @@ def test_dirty_tracking_and_checks() -> None:
         issues = h.submodule("blender.checks").run_checks(bpy.context)
         assert not [i for i in issues if i.code == "image-unsaved"]
 
-        # A painted generated image is packed when the .blend was never saved.
-        generated = bpy.data.images.new("Painted", 8, 8)
-        generated.pixels.foreach_set(np.full(256, 0.5, np.float32))
-        assert state.save_target(generated) == "the .blend (packed)"
-        report = state.save_edited_images([generated])
-        assert generated.packed_file is not None and not generated.is_dirty
+        # Later edits are saved over that copy, which is GeoTools' own.
+        _paint(file_image, 0.1)
+        assert state.save_target(file_image) == "its file FileAlbedo.png"
+        copy_sha = _sha(copy)
+        report = state.save_edited_images([file_image])
+        assert report.count == 1 and not report.blend_changed
+        assert file_image.filepath == "//textures/FileAlbedo.png"
+        assert _sha(copy) != copy_sha and _sha(tmp / "albedo.png") == file_sha
+        assert sorted(p.name for p in copy.parent.iterdir()) == ["FileAlbedo.png"]
 
         # A new image in the source, and an image no longer used.
+        generated = bpy.data.images.new("Painted", 8, 8)
+        generated.pixels.foreach_set(np.full(256, 0.5, np.float32))
+        assert state.save_target(generated) == "//textures/Painted.png"
+        state.save_edited_images([generated])
         bpy.data.materials["B"].node_tree.nodes["Image Texture"].image = generated
         changes = state.changes_since(bpy.context.scene, str(record_path))
         assert [(c.name, c.reason.value) for c in changes] == [
@@ -568,6 +777,138 @@ def test_dirty_tracking_and_checks() -> None:
             ("PackedAlbedo", "removed"),
             ("Painted", "new"),
         ]
+
+
+def test_a_jpeg_source_is_never_saved_over() -> None:
+    """A Metashape-style JPEG, even one in //textures/, gets a PNG copy of the edits."""
+    state = _state()
+    with _saved_blend() as tmp:
+        (tmp / "textures").mkdir()
+        jpeg = tmp / "textures" / "scan.jpg"
+        image = _image("scan.jpg", _gradient(32), pack=False)
+        image.filepath_raw = str(jpeg)
+        image.file_format = "JPEG"
+        image.save()
+        original = jpeg.read_bytes()
+        _grid("A", 2, _material("A", image))
+        _paint(image)
+        # In the textures folder, but GeoTools did not write it.
+        assert not state.owns_file(image)
+        target = "//textures/scan.png (a copy; scan.jpg is left as it is)"
+        assert state.save_target(image) == target
+        report = state.save_edited_images(state.source_images(bpy.context.scene))
+        assert report.saved == [f"scan.jpg -> {target}"] and report.blend_changed
+        assert jpeg.read_bytes() == original
+        assert image.filepath == "//textures/scan.png" and image.file_format == "PNG"
+        copy = tmp / "textures" / "scan.png"
+        saved = bpy.data.images.load(str(copy), check_existing=False)
+        assert np.abs(_pixels(saved) - _pixels(image)).max() <= 1.0 / 255.0 + 1e-6
+        (record,) = state.image_records(bpy.context.scene)
+        assert record["path"].endswith("scan.png") and record["sha256"] == _sha(copy)
+
+
+def test_an_unsaved_blend_never_saves_over_a_source_file() -> None:
+    """With no folder for the copy, Checks and Publish refuse; nothing is packed."""
+    _reset()
+    assert not bpy.data.is_saved
+    state = _state()
+    with _tmpdir() as tmp:
+        path = tmp / "albedo.png"
+        image = _file_image(path)
+        _grid("A", 2, _material("A", image))
+        _anchor()
+        before = _sha(path)
+        _paint(image)
+        assert state.save_target(image) == "//textures/ once the .blend is saved"
+        issues = h.submodule("blender.checks").run_checks(bpy.context)
+        (issue,) = [i for i in issues if i.code == "image-unsaved"]
+        assert issue.severity.value == "error", issue
+        assert issue.message == (
+            "Image FileAlbedo has unsaved edits, but GeoTools never saves over its file "
+            "albedo.png. Save the .blend first, so Publish can save the edits to a copy "
+            "in //textures/."
+        )
+        try:
+            state.save_edited_images(state.source_images(bpy.context.scene))
+        except state.SaveError as ex:
+            assert "Save the .blend first" in str(ex), ex
+        else:
+            raise AssertionError("an unsaved .blend saved over a source file")
+        assert image.is_dirty and image.packed_file is None
+        assert h.submodule("blender.blend_paths").same_file(image.filepath, path)
+        assert _sha(path) == before
+        _profile(str(tmp / "site.3tz"))
+        result, error = h.call_op(bpy.ops.geotools.publish)
+        assert result != {"FINISHED"} and error and "checks found" in error, (result, error)
+        assert _sha(path) == before and image.is_dirty
+
+        # A painted generated image has no source file, so it is still packed.
+        generated = bpy.data.images.new("Painted", 8, 8)
+        generated.pixels.foreach_set(np.full(256, 0.5, np.float32))
+        assert state.save_target(generated) == "the .blend (packed)"
+        state.save_edited_images([generated])
+        assert generated.packed_file is not None and not generated.is_dirty
+
+
+def test_a_failed_copy_leaves_the_image_on_its_source() -> None:
+    """A copy that cannot be written leaves the image on its file, still edited."""
+    state = _state()
+    paths = h.submodule("blender.blend_paths")
+    with _saved_blend() as tmp:
+        jpeg = tmp / "scan.jpg"
+        image = _image("scan.jpg", _gradient(32), pack=False)
+        image.filepath_raw = str(jpeg)
+        image.file_format = "JPEG"
+        image.save()
+        _grid("A", 2, _material("A", image))
+        _paint(image)
+        # A folder where the copy's file should go makes image.save() fail on every OS
+        # (a read-only folder does not stop writes on Windows).
+        blocked = tmp / "blocked" / "scan.png"
+        blocked.mkdir(parents=True)
+        original = state._new_file
+        state._new_file = lambda _image: str(blocked)
+        try:
+            state.save_edited_images([image])
+        except state.SaveError as ex:
+            assert "Could not save the edits of image scan.jpg" in str(ex), ex
+        else:
+            raise AssertionError("saving onto a folder succeeded")
+        finally:
+            state._new_file = original
+        assert paths.same_file(paths.image_path(image), jpeg), image.filepath
+        assert image.file_format == "JPEG" and image.is_dirty
+        assert image.geotools_texture_file == "" and not state.owns_file(image)
+        assert blocked.is_dir() and not any(blocked.iterdir())
+
+        # Once the folder can be written, the next Publish saves the copy.
+        report = state.save_edited_images([image])
+        assert report.count == 1 and image.filepath == "//textures/scan.png"
+        assert state.owns_file(image) and not image.is_dirty
+
+
+def test_save_as_keeps_the_textures_copy_geotools_own() -> None:
+    """The ownership marker is a stored path: Save As re-expresses it with the image's."""
+    state = _state()
+    with _saved_blend() as tmp:
+        image = _file_image(tmp / "albedo.png")
+        _grid("A", 2, _material("A", image))
+        _paint(image)
+        state.save_edited_images([image])
+        assert image.geotools_texture_file == "//textures/FileAlbedo.png"
+        assert state.owns_file(image)
+        (tmp / "sub").mkdir()
+        blend = tmp / "sub" / "site.blend"
+        assert bpy.ops.wm.save_as_mainfile(filepath=str(blend)) == {"FINISHED"}
+        copy = tmp / "textures" / "FileAlbedo.png"
+        assert state.owns_file(image), (image.filepath, image.geotools_texture_file)
+        _paint(image, 0.2)
+        assert state.save_target(image) == "its file FileAlbedo.png"
+        before = _sha(copy)
+        report = state.save_edited_images([image])
+        assert report.count == 1 and not report.blend_changed
+        assert _sha(copy) != before
+        assert not (tmp / "sub" / "textures").exists()
 
 
 # --- the publish loop ----------------------------------------------------------------------
@@ -623,8 +964,7 @@ def test_painted_source_republishes_to_leaves_and_coarse_levels() -> None:
     """The M6 exit: a painted source republishes, and coarse levels pick up the change."""
     if not _available():
         return
-    _reset()
-    with _tmpdir() as tmp:
+    with _saved_blend() as tmp:
         image = _file_image(tmp / "site_albedo.png", size=512)
         _grid("Site", 160, _material("Albedo", image), size=40.0, height=2.0)
         _anchor()
@@ -655,13 +995,16 @@ def test_painted_source_republishes_to_leaves_and_coarse_levels() -> None:
         assert "1 texture changed since last publish" in labels, labels
 
         assert bpy.ops.geotools.publish() == {"FINISHED"}
-        # Saved before the export read it: never lost, never stale.
+        # Saved before the export read it: never lost, never stale, and never
+        # over the source file.
         assert not image.is_dirty
+        assert image.filepath == "//textures/FileAlbedo.png"
+        assert _sha(tmp / "site_albedo.png") == first["sha256"]
         _finish()
         after = _tiles(output)
         record = json.loads((tmp / "site.geotools" / "build.json").read_text())
         (second,) = record["source"]["images"]
-        on_disk = hashlib.sha256((tmp / "site_albedo.png").read_bytes()).hexdigest()
+        on_disk = _sha(tmp / "textures" / "FileAlbedo.png")
         assert second["sha256"] == on_disk != first["sha256"]
         assert state.changes_since(bpy.context.scene, profile.last_record) == []
         state.invalidate()
