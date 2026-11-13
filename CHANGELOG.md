@@ -9,6 +9,15 @@ and the project follows semantic versioning where practical.
 
 ### Added
 
+- **Extract for Web** in Last Build: writes a published `.3tz` as a folder any
+  web server can serve, next to it (`site.web/` for `site.3tz`,
+  `site.slope.web/` for a variant), with `tileset.json`, the tiles and an optional `index.html`
+  CesiumJS page. The page loads CesiumJS 1.146.0 from the jsDelivr CDN and uses
+  the Natural Earth II imagery bundled with CesiumJS, so it needs no Cesium ion
+  token, and no rusty-tiles CLI is needed to view a build. GeoTools only ever
+  replaces a folder it wrote itself, keeps an `index.html` you edited, never
+  deletes a file you added, and the panel says when the folder is older than
+  the archive.
 - A user-facing release page for 0.3.0, `.github/release-notes/0.3.0.md`: the
   downloads per platform, requirements, installing, checking a download
   against `SHA256SUMS`, what is new since 0.2, known limitations, upgrading
@@ -22,6 +31,11 @@ and the project follows semantic versioning where practical.
 
 ### Fixed
 
+- Getting started step 8 (View the result) works as written: it uses Extract
+  for Web and a complete viewer page instead of a snippet with an undefined
+  `viewer`, and gives the Windows `py` command for Python's web server. The
+  publish guide shows the page and explains why a viewer on another origin,
+  such as Sandcastle, is blocked by CORS.
 - Publish no longer saves edited textures over the user's source files. A
   painted or cleaned image whose file GeoTools did not write (a Metashape
   JPEG, a linked GeoTIFF orthophoto) now has its edits saved to a PNG copy in

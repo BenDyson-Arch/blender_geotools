@@ -12,6 +12,7 @@ import shutil
 import tempfile
 import threading
 import time
+import zipfile
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -139,6 +140,8 @@ def test_publish_registered() -> None:
         "geotools.cancel_publish",
         "geotools.open_output_folder",
         "geotools.open_build_record",
+        "geotools.extract_for_web",
+        "geotools.open_web_folder",
         "geotools.preview_output",
         "geotools.stop_preview",
     ):
@@ -312,6 +315,52 @@ def test_publish_end_to_end() -> None:
         # Preview sits with the last build; unconfigured, it offers the preferences.
         assert ("operator", "geotools.preview_output", "WORLD") in calls
         assert ("operator", "preferences.addon_show", "PREFERENCES") in calls
+
+        # Extract for Web: a plain tileset folder with the viewer page, next to the archive.
+        assert ("operator", "geotools.extract_for_web", "URL") in calls
+        assert ("operator", "geotools.open_web_folder", "FILE_FOLDER") not in calls
+        assert not bpy.ops.geotools.open_web_folder.poll()
+        assert bpy.ops.geotools.extract_for_web() == {"FINISHED"}
+        web = tmp / "site.web"
+        tileset = json.loads((web / "tileset.json").read_text())
+        assert tileset["asset"]["version"]
+        assert (web / "index.html").is_file() and (web / ".geotools-web.json").is_file()
+        assert not (web / "@3dtilesIndex1@").exists()
+        with zipfile.ZipFile(output) as zf:
+            members = {n for n in zf.namelist() if n != "@3dtilesIndex1@" and not n.endswith("/")}
+        on_disk = {p.relative_to(web).as_posix() for p in web.rglob("*") if p.is_file()}
+        assert on_disk == members | {"index.html", ".geotools-web.json"}
+        assert bpy.ops.geotools.open_web_folder.poll()
+        calls = h.draw(panels.GEOTOOLS_PT_publish_last)
+        assert ("operator", "geotools.open_web_folder", "FILE_FOLDER") in calls
+        assert "older than the archive" not in h.label_text(calls)
+        # A newer archive: the panel says the folder is stale.
+        later = (web / ".geotools-web.json").stat().st_mtime_ns + 5_000_000_000
+        os.utime(output, ns=(later, later))
+        calls = h.draw(panels.GEOTOOLS_PT_publish_last)
+        assert "site.web is older than the archive" in h.label_text(calls), calls
+        # The user's own index.html survives extracting again; an added file stops it.
+        (web / "index.html").write_text("my page")
+        assert bpy.ops.geotools.extract_for_web() == {"FINISHED"}
+        assert (web / "index.html").read_text() == "my page"
+        (web / "notes.md").write_text("mine")
+        _result, error = h.call_op(bpy.ops.geotools.extract_for_web)
+        assert error and "notes.md" in error, error
+        assert (web / "notes.md").read_text() == "mine"
+        # A folder GeoTools did not write is never replaced.
+        shutil.rmtree(web)
+        web.mkdir()
+        (web / "mine.txt").write_text("keep")
+        _result, error = h.call_op(bpy.ops.geotools.extract_for_web)
+        assert error and "not written by Extract for Web" in error, error
+        assert (web / "mine.txt").read_text() == "keep"
+
+        # A last output that names no archive (an unsaved .blend's // path reads as a bare
+        # UNC root on Windows) still draws: Extract for Web is offered, the folder is not.
+        profile.last_output = "//.3tz"
+        calls = h.draw(panels.GEOTOOLS_PT_publish_last)
+        assert ("operator", "geotools.extract_for_web", "URL") in calls
+        assert ("operator", "geotools.open_web_folder", "FILE_FOLDER") not in calls
 
 
 @contextmanager

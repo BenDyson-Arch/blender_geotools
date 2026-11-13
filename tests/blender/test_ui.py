@@ -68,6 +68,12 @@ def _states():
         for profile in range(len(project.build_profiles)):
             project.build_profile_index = profile
             yield f"layer {index}, profile {profile}"
+    # A last build, so Last Build (Extract for Web, Preview) draws for each format.
+    for profile in range(len(project.build_profiles)):
+        project.build_profile_index = profile
+        item = project.build_profiles[profile]
+        item.last_output = "//ui_site.glb" if item.output_type == "GLB" else "//ui_site.3tz"
+        yield f"last build, profile {profile}"
     for tz_mode, period, scope, view, mask, source in (
         ("OFFSET", "RANGE", "DEPTH", "DEPTH", "IMAGE", "FILE"),
         ("ZONE", "YEAR", "LEAVES", "SIDE", "KEY", "LAST"),
