@@ -1,0 +1,174 @@
+<!doctype html>
+<!-- The published demo in CesiumJS, offline: no Cesium ion token, Cesium's bundled
+     NaturalEarthII imagery and the default ellipsoid. scripts/make_readme_images.py serves
+     this beside the extracted tilesets (/<tileset>/tileset.json) and Cesium's build (/cesium/),
+     and waits for window.render.ready.
+     Query: tileset (folder name), heading, pitch (degrees, to the site), range (metres), up
+     (degrees the camera then tilts up), dz (metres: the site's height above the ellipsoid, so
+     it sits on the ellipsoid's surface instead of floating above it), sun_az and sun_el (degrees:
+     a directional light from there, for the relief) and sun_i (its intensity).
+     window.render.outside() counts the corners of the site's bounding box that are not on
+     the canvas, so the script can check that the whole site is in frame. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>GeoTools demo in Cesium</title>
+    <link rel="stylesheet" href="/cesium/Widgets/widgets.css" />
+    <style>
+      html,
+      body,
+      #viewer {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+      }
+      #credits {
+        display: none;
+      }
+    </style>
+    <script>
+      window.CESIUM_BASE_URL = "/cesium/";
+    </script>
+    <script src="/cesium/Cesium.js"></script>
+  </head>
+  <body>
+    <div id="viewer"></div>
+    <div id="credits"></div>
+    <script>
+      window.render = { ready: false, visible: 0, errors: [], need: 20, outside: () => 8 };
+      (async () => {
+        try {
+          const q = new URLSearchParams(location.search);
+          const num = (k, d) => (q.has(k) ? Number(q.get(k)) : d);
+          Cesium.Ion.defaultAccessToken = ""; // offline: nothing from Cesium ion
+          // At a site's scale the bundled imagery is one blurred green texel: muted, so the
+          // ground reads as a neutral floor and the site stands out.
+          const imagery = Cesium.ImageryLayer.fromProviderAsync(
+            Cesium.TileMapServiceImageryProvider.fromUrl(
+              Cesium.buildModuleUrl("Assets/Textures/NaturalEarthII")
+            )
+          );
+          imagery.saturation = 0.25;
+          imagery.brightness = 0.8;
+          const viewer = new Cesium.Viewer("viewer", {
+            baseLayer: imagery,
+            terrainProvider: new Cesium.EllipsoidTerrainProvider(),
+            baseLayerPicker: false,
+            geocoder: false,
+            homeButton: false,
+            sceneModePicker: false,
+            navigationHelpButton: false,
+            animation: false,
+            timeline: false,
+            fullscreenButton: false,
+            infoBox: false,
+            selectionIndicator: false,
+            creditContainer: document.getElementById("credits"),
+            msaaSamples: 1, // raised for the final frame (software WebGL is slow)
+          });
+          const scene = viewer.scene;
+          viewer.clock.currentTime = Cesium.JulianDate.fromIso8601("2026-06-21T10:00:00Z");
+          viewer.clock.shouldAnimate = false;
+          scene.globe.enableLighting = false;
+          scene.globe.showGroundAtmosphere = true;
+          scene.fog.enabled = true;
+          scene.fog.visualDensityScalar = num("haze", 0.15); // distant ground fades into the sky
+          scene.highDynamicRange = false;
+          scene.postProcessStages.fxaa.enabled = true;
+
+          const tileset = await Cesium.Cesium3DTileset.fromUrl(`/${q.get("tileset") || "site"}/tileset.json`, {
+            maximumScreenSpaceError: 1,
+          });
+          tileset.tileVisible.addEventListener(() => window.render.visible++);
+          tileset.tileFailed.addEventListener((e) => window.render.errors.push(String(e.message)));
+          scene.primitives.add(tileset);
+
+          // Sit the site on the ellipsoid: lower it by dz along the local up.
+          const centre = tileset.boundingSphere.center;
+          const carto = Cesium.Cartographic.fromCartesian(centre);
+          const up = Cesium.Cartesian3.fromRadians(carto.longitude, carto.latitude, 0);
+          const down = Cesium.Cartesian3.fromRadians(carto.longitude, carto.latitude, -num("dz", 0));
+          const shift = Cesium.Cartesian3.subtract(down, up, new Cesium.Cartesian3());
+          tileset.modelMatrix = Cesium.Matrix4.fromTranslation(shift);
+          const target = Cesium.Cartesian3.add(centre, shift, new Cesium.Cartesian3());
+
+          // A low sun for the relief (sun_az clockwise from north, sun_el above the horizon,
+          // degrees, at the site); without them Cesium's own sun for the clock's time.
+          if (q.has("sun_az")) {
+            const az = Cesium.Math.toRadians(num("sun_az", 225));
+            const el = Cesium.Math.toRadians(num("sun_el", 35));
+            const enu = Cesium.Transforms.eastNorthUpToFixedFrame(target);
+            const toSun = new Cesium.Cartesian3(Math.sin(az) * Math.cos(el), Math.cos(az) * Math.cos(el), Math.sin(el));
+            const world = Cesium.Matrix4.multiplyByPointAsVector(enu, toSun, new Cesium.Cartesian3());
+            const direction = Cesium.Cartesian3.negate(Cesium.Cartesian3.normalize(world, world), world);
+            scene.light = new Cesium.DirectionalLight({ direction, intensity: num("sun_i", 2.6) });
+            // Less of the sky's even light, so the sun's side of each slope shows.
+            const ambient = num("ambient", 0.35);
+            tileset.imageBasedLighting.imageBasedLightingFactor = new Cesium.Cartesian2(ambient, ambient);
+          }
+
+          const volume = tileset.root.boundingVolume;
+          const box =
+            volume.boundingVolume instanceof Cesium.OrientedBoundingBox
+              ? volume.boundingVolume
+              : volume.orientedBoundingBox;
+          window.render.outside = () => {
+            if (!box) return 8;
+            const canvas = scene.canvas;
+            let outside = 0;
+            // The tile bounding volumes already include the tileset's modelMatrix (the shift).
+            for (const corner of Cesium.OrientedBoundingBox.computeCorners(box)) {
+              const at = Cesium.SceneTransforms.worldToWindowCoordinates(scene, corner);
+              const w = canvas.clientWidth;
+              const h = canvas.clientHeight;
+              if (!at || at.x < 0 || at.y < 0 || at.x > w || at.y > h) outside++;
+            }
+            return outside;
+          };
+
+          viewer.camera.lookAt(
+            target,
+            new Cesium.HeadingPitchRange(
+              Cesium.Math.toRadians(num("heading", 324)),
+              Cesium.Math.toRadians(num("pitch", -30)),
+              num("range", 120)
+            )
+          );
+          viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+          // Then tilt the camera up (or down, for a negative value) to place the site in the frame.
+          viewer.camera.lookUp(Cesium.Math.toRadians(num("up", 0)));
+
+          let quiet = 0;
+          scene.postRender.addEventListener(() => {
+            const stats = Cesium.RequestScheduler.statistics;
+            const busy =
+              !tileset.tilesLoaded ||
+              !scene.globe.tilesLoaded ||
+              (stats && stats.numberOfActiveRequests > 0);
+            quiet = busy ? 0 : quiet + 1;
+            if (quiet >= window.render.need) window.render.ready = true;
+          });
+          // Stop the render loop after one last frame, so a screenshot need not wait for
+          // software WebGL to draw frame after frame.
+          // After loading at a small size: the full size, antialiased, a few quiet frames more.
+          window.render.final = () => {
+            scene.msaaSamples = 4;
+            quiet = 0;
+            window.render.need = 4;
+            window.render.ready = false;
+            return true;
+          };
+          window.render.freeze = () => {
+            viewer.useDefaultRenderLoop = false;
+            viewer.render();
+            return true;
+          };
+        } catch (e) {
+          window.render.errors.push(String(e && e.stack ? e.stack : e));
+        }
+      })();
+    </script>
+  </body>
+</html>

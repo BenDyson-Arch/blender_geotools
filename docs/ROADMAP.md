@@ -4,9 +4,14 @@ Status: agreed 2026-11-11. This replaces the 0.2 importer/analysis add-on.
 
 ## What GeoTools becomes
 
-You prepare a site in Blender, bake analysis and cleaned textures onto it, and
-publish it as OGC 3D Tiles with [rusty-tiles](https://github.com/BenDyson-Arch/rusty-tiles).
-GeoTools creates tilesets; it no longer imports them.
+GeoTools brings GIS into Blender. You place a site in a real coordinate system,
+bring in geodata, and analyse the full 3D mesh rather than a 2.5D raster:
+terrain shape, archaeological visualisation, visibility, sun and shadow,
+archaeoastronomy, hydrology, measurement, contours and sections. The results
+are layers, alongside cleaned textures, that you view in Blender, export as
+vectors or GLB metadata, or publish as OGC 3D Tiles with
+[rusty-tiles](https://github.com/BenDyson-Arch/rusty-tiles). GeoTools creates
+tilesets; it no longer imports them.
 
 - **Blender:** the latest release only (5.2 LTS at the time of writing). It ships
   as a Blender extension (`blender_manifest.toml`) with the rusty-tiles wheels

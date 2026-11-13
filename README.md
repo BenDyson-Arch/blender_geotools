@@ -1,79 +1,127 @@
 # GeoTools
 
-GeoTools is a Blender extension for creating, analysing and publishing OGC 3D
-Tiles with [rusty-tiles](https://github.com/BenDyson-Arch/rusty-tiles).
+<img src="docs/assets/readme/hero-a.png" alt="Four analyses of synthetic hills in Blender (slope and contours, a viewshed, solstice and lunar sightlines from a hilltop enclosure, flow paths down the valleys) beside the hills published as 3D Tiles in CesiumJS, coloured by slope" width="100%">
 
-You prepare a site in Blender, place it on Earth, analyse it, clean its
-textures, and publish it as a `.3tz` archive that any 3D Tiles viewer can
-stream. GeoTools also reads and writes GeoJSON, GeoPackage and GeoTIFF in the
-site's coordinates.
+GeoTools brings GIS into Blender. Place a site in a real coordinate system,
+bring in GeoJSON, GeoPackage and GeoTIFF, and analyse the full 3D mesh, not a
+2.5D raster: terrain shape, archaeological visualisation, visibility, sun and
+shadow, archaeoastronomy, hydrology, measurement, contours and sections.
+Results are layers you can view, export as vectors or GLB metadata, and
+publish as OGC 3D Tiles with
+[rusty-tiles](https://github.com/BenDyson-Arch/rusty-tiles).
 
-**Read the [user guide](docs/guide/README.md).** Start with
-[Getting started](docs/guide/getting-started.md): it takes a synthetic demo
-site from an empty Blender to a published tileset in about ten minutes.
+[![CI](https://github.com/BenDyson-Arch/blender_geotools/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/BenDyson-Arch/blender_geotools/actions/workflows/ci.yml?query=branch%3Adevelop)
+[![Latest release](https://img.shields.io/github/v/release/BenDyson-Arch/blender_geotools)](https://github.com/BenDyson-Arch/blender_geotools/releases/latest)
+[![Blender 5.2 LTS](https://img.shields.io/badge/Blender-5.2%20LTS-e87d0d?logo=blender&logoColor=white)](https://www.blender.org/download/lts/)
+[![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue)](LICENSE)
 
 ## What it does
 
-- **Georeference:** local, anchored or CRS projects, with a searchable EPSG
-  picker and offsets kept at full double precision.
-  [Guide](docs/guide/projects.md)
-- **Publish:** the source collection to a validated `.3tz`, with checks first
-  and a build record and face map beside it. [Guide](docs/guide/publish.md)
-- **Layers:** values per face, corner or texel, from Geometry Nodes or
-  bakes, published as coloured variant tilesets. [Guide](docs/guide/layers.md)
-- **GLB with metadata:** one standard glTF file with the objects, layers and
-  georeference as glTF metadata. [Guide](docs/guide/glb-metadata.md)
-- **Analysis:** sun and shadow studies, sun hours and insolation,
-  archaeoastronomy, measurement, 3D hydrology, contours and sections, and a
-  library of Geometry Nodes presets. [Guide](docs/guide/analysis.md)
-- **Texture cleanup:** paint setup, hole filling, masked object removal,
-  island padding and page balancing. [Guide](docs/guide/textures.md)
-- **Inspect output:** open published tiles in Blender and trace them back to
-  their source faces. [Guide](docs/guide/inspect-output.md)
-- **Geo formats:** GeoJSON, GeoPackage and GeoTIFF in and out, kept linked to
-  their files, and vector publishing. [Guide](docs/guide/geo-formats.md)
-- **BlenderGIS interop:** the scene georeference uses BlenderGIS's GeoScene
-  keys, so both tools agree. BlenderGIS is not required.
-  [Guide](docs/guide/blendergis.md)
+<table>
+<tr>
+<td width="50%" valign="top">
+<a href="docs/guide/projects.md"><img src="docs/assets/readme/feature-georeference.png" alt="The Project panel of a CRS project in EPSG:32631, WGS 84 / UTM zone 31N, with its offsets and where Verify Placement puts the site" width="380"></a><br>
+<b>Georeference</b><br>
+Local, Anchor or CRS projects, with a searchable EPSG picker and Verify
+Placement to see where the site lands.
+<a href="docs/guide/projects.md">Guide</a>
+</td>
+<td width="50%" valign="top">
+<a href="docs/guide/geo-formats.md"><img src="docs/assets/readme/feature-formats.png" alt="The Linked Data panel with a linked GeoJSON and GeoTIFF over the terrain" width="380"></a><br>
+<b>Geo formats</b><br>
+GeoJSON, GeoPackage and GeoTIFF in, vectors out, all in the project's frame
+and kept linked to their files.
+<a href="docs/guide/geo-formats.md">Guide</a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<a href="docs/guide/analysis.md#presets"><img src="docs/assets/readme/feature-terrain.png" alt="The Presets and Layers panels with a viewshed from a ridge: the hill hides the ground behind it" width="380"></a><br>
+<b>Terrain and visibility</b><br>
+Slope, aspect, curvature, TPI and TRI; local relief, sky-view factor and
+openness; viewsheds, intervisibility and line of sight; volumes and
+least-cost paths. Editable Geometry Nodes presets.
+<a href="docs/guide/analysis.md#presets">Guide</a>
+</td>
+<td width="50%" valign="top">
+<a href="docs/guide/analysis.md#archaeoastronomy"><img src="docs/assets/readme/feature-sky.png" alt="The Archaeoastronomy panel with solstice and lunar standstill sightlines from a hilltop enclosure" width="380"></a><br>
+<b>Sun and sky</b><br>
+Place the Sun for a date and place, map hours of sun, key a shadow study,
+and find solstice, equinox and lunar standstill events on the real horizon.
+<a href="docs/guide/analysis.md#archaeoastronomy">Guide</a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<a href="docs/guide/analysis.md#hydrology"><img src="docs/assets/readme/feature-hydrology.png" alt="The Hydrology panel with flow paths down two valleys and contour lines on the hills" width="380"></a><br>
+<b>Hydrology and measurement</b><br>
+Where water runs and ponds on the 3D surface, contours and sections, and
+points, distances and areas in real coordinates.
+<a href="docs/guide/analysis.md#hydrology">Guide</a>
+</td>
+<td width="50%" valign="top">
+<a href="docs/guide/layers.md"><img src="docs/assets/readme/feature-layers.png" alt="The Layers panel with a hilltop enclosure coloured by slope" width="380"></a><br>
+<b>Layers</b><br>
+Values per face, corner or texel, shown as colours and published as variant
+tilesets.
+<a href="docs/guide/layers.md">Guide</a>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<a href="docs/guide/textures.md"><img src="docs/assets/readme/feature-textures.png" alt="The Textures panel's Cleanup tools next to holes in a terrain texture" width="380"></a><br>
+<b>Texture cleanup</b><br>
+Fill photogrammetry holes, remove masked objects, pad UV islands and balance
+atlas pages.
+<a href="docs/guide/textures.md">Guide</a>
+</td>
+<td width="50%" valign="top">
+<a href="docs/guide/publish.md"><img src="docs/assets/readme/feature-publish.png" alt="The Publish panel's Last Build showing a validated site.3tz next to the tileset in CesiumJS" width="380"></a><br>
+<b>Publish</b><br>
+Checks first, then a validated <code>.3tz</code> archive of 3D Tiles to
+extract and serve to CesiumJS or any 3D Tiles viewer, or a GLB with metadata.
+<a href="docs/guide/publish.md">Guide</a>
+</td>
+</tr>
+</table>
 
-The old 0.2 add-on, which imported GeoJSON, GeoPackage, DEM and 3D Tiles data,
-is kept on the `legacy-0.2` branch and the `v0.2.0` tag. It is not developed
-any more.
-
-## Requirements
-
-- Blender 5.2 LTS. Only the latest Blender release is supported.
-- Linux x64, Windows x64 or macOS arm64 (Apple silicon; Blender 5.x has no
-  Intel macOS build).
-- On macOS, macOS 15 or later. The rusty-tiles wheels are built for that.
-
-Nothing else. rusty-tiles and pyproj (with PROJ, no GDAL) are bundled in the
-extension zip, so there is no package to install.
+You can also open published tiles back in Blender and trace them to their
+source faces with
+[Inspect Output](docs/guide/inspect-output.md).
 
 ## Install
 
-1. Get the extension zip for your platform from the
-   [releases](https://github.com/BenDyson-Arch/blender_geotools/releases), for
-   example `geotools-0.3.0-linux_x64.zip`.
+You need Blender 5.2 LTS on Linux x64, Windows x64 or macOS arm64 (macOS 15 or
+later). rusty-tiles and pyproj are bundled, so there is nothing else to
+install.
+
+1. Download the zip for your platform from the
+   [releases](https://github.com/BenDyson-Arch/blender_geotools/releases):
+   `geotools-<version>-linux_x64.zip`, `-windows_x64.zip` or
+   `-macos_arm64.zip`.
 2. In Blender, open **Edit > Preferences > Get Extensions** and choose
-   **Install from Disk**. Or drag the zip into the Blender window.
-3. Open the 3D Viewport sidebar (N) and select the **GeoTools** tab. The
-   **About** panel shows the bundled rusty-tiles and pyproj versions.
+   **Install from Disk** (or drag the zip into the Blender window).
+3. In the 3D Viewport, press **N** and select the **GeoTools** tab.
 
-To build the zip yourself (Python 3.11 or later and Blender 5.2):
+To build the zip yourself, see
+[CONTRIBUTING.md](CONTRIBUTING.md#building).
 
-```sh
-python3 scripts/fetch_wheels.py --from-dir rusty-tiles=DIR   # DIR holds a rusty-tiles wheel; pyproj comes from PyPI
-python3 scripts/build_extension.py --blender /path/to/blender
-```
+The old 0.2 add-on lives on the
+[`legacy-0.2`](https://github.com/BenDyson-Arch/blender_geotools/tree/legacy-0.2)
+branch and is no longer developed.
 
-GeoTools needs rusty-tiles 0.4.1 or later. Until 0.4.1 is released, build the
-wheel from rusty-tiles' `develop` branch (it still reports version 0.4.0, the
-pin). The zips are written to `dist/`, one per platform. Once rusty-tiles
-0.4.1 is on PyPI, `fetch_wheels.py` will download every wheel without
-`--from-dir`. A Blender that doesn't run Python 3.13 (some Linux distribution
-builds) needs `--python` on both commands. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for details.
+## Documentation
+
+Read the [user guide](docs/guide/README.md) here or on the docs site,
+<https://bendyson-arch.github.io/blender_geotools/>. Start with
+[Getting started](docs/guide/getting-started.md): it takes a synthetic demo
+site from an empty Blender to a published tileset in about ten minutes.
+
+## Working with BlenderGIS
+
+GeoTools shares BlenderGIS's scene georeference keys, so both agree on where
+the scene is, and it does not need BlenderGIS:
+[Working alongside BlenderGIS](docs/guide/blendergis.md).
 
 ## Contributing
 
