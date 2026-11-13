@@ -106,6 +106,8 @@ CRS allow-list that the EPSG picker needs and the tile decoding M7 reads
 release: getting started on a synthetic demo site, then one page per feature
 area. Every change a user can see updates the page for its area.
 
+**Backlog.** Work reviewed for 0.3.0 but not scheduled is in [BACKLOG.md](BACKLOG.md).
+
 | Milestone | Delivers | Needs from rusty-tiles | Release |
 |---|---|---|---|
 | M0 Foundation | Clean scaffold, packaging, CI | 0.4.x wheel | none |
