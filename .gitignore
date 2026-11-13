@@ -24,3 +24,7 @@ release/
 geotools/wheels/
 dist/
 .build/
+
+# MkDocs output and the docs venv (CONTRIBUTING.md, "Docs site")
+/site/
+/.venv-docs/

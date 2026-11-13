@@ -1,0 +1,100 @@
+<!doctype html>
+<!-- The wordmark banner: the wordmark, the tagline and the two screenshots inset.
+     ?theme=dark|light. The page fills the viewport, and everything scales with its width:
+     scripts/make_readme_images.py renders it dark at 1280x640, the social preview
+     social-b.png.
+     Rendered by scripts/make_readme_images.py from shots/blender.png and shots/cesium.png. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GeoTools banner</title>
+    <link rel="stylesheet" href="common.css" />
+    <script>
+      document.documentElement.dataset.theme =
+        new URLSearchParams(location.search).get("theme") || "dark";
+    </script>
+    <style>
+      html,
+      body {
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+      }
+      body {
+        --u: calc(100vw / 1600);
+        background: radial-gradient(110% 130% at 85% 10%, var(--bg-2), var(--bg) 62%);
+      }
+      .text {
+        position: absolute;
+        z-index: 2;
+        left: calc(84 * var(--u));
+        top: 0;
+        bottom: 0;
+        width: calc(600 * var(--u));
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: calc(26 * var(--u));
+      }
+      .wordmark {
+        font-size: calc(118 * var(--u));
+      }
+      .tagline {
+        font-size: calc(33 * var(--u));
+        line-height: 1.3;
+        max-width: calc(540 * var(--u));
+      }
+      .chips {
+        margin-top: calc(8 * var(--u));
+      }
+      .chip {
+        font-size: calc(19 * var(--u));
+      }
+      .stage {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        perspective: calc(2200 * var(--u));
+        perspective-origin: 70% 50%;
+      }
+      .stage img {
+        position: absolute;
+        transform-origin: 0% 50%;
+        border-radius: calc(14 * var(--u));
+      }
+      .blender {
+        width: calc(790 * var(--u));
+        left: calc(700 * var(--u));
+        top: calc(58 * var(--u));
+        transform: rotateY(-16deg) rotateX(3deg);
+      }
+      .cesium {
+        width: calc(500 * var(--u));
+        left: calc(1050 * var(--u));
+        top: calc(292 * var(--u));
+        transform: rotateY(-16deg) rotateX(3deg) translateZ(calc(90 * var(--u)));
+      }
+      :root[data-theme="light"] .shot {
+        outline-color: rgba(15, 26, 43, 0.12);
+      }
+    </style>
+  </head>
+  <body>
+    <svg class="contours" data-step="0.07" data-major="5"></svg>
+    <div class="stage">
+      <img class="shot blender" src="../shots/blender.png" alt="" />
+      <img class="shot cesium" src="../shots/cesium.png" alt="" />
+    </div>
+    <div class="text">
+      <h1 class="wordmark"><span class="geo">Geo</span>Tools</h1>
+      <p class="tagline">Create, analyse and publish OGC 3D&nbsp;Tiles from Blender</p>
+      <div class="chips">
+        <span class="chip">Georeference</span>
+        <span class="chip">Analyse</span>
+        <span class="chip">Publish .3tz</span>
+      </div>
+    </div>
+    <script src="contours.js"></script>
+  </body>
+</html>

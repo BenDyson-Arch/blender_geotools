@@ -287,6 +287,42 @@ scrolled top to bottom, and `state_empty.png`, `state_mid.png` and
 some of them. On Linux it runs Blender on Xwayland (`WAYLAND_DISPLAY=`) unless
 you pass `--native`; it needs a display, so it does not run in CI.
 
+## Docs site
+
+The site at <https://bendyson-arch.github.io/blender_geotools/> is built with
+[MkDocs](https://www.mkdocs.org/) and
+[Material for MkDocs](https://squidfunk.github.io/mkdocs-material/) from
+`docs/`, the root `CONTRIBUTING.md`, `CHANGELOG.md` and `LICENSE`.
+`mkdocs.yml` holds the nav; `requirements-docs.txt` pins every package. To
+preview it with live reload at <http://127.0.0.1:8000/>, from the repository
+root:
+
+```sh
+uvx --with-requirements requirements-docs.txt mkdocs serve
+```
+
+or, without uv:
+
+```sh
+python3 -m venv .venv-docs
+.venv-docs/bin/pip install -r requirements-docs.txt
+.venv-docs/bin/mkdocs serve
+```
+
+Before you push, run `mkdocs build --strict` the same way (with `uvx` or from
+the venv). It must finish with no warnings: CI (`.github/workflows/docs.yml`)
+runs it on every pull request, and fails on a broken link or anchor, or on a
+page under `docs/` that is not in the `nav` of `mkdocs.yml`. A new page goes in
+the `nav`, or under `not_in_nav` with a comment saying why.
+
+Write links as you would for GitHub, relative to the file (`../guide/layers.md#limits`).
+`docs/hooks/site_links.py` turns links that leave `docs/` into site pages
+(`CONTRIBUTING.md`, `CHANGELOG.md`, `LICENSE`) or GitHub links when it builds
+the site, and fails the strict build if such a link's target is not in the
+repository; the files are not changed. `docs/guide/README.md` is the guide's
+landing page on both. Pushes to `main` deploy the site to GitHub Pages; other
+branches only build it.
+
 ## Isolating the Blender profile
 
 Installing the extension by hand changes your Blender profile. To keep your own
@@ -337,7 +373,9 @@ does the rest.
    `Unreleased` in the `## [0.3.0]` heading with the date. The release notes are
    that section, so it must not be empty.
 3. Merge that into `release/X.Y.Z`, then open a pull request from
-   `release/X.Y.Z` to `main` and merge it.
+   `release/X.Y.Z` to `main` and merge it. The push to `main` deploys the docs
+   site; for 0.3.0, enable Pages first (Settings > Pages > Source: GitHub
+   Actions) and check that the `docs (deploy to GitHub Pages)` job passes.
 4. Tag the merge commit on `main` and push the tag:
    `git tag -a v0.3.0 -m "GeoTools 0.3.0" && git push origin v0.3.0`.
 5. The release workflow checks that the tag matches the manifest, is on

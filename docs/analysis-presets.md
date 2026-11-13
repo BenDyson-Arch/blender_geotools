@@ -187,6 +187,7 @@ More observers cost about 0.3 to 0.4 s per observer at 10M; the bake takes
   `-- --check` compares a fresh build with the file, node by node, and fails
   when they differ. The Blender tests run it, so a change to the script or the
   catalog without regenerating fails CI.
+
 - Each group carries `geotools_preset` and `geotools_preset_version` custom
   properties. Add Analysis finds an existing group by them (so an edited or
   renamed group is reused, never duplicated) and merges the helper groups
