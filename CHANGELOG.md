@@ -47,6 +47,18 @@ and the project follows semantic versioning where practical.
   documented convention differences, now settled (see Changed). Reference script
   `scripts/validation/terrain/make_references.py`, fixtures in
   `tests/data/validation/terrain/`, tests in normal CI.
+- Validation of archaeoastronomy
+  ([docs/validation/archaeoastronomy.md](docs/validation/archaeoastronomy.md)):
+  the horizon profile against an exact TIN march, a cone, the dip of a plain
+  and GRASS GIS 8.5.0 r.horizon; Meeus' Moon, the standstills and the
+  obliquity against JPL DE440s and DE441 (Skyfield 1.53, ERFA 2.0.1.5 with
+  Vondrák's long-term precession); rise, set and dated sunrise azimuths
+  against closed forms, Skyfield and astropy 7.1.0; and Check Alignment's
+  azimuths and declinations. All agree; two bugs fixed (see Fixed), and the
+  obliquity's accuracy at the ends of the epoch range is documented (42″ from
+  Vondrák 2011 at 8000 BCE). Reference scripts in
+  `scripts/validation/archaeoastronomy/`, fixtures in
+  `tests/data/validation/archaeoastronomy/`, tests in normal CI.
 
 ### Changed
 

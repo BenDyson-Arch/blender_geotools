@@ -15,3 +15,17 @@ rvt-py 2.2.1. All agree; plan-curvature naming, TPI sampling and the horizon
 search region are documented convention differences. No bugs found. Resolved:
 the plan curvature preset is labelled Plan (Tangential) Curvature and the TPI
 default is 96 samples.
+
+## Archaeoastronomy
+
+[archaeoastronomy.md](archaeoastronomy.md): the horizon profile (curvature,
+terrestrial refraction, the Cycles ray search), Bennett refraction, Meeus'
+Moon and its parallax, the lunar standstills, the obliquity at ancient epochs,
+rise and set azimuths, dated sunrises and Check Alignment, against closed
+forms, Skyfield 1.53 with JPL DE440s and DE441, ERFA 2.0.1.5 (Vondrák 2011
+long-term precession), astropy 7.1.0 and GRASS GIS 8.5.0 r.horizon. All agree.
+Two bugs fixed: Compute Events failed at the ends of the epoch range, and the
+horizon could miss a near crest by up to 0.1° with curvature on. Open: the
+stated accuracy of Laskar's obliquity at the ends (42″ from Vondrák at
+8000 BCE), the sun's parallax in the alignment declination, the horizon's
+fine-step bias and fixed refraction conditions.

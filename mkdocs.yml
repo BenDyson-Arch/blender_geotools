@@ -138,6 +138,7 @@ nav:
       - Validation:
           - validation/README.md
           - Terrain shape and archaeological visualisation: validation/terrain.md
+          - Archaeoastronomy: validation/archaeoastronomy.md
   - Developer:
       - Contributing: contributing.md
       - Changelog: changelog.md
