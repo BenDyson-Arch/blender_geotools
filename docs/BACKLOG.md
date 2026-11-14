@@ -806,6 +806,11 @@ gain hasn't been measured.
 
 `ci-prerelease-rusty-tiles-wheel` · Worth doing · Effort M (upper end) · Scores 3, 4
 
+**Done 2026-11-14, by another route.** rusty-tiles 0.4.1 is on PyPI, the pin
+moved to it, and the `blender-wheel` job now gates with the released wheel and
+`--expect available`, so no source-built job is needed. The text below is kept
+for the record.
+
 **What and why.** Every CI job runs with `--expect missing`, so Publish end to
 end, Verify Placement, CRS verdicts, inspect/decode and vector publish have
 only ever run on the maintainer's desktop. The `blender-wheel` job fails at

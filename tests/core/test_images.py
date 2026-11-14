@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from geotools.core.gltf_writer import MAX_IMAGE_BYTES, MAX_IMAGE_EDGE
+from geotools.core.gltf_writer import MAX_IMAGE_EDGE
 from geotools.core.images import (
     DOWNSCALE_FALLBACK_EDGE,
     NO_REMEDY,
@@ -106,7 +106,7 @@ def test_scaled_size(size, edge, expected) -> None:
     ],
 )
 def test_default_max_edge(width, height, file_bytes, expected) -> None:
-    edge = default_max_edge(width, height, file_bytes, MAX_IMAGE_BYTES, MAX_IMAGE_EDGE)
+    edge = default_max_edge(width, height, file_bytes, 32 * MIB, MAX_IMAGE_EDGE)  # 0.4.0's
     assert edge == expected
     assert edge & (edge - 1) == 0  # a power of two
 

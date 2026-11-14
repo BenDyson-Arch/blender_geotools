@@ -7,6 +7,7 @@ import dataclasses
 import numpy as np
 import pytest
 
+from geotools.core import gltf_writer
 from geotools.core.images import ImageRemedy, RemedyKind
 from geotools.core.issues import Severity
 from geotools.core.placement import Placement, PlacementMode
@@ -389,6 +390,36 @@ def test_every_message_is_one_plain_sentence() -> None:
         assert issue.message[0].isupper() or issue.message[0].isdigit() or issue.subject
         assert issue.message.endswith(".")
         assert ". " not in issue.message.rstrip(".")
+
+
+REAL_IMAGE_LIMIT = gltf_writer.MAX_IMAGE_BYTES
+
+
+@pytest.fixture(autouse=True)
+def _image_limit_32_mib(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The image checks below use rusty-tiles 0.4.0's 32 MiB encoded limit.
+
+    The check logic takes the limit from ``gltf_writer.MAX_IMAGE_BYTES``; a small
+    limit keeps the sizes in these cases readable. The real limit (1 GiB in
+    rusty-tiles 0.4.1) is tested in :func:`test_real_encoded_limit_is_1_gib`.
+    """
+    monkeypatch.setattr(gltf_writer, "MAX_IMAGE_BYTES", 32 << 20)
+
+
+def test_real_encoded_limit_is_1_gib(monkeypatch: pytest.MonkeyPatch) -> None:
+    from geotools.core.preflight import ImageSummary, _image_limits
+
+    # rusty-tiles 0.4.1 admits images under 1 GiB encoded by memory budget (#338).
+    assert REAL_IMAGE_LIMIT == 1 << 30
+    monkeypatch.setattr(gltf_writer, "MAX_IMAGE_BYTES", REAL_IMAGE_LIMIT)
+    png_8k = ImageSummary("p", "/p.png", "PNG", False, True, 8192, 8192, 180 << 20, 8)
+    assert _image_limits(png_8k) == []
+    over = dataclasses.replace(png_8k, file_bytes=(1 << 30) + 1)
+    (issue,) = _image_limits(over)
+    assert (issue.code, Severity(issue.severity).name) == ("image-file-too-large", "ERROR")
+    assert "at most 1 GiB per encoded image" in issue.message, issue.message
+    exr = ImageSummary("e", "/e.exr", "OPEN_EXR", False, True, 16384, 16384, None)
+    assert _image_limits(exr) == []  # 4 bytes a texel at the edge limit is exactly 1 GiB
 
 
 def test_image_limits() -> None:

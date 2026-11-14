@@ -522,7 +522,7 @@ def test_image_validation(tmp_path: Path) -> None:
     huge = tmp_path / "huge.png"
     with open(huge, "wb") as f:  # sparse; the size is refused before reading
         f.write(png.read_bytes())
-        f.truncate(32 * 1024 * 1024 + 1)
+        f.truncate((1 << 30) + 1)
     truncated = tmp_path / "truncated.jpg"
     truncated.write_bytes(jpg.read_bytes()[:-2])
     big_header = tmp_path / "big.png"
@@ -535,7 +535,7 @@ def test_image_validation(tmp_path: Path) -> None:
         (ImageData("x", jpg, "image/png"), "not a PNG"),
         (ImageData("x", png, "image/webp"), "not PNG or JPEG"),
         (ImageData("x", wide, "image/png"), "16-bit"),
-        (ImageData("x", huge, "image/png"), "32 MiB"),
+        (ImageData("x", huge, "image/png"), "1 GiB"),
         (ImageData("x", truncated, "image/jpeg"), "end marker"),
         (ImageData("x", big_header, "image/png"), "20000x8"),
         (ImageData("x", tmp_path, "image/png"), "not a regular file"),

@@ -159,16 +159,10 @@ jobs:
     name: blender (official 5.2 LTS, rusty-tiles wheel from PyPI)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    # NOT GATING YET. This job tests the pinned rusty-tiles wheel ([tool.geotools.wheels]
-    # in pyproject.toml, currently 0.4.0) from PyPI. 0.4.0 is published, so the fetch
-    # passes, but GeoTools needs 0.4.1 and reports 0.4.0 as not available, so the job
-    # is expected to fail at "Install and test in Blender".
-    # TO MAKE IT GATING once 0.4.1 is on PyPI and pinned: set the repository variable
-    # RUSTY_TILES_WHEEL_GATING to "true" (Settings > Secrets and variables >
-    # Actions > Variables), or delete this continue-on-error line; then add this
-    # job as a required status check in branch protection.
-    # It never falls back to a wheel-less build.
-    continue-on-error: ${{ vars.RUSTY_TILES_WHEEL_GATING != 'true' }}
+    # Tests the pinned PyPI wheels ([tool.geotools.wheels] in pyproject.toml:
+    # rusty-tiles 0.4.1, pyproj, certifi) in Blender with --expect available, so the
+    # publish, inspect and CRS tests run against the real wheel. It gates: a failure
+    # fails the run, and it never falls back to a wheel-less build.
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
