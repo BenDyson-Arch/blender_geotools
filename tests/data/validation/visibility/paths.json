@@ -1,0 +1,131 @@
+{
+ "versions": {
+  "networkx": "3.7",
+  "numpy": "2.5.4",
+  "gdal": "GDAL 3.13.3 \"Iowa City\", released 2026/08/13",
+  "gdal_image": "ghcr.io/osgeo/gdal:ubuntu-small-3.13.3",
+  "grass": "GRASS 8.5.0",
+  "grass_image": "osgeo/grass-gis:8.5.0-alpine"
+ },
+ "hills": {
+  "nodes": 16641,
+  "edges": 47638,
+  "edges_too_steep": 1770,
+  "symmetric_cost": 72.04806693625493,
+  "route_vertices": 124,
+  "route_walked_time": 71.86592506076492,
+  "route_walked_back_time": 72.23020881174494,
+  "directed_best_time": 71.75376316545596,
+  "directed_best_back_time": 72.04018584629111,
+  "route_length_m": 82.13655799301903,
+  "open_symmetric_cost": 72.04806693625493,
+  "open_walked_time": 71.86592506076492,
+  "open_directed_best_time": 71.75376316545596,
+  "r_walk_time": 72.4719085564415,
+  "r_walk_knight_time": 69.9075475368038
+ },
+ "ramps": {
+  "-30": {
+   "r_walk_s_per_m": 1.874585076210022,
+   "langmuir_s_per_m": 1.8745850683254135,
+   "tobler_s_per_m": 3.79961717561315
+  },
+  "-20": {
+   "r_walk_s_per_m": 1.4478676509017938,
+   "langmuir_s_per_m": 1.4478676744855514,
+   "tobler_s_per_m": 1.800510428632296
+  },
+  "-13": {
+   "r_walk_s_per_m": 0.556543564644652,
+   "langmuir_s_per_m": 1.181690208612901,
+   "tobler_s_per_m": 1.1299948160795221
+  },
+  "-11": {
+   "r_walk_s_per_m": 0.33127827120208797,
+   "langmuir_s_per_m": 0.3312782577863906,
+   "tobler_s_per_m": 0.9945205256019737
+  },
+  "-8": {
+   "r_walk_s_per_m": 0.438946431684494,
+   "langmuir_s_per_m": 0.43894643876215755,
+   "tobler_s_per_m": 0.8237133364100508
+  },
+  "-2.862": {
+   "r_walk_s_per_m": 0.6200241797189701,
+   "langmuir_s_per_m": 0.6200241789993233,
+   "tobler_s_per_m": 0.600014889622981
+  },
+  "0": {
+   "r_walk_s_per_m": 0.72,
+   "langmuir_s_per_m": 0.72,
+   "tobler_s_per_m": 0.714747729967415
+  },
+  "2.862": {
+   "r_walk_s_per_m": 1.019957456588744,
+   "langmuir_s_per_m": 1.0199574587479048,
+   "tobler_s_per_m": 0.8514194002995058
+  },
+  "8": {
+   "r_walk_s_per_m": 1.563245029449462,
+   "langmuir_s_per_m": 1.5632450082143488,
+   "tobler_s_per_m": 1.168904865042984
+  },
+  "12": {
+   "r_walk_s_per_m": 1.995339317321776,
+   "langmuir_s_per_m": 1.9953393700201325,
+   "tobler_s_per_m": 1.5039911513193942
+  },
+  "20": {
+   "r_walk_s_per_m": 2.90382133483886,
+   "langmuir_s_per_m": 2.9038214055972147,
+   "tobler_s_per_m": 2.555045920175826
+  },
+  "30": {
+   "r_walk_s_per_m": 4.1841016387939405,
+   "langmuir_s_per_m": 4.184101615137754,
+   "tobler_s_per_m": 5.391913430990188
+  }
+ },
+ "bearings": [
+  {
+   "end": [
+    10.0,
+    0.0
+   ],
+   "straight_m": 10.0,
+   "graph_ratio": 1.0000000000000002,
+   "r_walk_ratio": 1.0000000000000002,
+   "r_walk_knight_ratio": 1.0000000000000002
+  },
+  {
+   "end": [
+    10.0,
+    5.0
+   ],
+   "straight_m": 11.180339887498949,
+   "graph_ratio": 1.0796691275336336,
+   "r_walk_ratio": 1.0796691275336336,
+   "r_walk_knight_ratio": 0.9999999999999998
+  },
+  {
+   "end": [
+    10.0,
+    10.0
+   ],
+   "straight_m": 14.142135623730951,
+   "graph_ratio": 0.9999999999999998,
+   "r_walk_ratio": 1.0000000000000016,
+   "r_walk_knight_ratio": 1.0000000000000016
+  },
+  {
+   "end": [
+    -10.0,
+    10.0
+   ],
+   "straight_m": 14.142135623730951,
+   "graph_ratio": 1.4142135623730954,
+   "r_walk_ratio": 1.0000000000000016,
+   "r_walk_knight_ratio": 1.0000000000000016
+  }
+ ]
+}

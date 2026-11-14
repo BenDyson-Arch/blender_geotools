@@ -1315,12 +1315,36 @@ def build_closed_volume(preset):
             domain="FACE",
         ).outputs["Total"]
 
-    # Divergence theorem: V = sum of (p - c) . n A / 3 over the faces of a closed part, for
-    # any point c; c is the mean of the part's face centres, which keeps float32 exact.
+    # Divergence theorem: V = (1/3) sum of c_f . S_f over the faces of a closed part, with c_f
+    # a face's centre and S_f its area vector (area times unit normal), measured from any
+    # point. Both are taken from the vertices less the part's first vertex (its lowest
+    # index): a vertex minus a nearby vertex is exact in float32 (Sterbenz), and
+    # S_f = 1/2 sum of l_k x l_k+1 round the face (Newell) from those, so the precision is
+    # the part's size wherever it is. (The mean of the face centres and the Normal and
+    # Face Area fields lose it far from the origin: 0.3 % on 262k faces 10 km out.)
     faces = per_part(1.0)
-    centre = t.scale(per_part(t.position(), "FLOAT_VECTOR"), t.div(1.0, faces))
-    area = t.node("GeometryNodeInputMeshFaceArea").outputs["Area"]
-    contribution = t.div(t.mul(t.dot(t.vsub(t.position(), centre), t.normal()), area), 3.0)
+    first = t.node(
+        "GeometryNodeFieldMinAndMax",
+        {"Value": t.index(), "Group ID": island},
+        data_type="INT",
+        domain="POINT",
+    ).outputs["Min"]
+    origin = t.sample_index(geometry, t.position(), first, "FLOAT_VECTOR", "POINT")
+    local = t.vsub(t.position(), origin)  # on points
+
+    def local_at(corner):
+        vertex = t.node("GeometryNodeVertexOfCorner", {"Corner Index": corner}).outputs[0]
+        return t.sample_index(geometry, local, vertex, "FLOAT_VECTOR", "POINT")
+
+    k = t.index()
+    after = t.node("GeometryNodeOffsetCornerInFace", {"Corner Index": k, "Offset": 1}).outputs[0]
+    turn = t.vmath("CROSS_PRODUCT", local_at(k), local_at(after))  # on corners
+    corners = t.node("GeometryNodeCornersOfFace", {"Face Index": t.index()}).outputs["Total"]
+    area_vector = t.scale(
+        t.on_domain(turn, "CORNER", "FLOAT_VECTOR"), t.mul(corners, 0.5)
+    )  # the corners' mean, times their number, halved
+    centre = t.on_domain(local, "POINT", "FLOAT_VECTOR")
+    contribution = t.div(t.dot(centre, area_vector), 3.0)
     open_edge = t.compare(
         "NOT_EQUAL",
         t.node("GeometryNodeInputMeshEdgeNeighbors").outputs["Face Count"],

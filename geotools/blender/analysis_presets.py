@@ -574,6 +574,27 @@ def _face_frame(mesh: bpy.types.Mesh) -> tuple[np.ndarray, np.ndarray, np.ndarra
     return centres, normals, areas
 
 
+def _face_vectors(mesh: bpy.types.Mesh) -> tuple[np.ndarray, np.ndarray]:
+    """Face centres (from the vertices' mean) and area vectors (Newell), binary64.
+
+    Both are measured from the vertices' mean, which any closed part's volume ignores and
+    which keeps the sums exact far from the origin (Blender's float32 face centres are not).
+    """
+    co = _array(mesh.vertices, "co", 3).astype(np.float64)
+    co -= co.mean(axis=0)
+    loops = _array(mesh.loops, "vertex_index", 1, np.int32)
+    start = _array(mesh.polygons, "loop_start", 1, np.int32)
+    total = _array(mesh.polygons, "loop_total", 1, np.int32)
+    face = np.repeat(np.arange(len(start)), total)
+    after = np.arange(len(loops)) + 1
+    after[start + total - 1] = start  # each face's last corner turns to its first
+    here, there = co[loops], co[loops[after]]
+    centres = np.add.reduceat(here, start, axis=0) / total[:, None]
+    area_vectors = np.zeros((len(start), 3))
+    np.add.at(area_vectors, face, np.cross(here, there) / 2.0)
+    return centres, area_vectors
+
+
 def _cut_fill_totals(mesh: bpy.types.Mesh, attribute: str) -> str | None:
     depth = _attribute(mesh, attribute)
     if depth is None or len(depth) != len(mesh.polygons):
@@ -593,12 +614,11 @@ def _closed_volume_totals(mesh: bpy.types.Mesh, attribute: str) -> str | None:
     values = _attribute(mesh, attribute)
     if values is None or len(values) != len(mesh.polygons):
         return None
-    centres, normals, areas = _face_frame(mesh)
     closed = np.isfinite(values)
     if not closed.any():
         return "no closed parts"
-    origin = centres.mean(axis=0)  # any point works for closed parts; near is exact
-    volume = (np.einsum("ij,ij->i", centres - origin, normals) * areas)[closed].sum() / 3.0
+    centres, area_vectors = _face_vectors(mesh)
+    volume = np.einsum("ij,ij->i", centres, area_vectors)[closed].sum() / 3.0
     open_faces = int((~closed).sum())
     return f"volume {volume:,.3f} m³" + (
         f" ({open_faces:,} faces on open parts)" * bool(open_faces)

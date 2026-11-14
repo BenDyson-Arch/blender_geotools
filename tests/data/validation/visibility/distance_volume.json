@@ -1,0 +1,104 @@
+{
+ "versions": {
+  "trimesh": "5.2.1",
+  "shapely": "2.2.0",
+  "numpy": "2.5.4"
+ },
+ "tilted": {
+  "analytic": -0.21650635094610968,
+  "trimesh_max_error": 1.943292108896877e-07
+ },
+ "sphere": {
+  "volume_ok": true,
+  "analytic_max_error": 0.010736655917640725,
+  "chord_sagitta": 0.006423230284189563
+ },
+ "gable": {
+  "points": 161,
+  "true_sign": 1.0,
+  "pseudonormal_wrong": 0,
+  "nearest_face_wrong": 12,
+  "distance_max_error": 1.6653345369377348e-16
+ },
+ "notch": {
+  "points": 161,
+  "true_sign": -1.0,
+  "pseudonormal_wrong": 0,
+  "nearest_face_wrong": 65,
+  "distance_max_error": 5.551115123125783e-17
+ },
+ "feature": {
+  "nodes": 1089,
+  "inside_polygon": 115
+ },
+ "closed_volume": {
+  "prism": {
+   "trimesh": 15.0,
+   "trimesh_far": 15.0,
+   "faceted": 15.0,
+   "smooth": 15.0,
+   "faces": 8,
+   "watertight": true,
+   "winding_consistent": true
+  },
+  "pyramid": {
+   "trimesh": 12.54619376593564,
+   "trimesh_far": 12.546207427978516,
+   "faceted": 12.546193962183757,
+   "smooth": 12.566370614359172,
+   "faces": 128,
+   "watertight": true,
+   "winding_consistent": true
+  },
+  "frustum": {
+   "trimesh": 14.637226060258248,
+   "trimesh_far": 14.638167063395182,
+   "faceted": 14.637226289214382,
+   "smooth": 14.660765716752367,
+   "faces": 256,
+   "watertight": true,
+   "winding_consistent": true
+  },
+  "hemisphere": {
+   "trimesh": 16.718183573284602,
+   "trimesh_far": 16.717310922588997,
+   "faceted": null,
+   "smooth": 16.755160819145562,
+   "faces": 4096,
+   "watertight": true,
+   "winding_consistent": true
+  }
+ },
+ "cut_fill": {
+  "mound_pit_raster_0.25": {
+   "fill": 33.51028292228807,
+   "cut": 74.625
+  },
+  "wave_flat_raster_0.25": {
+   "fill": 25.896566389493852,
+   "cut": 25.896566389493852
+  },
+  "wave_plane_raster_0.25": {
+   "fill": 17.102177457585533,
+   "cut": 42.702177457585535
+  },
+  "mound_pit_raster_0.01": {
+   "fill": 33.510320334628105,
+   "cut": 74.6666000000032
+  },
+  "wave_flat_raster_0.01": {
+   "fill": 25.938156345798618,
+   "cut": 25.938156345798618
+  },
+  "wave_plane_raster_0.01": {
+   "fill": 17.101949916410213,
+   "cut": 42.70194991640935
+  },
+  "analytic": {
+   "mound": 33.510321638291124,
+   "pit": 74.66666666666666,
+   "wave_flat": 25.938223012438474,
+   "wave_plane_net": -25.6
+  }
+ }
+}

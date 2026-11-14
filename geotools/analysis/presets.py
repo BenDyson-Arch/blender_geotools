@@ -857,7 +857,7 @@ PRESETS: tuple[Preset, ...] = (
     ),
     Preset(
         id="closed_volume",
-        version=1,
+        version=2,
         group="GeoTools Closed Volume",
         category=Category.VOLUMES,
         label="Closed Volume",
