@@ -35,8 +35,6 @@ minutes.
 
 - [Analysis presets](../analysis-presets.md): every Geometry Nodes preset, its
   formula, inputs, accuracy and timing.
-- [Texture cleanup](../texture-cleanup.md): the full cleanup workflow and
-  Blender recipes.
 - [Recipe: drape excavation contexts](../recipes/drape-contexts.md): drape a
   GIS plan on a site mesh with stock Geometry Nodes, with an example file.
 - The design notes in [docs/design/](../design/) explain how each part works.

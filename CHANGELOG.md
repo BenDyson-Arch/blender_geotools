@@ -52,7 +52,7 @@ Tiles with rusty-tiles. See `docs/ROADMAP.md` and the release notes.
   stays GeoTools-only). The README is now a short overview that points into
   the guide, and CONTRIBUTING links it.
 - Texture cleanup (M6), in a new **Textures** panel between Layers and Checks
-  ([docs/texture-cleanup.md](docs/texture-cleanup.md)). Painting stays
+  ([docs/guide/textures.md](docs/guide/textures.md)). Painting stays
   Blender's: the docs have recipes for clone and patch across UV islands
   (projection paint's Clone brush), smear, soften, masks and Quick Edit.
   GeoTools adds:

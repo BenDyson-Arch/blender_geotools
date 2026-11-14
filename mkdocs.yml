@@ -134,7 +134,6 @@ nav:
   - Reference:
       - Analysis presets: analysis-presets.md
       - GLB format: reference/glb-format.md
-      - Texture cleanup workflow: texture-cleanup.md
       - "Recipe: drape excavation contexts": recipes/drape-contexts.md
       - Validation:
           - validation/README.md
