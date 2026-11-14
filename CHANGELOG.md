@@ -141,6 +141,9 @@ and the project follows semantic versioning where practical.
 
 ### Fixed
 
+- Shadow Study, Compute Events and Over a Day no longer fail on Windows for
+  dates before 1970: Python's `datetime.fromtimestamp` refuses negative
+  timestamps there.
 - The archaeoastronomy **horizon profile** no longer misses a near crest by up
   to 0.1° when, with Earth curvature on, a farther range is hit by the coarse
   ray just above the crest but appears lower than it: the fine pass now
