@@ -356,6 +356,21 @@ GeoPackage gets one table per kind: `<layer>`, or `<layer>`,
 `<layer>_lines` and `<layer>_points` when kinds mix. A LOCAL or ANCHOR
 project writes srs_id -1 (undefined Cartesian) and says so.
 
+**The SRS row.** srs_id is the EPSG code (organization `EPSG`), or 100000
+(organization `NONE`) for a CRS without one. `definition` is the CRS's WKT1
+(pyproj's `to_wkt("WKT1_GDAL")`), as the standard asks. When WKT1 cannot
+express the CRS (pyproj refuses, as for 3D geographic CRSs), `definition` is
+`undefined` and the WKT2 (2019) goes in `definition_12_063`, the GeoPackage
+1.4 CRS WKT extension (`gpkg_crs_wkt_1_1`, with its `epoch` column). That
+column is `NOT NULL` without a default, which SQLite cannot add, so the table
+is rebuilt the way GDAL does it (copied with the new columns, the other rows
+given their WKT2 from their codes, dropped and renamed) and the extension is
+registered. Once a file has the column every row written fills it. Without
+pyproj, `definition` is the CRS text as the project holds it (`EPSG:7856`, a
+PROJ string), as before 0.3.0. GDAL 3.12's `validate_gpkg` accepts all three
+forms, and reads the CRS from each (a CRS without a code only from WKT). The
+reader takes `definition_12_063` when `definition` is `undefined`.
+
 **Filters.** The `WHERE` clause is refused if it has `;`, comments or
 unbalanced brackets outside quotes, and runs on a `mode=ro` connection whose
 authorizer allows only SELECT, functions and reads of the layer's own table.

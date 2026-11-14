@@ -28,6 +28,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .. import deps
 from ..crs_match import DataCrs, from_gpkg_srs
 from . import wkb as _wkb
 from .model import (
@@ -169,16 +170,23 @@ def _table_meta(con: sqlite3.Connection, table: str) -> TableMeta:
 
 
 def _crs(con: sqlite3.Connection, srs_id: int) -> DataCrs:
+    """The layer's CRS: ``definition``, or the CRS WKT extension's WKT2 when that is
+    ``undefined``."""
     row = None
     if _has_table(con, "gpkg_spatial_ref_sys"):
+        names = {r[1] for r in con.execute("PRAGMA table_info(gpkg_spatial_ref_sys)")}
+        wkt2 = "definition_12_063" if "definition_12_063" in names else "NULL"
         row = con.execute(
-            "SELECT organization, organization_coordsys_id, definition "
+            f"SELECT organization, organization_coordsys_id, definition, {wkt2} "
             "FROM gpkg_spatial_ref_sys WHERE srs_id = ?",
             (srs_id,),
         ).fetchone()
     if row is None:
         return from_gpkg_srs(None, None, None, srs_id)
-    return from_gpkg_srs(row[0], row[1], row[2], srs_id)
+    definition = row[2]
+    if (definition or "").strip().lower() in ("", "undefined") and row[3]:
+        definition = row[3]
+    return from_gpkg_srs(row[0], row[1], definition, srs_id)
 
 
 def table_meta(path: str | os.PathLike[str], table: str) -> TableMeta:
@@ -342,14 +350,144 @@ def read_layer(
 # --- SRS for writing ------------------------------------------------------------------
 
 
-def _srs_row(crs: DataCrs | None) -> tuple[int, str, str, int, str]:
-    """``(srs_id, name, organization, organization_coordsys_id, definition)``."""
+CRS_WKT_EXTENSION = "gpkg_crs_wkt_1_1"
+"""The GeoPackage 1.4 CRS WKT extension: a ``definition_12_063`` column (WKT2) and an
+``epoch`` column in ``gpkg_spatial_ref_sys``."""
+
+
+@dataclass(frozen=True, slots=True)
+class _Srs:
+    """A ``gpkg_spatial_ref_sys`` row."""
+
+    srs_id: int
+    name: str
+    organization: str
+    code: int
+    definition: str
+    """WKT1, or the CRS text without pyproj, or ``undefined``."""
+    wkt2: str = "undefined"
+    """WKT2 (2019) for ``definition_12_063``, when the file has that column."""
+    needs_wkt2: bool = False
+    """WKT1 cannot express the CRS: the file needs the CRS WKT extension."""
+
+
+def _pyproj_crs(text: str | None):
+    """The CRS as pyproj parses it, or None (no pyproj, no text, unknown to PROJ)."""
+    if not text or not deps.probe_pyproj().available:
+        return None
+    import pyproj
+
+    try:
+        return pyproj.CRS.from_user_input(text)
+    except pyproj.exceptions.CRSError:
+        return None
+
+
+def _to_wkt(parsed, version: str) -> str | None:
+    import pyproj
+
+    try:
+        return parsed.to_wkt(version) or None
+    except pyproj.exceptions.CRSError:
+        return None
+
+
+def _srs_row(crs: DataCrs | None) -> _Srs:
+    """The row for ``crs``.
+
+    The GeoPackage standard asks for WKT in ``definition``. With pyproj that is
+    the CRS as WKT1 (GDAL's dialect, which GDAL and QGIS read). When WKT1
+    cannot express the CRS (a 3D geographic CRS, say), ``definition`` is
+    ``undefined`` and the WKT2 (2019) goes in the CRS WKT extension's
+    ``definition_12_063``. Without pyproj, or when PROJ does not know the CRS,
+    ``definition`` is the CRS text as GeoTools holds it (``EPSG:7856``, a PROJ
+    string), as before 0.3.0: readers find an EPSG CRS by ``organization`` and
+    ``organization_coordsys_id``.
+    """
     if crs is None or not crs.known:
-        return -1, "Undefined Cartesian SRS", "NONE", -1, "undefined"
+        return _Srs(-1, "Undefined Cartesian SRS", "NONE", -1, "undefined")
     if crs.epsg:
         code = int(crs.epsg.split(":", 1)[1])
-        return code, crs.epsg, "EPSG", code, crs.definition or "undefined"
-    return 100000, "GeoTools project CRS", "NONE", 100000, crs.definition or "undefined"
+        srs_id, name, organization = code, crs.epsg, "EPSG"
+    else:
+        code = srs_id = 100000
+        name, organization = "GeoTools project CRS", "NONE"
+    text = crs.definition or "undefined"
+    parsed = _pyproj_crs(crs.epsg or crs.definition)
+    if parsed is None:
+        return _Srs(srs_id, name, organization, code, text)
+    wkt1 = _to_wkt(parsed, "WKT1_GDAL")
+    wkt2 = _to_wkt(parsed, "WKT2_2019") or "undefined"
+    if wkt1 is not None:
+        return _Srs(srs_id, name, organization, code, wkt1, wkt2)
+    if wkt2 == "undefined":
+        return _Srs(srs_id, name, organization, code, text)
+    return _Srs(srs_id, name, organization, code, "undefined", wkt2, needs_wkt2=True)
+
+
+def _has_wkt2_column(con: sqlite3.Connection) -> bool:
+    return any(
+        r[1] == "definition_12_063"
+        for r in con.execute("PRAGMA table_info(gpkg_spatial_ref_sys)").fetchall()
+    )
+
+
+def _add_crs_wkt_extension(con: sqlite3.Connection) -> None:
+    """Give ``gpkg_spatial_ref_sys`` the CRS WKT extension's columns (GeoPackage 1.4, F.10).
+
+    ``definition_12_063`` is ``TEXT NOT NULL`` with no default, which SQLite cannot
+    add to a table, so the table is rebuilt as GDAL does it: a copy with the new
+    columns (each row's WKT2 from its EPSG code where pyproj knows it, else
+    ``undefined``), the old table dropped and the copy renamed. The extension is
+    registered for both columns.
+    """
+    rows = con.execute(
+        "SELECT srs_name, srs_id, organization, organization_coordsys_id, definition, "
+        "description FROM gpkg_spatial_ref_sys"
+    ).fetchall()
+    con.execute(
+        "CREATE TABLE gpkg_spatial_ref_sys_wkt2 (srs_name TEXT NOT NULL, "
+        "srs_id INTEGER PRIMARY KEY, organization TEXT NOT NULL, "
+        "organization_coordsys_id INTEGER NOT NULL, definition TEXT NOT NULL, "
+        "description TEXT, definition_12_063 TEXT NOT NULL, epoch DOUBLE)"
+    )
+    for row in rows:
+        wkt2 = None
+        if str(row[2]).upper() == "EPSG" and int(row[3]) > 0:
+            parsed = _pyproj_crs(f"EPSG:{int(row[3])}")
+            wkt2 = _to_wkt(parsed, "WKT2_2019") if parsed is not None else None
+        con.execute(
+            "INSERT INTO gpkg_spatial_ref_sys_wkt2 VALUES (?, ?, ?, ?, ?, ?, ?, NULL)",
+            (*row, wkt2 or "undefined"),
+        )
+    con.execute("DROP TABLE gpkg_spatial_ref_sys")
+    con.execute("ALTER TABLE gpkg_spatial_ref_sys_wkt2 RENAME TO gpkg_spatial_ref_sys")
+    con.execute(
+        "CREATE TABLE IF NOT EXISTS gpkg_extensions (table_name TEXT, column_name TEXT, "
+        "extension_name TEXT NOT NULL, definition TEXT NOT NULL, scope TEXT NOT NULL, "
+        "CONSTRAINT ge_tce UNIQUE (table_name, column_name, extension_name))"
+    )
+    for column in ("definition_12_063", "epoch"):
+        con.execute(
+            "INSERT OR IGNORE INTO gpkg_extensions (table_name, column_name, extension_name, "
+            "definition, scope) VALUES ('gpkg_spatial_ref_sys', ?, ?, "
+            "'http://www.geopackage.org/spec/#extension_crs_wkt', 'read-write')",
+            (column, CRS_WKT_EXTENSION),
+        )
+
+
+def _write_srs(con: sqlite3.Connection, srs: _Srs) -> None:
+    has_wkt2 = _has_wkt2_column(con)
+    if srs.needs_wkt2 and not has_wkt2:
+        _add_crs_wkt_extension(con)
+        has_wkt2 = True
+    columns = "srs_id, srs_name, organization, organization_coordsys_id, definition"
+    values: tuple[object, ...] = (srs.srs_id, srs.name, srs.organization, srs.code, srs.definition)
+    if has_wkt2:
+        columns += ", definition_12_063"
+        values = (*values, srs.wkt2)
+    marks = ", ".join("?" for _ in values)
+    con.execute(f"INSERT OR REPLACE INTO gpkg_spatial_ref_sys ({columns}) VALUES ({marks})", values)
 
 
 _BASE_SRS = (
@@ -449,12 +587,12 @@ def write_layer(
         wkb = _wkb.encode_feature(geoms, i, multi, has_z)
         b = bounds[i]
         if np.isnan(b).any():
-            blob = _wkb.gpkg_blob(wkb, srs[0], None)
+            blob = _wkb.gpkg_blob(wkb, srs.srs_id, None)
         elif z_range is not None:
             z0, z1 = z_range[i]
-            blob = _wkb.gpkg_blob(wkb, srs[0], [b[0], b[2], b[1], b[3], z0, z1])
+            blob = _wkb.gpkg_blob(wkb, srs.srs_id, [b[0], b[2], b[1], b[3], z0, z1])
         else:
-            blob = _wkb.gpkg_blob(wkb, srs[0], [b[0], b[2], b[1], b[3]])
+            blob = _wkb.gpkg_blob(wkb, srs.srs_id, [b[0], b[2], b[1], b[3]])
         values = [c.python_value(i) for c in columns.values()]
         records.append((int(fids[i]), blob, *values))
 
@@ -465,11 +603,7 @@ def write_layer(
             if not overwrite:
                 raise GpkgError(f"{path.name} already has a table {table!r}")
             _drop_table(con, table)
-        con.execute(
-            "INSERT OR REPLACE INTO gpkg_spatial_ref_sys (srs_id, srs_name, organization, "
-            "organization_coordsys_id, definition) VALUES (?, ?, ?, ?, ?)",
-            srs,
-        )
+        _write_srs(con, srs)
         column_sql = "".join(f", {quote(n)} {SQL_TYPES[c.type]}" for n, c in columns.items())
         con.execute(
             f"CREATE TABLE {quote(table)} (fid INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, "
@@ -484,12 +618,12 @@ def write_layer(
         con.execute(
             "INSERT INTO gpkg_contents (table_name, data_type, identifier, last_change, "
             "min_x, min_y, max_x, max_y, srs_id) VALUES (?, 'features', ?, ?, ?, ?, ?, ?, ?)",
-            (table, table, _now(), *[None if v is None else float(v) for v in box], srs[0]),
+            (table, table, _now(), *[None if v is None else float(v) for v in box], srs.srs_id),
         )
         con.execute(
             "INSERT INTO gpkg_geometry_columns (table_name, column_name, geometry_type_name, "
             "srs_id, z, m) VALUES (?, ?, ?, ?, ?, 0)",
-            (table, geometry_column, geometry_type, srs[0], 1 if has_z else 0),
+            (table, geometry_column, geometry_type, srs.srs_id, 1 if has_z else 0),
         )
         placeholders = ", ".join("?" for _ in range(2 + len(columns)))
         names = ", ".join(["fid", quote(geometry_column)] + [quote(n) for n in columns])

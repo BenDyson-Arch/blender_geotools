@@ -111,6 +111,15 @@ and the project follows semantic versioning where practical.
 
 ### Changed
 
+- GeoPackage exports write the CRS as WKT in `gpkg_spatial_ref_sys.definition`,
+  as the GeoPackage standard asks: pyproj's WKT1, which GDAL and QGIS read, or,
+  for a CRS WKT1 cannot express (a 3D geographic CRS), `undefined` there and
+  the WKT2 in the standard's CRS WKT extension (`definition_12_063`). They
+  wrote the project's CRS text (`EPSG:7856`), which readers that go by the
+  EPSG code accepted but which lost a CRS without a code: GDAL read no CRS
+  from a custom transverse Mercator export, and reads it exactly now. Without
+  pyproj the definition is the CRS text, as before. GDAL 3.12's
+  `validate_gpkg` accepts every form.
 - The GLB metadata term `geotools:gridScale` is now
   `geotools:groundMetresPerModelMetre`. It always held metres on the ground
   per model metre along +X at the origin, about 1 / the combined scale factor
