@@ -403,19 +403,22 @@ def _vec(a: np.ndarray) -> Vec3:
 
 
 def _image_limits(image: ImageSummary) -> list[Issue]:
-    """rusty-tiles refuses images over 16384 px a side, 32 MiB encoded or 16-bit.
+    """rusty-tiles refuses images over 16384 px a side, 1 GiB encoded or 16-bit.
+
+    Below 1 GiB, rusty-tiles 0.4.1 admits an image by memory budget (#338); a
+    budget too small for it fails the build, which names the bytes it needs.
 
     Without a remedy these are errors whose message names the remedy to choose.
     A remedy that removes the cause turns its error into a warning that names
     the remedy; one that does not leaves the error.
     """
-    from .gltf_writer import MAX_IMAGE_BYTES, MAX_IMAGE_EDGE
+    from .gltf_writer import MAX_IMAGE_BYTES, MAX_IMAGE_EDGE, size_limit_text
 
     name = image.name
     remedy = image.remedy
     kind = remedy.kind
     does = remedy.describe(image.width, image.height)
-    limit_mib = MAX_IMAGE_BYTES / (1 << 20)
+    limit = size_limit_text(MAX_IMAGE_BYTES)
     issues = []
 
     if max(image.width, image.height) > MAX_IMAGE_EDGE:
@@ -470,7 +473,7 @@ def _image_limits(image: ImageSummary) -> list[Issue]:
             issues.append(
                 _warn(
                     "image-file-too-large",
-                    f"{size}, over the {limit_mib:g} MiB per encoded image rusty-tiles "
+                    f"{size}, over the {limit} per encoded image rusty-tiles "
                     f"accepts, so publishing uses a copy {does}.",
                     name,
                 )
@@ -479,7 +482,7 @@ def _image_limits(image: ImageSummary) -> list[Issue]:
             issues.append(
                 _warn(
                     "image-file-too-large",
-                    f"{size}, over the {limit_mib:g} MiB rusty-tiles accepts, and publishing "
+                    f"{size}, over the {limit} rusty-tiles accepts, and publishing "
                     "uses a copy converted to an 8-bit PNG, expected to fit and checked then.",
                     name,
                 )
@@ -488,7 +491,7 @@ def _image_limits(image: ImageSummary) -> list[Issue]:
             issues.append(
                 _error(
                     "image-file-too-large",
-                    f"{size}; rusty-tiles accepts at most {limit_mib:g} MiB per encoded "
+                    f"{size}; rusty-tiles accepts at most {limit} per encoded "
                     "image, so choose Re-encode as JPEG or Downscale for it in the Checks "
                     "panel.",
                     name,
@@ -501,7 +504,7 @@ def _image_limits(image: ImageSummary) -> list[Issue]:
                 _warn(
                     "image-png-size",
                     f"Image {name} is written by GeoTools at {size}, where a PNG can exceed "
-                    f"rusty-tiles' {limit_mib:g} MiB limit, so publishing uses a copy {does}.",
+                    f"rusty-tiles' {limit} limit, so publishing uses a copy {does}.",
                     name,
                 )
             )
@@ -510,7 +513,7 @@ def _image_limits(image: ImageSummary) -> list[Issue]:
                 _warn(
                     "image-png-size",
                     f"Image {name} is converted to PNG at {size}, which can exceed "
-                    f"rusty-tiles' {limit_mib:g} MiB limit per image; choose Re-encode as "
+                    f"rusty-tiles' {limit} limit per image; choose Re-encode as "
                     "JPEG or Downscale for it in the Checks panel to be sure.",
                     name,
                 )

@@ -1,12 +1,14 @@
 """Image remedies: checks, the Checks panel buttons, export and an end-to-end publish.
 
-The oversize fixture is a real PNG just over rusty-tiles' 32 MiB limit (3400 x
-3400 noise, 33 to 35 MiB depending on the zlib build), written in under a
-second, so the limit itself is not lowered for the main cases. Two cases do
-lower ``core.gltf_writer.MAX_IMAGE_BYTES`` through :func:`_limit`, a test-only
-patch of the module constant: a JPEG still over the limit, and a downscale
-whose PNG is still over it and falls back to JPEG. Building those at the real
-limit would need far larger fixtures.
+rusty-tiles 0.4.1 refuses images over 1 GiB encoded and admits smaller ones by
+memory budget (#338). The remedy cases run at 0.4.0's 32 MiB limit through
+:func:`_limit`, a test-only patch of ``core.gltf_writer.MAX_IMAGE_BYTES``: the
+oversize fixture is a real PNG just over 32 MiB (3400 x 3400 noise, 33 to 35 MiB
+depending on the zlib build), written in under a second, where a fixture over
+1 GiB would not be. A few cases lower it further: a JPEG still over the limit,
+and a downscale whose PNG is still over it and falls back to JPEG.
+:func:`test_unremedied_png_over_32_mib_publishes` checks the same PNG at the
+real limit: no remedy needed, and rusty-tiles 0.4.1 tiles it.
 """
 
 from __future__ import annotations
@@ -25,7 +27,8 @@ import bpy
 import numpy as np
 
 MIB = 1 << 20
-NOISE_EDGE = 3400  # 33 to 35 MiB as noise PNG: just over the limit
+NOISE_EDGE = 3400  # 33 to 35 MiB as noise PNG: just over TEST_LIMIT
+TEST_LIMIT = 32 * MIB  # rusty-tiles 0.4.0's encoded limit, for the remedy cases
 
 
 # --- helpers -----------------------------------------------------------------------
@@ -139,7 +142,7 @@ def _png_header(path: Path) -> tuple[int, int, int]:
 def _assert_admitted(image_data) -> None:
     """The file passes the GLB writer's rusty-tiles admission checks."""
     size = _writer()._validate_image(0, image_data)
-    assert 0 < size <= 32 * MIB, size
+    assert 0 < size <= _writer().MAX_IMAGE_BYTES, size
 
 
 def _noise_image(files: Path) -> tuple[bpy.types.Image, Path]:
@@ -202,7 +205,7 @@ def test_16_bit_png_is_refused_then_converted_to_8_bit() -> None:
 
 def test_oversize_png_remedies_and_lossless_warning() -> None:
     h.reset_scene()
-    with _files() as files:
+    with _files() as files, _limit(TEST_LIMIT):
         image, path = _noise_image(files)
         obj = _textured_source(image)
         collection = obj.users_collection[0]
@@ -355,13 +358,48 @@ def test_remedy_survives_rename_save_and_reload() -> None:
 # --- end to end (needs the wheel) ----------------------------------------------------
 
 
-def test_publish_with_remedied_image_end_to_end() -> None:
+def test_unremedied_png_over_32_mib_publishes() -> None:
+    """rusty-tiles 0.4.1 admits a PNG over 0.4.0's 32 MiB limit, by memory budget (#338)."""
+    h.reset_scene()
+    with _files() as files:
+        image, path = _noise_image(files)
+        _textured_source(image)
+        _run_checks()
+        codes = [c for c, _s in _issues()]
+        assert "image-file-too-large" not in codes and "image-remedy" not in codes, _issues()
     if h.CONFIG.expect != "available":
         return
     import test_publish as tp
 
     h.reset_scene()
     with _files() as files, tp._tmpdir() as tmp:
+        grid = tp._textured_grid(6)
+        image, path = _noise_image(files)
+        tex = next(
+            n for n in grid.data.materials[0].node_tree.nodes if n.bl_idname == "ShaderNodeTexImage"
+        )
+        tex.image = image
+        bpy.data.images.remove(bpy.data.images["Checker"])
+        output = tmp / "big-png.3tz"
+        tp._add_profile(str(output))
+        assert bpy.ops.geotools.publish() == {"FINISHED"}
+        job = tp._finish()
+        status = tp._status()
+        assert status.state == "DONE", (status.state, status.message, job.error)
+        assert __import__("rusty_tiles").validate(output)["ok"]
+        record = json.loads((tmp / "big-png.geotools" / "build.json").read_text())
+        assert "image_remedies" not in record["geotools"], record["geotools"]
+        (source,) = [i for i in record["source"]["images"] if i["name"] == image.name]
+        assert source["bytes"] == path.stat().st_size > 32 * MIB, source
+
+
+def test_publish_with_remedied_image_end_to_end() -> None:
+    if h.CONFIG.expect != "available":
+        return
+    import test_publish as tp
+
+    h.reset_scene()
+    with _files() as files, tp._tmpdir() as tmp, _limit(TEST_LIMIT):
         grid = tp._textured_grid(6)
         image, _path = _noise_image(files)
         tex = next(
@@ -387,6 +425,6 @@ def test_publish_with_remedied_image_end_to_end() -> None:
         assert record["validation"]["ok"] is True
         (applied,) = record["geotools"]["image_remedies"]
         assert applied["image"] == image.name and applied["remedy"] == "jpeg-q95", applied
-        assert applied["mime_type"] == "image/jpeg" and 0 < applied["bytes"] <= 32 * MIB
+        assert applied["mime_type"] == "image/jpeg" and 0 < applied["bytes"] <= TEST_LIMIT
         assert (applied["width"], applied["height"]) == (NOISE_EDGE, NOISE_EDGE)
         assert _state(image) == before

@@ -115,19 +115,19 @@ Download every wheel for every platform:
 python scripts/fetch_wheels.py
 ```
 
-The rusty-tiles pin is still 0.4.0, which is on PyPI, but GeoTools needs
-0.4.1's functions (`supported_epsg_codes`, `resolve_source_crs`, `list_tiles`,
-`decode_tile`) and reports a 0.4.0 wheel as not available. Until 0.4.1 is on
-PyPI and the pin moves to it, take rusty-tiles from a local build of
-rusty-tiles develop (below).
+The rusty-tiles pin is 0.4.1, from PyPI. GeoTools needs 0.4.1's functions
+(`supported_epsg_codes`, `resolve_source_crs`, `list_tiles`, `decode_tile`)
+and reports an older wheel as not available.
 
 This uses `pip download` from the running Python, or `uvx pip` if that Python
 has no pip, so pip settings such as `PIP_INDEX_URL` apply.
 
 `--from-dir` copies wheels from a local directory instead. `--from-dir DIR`
 takes every pin from `DIR`; `--from-dir NAME=DIR` takes one pin from `DIR` and
-downloads the others. Until rusty-tiles 0.4.1 is on PyPI, take it from a local
-directory, for example a rusty-tiles `dist/` folder:
+downloads the others. To test an unreleased rusty-tiles, take it from a local
+directory, for example a rusty-tiles `dist/` folder (`build_extension.py`
+refuses a wheel whose version does not match the pin, so a release still
+needs the pinned wheel):
 
 ```sh
 python scripts/fetch_wheels.py --from-dir rusty-tiles=/path/to/rusty-tiles/dist --platform linux-x64
@@ -253,12 +253,10 @@ and `develop`. It has these jobs:
   tests run.
 - `blender`: an official, checksum-pinned Blender 5.2 LTS runs the Blender
   tests with `--expect missing`, then uploads the zip.
-- `blender-wheel`: the same with the PyPI wheels (rusty-tiles, pyproj,
-  certifi). It doesn't gate yet: the pinned rusty-tiles 0.4.0 is on PyPI, but
-  GeoTools refuses it, so the job fails in its Blender tests until 0.4.1 is
-  published and pinned. Then, to make it gate, set the repository variable
-  `RUSTY_TILES_WHEEL_GATING` to `true` and add it to the required checks of
-  the `main` and `develop` rulesets.
+- `blender-wheel`: the same with the pinned PyPI wheels (rusty-tiles 0.4.1,
+  pyproj, certifi) and `--expect available`, so the publish, inspect and CRS
+  tests run against the real wheel. A failure fails the run; it never falls
+  back to a wheel-less build.
 - `core (pytest, macOS arm64)` and `core (pytest, Windows x64)`: the core
   tests (no ruff) on `macos-latest` and `windows-latest`, at the same pins.
 - `blender (macOS arm64, no wheels)` and `blender (Windows x64, no wheels)`:
