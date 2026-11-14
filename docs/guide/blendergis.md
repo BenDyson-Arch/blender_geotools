@@ -66,15 +66,23 @@ BlenderGIS and GeoTools treat a change of origin differently:
 
 - In BlenderGIS, changing the origin moves the scene's objects the opposite
   way, so they stay on the same spot on Earth.
-- In GeoTools, changing **Offset E** or **N**, or loading an offset file, keeps
-  the objects where they are in Blender. The scene is read at the new origin,
-  so the objects move on Earth.
+- In GeoTools, changing **Offset E** or **N**, loading an offset file, or
+  **Origin from Latitude/Longitude** keeps the objects where they are in
+  Blender. The scene is read at the new origin, so the objects move on Earth.
 
 GeoTools changes `crs x` and `crs y` only when you edit the origin yourself.
-An import, a CRS change or a change of placement never moves the origin. When
-an import offers the data's centre as the project origin and the scene already
-has a complete BlenderGIS georeference, the project takes that georeference
-instead, so objects another tool placed stay where they are.
+An import, a CRS change or a change of placement never moves the origin:
+
+- **Import Source Mesh** finds an offset file beside the mesh, but uses it only
+  when the project has no origin yet, or already has exactly that one. When the
+  scene has a BlenderGIS georeference with another origin (or the project has
+  other E, N or A), the mesh is imported unshifted and the Source panel offers
+  the file as the project origin; nothing changes until you choose.
+- When an import offers the data's centre as the project origin and the scene
+  already has a complete BlenderGIS georeference, the project takes that
+  georeference instead, so objects another tool placed stay where they are.
+- Choosing the CRS of a scene that has only a latitude and longitude writes no
+  E and N over them.
 
 Changing the CRS also differs. BlenderGIS reprojects the origin to keep it on
 the same spot. GeoTools keeps the E and N numbers and reads them in the new

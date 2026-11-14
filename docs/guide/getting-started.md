@@ -129,7 +129,10 @@ size of about 60 × 60 m.
 GeoTools also looks for an offset file beside the mesh: `terrain_offset.txt`,
 `terrain.offset.txt` or `offset.txt`, in that order. It finds
 `terrain_offset.txt`, so the Project panel now shows **Offset E** 500000,
-**N** 5400000 and **A** 100, and "From terrain_offset.txt".
+**N** 5400000 and **A** 100, and "From terrain_offset.txt". GeoTools reads it
+because the project had no offset yet. In a project that already has another
+origin, it leaves the origin alone and asks in the Source panel instead (see
+[Georeference and projects](projects.md#set-the-offset)).
 
 The Project panel also shows a warning: offset A is 100 m, so BlenderGIS and
 other GeoScene tools would see every height 100 m lower than GeoTools

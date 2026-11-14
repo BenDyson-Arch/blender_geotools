@@ -188,9 +188,22 @@ objects by the opposite amount, so the objects stay on the same spot on Earth.
 GeoTools' origin changes do not move objects: they define where the scene's
 coordinates are.
 
-- **Offset E/N fields and the offset file.** An explicit edit: the scene is
+- **Offset E/N fields and Load Offset File.** An explicit edit: the scene is
   re-read at the new origin, so its objects move on Earth. The field tooltips
   say so.
+- **An offset file found by Import Source Mesh** (`source.detect_offset`,
+  `core.data_origin.check_offset_file`). It sets the origin only when the
+  project has none yet (LOCAL with no keys and E/N/A all 0, or SOURCE_CRS with
+  E/N/A all 0 and no geographic origin), or when it is exactly the origin
+  already (E, N and A compared in float64), so several chunks with one shared
+  file stay silent. When the scene has complete keys with another
+  `crs x`/`crs y`, the project another non-zero origin, or the project is
+  Anchor, the mesh is imported unshifted and the file is offered in the Source
+  panel (kept on the window manager, `geotools_offset_offer`): use it as the
+  project origin (asks first when the source collection has objects), or, in a
+  SOURCE_CRS project, move the imported objects by the float64 difference to
+  the project origin (with a warning where single-precision locations round by
+  more than 1 mm).
 - **Use data origin.** It defines the origin for data that has none in the
   scene yet. It asks for confirmation first when the source collection has
   objects. **When the scene already has a complete GeoScene georeference**
@@ -204,9 +217,10 @@ coordinates are.
   exactly (`scene_georef.snapshot`/`restore`).
 
 **The rule:** GeoTools changes `crs x`/`crs y` only through an explicit edit
-of the origin by the user (the E/N fields, an offset file, a confirmed "use
-data origin" on a scene with no GeoScene origin, Origin from
-Latitude/Longitude). It never changes them as a
+of the origin by the user (the E/N fields, Load Offset File, an offset file
+found by an import while the project has no origin yet or chosen in the
+Source panel, a confirmed "use data origin" on a scene with no GeoScene
+origin, Origin from Latitude/Longitude). It never changes them as a
 side effect of an import, a CRS change, migration or a mode switch. Objects
 therefore never become desynchronised from the keys without the user asking
 for the scene to be re-read at a new origin.
