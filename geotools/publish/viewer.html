@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>3D Tiles viewer</title>
+  <!-- CesiumJS 1.146.0 from the jsDelivr CDN. No Cesium ion token is needed. -->
+  <script src="https://cdn.jsdelivr.net/npm/cesium@1.146.0/Build/Cesium/Cesium.js"
+          integrity="sha384-1lWK5deN/B+lLaUw4lk6xKp/L19ii/98SZLk6K8YthDskgvc+GbdixLzbCnSS2Wn"
+          crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.146.0/Build/Cesium/Widgets/widgets.css"
+        integrity="sha384-ghEeMdcWWzRv/BPeUcX835vcKDGrxvROXisl/Btpv3GeekBUXTSPVcFJpI1Tcrgp"
+        crossorigin="anonymous">
+  <style>
+    html, body, #viewer { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+    #message { position: absolute; top: 8px; left: 8px; right: 8px; padding: 8px 12px;
+               background: #fff; color: #900; font: 14px sans-serif; display: none; }
+  </style>
+</head>
+<body>
+  <div id="viewer"></div>
+  <div id="message"></div>
+  <script type="module">
+    // Natural Earth II ships inside CesiumJS, so the globe has imagery without
+    // a Cesium ion token. Use `baseLayer: false` for no imagery at all.
+    const viewer = new Cesium.Viewer("viewer", {
+      baseLayer: Cesium.ImageryLayer.fromProviderAsync(
+        Cesium.TileMapServiceImageryProvider.fromUrl(
+          Cesium.buildModuleUrl("Assets/Textures/NaturalEarthII")
+        )
+      ),
+      baseLayerPicker: false,
+      geocoder: false,
+      animation: false,
+      timeline: false,
+    });
+    try {
+      const tileset = await Cesium.Cesium3DTileset.fromUrl("./tileset.json");
+      viewer.scene.primitives.add(tileset);
+      await viewer.zoomTo(tileset);
+    } catch (error) {
+      const message = document.getElementById("message");
+      message.textContent =
+        `Could not load tileset.json (${error}). Serve this folder from a web ` +
+        "server, for example `python3 -m http.server 8000` in this folder " +
+        "(`py -m http.server 8000` on Windows), and open http://localhost:8000/ " +
+        "instead of opening this file directly.";
+      message.style.display = "block";
+    }
+  </script>
+</body>
+</html>

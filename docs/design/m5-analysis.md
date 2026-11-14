@@ -930,14 +930,17 @@ heights and unchanged. Levels are reported in RL (plus offset A).
   The volume is nearly exact because a face centre's height is the mean of
   its corners'; the area counts whole faces whose centre is under the water,
   so it overstates by about a rim's worth of faces.
+
 - **Inclined plane:** every face drains to a lower one and the water leaves
   only over the low edge; each column's mean accumulation is within 15 % of
   its upslope strip (single-direction routing makes parallel streaks).
+
 - **Two levels:** a step joined by a wall routes down the wall and on; an
   open roof sheet drops from its eaves onto the ground; a floating slab's
   underside drips onto the ground straight below; a wall sunk into the ground
   comes up through it; a closed box alone drains at its lowest point. In every
   case the accumulation leaving the model is the whole plan area, to 10⁻⁹.
+
 - **Two pits** on a slope: the shallow one spills downhill into the deep
   one's lake, which spills out over the low edge.
 

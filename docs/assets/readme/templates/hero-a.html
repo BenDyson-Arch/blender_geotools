@@ -1,0 +1,219 @@
+<!doctype html>
+<!-- The hero, "screenshots": a montage of analyses in Blender beside the published site in Cesium.
+     ?mode=hero   1600 px wide, the height of its content, for the README;
+     ?mode=social 1280x640, with the wordmark, for GitHub's social preview.
+     Rendered by scripts/make_readme_images.py from shots/tile-*.png and shots/cesium.png. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GeoTools hero A</title>
+    <link rel="stylesheet" href="common.css" />
+    <style>
+      body {
+        background: transparent;
+      }
+      .frame {
+        position: relative;
+        overflow: hidden;
+        background: radial-gradient(120% 140% at 0% 0%, var(--bg-2), var(--bg) 60%);
+        color: var(--ink);
+      }
+      .content {
+        position: relative;
+        z-index: 1;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 1fr var(--gap) 1fr;
+        align-items: start;
+      }
+      .arrow {
+        align-self: center;
+        justify-self: center;
+        width: var(--dot);
+        height: var(--dot);
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--accent-3), var(--accent));
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+        display: grid;
+        place-items: center;
+        margin-top: calc(var(--caption) * -1);
+      }
+      .arrow svg {
+        width: 55%;
+        height: 55%;
+      }
+      .shot {
+        width: 100%;
+        aspect-ratio: 1.6;
+        object-fit: cover;
+      }
+      .montage {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: 1fr 1fr;
+        gap: var(--tile-gap);
+        aspect-ratio: 1.6;
+      }
+      .tile {
+        position: relative;
+        min-height: 0;
+      }
+      .tile img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+        border-radius: 10px;
+        box-shadow: var(--shadow);
+        outline: 1px solid rgba(255, 255, 255, 0.1);
+        outline-offset: -1px;
+      }
+      .tile span {
+        position: absolute;
+        left: 10px;
+        bottom: 10px;
+        font-size: var(--tag);
+        font-weight: 600;
+        color: #f2f5fa;
+        background: rgba(11, 18, 32, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 999px;
+        padding: 4px 12px;
+      }
+      .caption {
+        display: flex;
+        align-items: baseline;
+        gap: 14px;
+        margin-top: 22px;
+        height: var(--caption);
+      }
+      .step {
+        flex: none;
+        font-weight: 700;
+        font-size: var(--step-size);
+        color: var(--bg);
+        background: var(--accent);
+        border-radius: 999px;
+        width: 1.7em;
+        height: 1.7em;
+        display: grid;
+        place-items: center;
+        transform: translateY(-0.15em);
+      }
+      .caption h2 {
+        margin: 0;
+        font-size: var(--title);
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+      .caption p {
+        margin: 0;
+        font-size: var(--sub);
+        color: var(--ink-2);
+      }
+
+      /* mode=hero */
+      body.hero .frame {
+        width: 1600px;
+        border-radius: 28px;
+        padding: 40px 40px 30px;
+        --gap: 76px;
+        --dot: 58px;
+        --title: 31px;
+        --sub: 23px;
+        --step-size: 20px;
+        --caption: 70px;
+        --tile-gap: 12px;
+        --tag: 17px;
+      }
+      body.hero .caption {
+        flex-direction: row;
+      }
+      body.hero .head {
+        display: none;
+      }
+
+      /* mode=social */
+      body.social .frame {
+        width: 1280px;
+        height: 640px;
+        padding: 0 52px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        --gap: 48px;
+        --dot: 44px;
+        --title: 25px;
+        --sub: 18px;
+        --step-size: 16px;
+        --caption: 40px;
+        --tile-gap: 8px;
+        --tag: 13px;
+      }
+      body.social .caption p {
+        display: none;
+      }
+      body.social .head {
+        display: flex;
+        align-items: baseline;
+        gap: 22px;
+        margin-bottom: 30px;
+      }
+      body.social .wordmark {
+        font-size: 58px;
+      }
+      body.social .tagline {
+        font-size: 25px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame">
+      <svg class="contours" data-step="0.07" data-major="5"></svg>
+      <div class="content">
+        <div class="head">
+          <h1 class="wordmark"><span class="geo">Geo</span>Tools</h1>
+          <p class="tagline">GIS for Blender: georeference, analyse and publish 3D sites</p>
+        </div>
+        <div class="row">
+          <div>
+            <div class="montage">
+              <div class="tile"><img src="../shots/tile-slope.png" alt="" /><span>Slope and contours</span></div>
+              <div class="tile"><img src="../shots/tile-viewshed.png" alt="" /><span>Viewshed</span></div>
+              <div class="tile"><img src="../shots/tile-sky.png" alt="" /><span>Solstice and lunar sightlines</span></div>
+              <div class="tile"><img src="../shots/tile-water.png" alt="" /><span>Flow paths</span></div>
+            </div>
+            <div class="caption">
+              <span class="step">1</span>
+              <div>
+                <h2>Analyse in Blender</h2>
+                <p>Terrain, visibility, sun and sky, and water, georeferenced</p>
+              </div>
+            </div>
+          </div>
+          <div class="arrow" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12h13M13 6l6 6-6 6" />
+            </svg>
+          </div>
+          <div>
+            <img class="shot" src="../shots/cesium.png" alt="" />
+            <div class="caption">
+              <span class="step">2</span>
+              <div>
+                <h2>Share it</h2>
+                <p>3D Tiles for CesiumJS, vectors, or a GLB with metadata</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script>
+      document.body.className = new URLSearchParams(location.search).get("mode") || "hero";
+    </script>
+    <script src="contours.js"></script>
+  </body>
+</html>

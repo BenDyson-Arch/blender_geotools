@@ -1,0 +1,151 @@
+# GeoTools documentation site (MkDocs + Material for MkDocs).
+#
+# Preview:   uvx --with-requirements requirements-docs.txt mkdocs serve
+# Check:     uvx --with-requirements requirements-docs.txt mkdocs build --strict
+# CI and deployment: .github/workflows/docs.yml. See CONTRIBUTING.md, "Docs site".
+#
+# The Markdown under docs/ is also read on GitHub, so keep links relative
+# (page.md, ../guide/page.md#anchor). docs/hooks/site_links.py turns links that
+# leave docs/ into site pages or GitHub links at build time.
+
+site_name: GeoTools
+site_description: >-
+  GIS for Blender: georeference a site, bring in geodata, analyse the full 3D
+  mesh, and publish it as OGC 3D Tiles with rusty-tiles.
+site_url: https://bendyson-arch.github.io/blender_geotools/
+repo_url: https://github.com/BenDyson-Arch/blender_geotools
+repo_name: BenDyson-Arch/blender_geotools
+# "Edit this page" opens the file on develop, where pull requests go.
+edit_uri: edit/develop/docs/
+copyright: GeoTools is licensed under GPL-3.0-or-later.
+
+docs_dir: docs
+strict: true
+
+# Not part of the site: the build hook below (Python, not documentation) and the
+# README image templates, which only scripts/make_readme_images.py renders (they
+# load Cesium and the screenshots from that script's local server).
+exclude_docs: |
+  /hooks/
+  /assets/readme/templates/
+
+# Pages deliberately left out of the nav. Each one is listed with the reason;
+# any other page missing from the nav fails the strict build (omitted_files).
+not_in_nav: |
+  # (none yet)
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+hooks:
+  - docs/hooks/site_links.py
+
+theme:
+  name: material
+  language: en
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: amber
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: amber
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+
+extra_css:
+  - stylesheets/extra.css
+
+plugins:
+  - search
+  # Pulls the repository's root files (CONTRIBUTING.md, CHANGELOG.md, LICENSE)
+  # into the stub pages docs/contributing.md, docs/changelog.md and
+  # docs/license.md, rewriting their relative links for the stub's location.
+  - include-markdown
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      # GitHub's heading anchors, so #anchors work the same on GitHub and here.
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  # GitHub accepts two-space nested lists; Python-Markdown wants four.
+  - mdx_truly_sane_lists:
+      nested_indent: 2
+      truly_sane: false
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+nav:
+  - Home: index.md
+  # docs/guide/README.md is the guide's index on GitHub; MkDocs serves a
+  # README.md as its folder's index page (guide/), and navigation.indexes makes
+  # it the section's landing page.
+  - User guide:
+      - guide/README.md
+      - Getting started: guide/getting-started.md
+      - Georeference and projects: guide/projects.md
+      - Layers and bakes: guide/layers.md
+      - Checks and publishing: guide/publish.md
+      - GLB with metadata: guide/glb-metadata.md
+      - Analysis: guide/analysis.md
+      - Texture cleanup: guide/textures.md
+      - Inspecting output: guide/inspect-output.md
+      - Geo formats: guide/geo-formats.md
+      - Working alongside BlenderGIS: guide/blendergis.md
+  - Reference:
+      - Analysis presets: analysis-presets.md
+      - Texture cleanup workflow: texture-cleanup.md
+      - "Recipe: drape excavation contexts": recipes/drape-contexts.md
+  - Developer:
+      - Contributing: contributing.md
+      - Changelog: changelog.md
+      - Roadmap: ROADMAP.md
+      - Backlog: BACKLOG.md
+      - Design notes:
+          - Sidebar structure: design/ui-structure.md
+          - Scene georeference (BlenderGIS keys): design/georeference-interop.md
+          - "M3: layers and the bake engine": design/m3-layers.md
+          - "M4: GLB export with metadata": design/m4-glb-metadata.md
+          - "M5: analysis": design/m5-analysis.md
+          - "M7: output inspection": design/m7-output-inspection.md
+          - "M8: geo formats": design/m8-geo-formats.md
+      - License: license.md

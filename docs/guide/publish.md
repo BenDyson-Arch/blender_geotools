@@ -36,7 +36,7 @@ Run Checks also refreshes every layer's value range and status.
 | `georef-keys-ignored` | The scene has a BlenderGIS georeference, but the project is Local or Anchor. | **Use the Scene's BlenderGIS Georeference** in the Project panel, or ignore it. |
 | `uv-overlap` | UV triangles share texels on an object with texture layers. | Fix the UVs, or bake anyway. See [Layers](layers.md#texture-layers-and-the-bake-sub-panel). |
 | `image-missing` | An image's file is missing and it is not packed. | Find the file, or pack the image. |
-| `image-unsaved` | An image has unsaved edits. | Nothing: Publish saves it first. |
+| `image-unsaved` | An image has unsaved edits. An error when its file is a source file and the `.blend` was never saved. | Nothing: Publish saves it first, to a `textures/` copy for a source file. For the error, save the `.blend`. |
 | `textures-changed` | Source images changed since the last publish. | Nothing; an info note. See [Texture cleanup](textures.md). |
 | `texture-balance-preview` | A colour-balance preview node is still in a material. | Apply or clear the balance. See [Texture cleanup](textures.md). |
 
@@ -135,6 +135,19 @@ the file, when, how long it took, the triangles and tiles, and whether
 validation passed. **Folder** opens the output folder and **Record** opens
 `build.json`.
 
+**Extract for Web** (for a `.3tz`) writes the archive as a folder a web server
+can serve, next to it: `site.web/` for `site.3tz`, `site.slope.web/` for a
+variant. It holds `tileset.json` and the tiles, an `index.html` CesiumJS page
+(see [Viewing a .3tz elsewhere](#viewing-a-3tz-elsewhere)) and
+`.geotools-web.json`, which marks the folder as GeoTools' own and lists the
+files it wrote. Pressing it again replaces those files. If you edited or
+replaced `index.html`, your page is kept. Any other file you added or changed
+in the folder stops the extract, with an error that names it, until you move it
+out, so nothing of yours is deleted. GeoTools never replaces a folder of that
+name that it did not write: move or rename yours, or the button reports an
+error. The folder button beside it opens the folder. After a new publish the
+panel says the folder is older than the archive until you extract again.
+
 **Preview in Browser** serves the archive with `rusty-tiles preview` and opens
 it in your browser. It needs two things that are not bundled, set in the
 GeoTools preferences: the **rusty-tiles CLI** and a Cesium 1.146
@@ -144,12 +157,94 @@ GeoTools preferences: the **rusty-tiles CLI** and a Cesium 1.146
 ## Viewing a .3tz elsewhere
 
 A `.3tz` is a zip that holds `tileset.json` and its tiles. Web viewers such as
-CesiumJS read tilesets from a server, not from a `.3tz`. Extract it and serve
-the folder. [Getting started](getting-started.md#8-view-the-result) shows how.
+CesiumJS read tilesets from a server, not from a `.3tz`. Press **Extract for
+Web** and serve the folder it writes.
+[Getting started](getting-started.md#8-view-the-result) shows how, with
+Python's built-in server.
+
+The `index.html` it writes is this page. It loads CesiumJS 1.146.0 from the
+jsDelivr CDN (with subresource integrity hashes), shows Natural Earth II
+imagery, which ships inside CesiumJS, and turns off the geocoder and the
+imagery picker, so it never asks Cesium ion for anything and needs no token.
+Copy it into any folder that holds a `tileset.json` to view that tileset:
+
+```html
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>3D Tiles viewer</title>
+  <!-- CesiumJS 1.146.0 from the jsDelivr CDN. No Cesium ion token is needed. -->
+  <script src="https://cdn.jsdelivr.net/npm/cesium@1.146.0/Build/Cesium/Cesium.js"
+          integrity="sha384-1lWK5deN/B+lLaUw4lk6xKp/L19ii/98SZLk6K8YthDskgvc+GbdixLzbCnSS2Wn"
+          crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.146.0/Build/Cesium/Widgets/widgets.css"
+        integrity="sha384-ghEeMdcWWzRv/BPeUcX835vcKDGrxvROXisl/Btpv3GeekBUXTSPVcFJpI1Tcrgp"
+        crossorigin="anonymous">
+  <style>
+    html, body, #viewer { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+    #message { position: absolute; top: 8px; left: 8px; right: 8px; padding: 8px 12px;
+               background: #fff; color: #900; font: 14px sans-serif; display: none; }
+  </style>
+</head>
+<body>
+  <div id="viewer"></div>
+  <div id="message"></div>
+  <script type="module">
+    // Natural Earth II ships inside CesiumJS, so the globe has imagery without
+    // a Cesium ion token. Use `baseLayer: false` for no imagery at all.
+    const viewer = new Cesium.Viewer("viewer", {
+      baseLayer: Cesium.ImageryLayer.fromProviderAsync(
+        Cesium.TileMapServiceImageryProvider.fromUrl(
+          Cesium.buildModuleUrl("Assets/Textures/NaturalEarthII")
+        )
+      ),
+      baseLayerPicker: false,
+      geocoder: false,
+      animation: false,
+      timeline: false,
+    });
+    try {
+      const tileset = await Cesium.Cesium3DTileset.fromUrl("./tileset.json");
+      viewer.scene.primitives.add(tileset);
+      await viewer.zoomTo(tileset);
+    } catch (error) {
+      const message = document.getElementById("message");
+      message.textContent =
+        `Could not load tileset.json (${error}). Serve this folder from a web ` +
+        "server, for example `python3 -m http.server 8000` in this folder " +
+        "(`py -m http.server 8000` on Windows), and open http://localhost:8000/ " +
+        "instead of opening this file directly.";
+      message.style.display = "block";
+    }
+  </script>
+</body>
+</html>
+```
+
+For no imagery at all, replace the `baseLayer: ...` option with
+`baseLayer: false`. The page is not part of the tileset: the tiles load in any
+viewer without it. Edit `index.html` in the `.web` folder, or replace it with
+your own page, and Extract for Web keeps it when you extract again.
+
+Serve the page and the tiles from the same web server. A viewer on another
+origin, such as [Sandcastle](https://sandcastle.cesium.com/) or a page on
+another port, cannot read the tiles from `python3 -m http.server`: the browser
+blocks the request (CORS) because that server sends no
+`Access-Control-Allow-Origin` header. To host the tiles for viewers elsewhere,
+copy the folder to a web server that sends that header.
 
 The tiles use `EXT_meshopt_compression` geometry, and the lossy profiles use
-KTX2 textures. Blender's own glTF importer reads neither; open published tiles
-in Blender with [Inspect Output](inspect-output.md) instead.
+KTX2 textures (`KHR_texture_basisu`). CesiumJS reads both. Checked on
+2026-11-13 with CesiumJS 1.146.0 in Chromium: the synthetic demo site from
+[Getting started](getting-started.md), with a test texture added, published at
+**Balanced** (KTX2 textures) and at **Lossless** (PNG). In this page both
+loaded their tiles and textures with no request to Cesium ion, and CesiumJS
+placed them at 3° E, 48.753° N, where the offset file's E 500000, N 5400000
+in EPSG:32631 is. Other viewers were not tested. Blender's own glTF importer
+reads neither extension; open published tiles in Blender with
+[Inspect Output](inspect-output.md) instead.
 
 ## Limits
 

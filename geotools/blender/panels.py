@@ -501,7 +501,9 @@ class GEOTOOLS_PT_layers_details(_GeoToolsPanel, bpy.types.Panel):
         row.prop(item, "aggregation")
         if item.aggregation == LAYER_AGGREGATION_DEFAULT:
             info_row(col, "", f"{_aggregation_label(item, spec.data_type)}", icon="INFO")
-        col.prop(item, "description")
+        # Full width: a description is longer than the value column.
+        col.label(text="Description")
+        col.prop(item, "description", text="")
 
         if "layer-range-invalid" in codes:
             # The range is worked out by Update Range; show the stored text only to fix it.

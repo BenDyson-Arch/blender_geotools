@@ -287,7 +287,7 @@ and `closed` attributes.
 
 1. Draw a line object along the section, or use an imported line layer, and
    set it as the **Section Line**.
-2. **Selected Edges Only** cuts along the selected edges only.
+2. Under **Edges**, tick **Selected Only** to cut along the selected edges only.
 3. Press **Create Sections**.
 
 The result is a line object (`Sections`) with `chainage` per point. Every

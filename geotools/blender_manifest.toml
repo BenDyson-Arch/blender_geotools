@@ -3,7 +3,7 @@ schema_version = "1.0.0"
 id = "geotools"
 version = "0.4.0-dev"
 name = "GeoTools"
-tagline = "Create, analyse and publish 3D Tiles from Blender"
+tagline = "GIS for Blender: georeference, analyse and publish 3D sites"
 maintainer = "BenDyson-Arch"
 type = "add-on"
 website = "https://github.com/BenDyson-Arch/blender_geotools"
@@ -19,3 +19,5 @@ license = ["SPDX:GPL-3.0-or-later"]
 [permissions]
 # Blender limits permission reasons to 64 characters, no trailing punctuation.
 files = "Read source meshes and images, write 3D Tiles and build records"
+network = "Optional PROJ grid downloads from cdn.proj.org"
+clipboard = "Copy analysis results as tab-separated text"
