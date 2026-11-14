@@ -40,6 +40,7 @@ is already in the project CRS.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import math
 import sys
@@ -377,10 +378,8 @@ def build_blend(out: Path) -> Path:
 
     bpy.ops.wm.read_homefile(use_empty=True)
     bpy.context.preferences.filepaths.save_version = 0  # no drape-contexts.blend1
-    try:
+    with contextlib.suppress(ValueError):  # already registered (run twice in one session)
         geotools.register()
-    except ValueError:  # already registered (run twice in one session)
-        pass
     scene = bpy.context.scene
     props = scene.geotools
     props.placement_mode = "SOURCE_CRS"

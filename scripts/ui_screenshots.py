@@ -49,6 +49,7 @@ Stdlib only on the host side (Python 3.12+).
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import subprocess
 import sys
@@ -240,10 +241,8 @@ def inner_main(argv: list[str]) -> None:
                 and getattr(cls, "bl_region_type", "") == "UI"
                 and cls not in ours
             ):
-                try:
+                with contextlib.suppress(RuntimeError):
                     bpy.utils.unregister_class(cls)
-                except RuntimeError:
-                    pass
 
     def open_all_panels() -> None:
         ordered = geotools_panels()

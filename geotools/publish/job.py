@@ -36,6 +36,7 @@ then only skips validation, and the job still records the build and ends DONE.
 
 from __future__ import annotations
 
+import contextlib
 import datetime as _dt
 import hashlib
 import json
@@ -535,12 +536,10 @@ class BuildJob:
                     error += " (the archive was installed, but its build record was not written)"
                 message = error
                 if self._work_ready:
-                    try:
+                    with contextlib.suppress(OSError):
                         (work / st.ERROR_NAME).write_text(
                             error + "\n\n" + traceback.format_exc(), encoding="utf-8"
                         )
-                    except OSError:
-                        pass
         finally:
             # Touch the staging directory only while holding its lock: if taking
             # the lock failed, another job owns everything in it.
@@ -1011,10 +1010,8 @@ class BuildJob:
             return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
         report = dict(report)
         payloads = report.pop("payloads", None)
-        try:
+        with contextlib.suppress(TypeError):
             report["payload_rows"] = len(payloads)  # type: ignore[arg-type]
-        except TypeError:
-            pass
         write_json(work / st.VALIDATION_NAME, report)
         return {"ok": bool(report.get("ok")), "summary": summarise_validation(report)}
 

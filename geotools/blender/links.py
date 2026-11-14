@@ -22,6 +22,7 @@ with :func:`register_refresher`.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -331,10 +332,8 @@ def auto_refresh_tick() -> float:
         refreshed = True
         log.info("auto-refresh %s", result.summary(obj.name))
     if refreshed:
-        try:
+        with contextlib.suppress(RuntimeError):  # no window context (e.g. background mode)
             bpy.ops.ed.undo_push(message="GeoTools Auto-Refresh")
-        except RuntimeError:  # no window context (e.g. background mode)
-            pass
         context = bpy.context
         if getattr(context, "window_manager", None) is not None:
             redraw_ui(context)

@@ -8,6 +8,7 @@ exact environment and commands.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import os
@@ -53,10 +54,8 @@ def versions() -> dict[str, str]:
 
     out = {}
     for name in ("numpy", "pvlib", "skyfield", "jplephem", "pyproj", "pandas"):
-        try:
+        with contextlib.suppress(md.PackageNotFoundError):
             out[name] = md.version(name)
-        except md.PackageNotFoundError:
-            pass
     return out
 
 

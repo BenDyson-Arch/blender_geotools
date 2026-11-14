@@ -389,10 +389,7 @@ def _choose_grid(
     w, h = req
     extent = np.maximum(hi - lo, 0).astype(np.float64)
     area = float(np.dot(extent[:, 0], extent[:, 1])) if extent.size else 0.0
-    if extent.size:
-        far = float(np.max(np.abs(np.concatenate([lo, hi]))))
-    else:
-        far = 0.0
+    far = float(np.max(np.abs(np.concatenate([lo, hi])))) if extent.size else 0.0
     # Cheap estimates first: candidates ~ w * h * area, grid <= (2 * far + 1)^2 w h.
     reach = 2 * far + 1 if Wrap.CLAMP in wraps else 1.0
     while w * h > 1 and (w * h * area > max_samples or w * h * reach * reach > 64 * max_grid):

@@ -472,10 +472,7 @@ def add_preset(
     if true_north:
         for obj in objects:
             angles[obj.name], north_label = convergence(scene, obj)
-        if not _conformal(scene):
-            notes_north = [NON_CONFORMAL_ASPECT]
-        else:
-            notes_north = []
+        notes_north = [NON_CONFORMAL_ASPECT] if not _conformal(scene) else []
 
     group = ensure_group(preset, library)
     attribute = attribute_name(name)

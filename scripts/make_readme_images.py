@@ -611,10 +611,8 @@ def inner_main(argv: list[str]) -> None:
                 and getattr(cls, "bl_region_type", "") == "UI"
                 and cls not in ours
             ):
-                try:
+                with contextlib.suppress(RuntimeError):
                     bpy.utils.unregister_class(cls)
-                except RuntimeError:
-                    pass
 
     def show_panels(spec: dict[str, bool]) -> None:
         """Register only the panels in ``spec`` (idname -> open), in the add-on's order."""
