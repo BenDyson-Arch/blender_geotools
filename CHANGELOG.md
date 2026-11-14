@@ -47,6 +47,17 @@ and the project follows semantic versioning where practical.
   documented convention differences, now settled (see Changed). Reference script
   `scripts/validation/terrain/make_references.py`, fixtures in
   `tests/data/validation/terrain/`, tests in normal CI.
+- Validation of geodesy and measurement
+  ([docs/validation/geodesy.md](docs/validation/geodesy.md)): Measure's point
+  readout, scale factor and convergence, ground distances, bearings and areas,
+  the Gaussian radius, the Local/Anchor/CRS frames, the GeoScene frame and
+  latitude/longitude sync, published placement in ECEF, and GeoJSON,
+  GeoPackage and GeoTIFF CRS handling, against Krüger's series, GeographicLib
+  2.1, the ICSM worked example and GDAL 3.12.0 at twelve synthetic sites. All
+  agree to nanometres or float32, published vertices to 0.3 mm; one bug fixed
+  (see Fixed) and four points left for a decision. Reference scripts in
+  `scripts/validation/geodesy/`, fixtures in `tests/data/validation/geodesy/`,
+  tests in normal CI.
 
 ### Changed
 

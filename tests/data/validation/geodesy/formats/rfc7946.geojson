@@ -1,0 +1,11 @@
+{
+"type": "FeatureCollection",
+"name": "features",
+"features": [
+{ "type": "Feature", "properties": { "kind": "point", "i": 0 }, "geometry": { "type": "Point", "coordinates": [ 153.03, -27.47, 12.5 ] } },
+{ "type": "Feature", "properties": { "kind": "point", "i": 1 }, "geometry": { "type": "Point", "coordinates": [ 153.0412346, -27.4498765, 40.0 ] } },
+{ "type": "Feature", "properties": { "kind": "point", "i": 2 }, "geometry": { "type": "Point", "coordinates": [ 152.95, -27.52, 0.0 ] } },
+{ "type": "Feature", "properties": { "kind": "line", "i": 0 }, "geometry": { "type": "LineString", "coordinates": [ [ 153.02, -27.48, 5.0 ], [ 153.025, -27.475, 6.0 ], [ 153.04, -27.46, 7.5 ] ] } },
+{ "type": "Feature", "properties": { "kind": "polygon", "i": 0 }, "geometry": { "type": "Polygon", "coordinates": [ [ [ 153.01, -27.49, 3.0 ], [ 153.02, -27.49, 3.0 ], [ 153.02, -27.48, 3.0 ], [ 153.01, -27.48, 3.0 ], [ 153.01, -27.49, 3.0 ] ] ] } }
+]
+}
