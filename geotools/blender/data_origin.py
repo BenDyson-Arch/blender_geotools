@@ -20,7 +20,7 @@ keep them on the same spot, this never moves objects: it defines where the
 scene's coordinates are. So a scene that already has a complete GeoScene
 georeference (``SRID``, ``crs x``, ``crs y``) is never given a new origin here;
 the project adopts the scene's georeference instead, and the data is imported
-against it (see docs/design/georeference-interop.md).
+against it (the origin rule in ``core.geoscene``).
 """
 
 from __future__ import annotations

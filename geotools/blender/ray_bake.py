@@ -2,8 +2,10 @@
 
 Shared by sun hours (:mod:`.sun_hours`), the horizon profile
 (:mod:`.archaeo`) and the fast paths of the sky-view factor, openness and
-cumulative viewshed presets (:mod:`.preset_bake`). See
-docs/design/m5-analysis.md ("Visibility: Cycles Raycast nodes in a bake").
+cumulative viewshed presets (:mod:`.preset_bake`). The presets' fast paths cast
+the preset's own rays on the mesh here rather than scanning a height raster
+(as RVT does), so walls and overhangs behave as in the live preset and there
+is one engine, not a second 2.5D code path.
 
 * **Samples.** FACE, CORNER and VERTEX values bake a temporary *sample
   object*: one tiny triangle per sample, each on its own texel of its own UV

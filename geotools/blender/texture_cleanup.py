@@ -1,7 +1,7 @@
-"""M6 texture cleanup: the tools Blender's texture painting lacks.
+"""Texture cleanup: the tools Blender's texture painting lacks.
 
 Painting itself is Blender's (projection paint, clone, smear, soften, masks; see
-``docs/texture-cleanup.md``). This module adds, on a source image:
+``docs/guide/textures.md``). This module adds, on a source image:
 
 - **Fill Holes**: no-data texels (black or transparent) inside UV islands,
   filled from the island texels around them (``core.texture_cleanup``

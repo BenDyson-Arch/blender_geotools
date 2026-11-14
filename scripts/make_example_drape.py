@@ -29,8 +29,8 @@ Everything is synthetic: the site is invented, in open country, at round
 numbers. Never put real site data in this example (see CONTRIBUTING.md).
 
 The node groups are ordinary user node groups in the example file, built here
-from stock nodes; GeoTools ships no node groups (the Scope decision in
-docs/ROADMAP.md). docs/recipes/drape-contexts.md explains them.
+from stock nodes; GeoTools ships no node groups (it does not redo what Blender
+does). docs/recipes/drape-contexts.md explains them.
 
 The script needs only Blender: it registers GeoTools from the checkout for the
 import and the project properties, and pyproj is not needed because the data

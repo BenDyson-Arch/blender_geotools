@@ -20,8 +20,7 @@ bpy-free: ``keys`` is any mutable mapping (the Scene's ID properties in
 Blender, a dict in tests), and ``store`` is GeoTools' own saved
 ``source_crs``/``source_offset_e``/``source_offset_n`` text, which only holds the
 CRS and E/N while the scene has no ``SRID`` (see :func:`keys_live`). The Blender
-glue is ``geotools.blender.scene_georef``. See
-docs/design/georeference-interop.md.
+glue is ``geotools.blender.scene_georef``.
 
 Rules, in short:
 
@@ -46,6 +45,25 @@ Rules, in short:
   are reported, in metres, and neither is changed.
 - LOCAL and ANCHOR projects cannot be expressed as GeoScene keys: GeoTools
   writes none for them, and leaves any it finds alone (the panel and Check warn).
+- A new CRS project starts with A = 0, because GeoScene's Z is absolute
+  height; an A that is not 0 is kept, with a warning. GeoTools adds no keys of
+  its own (no ``crs z``): A and the height offset are GeoTools properties.
+- Latitude/longitude are computed with pyproj from the definition rusty-tiles
+  resolves the CRS to (``resolve_source_crs``), so GDA2020, GDA94 and NZGD2000
+  take its null ``+towgs84`` shift, as the published tiles are placed. Without
+  rusty-tiles, or for a CRS it refuses, pyproj's default operation is used.
+- Changing the CRS keeps the E/N numbers and recomputes latitude/longitude:
+  the CRS names what the scene's coordinates are *in*. (BlenderGIS's CRS
+  setter reprojects the origin instead.)
+
+The origin rule: GeoTools changes ``crs x``/``crs y`` only through an explicit
+edit of the origin by the user (the E/N fields, Load Offset File, an offset
+file found by an import while the project has no origin yet or chosen in the
+Source panel, a confirmed "use data origin" on a scene with no GeoScene
+origin, Origin from Latitude/Longitude), never as a side effect of an import,
+a CRS change, migration or a mode switch. Unlike BlenderGIS's own origin
+edits, it never moves objects: an origin change re-reads the scene at the new
+origin.
 """
 
 from __future__ import annotations

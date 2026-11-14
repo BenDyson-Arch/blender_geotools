@@ -3,8 +3,26 @@
 The panels follow the workflow top to bottom (set up the project, bring data
 in, analyse, look after the layers and textures, check, publish, inspect the
 output), and each header shows its state (``ui.STATUS_ICONS``: done, warning,
-error, not set up yet). docs/design/ui-structure.md has the tree and the naming
-rules.
+error, not set up yet). ``tests/blender/test_checks.py`` pins the tree and which
+panels start closed.
+
+Naming rules for everything the sidebar shows:
+
+- Panels, buttons and property labels are in Title Case ("Import Source
+  Mesh"); help text (notes, hints, tooltips) is in sentence case, and a full
+  sentence ends with a full stop.
+- One word per thing: *Import* brings a file in (never *ingest*); *Create*
+  makes new objects or attributes; *Compute* runs an analysis into layers or a
+  result; *Source* is the source collection. A setting that lives in another
+  panel is named by its path ("Sun > Over a Day > First Frame").
+- Each control is drawn once; a tool that uses another panel's setting says
+  so in a note. Sun Hours' date row is the exception: it starts the period.
+- Every property and operator option has a tooltip (``tests/blender/test_ui.py``).
+- Secondary sub-panels start closed; the setup and publishing steps, and the
+  small entry points inside closed parents, start open.
+- Long hints go through ``ui.wrapped``, never a single ``label``.
+- ``bl_idname`` values never change, so saved files and scripts keep working;
+  rename the label instead.
 
 - Project: where the source sits on Earth, and Verify Placement.
   - CRS Details: the CRS's area of use, definition and datum operation.
@@ -284,7 +302,7 @@ def source_state(props: bpy.types.PropertyGroup) -> str:
 
 
 class GEOTOOLS_PT_source(_GeoToolsPanel, bpy.types.Panel):
-    """The source collection, ingest and summary."""
+    """The source collection, import and summary."""
 
     bl_idname = "GEOTOOLS_PT_source"
     bl_label = "Source"

@@ -22,8 +22,7 @@ this module stores settings and results and drives Blender:
   the active mesh against the events, with the declination each implies.
 
 Settings and results live on ``scene.geotools_analysis.archaeo``; geodetic
-numbers are JSON of binary64 floats in ``StringProperty``s. See
-docs/design/m5-analysis.md.
+numbers are JSON of binary64 floats in ``StringProperty``s.
 """
 
 from __future__ import annotations

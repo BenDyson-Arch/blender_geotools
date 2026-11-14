@@ -3,7 +3,8 @@
 bpy-free and independent of any GLB writer: it turns
 :class:`core.layers.LayerSpec` descriptions into the JSON of a 3D Metadata
 schema (the ``schema`` object of ``EXT_structural_metadata``, the same format
-3D Tiles 1.1 uses). See docs/design/m4-glb-metadata.md.
+3D Tiles 1.1 uses). The types per storage are documented for users in
+``docs/reference/glb-format.md``.
 
 Where the values live decides the types, so every class is built for one
 :class:`Storage`:

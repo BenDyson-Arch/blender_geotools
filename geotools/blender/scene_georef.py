@@ -23,8 +23,10 @@ module only connects them to the scene:
   origin, or E/N that disagree with them, gets a warning in the Project panel
   and Check, with :class:`GEOTOOLS_OT_origin_from_lat_lon` as the remedy.
 
-GeoTools never imports BlenderGIS and works the same without it. See
-docs/design/georeference-interop.md.
+- A failed import restores the mode, the keys and GeoTools' own text exactly
+  (:func:`snapshot` and :func:`restore`).
+
+GeoTools never imports BlenderGIS and works the same without it.
 """
 
 from __future__ import annotations

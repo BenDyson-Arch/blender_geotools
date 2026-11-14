@@ -1,4 +1,4 @@
-"""M5 analysis tools that need the georeference: the sun, and coordinates and measurement.
+"""Analysis tools that need the georeference: the sun, and coordinates and measurement.
 
 The maths is bpy-free (``geotools.analysis.sun`` and ``geotools.analysis.site``);
 this module stores the settings and results and drives Blender:
@@ -18,6 +18,18 @@ Settings and results live on ``scene.geotools_analysis``. Every geodetic number
 is stored as binary64 text (JSON of Python floats, or ``repr``), never a
 ``FloatProperty``. Panels only read what the operators stored; the panels are
 in ``analysis_ui``.
+
+Decisions:
+
+- The sun light is Blender's. GeoTools creates or reuses one Sun light ("GeoTools
+  Sun", or a chosen one) and sets only its rotation and strength, plus the sun's
+  0.533° angular diameter when it creates the light. Animating replaces only
+  GeoTools' own actions on it.
+- Below the horizon the light is off (strength 0), since a Sun light there would
+  light the scene from underneath. When animating, the strength is keyed with
+  constant interpolation, so it switches rather than fades.
+- Readings are snapshots: each is stored with the placement it was made with.
+  When the project changes, the panel says so and offers Read Again.
 """
 
 from __future__ import annotations

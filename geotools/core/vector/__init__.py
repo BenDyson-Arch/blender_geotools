@@ -1,6 +1,10 @@
 """Vector geo formats: GeoJSON and GeoPackage, read into and written from :class:`VectorData`.
 
-See ``docs/design/m8-geo-formats.md`` ("Vectors"). Nothing here imports ``bpy``.
+Coordinates stay binary64 until they become Blender's float32 positions,
+relative to the project frame. No Python loops over vertices: a loop over
+features is acceptable where a format forces it (WKB records, polygon
+tessellation), but coordinates go into preallocated numpy arrays. Tests use
+synthetic fixtures only. Nothing here imports ``bpy``.
 """
 
 from __future__ import annotations

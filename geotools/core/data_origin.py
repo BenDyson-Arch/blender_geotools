@@ -25,7 +25,7 @@ sets the project origin only when the project has none yet, or already has
 the same one. Otherwise the mesh is imported unshifted and the file is
 offered as the origin, never applied behind the user's back.
 
-See docs/design/m8-geo-formats.md ("LOCAL and ANCHOR projects"). No ``bpy``.
+No ``bpy``.
 """
 
 from __future__ import annotations

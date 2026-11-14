@@ -1,4 +1,4 @@
-"""The package root, core and analysis must import without Blender."""
+"""The package root, core, analysis and publish must import without Blender."""
 
 from __future__ import annotations
 
@@ -27,7 +27,8 @@ _SCRIPT = textwrap.dedent(
     import geotools
     import geotools.core
     import geotools.analysis
-    for package in (geotools.core, geotools.analysis):
+    import geotools.publish
+    for package in (geotools.core, geotools.analysis, geotools.publish):
         prefix = package.__name__ + "."
         for info in pkgutil.walk_packages(package.__path__, prefix):
             importlib.import_module(info.name)
@@ -41,7 +42,7 @@ _SCRIPT = textwrap.dedent(
 )
 
 
-def test_geotools_core_and_analysis_never_import_bpy() -> None:
+def test_geotools_core_analysis_and_publish_never_import_bpy() -> None:
     result = subprocess.run(
         [sys.executable, "-c", _SCRIPT, str(REPO_ROOT)],
         capture_output=True,

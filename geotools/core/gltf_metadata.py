@@ -4,7 +4,8 @@ bpy-free. The Blender side extracts a ``SceneExport`` whose primitives carry
 the feature ID and layer vertex attributes (``blender.export``), reads the
 texture layers and the placement, and calls :func:`build_extension`; the
 writer (``core.gltf_writer.write_glb(..., extension=...)``) then lays the
-result out. See docs/design/m4-glb-metadata.md for the file layout.
+result out. The file layout is documented for users in
+``docs/reference/glb-format.md``.
 
 Extensions written (all optional, so in ``extensionsUsed`` only):
 
@@ -307,7 +308,7 @@ def xmp_packet(geo: Georeference) -> dict[str, object]:
     """The ``KHR_xmp_json_ld`` packet describing ``geo``.
 
     Keys are ``dc:`` terms and ``geotools:`` terms (namespace
-    :data:`GEOTOOLS_NAMESPACE`, documented in docs/design/m4-glb-metadata.md).
+    :data:`GEOTOOLS_NAMESPACE`, documented in docs/reference/glb-format.md).
     Numbers are JSON numbers (binary64, written exactly); arrays are ``@list``.
     """
     packet: dict[str, object] = {"@context": dict(XMP_CONTEXT), "@id": ""}

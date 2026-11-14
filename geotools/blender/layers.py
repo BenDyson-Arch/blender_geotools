@@ -5,7 +5,7 @@ or CORNER layer lives in a mesh attribute of every source object: its
 ``source_attribute``, or ``gt_<name>`` when that is empty
 (``core.layers.effective_attribute_name``). A TEXTURE layer lives in one float
 image per object, listed in ``GeoToolsLayer.images`` and saved as OpenEXR in
-``//geotools_layers/``. See docs/design/m3-layers.md.
+``//geotools_layers/``.
 
 Reading and writing
 -------------------
@@ -1090,7 +1090,7 @@ class GEOTOOLS_OT_layer_create_attributes(bpy.types.Operator):
             cls.poll_message_set("A texture layer has images, made by a texture bake")
             return False
         if context.scene.geotools.source_collection is None:
-            cls.poll_message_set("Set or ingest a source collection first")
+            cls.poll_message_set("Set or import a source collection first")
             return False
         return True
 

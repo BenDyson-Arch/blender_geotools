@@ -2,7 +2,7 @@
 
 Writes ``tests/data/validation/solar/sun_hours.json``.
 
-GeoTools' definition (docs/design/m5-analysis.md, "Sun hours"): over the
+GeoTools' definition (geotools/analysis/sun_hours.py): over the
 local days of the period, the time the sun's centre is above the horizon
 (apparent elevation > 0 with the SPA refraction formula at 1013.25 hPa and
 12 C, or airless elevation > 0 with refraction off), above the far horizon

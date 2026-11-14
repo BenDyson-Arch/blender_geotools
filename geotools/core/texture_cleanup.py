@@ -1,7 +1,7 @@
-"""Texture cleanup maths for M6: hole filling, edge padding and page balance. numpy only.
+"""Texture cleanup maths: hole filling, edge padding and page balance. numpy only.
 
 Blender paints; GeoTools adds only what Blender's texture tools lack (see
-``docs/texture-cleanup.md``):
+``docs/guide/textures.md``):
 
 - :func:`push_pull_fill` fills texels from their neighbours by push-pull
   (pyramid) interpolation (Gortler et al. 1996, "The Lumigraph", section 3.4):

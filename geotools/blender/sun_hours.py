@@ -25,8 +25,6 @@ which rays to cast and what each is worth. Blender casts them:
 
 Shadow studies (``geotools.sun_shadow_study``) keyframe the Sun light, one
 frame per moment, at the equinoxes and solstices; rendering stays Blender's.
-
-See docs/design/m5-analysis.md.
 """
 
 from __future__ import annotations
@@ -685,7 +683,7 @@ class GEOTOOLS_OT_sun_hours(bpy.types.Operator):
             cls.poll_message_set("Switch to Object Mode")
             return False
         if context.scene.geotools.source_collection is None:
-            cls.poll_message_set("Set or ingest a source collection first")
+            cls.poll_message_set("Set or import a source collection first")
             return False
         return True
 

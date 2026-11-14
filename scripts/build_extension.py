@@ -13,6 +13,22 @@ platform that is built, and every wheel must load in the target CPython
 ``python_versions`` from the wheel tags and refuses to install it in a Blender
 with another Python, so a release is always built for 3.13.
 
+How Blender 5.2 picks wheels when it installs or enables an extension
+(``addons_core/bl_pkg/bl_extension_ops.py`` and
+``modules/_bpy_internal/extensions/wheel_manager.py``):
+
+1. It keeps the wheels for this system: platform tag ``any``, the exact
+   platform, or the same architecture (``manylinux*_x86_64``,
+   ``macosx_*_arm64``). The glibc and macOS versions in the tag are ignored,
+   so the wheel tags decide the real minimum OS (``fetch_wheels.PIP_PLATFORM_TAGS``).
+2. It derives the zip's ``python_versions`` from the wheel tags (``abi3`` and
+   ``py3`` count as any 3.x) and refuses the extension on another Python.
+3. It de-duplicates across all enabled extensions by distribution name,
+   keeping the highest version, into one shared site-packages: another
+   extension's newer pyproj wins, and the About panel shows the one that
+   loaded. Step 3 ignores the Python tag, so a zip must never hold two wheels
+   of one pin for the same platform; this script refuses that.
+
 Usage:
     python scripts/build_extension.py [--blender PATH] [--out DIR] [--no-wheels] [--python X.Y]
 

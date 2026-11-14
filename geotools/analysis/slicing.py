@@ -16,7 +16,9 @@ one, so the two triangles of an edge share it and :mod:`.polylines` can chain
 the segments. Faces with more than three corners come in as Blender's loop
 triangles; their diagonals are edges like any other.
 
-See docs/design/m5-analysis.md.
+Smoothing or simplifying contour lines, and drawing a 2D profile of a
+section, are left to Blender's or a GIS's tools: the ``chainage`` attribute
+(exported as M) and Z are there for them.
 """
 
 from __future__ import annotations

@@ -1,1 +1,1 @@
-"""Reserved for a later milestone; see docs/ROADMAP.md."""
+"""Empty. Bakes are Blender glue and live in ``geotools.blender`` (``bake_texture``, ``ray_bake``)."""

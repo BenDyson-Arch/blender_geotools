@@ -1,4 +1,4 @@
-"""The layer registry: named, typed values on the source (see docs/design/m3-layers.md).
+"""The layer registry: named, typed values on the source.
 
 A layer holds one value per face, per face corner or per texel. This module is
 the ``bpy``-free half: the :class:`LayerSpec` description, its validation, the

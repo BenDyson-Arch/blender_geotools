@@ -35,8 +35,10 @@ back through this frame must land on that centre. A residual over
 a near-constant shift over a site) and reported.
 
 Precision: every step is binary64. Output positions are quantised by
-rusty-tiles' lossy profiles; see docs/design/m7-output-inspection.md for the
-measured tolerance.
+rusty-tiles' lossy profiles. Measured on 20,000 triangles: the inverse adds at
+most 0.005 mm; Fast and Balanced leaves are off by rusty-tiles' own
+``maximum_leaf_geometry_error`` (1.953 mm local, 3.306 mm in MGA 56), Quality
+and Lossless by 0 (0.005 mm in a CRS). The Blender tests assert that bound.
 """
 
 from __future__ import annotations

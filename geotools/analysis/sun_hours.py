@@ -3,7 +3,7 @@
 bpy-free, numpy only. Blender casts the rays (``geotools.blender.sun_hours``:
 Cycles Raycast nodes in an EMIT bake); this module decides which rays, with
 what weights, and defines what the bake sums, so it can be tested with plain
-pytest. See ``docs/design/m5-analysis.md``.
+pytest.
 
 The pipeline:
 
@@ -31,6 +31,18 @@ The pipeline:
 
 :func:`accumulate` is the reference of what a sample gets from a visibility
 matrix; the Blender shader computes exactly this per sample.
+
+Decisions:
+
+- Rays are cast by Cycles Raycast shader nodes in one EMIT bake, not by
+  Geometry Nodes: measured 3 to 5 times faster per ray, and one bake per
+  1,024 directions rather than one per time step, so one engine serves FACE,
+  CORNER and TEXTURE layers.
+- Merge Within defaults to 2°: a year then needs about 1,200 rays, with an
+  error below the 30-minute step's own; 0 merges nothing.
+- Deferred: cancelling a run between bakes (each bake blocks Blender), a GPU
+  device (bakes use the CPU, as the texture bake does) and faster sample
+  building for 10M-triangle face layers (issues #110, #111).
 """
 
 from __future__ import annotations

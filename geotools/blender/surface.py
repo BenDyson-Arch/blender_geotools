@@ -8,11 +8,11 @@
   temporary target and query object), for hydrology's drops.
 * :func:`write_lines` and :func:`write_points` make mesh objects of loose edges
   or vertices with attributes, in the ``GeoTools Analysis`` collection, which
-  M8's Export Vectors writes as GeoPackage or GeoJSON lines and points with Z,
+  Export Vectors writes as GeoPackage or GeoJSON lines and points with Z,
   and the vector publish tiles.
 
 All reads and writes are ``foreach_get``/``foreach_set``; no loops over mesh
-elements. See docs/design/m5-analysis.md.
+elements.
 """
 
 from __future__ import annotations
