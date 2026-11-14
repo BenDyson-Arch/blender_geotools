@@ -788,7 +788,7 @@ def _fake_rusty_tiles() -> Iterator[None]:
     """rusty-tiles stand-in, so naming and the record are tested without the wheel."""
     deps = h.submodule("core.deps")
     job_mod = h.submodule("publish.job")
-    cached, original = deps._cached, job_mod._rusty_tiles
+    cached, original = dict(deps._cache), job_mod._rusty_tiles
 
     def mesh_to_tileset(input, output, *, callback=None, **_kwargs):
         assert Path(input).is_file()
@@ -796,7 +796,7 @@ def _fake_rusty_tiles() -> Iterator[None]:
         report = {"triangles": 8, "tiles": 1, "leaves": 1}
         return SimpleNamespace(report=report, diagnostics={}, output=output)
 
-    deps._cached = deps.DependencyStatus(True, version="fake")
+    deps._cache["rusty-tiles"] = deps.DependencyStatus(True, version="fake")
     job_mod._rusty_tiles = lambda: SimpleNamespace(
         mesh_to_tileset=mesh_to_tileset, validate=lambda *_a, **_k: {"ok": True}
     )
@@ -804,7 +804,8 @@ def _fake_rusty_tiles() -> Iterator[None]:
         yield
     finally:
         job_mod._rusty_tiles = original
-        deps._cached = cached
+        deps._cache.clear()
+        deps._cache.update(cached)
 
 
 def _finish():
@@ -913,9 +914,10 @@ def _meshopt_bytes(data: bytes, pos: int, count: int) -> tuple[bytearray, int]:
         ]
         for i, enc in enumerate(values):
             if enc == (1 << width) - 1:
-                enc = data[extra]
+                out[g * 16 + i] = data[extra]
                 extra += 1
-            out[g * 16 + i] = enc
+            else:
+                out[g * 16 + i] = enc
         pos = extra
     return out, pos
 

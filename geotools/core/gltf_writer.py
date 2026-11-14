@@ -655,8 +655,8 @@ def _validate_material(m: int, material: MaterialData, image_count: int) -> set[
         "metallic_factor": ((material.metallic_factor,), 1),
         "roughness_factor": ((material.roughness_factor,), 1),
     }
-    for name, (values, width) in factors.items():
-        values = tuple(values)
+    for name, (given, width) in factors.items():
+        values = tuple(given)
         if len(values) != width or not all(_finite_number(v) for v in values):
             raise ExportError(f"{where}: {name} must be {width} finite number(s).")
         if not all(0.0 <= float(v) <= 1.0 for v in values):

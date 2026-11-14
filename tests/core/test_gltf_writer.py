@@ -718,9 +718,10 @@ def _meshopt_bytes(data: bytes, pos: int, count: int) -> tuple[bytearray, int]:
         ]
         for i, enc in enumerate(values):
             if enc == (1 << width) - 1:
-                enc = data[extra]
+                out[g * 16 + i] = data[extra]
                 extra += 1
-            out[g * 16 + i] = enc
+            else:
+                out[g * 16 + i] = enc
         pos = extra
     return out, pos
 

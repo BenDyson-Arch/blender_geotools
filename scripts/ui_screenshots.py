@@ -308,8 +308,9 @@ def inner_main(argv: list[str]) -> None:
             if strip.shape[0] < height:
                 pad = np.zeros((height - strip.shape[0], *strip.shape[1:]), np.float32)
                 pad[..., 3] = 1.0
-                strip = np.concatenate([pad, strip])
-            parts += [strip, gap]
+                parts += [np.concatenate([pad, strip]), gap]
+            else:
+                parts += [strip, gap]
         return np.concatenate(parts[:-1], axis=1)
 
     def scroll(page_down: bool | None) -> None:

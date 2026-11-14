@@ -137,10 +137,9 @@ def main() -> None:
     }
 
     # Sharp edges: a gable (convex crest) and a notch (concave), faces 60° steep.
-    for key, g, inward in (("gable", C.gable(), False), ("notch", None, True)):
-        if g is None:
-            gg = C.gable()
-            g = C.Grid(gg.x0, gg.y0, gg.h, 3.0 - gg.z, "notch")  # z = |x| tan 60
+    gg = C.gable()
+    notch = C.Grid(gg.x0, gg.y0, gg.h, 3.0 - gg.z, "notch")  # z = |x| tan 60
+    for key, g, inward in (("gable", C.gable(), False), ("notch", notch, True)):
         apex = 3.0 if not inward else 0.0
         pts = wedge_points(apex, inward)
         d = surface_distance(grid_mesh(g), pts)

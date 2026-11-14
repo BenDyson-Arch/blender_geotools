@@ -6,6 +6,7 @@ Only importable inside Blender. ``run_suite.py`` fills in :data:`CONFIG` and
 
 from __future__ import annotations
 
+import functools
 import importlib
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -153,15 +154,10 @@ def is_within(path: str | Path, root: Path) -> bool:
 # --- drawing in background mode ----------------------------------------------------
 
 
-_ICONS: frozenset[str] | None = None
-
-
+@functools.cache
 def valid_icons() -> frozenset[str]:
-    global _ICONS
-    if _ICONS is None:
-        param = bpy.types.UILayout.bl_rna.functions["label"].parameters["icon"]
-        _ICONS = frozenset(param.enum_items.keys())
-    return _ICONS
+    param = bpy.types.UILayout.bl_rna.functions["label"].parameters["icon"]
+    return frozenset(param.enum_items.keys())
 
 
 class StubOperatorProperties:

@@ -93,17 +93,24 @@ class _Session:
     detached: bool = False  # another .blend was loaded since; don't write results
 
 
-_session: _Session | None = None
-_preview: pv.PreviewServer | None = None
+@dataclass
+class _State:
+    """This Blender session's publish job and preview server, at most one of each."""
+
+    session: _Session | None = None
+    preview: pv.PreviewServer | None = None
+
+
+_state = _State()
 
 
 def active_job() -> BuildJob | None:
     """The running (or not yet collected) publish job of this session."""
-    return _session.job if _session is not None else None
+    return _state.session.job if _state.session is not None else None
 
 
 def is_running() -> bool:
-    return _session is not None
+    return _state.session is not None
 
 
 def status(context: bpy.types.Context | None = None) -> GeoToolsPublishStatus | None:
@@ -220,8 +227,7 @@ def update_from_job() -> float | None:
 
     Returns the next interval, or None (stop) once there is no job.
     """
-    global _session
-    session = _session
+    session = _state.session
     if session is None:
         return None
     job = session.job
@@ -237,7 +243,7 @@ def update_from_job() -> float | None:
             texture_state.invalidate()
         elif job.state is JobState.FAILED and status_ is not None:
             status_.message = job.error or "Publish failed"
-        _session = None
+        _state.session = None
     try:
         redraw_ui(bpy.context)
     except Exception:  # no windows (background) or a context without screens
@@ -254,8 +260,7 @@ def _start_timer() -> None:
 
 def shutdown_job(timeout: float = SHUTDOWN_JOIN_SECONDS) -> None:
     """Cancel the job and wait briefly (unregister, quit, tests)."""
-    global _session
-    session, _session = _session, None
+    session, _state.session = _state.session, None
     if session is None:
         return
     session.job.cancel()
@@ -267,8 +272,7 @@ def shutdown_job(timeout: float = SHUTDOWN_JOIN_SECONDS) -> None:
 
 
 def stop_preview() -> None:
-    global _preview
-    server, _preview = _preview, None
+    server, _state.preview = _state.preview, None
     if server is not None:
         server.stop()
 
@@ -283,8 +287,8 @@ def _on_exit(*_args: object) -> None:
 def _on_load_pre(*_args: object) -> None:
     # The job keeps going (its output does not depend on Blender), but its
     # result must not be written into a different file's profile.
-    if _session is not None:
-        _session.detached = True
+    if _state.session is not None:
+        _state.session.detached = True
 
 
 # --- operators ---------------------------------------------------------------------------
@@ -404,7 +408,6 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
         return True
 
     def execute(self, context: bpy.types.Context) -> set[str]:
-        global _session
         if is_running():
             self.report({"ERROR"}, "A publish is already running; cancel it or wait")
             return {"CANCELLED"}
@@ -573,7 +576,7 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
             status_.elapsed = 0.0
             status_.output = str(output)
             status_.profile_name = profile.name
-        _session = _Session(
+        _state.session = _Session(
             job=job,
             scene_name=context.scene.name,
             profile_name=profile.name,
@@ -605,7 +608,6 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
         blend_path: Path | None,
     ) -> set[str]:
         """A Vectors profile: read the vector collection, then tile it on the worker."""
-        global _session
         from . import vector_publish
 
         if self.layer.strip() or profile.variant_layer.strip():
@@ -661,7 +663,7 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
             status_.elapsed = 0.0
             status_.output = str(output)
             status_.profile_name = profile.name
-        _session = _Session(job=job, scene_name=context.scene.name, profile_name=profile.name)
+        _state.session = _Session(job=job, scene_name=context.scene.name, profile_name=profile.name)
         job.start()
         _start_timer()
         features = prepared.source.features
@@ -849,7 +851,7 @@ def preview_problem(context: bpy.types.Context) -> str | None:
 
 
 def preview_url() -> str | None:
-    server = _preview
+    server = _state.preview
     if server is None or not server.running:
         return None
     return server.url
@@ -873,13 +875,12 @@ class GEOTOOLS_OT_preview_output(bpy.types.Operator):
         return True
 
     def execute(self, context: bpy.types.Context) -> set[str]:
-        global _preview
         prefs = addon_preferences(context)
         output = _last_output(context)
         stop_preview()
         try:
             mesh_dir = pv.extract_archive(output, st.preview_dir_for(output))
-            _preview = pv.PreviewServer(
+            _state.preview = pv.PreviewServer(
                 bpy.path.abspath(prefs.rusty_tiles_cli),
                 bpy.path.abspath(prefs.cesium_dir),
                 mesh_dir,
@@ -889,7 +890,7 @@ class GEOTOOLS_OT_preview_output(bpy.types.Operator):
         except (pv.PreviewError, OSError, ValueError) as ex:
             self.report({"ERROR"}, f"Preview failed: {ex}")
             return {"CANCELLED"}
-        server = _preview
+        server = _state.preview
         server.started.wait(5.0)
         if server.error and not server.url:
             stop_preview()
@@ -909,7 +910,7 @@ class GEOTOOLS_OT_stop_preview(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context: bpy.types.Context) -> bool:
-        return _preview is not None
+        return _state.preview is not None
 
     def execute(self, context: bpy.types.Context) -> set[str]:
         stop_preview()

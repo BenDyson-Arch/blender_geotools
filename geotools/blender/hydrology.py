@@ -308,14 +308,15 @@ def compute(context: bpy.types.Context) -> dict:
     provenance = make_provenance(TOOL, parameters, extension_version())
     specs = _specs(names, tuple(categories), provenance)
     created = [s.name for s in specs if find_layer(scene, s.name) is None]
-    for spec in specs:
-        item = find_layer(scene, spec.name)
+    for new in specs:
+        spec = new
+        item = find_layer(scene, new.name)
         if item is not None:  # keep the user's own label and description
             current = spec_from_props(item)
             spec = dataclasses.replace(
-                spec,
-                label=current.label or spec.label,
-                description=current.description or spec.description,
+                new,
+                label=current.label or new.label,
+                description=current.description or new.description,
             )
         try:
             ensure_layer(scene, spec)

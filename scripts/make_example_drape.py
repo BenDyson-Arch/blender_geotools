@@ -124,8 +124,8 @@ def contexts_features() -> list[dict]:
         ("C109", "pit", 3, 0.25, 0.95, [circle(20.0, -18.0, 2.1, 20)]),
     ]
     features = []
-    for fid, (name, kind, phase, top, bottom, rings) in enumerate(rows, start=1):
-        rings = [_wound(ring, counter_clockwise=k == 0) for k, ring in enumerate(rings)]
+    for fid, (name, kind, phase, top, bottom, outline) in enumerate(rows, start=1):
+        rings = [_wound(ring, counter_clockwise=k == 0) for k, ring in enumerate(outline)]
         coords = [[[round(E0 + x, 3), round(N0 + y, 3)] for x, y in ring] for ring in rings]
         features.append(
             {

@@ -32,8 +32,11 @@ target-version = "py313"
 extend-select = [
     "B",  # likely bugs: raise-from, unused loop variables, zip() without strict=
     "SIM",  # simpler equivalents: contextlib.suppress, conditional expressions
+    "PLW",  # pylint warnings: no global statements, no reassigned loop variables
 ]
 
 [tool.ruff.lint.per-file-ignores]
 # Blender reads bl_options and similar as plain mutable class attributes.
 "geotools/blender/**" = ["RUF012"]
+# The MkDocs build hook is site tooling, outside the add-on and the checks here.
+"docs/hooks/**" = ["PLW2901"]

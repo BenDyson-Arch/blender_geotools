@@ -55,7 +55,7 @@ DAYS = [
     dt.date(2026, 10, 30),
 ]
 HORIZONS = {
-    "flat": lambda az: np.zeros_like(az),
+    "flat": np.zeros_like,
     "raised": lambda az: np.full_like(az, 2.0),
     "sine": lambda az: 1.5 + np.sin(np.radians(3.0 * az)),
 }
