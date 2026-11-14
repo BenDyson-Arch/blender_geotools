@@ -33,7 +33,16 @@ extend-select = [
     "B",  # likely bugs: raise-from, unused loop variables, zip() without strict=
     "SIM",  # simpler equivalents: contextlib.suppress, conditional expressions
     "PLW",  # pylint warnings: no global statements, no reassigned loop variables
+    "RUF",  # ruff's own: escaped pytest.raises patterns, explicit and/or precedence
 ]
+ignore = [
+    # Tuple/list concatenation to unpacking. It cannot tell sequences from numpy arrays
+    # and mathutils vectors, where `array + (dx, dy, dz)` is vector addition, not concatenation.
+    "RUF005",
+]
+# Typography that UI strings and docstrings use on purpose (minus sign, en dash,
+# multiplication sign, prime, Greek letters for angles and gamma).
+allowed-confusables = ["−", "–", "×", "′", "α", "γ"]
 
 [tool.ruff.lint.per-file-ignores]
 # Blender reads bl_options and similar as plain mutable class attributes.

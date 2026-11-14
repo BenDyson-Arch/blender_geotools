@@ -99,7 +99,7 @@ def test_extract_again_keeps_the_users_files(tmp_path: Path) -> None:
     (dest / "notes.md").unlink()
     (dest / "content" / "a.glb").write_bytes(b"glb")
     _archive(archive, {"tileset.json": b"{}", "index.html": b"theirs"})
-    with pytest.raises(web.WebExtractError, match="index.html"):
+    with pytest.raises(web.WebExtractError, match=r"index\.html"):
         web.extract_for_web(archive)
     assert (dest / "index.html").read_text() == "MY CUSTOM PAGE"
 
@@ -202,7 +202,7 @@ def test_failed_extract_keeps_the_previous_folder(tmp_path: Path) -> None:
     archive = _site(tmp_path)
     dest = web.extract_for_web(archive).path
     _archive(archive, {"other.json": b"{}"})  # republished without a tileset.json
-    with pytest.raises(web.WebExtractError, match="tileset.json"):
+    with pytest.raises(web.WebExtractError, match=r"tileset\.json"):
         web.extract_for_web(archive)
     assert (dest / "tileset.json").is_file()
     assert sorted(p.name for p in tmp_path.iterdir()) == ["site.3tz", "site.web"]

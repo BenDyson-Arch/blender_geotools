@@ -369,7 +369,7 @@ def reset_scene() -> None:
     props = scene.geotools
     for prop in props.bl_rna.properties:
         name = prop.identifier
-        if name in {"rna_type", "name"} or prop.is_readonly and prop.type != "COLLECTION":
+        if name in {"rna_type", "name"} or (prop.is_readonly and prop.type != "COLLECTION"):
             continue
         if prop.type == "COLLECTION":
             getattr(props, name).clear()
