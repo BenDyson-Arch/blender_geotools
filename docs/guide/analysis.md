@@ -184,7 +184,10 @@ panel says **Project changed** and offers **Read Again**. **Clear** removes the
 readings.
 
 Ground distances use the combined scale factor: the grid scale from pyproj and
-the height factor from the ellipsoidal height. An Anchor project gives E, N
+the height factor from the ellipsoidal height. In a CRS that is not conformal
+(Albers equal-area, Web Mercator EPSG:3857) the grid scale depends on the
+direction: a line uses the scale in its own direction, and a point's **Scale**
+is the one along grid north. An Anchor project gives E, N
 and U relative to the anchor; a Local project gives X, Y and Z.
 
 ## Presets

@@ -92,6 +92,16 @@ and the project follows semantic versioning where practical.
   **Place the Imported Objects at the Project Origin** (a double-precision
   move, with a warning when single-precision object locations would round by
   more than 1 mm).
+- Measure: ground distances, true bearings and ground areas are right in
+  projected CRSs that are not conformal: the 24 Albers equal-area CRSs and Web
+  Mercator (EPSG:3857) that rusty-tiles accepts. The single point scale factor
+  and convergence used before hold only in conformal grids, so an east-west
+  kilometre in EPSG:3577 at 12° S was 39 m (3.9 %) too long and its true
+  bearing 0.3° out, and EPSG:3857 distances at 60° N were 0.08 to 0.25 %
+  short. The scale and the turn to true north now follow the line's direction,
+  from PROJ's Jacobian and the ellipsoid's radii; results agree with
+  GeographicLib geodesics to 0.002 ppm. Conformal CRSs (transverse Mercator,
+  Lambert conformal conic, stereographic) give the same results as before.
 - Getting started step 8 (View the result) works as written: it uses Extract
   for Web and a complete viewer page instead of a snippet with an undefined
   `viewer`, and gives the Windows `py` command for Python's web server. The
