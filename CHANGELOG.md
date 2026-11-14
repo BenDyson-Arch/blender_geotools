@@ -58,6 +58,18 @@ and the project follows semantic versioning where practical.
   (see Fixed) and four points left for a decision. Reference scripts in
   `scripts/validation/geodesy/`, fixtures in `tests/data/validation/geodesy/`,
   tests in normal CI.
+- Validation of archaeoastronomy
+  ([docs/validation/archaeoastronomy.md](docs/validation/archaeoastronomy.md)):
+  the horizon profile against an exact TIN march, a cone, the dip of a plain
+  and GRASS GIS 8.5.0 r.horizon; Meeus' Moon, the standstills and the
+  obliquity against JPL DE440s and DE441 (Skyfield 1.53, ERFA 2.0.1.5 with
+  Vondrák's long-term precession); rise, set and dated sunrise azimuths
+  against closed forms, Skyfield and astropy 7.1.0; and Check Alignment's
+  azimuths and declinations. All agree; two bugs fixed (see Fixed), and the
+  obliquity's accuracy at the ends of the epoch range is documented (42″ from
+  Vondrák 2011 at 8000 BCE). Reference scripts in
+  `scripts/validation/archaeoastronomy/`, fixtures in
+  `tests/data/validation/archaeoastronomy/`, tests in normal CI.
 - Validation of hydrology, contours and sections
   ([docs/validation/hydrology.md](docs/validation/hydrology.md)): depression
   filling, depressions, flow routing, flats, accumulation, Channel From and
@@ -104,6 +116,17 @@ and the project follows semantic versioning where practical.
 
 ### Fixed
 
+- The archaeoastronomy **horizon profile** no longer misses a near crest by up
+  to 0.1° when, with Earth curvature on, a farther range is hit by the coarse
+  ray just above the crest but appears lower than it: the fine pass now
+  refines every 0.1° bracket that can hold the skyline (any coarse hit within
+  0.1° of the best), not only the best one, so the skyline is found to about
+  0.002° as documented. Profiles without such a geometry are unchanged.
+- Archaeoastronomy **Compute Events** no longer fails with "Laskar's obliquity
+  is only valid within 10,000 years" for the epochs at either end of its range
+  (8000 and 7999 BCE, 11994 to 11999 CE) when the lunar standstills are on: the
+  standstill nearest such an epoch can fall a few years beyond the obliquity's
+  range, where the polynomial is still smooth.
 - Import Source Mesh no longer silently re-origins a georeferenced scene. An
   offset file found beside the mesh sets the project origin only when the
   project has none yet, or already has exactly that E, N and A (so a chunk

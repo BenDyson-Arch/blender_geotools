@@ -139,6 +139,7 @@ nav:
           - validation/README.md
           - Terrain shape and archaeological visualisation: validation/terrain.md
           - Geodesy and measurement: validation/geodesy.md
+          - Archaeoastronomy: validation/archaeoastronomy.md
           - Hydrology, contours and sections: validation/hydrology.md
   - Developer:
       - Contributing: contributing.md
