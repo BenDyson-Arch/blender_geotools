@@ -113,6 +113,13 @@ and the project follows semantic versioning where practical.
   from PROJ's Jacobian and the ellipsoid's radii; results agree with
   GeographicLib geodesics to 0.002 ppm. Conformal CRSs (transverse Mercator,
   Lambert conformal conic, stereographic) give the same results as before.
+- Contours and sections no longer draw a segment twice where a mesh edge lies
+  exactly on the cutting plane with both its triangles on the same side: a
+  ridge exactly at a contour level (common with heights quantised to the
+  centimetre and whole-metre contours), or a closed object's edge on a
+  section plane. Each such edge was cut by both of its triangles, so the
+  Contours object held two identical lines (a two-point "ring" in a section),
+  which a GIS showed as duplicate features.
 - Getting started step 8 (View the result) works as written: it uses Extract
   for Web and a complete viewer page instead of a snippet with an undefined
   `viewer`, and gives the Windows `py` command for Python's web server. The
