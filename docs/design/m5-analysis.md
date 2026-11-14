@@ -195,7 +195,15 @@ CSF = k × R / (R + h)
 ```
 
 - k is the grid scale factor from `get_factors`, averaged along the line with
-  Simpson's rule: (k_A + 4 k_mid + k_B) / 6.
+  Simpson's rule: (k_A + 4 k_mid + k_B) / 6. In a CRS that is not conformal on
+  its ellipsoid (Albers equal-area, and Web Mercator, which is conformal only
+  on a sphere) k depends on direction. There each point's grid-to-ellipsoid
+  map is the ellipsoid's metric diag(N cos φ, M) times the inverse of the
+  projection's Jacobian (PROJ's partial derivatives), and k is taken in the
+  line's direction; the true bearing is the direction of the mapped line at
+  its middle, and areas use the map's determinant. Whether a CRS is conformal
+  is tested once, at the centre of its area of use. Every conformal CRS
+  rusty-tiles accepts keeps PROJ's own k and convergence.
 - R is the Gaussian mean radius √(MN) of the CRS's ellipsoid at the middle
   latitude.
 - h is the mean ellipsoidal height of the ends.

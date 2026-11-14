@@ -270,3 +270,63 @@ def test_sun_through_the_site_end_to_end() -> None:
     assert -0.15 < where.convergence < 0.0
     scene = (position.azimuth[0] - where.convergence) % 360.0
     assert scene == pytest.approx(194.34024 - where.convergence, abs=1e-5)
+
+
+@pytest.mark.parametrize(
+    ("crs", "lon", "lat"),
+    [
+        ("EPSG:3577", 150.0, -12.0),  # Australian Albers, far from its standard parallels
+        ("EPSG:3577", 133.0, -25.0),
+        ("EPSG:3857", 10.0, 60.0),  # Web Mercator: conformal on a sphere, not on WGS 84
+    ],
+)
+def test_non_conformal_grid_follows_the_line_direction(crs: str, lon: float, lat: float) -> None:
+    """In a non-conformal grid the scale and the turn to true north depend on direction.
+
+    Regression: one point scale factor and convergence put an east-west kilometre in
+    EPSG:3577 at 12 S 39 m out. The ellipsoid distance and the midpoint azimuth come
+    from pyproj.Geod (GeographicLib's algorithms in PROJ).
+    """
+    geodetic = pyproj.CRS(crs).geodetic_crs
+    forward = pyproj.Transformer.from_crs(geodetic, crs, always_xy=True)
+    inverse = pyproj.Transformer.from_crs(crs, geodetic, always_xy=True)
+    east, north = forward.transform(lon, lat)
+    placement = Placement(PlacementMode.SOURCE_CRS, source_crs=crs, source_offset=(east, north, 0))
+    assert not site._grid(crs).conformal
+    geod = pyproj.Geod(ellps="GRS80" if "GDA" in geodetic.name else "WGS84")
+    for step in ((1000.0, 0.0), (0.0, 1000.0), (707.0, 707.0), (-300.0, 800.0)):
+        m = site.measure(placement, (0.0, 0.0, 0.0), (*step, 0.0))
+        lon_a, lat_a = inverse.transform(east, north)
+        lon_b, lat_b = inverse.transform(east + step[0], north + step[1])
+        azimuth, _, length = geod.inv(lon_a, lat_a, lon_b, lat_b)
+        # The geodesic's forward azimuth at its middle.
+        _, _, middle = geod.fwd(lon_a, lat_a, azimuth, length / 2.0, return_back_azimuth=False)
+        assert m.ground_distance == pytest.approx(length, rel=1e-8)
+        assert (m.true_bearing - middle + 180.0) % 360.0 - 180.0 == pytest.approx(0.0, abs=1e-6)
+        bearings, _ = site.line_bearings(placement, [(0.0, 0.0, 0.0)], [(*step, 0.0)])
+        assert bearings[0] == pytest.approx(m.true_bearing, abs=1e-9)
+    square = np.array(
+        [[[0, 0, 0], [1000, 0, 0], [1000, 1000, 0]], [[0, 0, 0], [1000, 1000, 0], [0, 1000, 0]]],
+        dtype=np.float64,
+    )
+    ring = [(0.0, 0.0), (1000.0, 0.0), (1000.0, 1000.0), (0.0, 1000.0)]
+    dense = [
+        (x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)
+        for (x0, y0), (x1, y1) in zip(ring, ring[1:] + ring[:1], strict=True)
+        for t in np.linspace(0.0, 1.0, 200, endpoint=False)
+    ]
+    lons, lats = inverse.transform([east + x for x, _ in dense], [north + y for _, y in dense])
+    area, _ = geod.polygon_area_perimeter(lons, lats)
+    assert site.face_areas(placement, square).ground_plan == pytest.approx(abs(area), rel=1e-7)
+
+
+def test_conformal_grids_keep_proj_scale_and_convergence() -> None:
+    """Every conformal grid keeps PROJ's own point scale factor and convergence."""
+    for crs in ("EPSG:7856", "EPSG:32633", "EPSG:2154", "EPSG:3031", "EPSG:5041", "EPSG:2172"):
+        assert site._grid(crs).conformal, crs
+    placement = _crs_placement(EDGE_LON, EDGE_LAT)
+    m = site.measure(placement, (0.0, 0.0, 0.0), (3000.0, 4000.0, 0.0))
+    middle = site.read_point(placement, (1500.0, 2000.0, 0.0))
+    ends = [site.read_point(placement, p).grid_scale for p in ((0, 0, 0), (3000, 4000, 0))]
+    assert m.grid_scale == pytest.approx((ends[0] + 4 * middle.grid_scale + ends[1]) / 6, rel=1e-14)
+    assert m.true_bearing == pytest.approx(m.grid_bearing + middle.convergence, abs=1e-12)
