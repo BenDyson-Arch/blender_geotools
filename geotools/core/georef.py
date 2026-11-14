@@ -72,7 +72,8 @@ class EcefFrame:
     heading_degrees: float
     """Counter-clockwise angle from true east to the local +X axis at the origin."""
     scale: float
-    """Length on Earth of one local metre along +X (the grid scale factor)."""
+    """Length on Earth, at the origin's height, of one local metre along +X: about
+    1 / the combined scale factor (grid scale factor x height factor), not k itself."""
     operation: str | None
     """rusty-tiles' CRS operation ("portable" or "native"), SOURCE_CRS only."""
 
