@@ -730,6 +730,31 @@ def test_images_referenced_in_place_or_saved_as_png() -> None:
         shutil.rmtree(files, ignore_errors=True)
 
 
+def test_image_in_place_through_a_symlink_is_resolved() -> None:
+    # On macOS the temporary folder is under /var, a symlink to /private/var.
+    h.reset_scene()
+    source = _source()
+    files = Path(tempfile.mkdtemp(prefix="geotools-images-"))
+    try:
+        real = files / "real"
+        real.mkdir()
+        (real / "photo.png").write_bytes(_fixtures.png_rgba(alpha=255))
+        link = files / "link"
+        try:
+            link.symlink_to(real, target_is_directory=True)
+        except OSError:
+            print("    skipped: cannot create a symlink here")
+            return
+        image = bpy.data.images.load(str(link / "photo.png"))
+        _textured("Linked", source, image)
+
+        with _extracted(source) as (scene, _topology, _tmp):
+            ref = scene.images[0]
+            assert ref.path == (real / "photo.png").resolve(), ref.path
+    finally:
+        shutil.rmtree(files, ignore_errors=True)
+
+
 def test_dirty_image_exports_current_pixels() -> None:
     h.reset_scene()
     source = _source()

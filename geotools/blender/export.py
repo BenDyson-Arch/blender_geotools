@@ -660,7 +660,7 @@ class _ImageTable:
                 with open(path, "rb") as f:
                     mime = _magic_mime(f.read(8))
                 if mime is not None and path.lower().endswith(_SUFFIXES[mime]):
-                    return ImageData(name=image.name, path=Path(path), mime_type=mime)
+                    return ImageData(name=image.name, path=Path(path).resolve(), mime_type=mime)
         if clean and packed and len(image.packed_files) == 1:
             data = image.packed_file.data
             mime = _magic_mime(data[:8])
