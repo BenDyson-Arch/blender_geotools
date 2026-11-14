@@ -608,8 +608,8 @@ def test_validation_tpi_and_local_relief() -> None:
     stats = {}
     cases = {
         # preset, inputs, analytic annulus (inner, outer), samples
-        "tpi_default": ("tpi", {}, (0.0, 0.5), 24),
-        "tpi_annulus": ("tpi", {"Inner Radius": 0.3, "Outer Radius": 0.8}, (0.3, 0.8), 24),
+        "tpi_default": ("tpi", {}, (0.0, 0.5), 96),
+        "tpi_annulus": ("tpi", {"Inner Radius": 0.3, "Outer Radius": 0.8}, (0.3, 0.8), 96),
         "local_relief_default": ("local_relief", {}, (0.0, 2.0), 48),
     }
     lo = 30
@@ -634,6 +634,13 @@ def test_validation_tpi_and_local_relief() -> None:
         }
         # The preset is exactly its documented sampling of this mesh (float32).
         assert stats[label]["geotools_vs_sunflower_on_mesh"]["max"] < 2e-5, (label, stats[label])
+        if preset == "tpi":
+            # The default Samples gives Weiss's disc mean to about 2% RMS of the TPI
+            # (sampling 1.7%; the rest is the mesh's linear interpolation).
+            relative = (
+                stats[label]["geotools_vs_weiss_continuous"]["rms"] / stats[label]["continuous_rms"]
+            )
+            assert relative < 0.03, (label, relative)
     bpy.data.objects.remove(obj)
 
     # Matched second moments: gdaldem TPI (8 neighbours, <x^2> = 0.75 h^2) and

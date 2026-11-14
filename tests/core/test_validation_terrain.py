@@ -94,6 +94,35 @@ def test_sunflower_is_the_presets_pattern() -> None:
     assert len(ts.sunflower(25, 0.0, 1.0)[0]) == 26  # an odd count is rounded up
 
 
+def test_tpi_default_samples_give_the_weiss_mean() -> None:
+    """The TPI default Samples approximates Weiss's exact disc mean to about 2% RMS.
+
+    On the smooth waves terrain (1,681 points, the default 0.5 m disc and a
+    0.3-0.8 m annulus) the sunflower mean of the catalog default differs from
+    the exact mean by 1.7% RMS of the TPI; 24 samples, the earlier default,
+    gave 7.6%, and 48 gave 3.3% (docs/validation/terrain.md).
+    """
+    from geotools.analysis import presets as catalog
+
+    samples = next(i.default for i in catalog.get("tpi").inputs if i.name == "Samples")
+    assert samples == 96
+    x, y = ts.grid_xy()
+    rows = np.arange(30, 111, 2)
+    px, py = x[np.ix_(rows, rows)].ravel(), y[np.ix_(rows, rows)].ravel()
+    errors = {}
+    for inner, outer in ((0.0, 0.5), (0.3, 0.8)):
+        exact = ts.waves(px, py) - ts.waves_disc_mean(px, py, inner, outer)
+        for count in (24, samples):
+            dx, dy = ts.sunflower(count, inner, outer)
+            sampled = ts.waves(px, py) - np.mean(ts.waves(px[:, None] + dx, py[:, None] + dy), 1)
+            errors[inner, outer, count] = math.sqrt(
+                np.mean((sampled - exact) ** 2) / np.mean(exact**2)
+            )
+    assert errors[0.0, 0.5, samples] < 0.02, errors
+    assert errors[0.3, 0.8, samples] < 0.02, errors
+    assert errors[0.0, 0.5, 24] > 0.07, errors  # what the earlier default gave
+
+
 # --- the reference outputs and their conventions -----------------------------------------------------
 
 

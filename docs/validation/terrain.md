@@ -1,7 +1,10 @@
 # Validation: terrain shape and archaeological visualisation
 
 Status: validated on `val/terrain` (2026-11-12), against GeoTools 0.4.0-dev
-(develop at 4ea4fe0) in Blender 5.2.4.
+(develop at 4ea4fe0) in Blender 5.2.4. The five open points were decided on
+2026-11-14 and are [resolved](#decisions-resolved): the plan curvature preset
+is labelled Plan (Tangential) Curvature, the TPI default is 96 samples, and the
+rest is documented in analysis-presets.md.
 
 This covers the Geometry Nodes presets of
 [analysis-presets.md](../analysis-presets.md) under *Terrain shape* and
@@ -18,18 +21,19 @@ reference tools, the cases, the tolerances, the results and a verdict.
 | Aspect | downslope azimuth, 0 = +Y (north), clockwise, as GDAL, WhiteboxTools, ArcGIS | **agrees**, with a documented convention difference (Flat Slope threshold) |
 | Aspect (True North) | `true = grid + convergence`, PROJ meridian convergence | **agrees** (sign checked against the meridian in six CRSs) |
 | Profile curvature | Florinsky (2016) vertical curvature k_v, + convex, 1/m | **agrees** (WhiteboxTools `ProfileCurvature`) |
-| Plan curvature | Florinsky (2016) horizontal curvature k_h, + convex, 1/m | **agrees, with a naming difference**: WhiteboxTools' `PlanCurvature` is the contour curvature; GeoTools' plan curvature is WhiteboxTools' `TangentialCurvature` |
+| Plan (Tangential) Curvature | Florinsky (2016) horizontal curvature k_h, + convex, 1/m | **agrees, with a naming difference**: WhiteboxTools' `PlanCurvature` is the contour curvature; GeoTools' plan curvature is WhiteboxTools' `TangentialCurvature`, now in its label |
 | Mean curvature | Florinsky (2016) H, + convex, 1/m | **agrees** (WhiteboxTools `MeanCurvature`) |
 | Rugosity | surface area / planimetric area over a blurred neighbourhood | **agrees** (σ ≈ R/2 confirmed) |
-| TPI | Weiss (2001): height minus the mean over an annulus | **agrees, with a documented convention difference** (sunflower sampling, not every cell) |
+| TPI | Weiss (2001): height minus the mean over an annulus | **agrees**; the default 96 samples give the full mean to 1.7% RMS (24, the earlier default, 7.6%) |
 | TRI | Riley et al. (1999), `√Σ(z_i − z)²` | **agrees** (equal to `gdaldem TRI -alg Riley` to 6.5×10⁻⁷ m) |
 | Local relief model | the trend-removal step of Hesse (2010) | **agrees, with a documented convention difference** (no purge step; disc, not RVT's square) |
 | Sky-view factor | Zakšek et al. (2011) | **agrees** |
 | Positive / negative openness | Yokoyama et al. (2002) | **agrees** |
 | Fast (bake) paths | the same rays as the live presets | **agree** with the live presets |
 
-No bugs were found. The [discrepancies](#discrepancies-for-a-decision) are
-conventions or documentation, each with a recommendation; none was changed.
+No bugs were found. The [discrepancies](#decisions-resolved) were conventions
+or documentation; the user's decisions on them are implemented: one label and
+one default changed (TPI Samples 24 → 96), and the rest is documented.
 
 ## Method
 
@@ -97,7 +101,7 @@ horizons (25 s).
 Checks (both run in normal CI):
 
 ```sh
-pytest tests/core/test_validation_terrain.py            # 15 tests, < 1 s
+pytest tests/core/test_validation_terrain.py            # 16 tests, about 1 s
 python3 scripts/run_blender_tests.py --expect available -k test_validation_
 ```
 
@@ -207,7 +211,7 @@ varies by about 0.05°.
 
 **Verdict: agrees**, with the Flat Slope convention above.
 
-## Curvature: profile, plan and mean
+## Curvature: profile, plan (tangential) and mean
 
 **Definition.** Evans-Young derivatives from a 3 × 3 window of spacing w,
 sampled by vertical rays (docs: Florinsky 2016, eq. 4.4–4.8), then
@@ -251,7 +255,10 @@ GeoTools' plan curvature. Shary (1995) and Florinsky (2016) also use *plan
 curvature* for the contour curvature and call k_h *horizontal curvature*. The
 GeoTools docs say what is computed ("the horizontal (tangential) curvature …
 the contour curvature times sin(slope)"), so this is a naming difference, not
-a bug; see [discrepancies](#discrepancies-for-a-decision).
+a bug. **Resolved:** the preset is labelled Plan (Tangential) Curvature, and
+analysis-presets.md names the WhiteboxTools and SAGA equivalents
+(`TangentialCurvature`) and says their `PlanCurvature` is the contour
+curvature; the id `curvature_plan` is unchanged.
 
 **Window and mesh spacing.** At an integer number of spacings on a grid the
 rays land on vertices and the error is the Evans-Young truncation (10⁻⁴–10⁻³
@@ -259,7 +266,10 @@ above). At 2.5 spacings every window point falls mid-facet, where the facets'
 chords miss the curved surface, and the curvature is overstated by
 (h/w)²/4 = 4.0 % on all four surfaces. On an irregular photogrammetry mesh the
 window points land anywhere, so expect a bias of up to about (h/w)²/4: 1 % at
-w ≈ 5 spacings, 0.25 % at w ≈ 10.
+w ≈ 5 spacings, 0.25 % at w ≈ 10. **Resolved:** analysis-presets.md states
+this rule (about no bias on vertices, up to (h/w)²/4 mid-facet) in place of
+the earlier half- against whole-spacing sentence, with the advice to use a
+window of at least five spacings.
 
 **float32 heights.** The window reads heights in float32 and divides their
 differences by w². On the sphere (R = 5 m, spacing 0.05 m) moved up:
@@ -270,8 +280,11 @@ differences by w². On the sphere (R = 5 m, spacing 0.05 m) moved up:
 | near 105 m | 1.3 % (0.4 %) | 0.17 % |
 | near 1,005 m | 9.5 % (3.6 %) | 0.6 % |
 
+**Resolved:** analysis-presets.md has this table, the rule of thumb and the
+advice (keep heights near 0 with the project's Offset A, or widen the window).
+
 **Verdict: agrees** (profile, plan and mean), with the plan-curvature naming
-difference above.
+difference above, now in the label.
 
 ## Rugosity
 
@@ -303,20 +316,45 @@ symmetric about the vertex, even areal density) read from the mesh by vertical
 rays. GDAL's `gdaldem TPI` is the 8-neighbour special case (z minus the mean
 of the 3 × 3 ring).
 
-On the waves DEM (121 vertices more than 2 m inside the crop):
+On the waves DEM (121 vertices more than 2 m inside the crop), with the
+default of 96 samples:
 
-| Compared | Default (disc 0.5 m, 24 samples) | Annulus 0.3–0.8 m, 24 samples |
+| Compared | Default (disc 0.5 m) | Annulus 0.3–0.8 m |
 |---|---|---|
-| GeoTools vs its sampling of the mesh (numpy), max | 9×10⁻⁸ m | 1.1×10⁻⁷ m |
-| GeoTools vs the continuous Weiss mean, RMS (max) | 3.7 mm (9.0 mm) | 5.9 mm (13 mm) |
-| of which: 24 samples vs the continuous mean, RMS | 3.5 mm | 6.1 mm |
-| of which: mesh interpolation, RMS | 0.8 mm | 0.5 mm |
+| GeoTools vs its sampling of the mesh (numpy), max | 8×10⁻⁸ m | 1.1×10⁻⁷ m |
+| GeoTools vs the continuous Weiss mean, RMS (max) | 1.16 mm (2.7 mm) | 1.86 mm (3.7 mm) |
+| of which: 96 samples vs the continuous mean, RMS | 0.80 mm | 1.77 mm |
+| of which: mesh interpolation, RMS | 0.99 mm | 0.52 mm |
 | RMS of the TPI itself | 48 mm | 109 mm |
 
+With 24 samples, the default until this validation, the same rows were
+3.7 mm (9.0 mm), 3.5 mm and 0.8 mm for the disc and 5.9 mm (13 mm), 6.1 mm
+and 0.5 mm for the annulus.
+
 The preset computes exactly what it documents. Its sampling is the
-difference from the continuous definition: 24 samples approximate the disc
-mean to about 7 % RMS of the TPI on this terrain (the paraboloid, where any
+difference from the continuous definition (the paraboloid, where any
 point-symmetric pattern with the right second moment is exact, hides this).
+**Sample count** (resolved): the sunflower mean against the exact mean over
+1,681 points of the waves DEM, as RMS of the TPI (numpy; the test
+`test_tpi_default_samples_give_the_weiss_mean` checks the default):
+
+| Samples | 24 | 32 | 40 | 48 | 64 | 72 | 80 | 88 | **96** | 128 | 256 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| disc 0.5 m | 7.6 % | 5.1 % | 3.9 % | 3.3 % | 3.0 % | 2.7 % | 2.4 % | 2.1 % | **1.7 %** | 1.4 % | 0.6 % |
+| annulus 0.3–0.8 m | 5.7 % | 4.7 % | 3.9 % | 3.2 % | 2.2 % | 1.9 % | 1.9 % | 1.8 % | **1.7 %** | 0.9 % | 0.6 % |
+| disc 0.3 m | | | | 3.4 % | 3.5 % | 3.3 % | 2.9 % | 2.4 % | **1.8 %** | 1.5 % | |
+| disc 1.0 m | | | | 3.2 % | 1.1 % | 0.9 % | 1.2 % | 1.6 % | **1.7 %** | 1.1 % | |
+
+96 is the smallest count that brings the default disc to 2 % or less (48 to 88
+stay at 2–3.3 %), so it is the default now. The error does not fall evenly with
+Samples (the 1 m disc is better at 64 than at 96): the pattern's radii beat
+against the terrain's wavelengths, so judge a count over several radii. On the mesh, its linear
+interpolation adds about 2 % at a radius of five spacings (1.16 mm RMS in
+all, 2.4 %). Cost: rays per vertex grow with Samples. With
+`scripts/bench_analysis_presets.py`'s terrain on this machine while it was
+shared (load average 17–30), 1M triangles took 1.8–2.0 s at 24 samples, 4 s at
+48 and 8.8 s at 96 (16.6 s in a run at higher load); 10M triangles 25 s at 24
+and 76 s at 96.
 
 **GDAL.** For a smooth surface every window's TPI is, to leading order,
 `−½ ⟨x²⟩ ∇²z`, so windows with the same second moment ⟨x²⟩ agree. GDAL's
@@ -327,8 +365,9 @@ equals GDAL to 1.5 mm RMS: at a radius under two spacings, the samples fall
 mid-facet and the mesh's linear interpolation is as large as the TPI itself.
 Use a radius of several mesh spacings.
 
-**Verdict: agrees, with a documented convention difference** (a sampled disc
-or annulus rather than every cell; GDAL's 3 × 3 ring is a different window).
+**Verdict: agrees.** It samples the disc or annulus rather than reading every
+cell; at the default 96 samples that gives Weiss's mean to about 2 % RMS.
+GDAL's 3 × 3 ring is a different window (matched above by its second moment).
 
 ## Terrain Ruggedness Index (TRI)
 
@@ -442,52 +481,57 @@ existing `test_preset_bake.py` covers the level plane and the V-trench.
   face, but on a fine mesh of curved ground a single triangle can differ from
   the tangent plane by several degrees. Quads (GeoTIFF import) and Smoothing
   give raster-like values.
-- **Curvature window.** Use a window of several mesh spacings; on irregular
-  meshes expect a bias of up to (h/w)²/4.
+- **Curvature window.** Use a window of at least five mesh spacings; on
+  irregular meshes expect a bias of up to (h/w)²/4 (documented).
 - **Heights far from 0.** Window presets difference float32 heights: keep
   the scene's heights near 0 (the GeoScene/project offset A) or use a larger
-  window. At z ≈ 1,000 m a 0.05 m window gives curvature errors near 10 %.
+  window. At z ≈ 1,000 m a 0.05 m window gives curvature errors near 10 %
+  (documented).
 - **Positions far from the origin.** At 10 km from the scene origin 0.1 m
   facets carry slope errors of about 1° (float32); keep meshes near the origin
   (imports do).
-- **TPI and LRM sampling.** 24 (48) samples approximate the disc mean to about
-  7 % (3 %) RMS on smooth terrain; raise Samples when the values are used
-  quantitatively, and use a radius of several mesh spacings.
+- **TPI and LRM sampling.** TPI's default 96 samples (LRM's 48) approximate the
+  disc mean to about 2 % (3 %) RMS on smooth terrain; raise Samples when the
+  values are used quantitatively, and use a radius of several mesh spacings.
 - **Horizon search region.** Max Distance is a ray length, not a horizontal
   radius; on steep ground GeoTools searches slightly less far than RVT with
-  the same number.
+  the same number (documented).
 - **2.5D sampling.** TPI, LRM, TRI and curvature read heights with vertical
   rays within ±Search Height: on slopes where the rise across the window
   exceeds Search Height the rays miss (window presets give no data; disc
   presets use the samples that hit). Documented in analysis-presets.md.
 
-## Discrepancies for a decision
+## Decisions (resolved)
 
-None of these changes a result; each is a documentation or labelling choice.
+The validation left five documentation and labelling choices. The user's
+decisions (2026-11-14) are implemented on this branch:
 
 1. **"Plan curvature" means different things.** GeoTools' plan curvature is
    k_h (WhiteboxTools' `TangentialCurvature`, Florinsky's *horizontal*
-   curvature); WhiteboxTools' `PlanCurvature`, Shary and Florinsky's *plan*
-   curvature, is the contour curvature k_h/sin(slope). Users comparing with
-   WhiteboxTools or SAGA will see large differences on gentle ground.
-   **Recommendation:** keep the computation (it is bounded and the more useful
-   of the two), and label it "Plan (Tangential) Curvature", with a sentence in
-   analysis-presets.md naming the WhiteboxTools equivalent. Renaming the layer
-   id (`curvature_plan`) is not needed.
-2. **The curvature window sentence** in analysis-presets.md ("+4 % … at
-   w = 2.5 spacings, 0.03 % at w = 10 spacings") compares a half-integer and an
-   integer multiple of the spacing. **Recommendation:** state the rule: on a
-   grid at an integer number of spacings the error is the Evans-Young
-   truncation; mid-facet it is +(h/w)²/4 (4 % at 2.5, 0.25 % at 10.5); on
-   irregular meshes expect up to that.
-3. **float32 heights in curvature.** Not in the docs. **Recommendation:** add
-   the table above (or its rule of thumb: the relative error grows as
-   |z| / (w² |k|), roughly 3×10⁻⁸ |z| / (w² |k|) between RMS and maximum) to
-   the curvature section.
-4. **TPI default of 24 samples** gives about 7 % RMS deviation from the
-   continuous Weiss mean on smooth terrain. **Recommendation:** document it; a
-   default of 48 would halve it at twice the cost, but would change existing
-   results, so we did not change it.
-5. **Horizon search region.** **Recommendation:** say in analysis-presets.md
-   that Max Distance is measured along the ray, and that RVT's search radius
-   is horizontal and skips the first cell, when comparing.
+   curvature); WhiteboxTools' `PlanCurvature`, SAGA's *Plan Curvature* and
+   Shary and Florinsky's *plan* curvature are the contour curvature
+   k_h/sin(slope). **Done:** the computation is unchanged; the preset is
+   labelled "Plan (Tangential) Curvature" (node group *GeoTools Plan
+   (Tangential) Curvature*), and analysis-presets.md names the WhiteboxTools
+   and SAGA equivalents. The id and layer `curvature_plan` are unchanged, so
+   existing files and scripts keep working (a file that already holds the
+   group keeps its old name; Add Analysis finds it by id).
+2. **The curvature window sentence**, which compared a half-integer and an
+   integer multiple of the spacing. **Done:** analysis-presets.md states the
+   rule: about no bias when the rays land on vertices, up to (h/w)²/4 when they
+   land mid-facet (as on irregular meshes), and a window of at least five
+   spacings in practice.
+3. **float32 heights in curvature.** **Done:** analysis-presets.md has the
+   table (up to 9.5 % at 1,000 m with a 0.05 m window), the rule of thumb and
+   the advice: keep heights near 0 with the project's Offset A, or widen the
+   window.
+4. **TPI default of 24 samples** (7.6 % RMS from Weiss's mean). **Done:** the
+   default is 96, the smallest count within 2 % (1.7 %; see
+   [TPI](#topographic-position-index-tpi) for the measurements and the time
+   cost). TPI results change; the CHANGELOG says by how much. The preset
+   stays version 1, so existing modifiers keep their Samples and are still
+   listed; a file that already holds the TPI group keeps its default of 24 for
+   new layers.
+5. **Horizon search region.** **Done:** analysis-presets.md says that Max
+   Distance is measured along the ray, and that RVT's search radius is
+   horizontal and skips the nearest cell.

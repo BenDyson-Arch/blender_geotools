@@ -202,8 +202,9 @@ can open the node group and change it.
 
 The menu groups the presets:
 
-- **Terrain Shape**: Slope, Slope (Percent), Aspect, Profile, Plan and Mean
-  Curvature, Rugosity, Topographic Position (TPI), Ruggedness (TRI);
+- **Terrain Shape**: Slope, Slope (Percent), Aspect, Profile Curvature, Plan
+  (Tangential) Curvature, Mean Curvature, Rugosity, Topographic Position
+  (TPI), Ruggedness (TRI);
 - **Archaeological Visualisation**: Local Relief Model, Sky-View Factor,
   Positive and Negative Openness;
 - **Visibility**: Viewshed, Cumulative Viewshed, Intervisibility, Line of
