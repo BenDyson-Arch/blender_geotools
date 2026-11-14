@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "geotools"
-version = "0.3.0"
+version = "0.4.0-dev"
 name = "GeoTools"
 tagline = "GIS for Blender: georeference, analyse and publish 3D sites"
 maintainer = "BenDyson-Arch"
