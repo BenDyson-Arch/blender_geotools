@@ -9,6 +9,16 @@ and the project follows semantic versioning where practical.
 
 ### Added
 
+- **Origin from Latitude/Longitude** for CRS projects. A scene with only a
+  geographic origin (`latitude`/`longitude` GeoScene keys, as BlenderGIS or
+  blender_ogc3dtiles can leave it) gets offset E/N by projecting it into the
+  project CRS, as BlenderGIS's own CRS switch does: full doubles, written to
+  `crs x`/`crs y`, latitude/longitude re-synced, undoable. The Project panel
+  and Check offer it when the scene has latitude/longitude but no projected
+  origin, and say by how many metres latitude/longitude and an existing E/N
+  disagree, without changing either. Choosing a CRS for such a scene no longer
+  writes E/N 0 over it and overwrites its latitude/longitude. Needs pyproj;
+  Local and Anchor projects leave the keys alone.
 - **Extract for Web** in Last Build: writes a published `.3tz` as a folder any
   web server can serve, next to it (`site.web/` for `site.3tz`,
   `site.slope.web/` for a variant), with `tileset.json`, the tiles and an optional `index.html`

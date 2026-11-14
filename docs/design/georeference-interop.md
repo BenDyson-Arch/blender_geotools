@@ -138,11 +138,47 @@ adopts or promotes a georeference.
   from, so GeoTools leaves the keys alone, as BlenderGIS does.
 - Reading never syncs. Lat/lon that BlenderGIS wrote stay as they are until
   GeoTools changes the CRS or the origin.
+- A geographic origin on its own is never overwritten: see the next section.
 
 **Changing the CRS** keeps the E/N numbers and recomputes lat/lon. This is a
 deliberate difference from BlenderGIS. Its CRS setter reprojects the origin so
 it stays on the same spot on Earth. In GeoTools, the CRS names what the
 scene's coordinates are *in*, so changing it re-reads the same numbers.
+
+## An origin from latitude/longitude
+
+Some GeoScene tools set only a geographic origin. BlenderGIS can leave a scene
+with `latitude`/`longitude` and no `crs x`/`crs y`, and iconem's
+blender_ogc3dtiles writes `latitude`/`longitude` when it sets its own origin.
+BlenderGIS's CRS switch projects such an origin into the new CRS. GeoTools
+offers the same, but only when the user asks for it:
+
+- **Nothing is invented over it.** In a SOURCE_CRS project, choosing a CRS (or
+  migration) on a scene with `latitude`/`longitude` and no projected origin
+  writes `SRID` but no zero E/N, and does not recompute `latitude`/`longitude`
+  from E/N GeoTools held (`geoscene.reconcile`). Without lat/lon the old rule
+  stands: E/N 0.
+- **The offer** (`geoscene.lat_lon_origin`). A SOURCE_CRS project with a CRS
+  GeoTools can write as `SRID`, and a scene with finite `latitude`/`longitude`
+  but no projected origin (no `crs x`/`crs y`, no GeoTools E/N): the Project
+  panel and Check warn (`georef-origin-lat-lon-only`) and offer **Origin from
+  Latitude/Longitude**.
+- **Disagreement.** When E/N exist and `latitude`/`longitude` lie more than
+  1 cm from them (`LAT_LON_TOLERANCE_M`, the haversine distance between the
+  keys' position and E/N located with `origin_lon_lat`), the panel and Check
+  say by how many metres (`georef-origin-lat-lon-differ`) and offer the same
+  operator. Nothing is changed until the user chooses. GeoTools keeps placing
+  the scene by E/N.
+- **The operator** (`geotools.origin_from_lat_lon`,
+  `geoscene.set_origin_from_lat_lon`) projects `latitude`/`longitude` into the
+  project CRS with pyproj (`always_xy`, the inverse of `origin_lon_lat`, so
+  the same datum convention) and writes the doubles, unrounded, as a typed E/N
+  is written: into `crs x`/`crs y`, then lat/lon are re-synced. It is
+  undoable, reports the E/N it set, and asks first when it replaces an
+  existing origin under a source collection with objects. Without pyproj it
+  refuses and changes nothing.
+- **LOCAL and ANCHOR** projects leave the keys alone, as before.
+- **Height.** GeoScene has no height key, so the operator sets E/N only.
 
 ## Changing the origin (the rule)
 
@@ -169,7 +205,8 @@ coordinates are.
 
 **The rule:** GeoTools changes `crs x`/`crs y` only through an explicit edit
 of the origin by the user (the E/N fields, an offset file, a confirmed "use
-data origin" on a scene with no GeoScene origin). It never changes them as a
+data origin" on a scene with no GeoScene origin, Origin from
+Latitude/Longitude). It never changes them as a
 side effect of an import, a CRS change, migration or a mode switch. Objects
 therefore never become desynchronised from the keys without the user asking
 for the scene to be re-read at a new origin.
@@ -184,7 +221,8 @@ SOURCE_CRS scene:
 
 - **No `SRID` yet, and the CRS can be a GeoScene:** the CRS becomes `SRID`, and
   E/N become `crs x`/`crs y` (0 if they were never set, as the project used
-  them). Origin keys that already exist win over the text.
+  them, unless the scene has `latitude`/`longitude`: see above). Origin keys
+  that already exist win over the text.
 - **A `SRID` exists:** the keys win. GeoTools' text fills only absent origin
   keys. Values that differ from the keys are dropped and named in the notice.
 - **The CRS cannot be a GeoScene** (WKT, compound, empty): nothing changes, and
@@ -208,6 +246,6 @@ LOCAL and ANCHOR scenes are left as they are.
 
 - GeoTools does not write `_RNA_UI` or the keys' UI data (descriptions and
   ranges). BlenderGIS still draws the keys without them.
-- There is no sync from BlenderGIS's lat/lon-only edits. A scene with
-  `latitude`/`longitude` and no `crs x`/`crs y` has no projected origin for
-  GeoTools to read; BlenderGIS's "link" buttons compute one.
+- There is no automatic sync from lat/lon-only edits: GeoTools reports them
+  and offers Origin from Latitude/Longitude, and never changes the origin on
+  its own.

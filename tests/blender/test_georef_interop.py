@@ -432,3 +432,125 @@ def test_a_failed_import_restores_the_keys_exactly() -> None:
     assert props.placement_mode == "LOCAL"
     assert scene["SRID"] == "EPSG:7856" and scene["crs x"] == E0
     assert scene["latitude"] == -27.47 and scene["scale"] == 2000
+
+
+# --- an origin from latitude/longitude ------------------------------------------------------
+
+LAT0, LON0 = -27.4745684, 153.0202439  # near (502000, 6961000) in EPSG:7856
+
+
+def _geographic_scene(srid: str | None = "EPSG:7856") -> None:
+    """Keys as a tool that sets only a geographic origin leaves them (blender_ogc3dtiles)."""
+    scene = bpy.context.scene
+    if srid is not None:
+        scene["SRID"] = srid
+    scene["latitude"] = LAT0
+    scene["longitude"] = LON0
+
+
+def _offers(calls: list) -> bool:
+    return ("operator", "geotools.origin_from_lat_lon", "WORLD_DATA") in calls
+
+
+def test_origin_from_lat_lon_sets_e_n_from_the_scene() -> None:
+    h.reset_scene()
+    _grid_source()
+    _geographic_scene()
+    props = h.project()
+    panel = h.submodule("blender.panels").GEOTOOLS_PT_project
+    calls = h.draw(panel)
+    assert not _offers(calls)  # a Local project leaves the keys alone
+    assert not bpy.ops.geotools.origin_from_lat_lon.poll()
+    props.placement_mode = "SOURCE_CRS"
+    assert _keys() == {"SRID": "EPSG:7856", "latitude": LAT0, "longitude": LON0}  # untouched
+    assert props.origin_e == "" and props.origin_n == ""
+    calls = h.draw(panel)
+    assert _offers(calls), calls
+    assert "no projected origin" in h.label_text(calls)
+    assert bpy.ops.geotools.run_checks() == {"FINISHED"}
+    found = {i.code: i for i in props.issues}
+    assert found["georef-origin-lat-lon-only"].severity == "WARNING", found
+    # Checks offers the same remedy for the selected issue.
+    props.issues_index = [i.code for i in props.issues].index("georef-origin-lat-lon-only")
+    assert _offers(h.draw(h.submodule("blender.panels").GEOTOOLS_PT_checks))
+
+    result, error = h.call_op(bpy.ops.geotools.origin_from_lat_lon)
+    if not _available():  # no pyproj: refused cleanly, nothing changed
+        assert result == {"ERROR_REPORTED"} and "pyproj" in error, (result, error)
+        assert _keys() == {"SRID": "EPSG:7856", "latitude": LAT0, "longitude": LON0}
+        return
+    assert result == {"FINISHED"}, error
+    expected = h.submodule("core.geoscene").lon_lat_to_origin("EPSG:7856", LON0, LAT0)
+    scene = bpy.context.scene
+    assert (scene["crs x"], scene["crs y"]) == expected  # doubles, unrounded
+    assert abs(scene["crs x"] - 502_000.0) < 1.0 and abs(scene["crs y"] - 6_961_000.0) < 1.0
+    assert props.origin_e == repr(expected[0])
+    assert (scene["longitude"], scene["latitude"]) == _expected_lon_lat("EPSG:7856", *expected)
+    assert abs(scene["latitude"] - LAT0) < 1e-10 and abs(scene["longitude"] - LON0) < 1e-10
+    placement = _props_mod().placement_from_props(props)
+    assert placement.source_offset[:2] == expected
+    assert not _offers(h.draw(panel))  # done: nothing left to offer
+    # Nothing to do now that they agree, but running it again changes nothing either.
+    assert bpy.ops.geotools.origin_from_lat_lon() == {"FINISHED"}
+    assert (scene["crs x"], scene["crs y"]) == expected
+
+
+def test_choosing_a_crs_keeps_a_geographic_only_origin() -> None:
+    h.reset_scene()
+    _geographic_scene(srid=None)
+    props = h.project()
+    props.placement_mode = "SOURCE_CRS"
+    props.crs = "EPSG:7856"
+    # Earlier GeoTools wrote crs x/y = 0 here and overwrote latitude/longitude from them.
+    assert _keys() == {"SRID": "EPSG:7856", "latitude": LAT0, "longitude": LON0}
+    assert h.submodule("blender.scene_georef").lat_lon_origin(bpy.context.scene).missing
+    assert _offers(h.draw(h.submodule("blender.panels").GEOTOOLS_PT_project))
+    if _available():
+        assert bpy.ops.geotools.origin_from_lat_lon() == {"FINISHED"}
+        assert abs(bpy.context.scene["crs x"] - 502_000.0) < 1.0
+
+
+def test_lat_lon_that_disagree_with_e_n_are_reported_not_changed() -> None:
+    h.reset_scene()
+    _grid_source()
+    _blendergis_scene(x=502_000.0, y=6_961_000.0)
+    scene = bpy.context.scene
+    scene["latitude"], scene["longitude"] = LAT0 + 1e-3, LON0  # about 111 m north
+    before = _keys()
+    props = h.project()
+    props.placement_mode = "SOURCE_CRS"
+    calls = h.draw(h.submodule("blender.panels").GEOTOOLS_PT_project)
+    assert bpy.ops.geotools.run_checks() == {"FINISHED"}
+    codes = {i.code for i in props.issues}
+    assert _keys() == before  # drawing and checking change nothing
+    if not _available():  # without pyproj GeoTools cannot tell how far apart they are
+        assert not _offers(calls) and "georef-origin-lat-lon-differ" not in codes
+        result, error = h.call_op(bpy.ops.geotools.origin_from_lat_lon)
+        assert result == {"ERROR_REPORTED"} and "pyproj" in error, (result, error)
+        assert _keys() == before
+        return
+    assert _offers(calls), calls
+    text = h.label_text(calls)
+    assert "111" in text and " m from its projected origin" in text, text
+    assert "georef-origin-lat-lon-differ" in codes
+    # The user chooses: E/N from latitude/longitude.
+    assert bpy.ops.geotools.origin_from_lat_lon() == {"FINISHED"}
+    assert abs(scene["crs y"] - (6_961_000.0 + 111.0)) < 2.0, scene["crs y"]
+    assert abs(scene["latitude"] - (LAT0 + 1e-3)) < 1e-10
+    assert not _offers(h.draw(h.submodule("blender.panels").GEOTOOLS_PT_project))
+
+
+def test_origin_from_lat_lon_leaves_local_and_anchor_keys_alone() -> None:
+    for mode in ("LOCAL", "ANCHOR"):
+        h.reset_scene()
+        _geographic_scene()
+        props = h.project()
+        props.placement_mode = mode
+        before = _keys()
+        assert not _offers(h.draw(h.submodule("blender.panels").GEOTOOLS_PT_project))
+        assert not bpy.ops.geotools.origin_from_lat_lon.poll()
+        assert "georef-origin-lat-lon-only" not in {
+            i.code for i in h.submodule("blender.scene_georef").issues(bpy.context.scene)
+        }
+        assert _keys() == before
+    h.reset_scene()

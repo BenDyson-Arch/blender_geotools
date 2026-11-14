@@ -566,6 +566,7 @@ class GEOTOOLS_PT_checks(_GeoToolsPanel, bpy.types.Panel):
             wrapped(box, context, item.message, icon=SEVERITY_ICONS[item.severity])
             box.label(text=f"Code: {item.code}", icon="BLANK1")
             draw_remedy_buttons(box, item.code, item.subject)
+            scene_georef.draw_remedy(box, item.code)
 
 
 class GEOTOOLS_PT_checks_images(_GeoToolsPanel, bpy.types.Panel):
