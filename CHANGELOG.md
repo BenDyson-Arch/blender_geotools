@@ -47,6 +47,20 @@ and the project follows semantic versioning where practical.
   documented convention differences, now settled (see Changed). Reference script
   `scripts/validation/terrain/make_references.py`, fixtures in
   `tests/data/validation/terrain/`, tests in normal CI.
+- Validation of the solar tools ([docs/validation/solar.md](docs/validation/solar.md)):
+  sun position (NREL SPA), ΔT, time zones, grid convergence, Place Sun and
+  Over a Day, Sun Hours (open ground, slopes, walls, overhangs, horizon
+  profiles, Merge Within, the Cycles bake), clear-sky insolation and Shadow
+  Study, against pvlib 0.16.1, Skyfield 1.55 with JPL DE440s, pyproj
+  geodesics and GRASS GIS 8.4.1 r.sun. All agree with what they claim (SPA to
+  pvlib within 10⁻⁹°, to DE440 within 0.00017°; sun hours within half a step
+  per edge). Insolation is Ineichen–Perez as in pvlib, not ESRA: it differs
+  from r.sun by the models' known differences. Three points are left for a
+  decision: sun directions in non-conformal CRSs (Albers, Web Mercator, up to
+  0.24°), refraction at standard pressure at any altitude, and the Over a Day
+  strength fading between keys. Reference scripts in
+  `scripts/validation/solar/`, fixtures in `tests/data/validation/solar/`,
+  tests in normal CI.
 
 ### Changed
 
