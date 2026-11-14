@@ -129,6 +129,22 @@ def test_obliquity_is_laskar() -> None:
         )
 
 
+def test_events_at_the_ends_of_the_epoch_range() -> None:
+    """The standstill nearest an epoch at either end can lie just beyond Laskar's range."""
+    for year in (
+        archaeo.EPOCH_MIN,
+        archaeo.EPOCH_MIN + 1,
+        archaeo.EPOCH_MAX - 5,
+        archaeo.EPOCH_MAX,
+    ):
+        events, summary = archaeo.epoch_events(year, 51.0)
+        assert len(events) == 14, year
+        assert all(math.isfinite(e.azimuth) for e in events), year
+        assert summary["major"]["mean_north"] == pytest.approx(
+            summary["obliquity"] + moon.INCLINATION, abs=0.01
+        )
+
+
 def test_epoch_limits() -> None:
     with pytest.raises(ValueError, match="10,000 years"):
         archaeo.epoch_jd(-8000)

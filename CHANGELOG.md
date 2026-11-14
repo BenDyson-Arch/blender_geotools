@@ -80,6 +80,11 @@ and the project follows semantic versioning where practical.
 
 ### Fixed
 
+- Archaeoastronomy **Compute Events** no longer fails with "Laskar's obliquity
+  is only valid within 10,000 years" for the epochs at either end of its range
+  (8000 and 7999 BCE, 11994 to 11999 CE) when the lunar standstills are on: the
+  standstill nearest such an epoch can fall a few years beyond the obliquity's
+  range, where the polynomial is still smooth.
 - Import Source Mesh no longer silently re-origins a georeferenced scene. An
   offset file found beside the mesh sets the project origin only when the
   project has none yet, or already has exactly that E, N and A (so a chunk
