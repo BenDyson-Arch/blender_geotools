@@ -163,6 +163,16 @@ and the project follows semantic versioning where practical.
 
 ### Fixed
 
+- **Refraction at the site's height.** The sun's position (Place Sun, Over a
+  Day, Sun Hours, insolation, Shadow Study) and the archaeoastronomy rises and
+  sets refracted at sea-level pressure (1013.25 hPa for SPA, Bennett's 1010
+  hPa) at any height. They now use the standard atmosphere's pressure at the
+  site's ellipsoidal height (616 hPa at 4,000 m), with the temperature as
+  before (12 °C and 10 °C). At 4,000 m a June day at 51° N is 4.0 minutes
+  shorter than GeoTools counted, and the solstice sunrise 0.37° further from
+  north (0.11° at 1,000 m); clear-sky insolation at a 1,500 m site changes by
+  0.07 %. Check Alignment uses the events' pressure. Results at sea level do
+  not change.
 - The **GLB metadata frame** (`geotools:modelToEcef` and the Earth-Placed node
   matrix) is no longer tilted on large sites. The grid axes were measured
   with one-sided probes (the centre and the centre moved half the extent),

@@ -247,6 +247,31 @@ def test_day_strength_switches_between_keys() -> None:
             assert obj.data.energy == keys[i], (i, between, obj.data.energy)
 
 
+def test_place_sun_refracts_at_the_site_height() -> None:
+    """An anchor 4,000 m up refracts at 616 hPa (ISA), not 1013.25: just after sunrise
+    the light is 0.2 degrees lower than at sea-level pressure."""
+    _reset()
+    sun_props = bpy.context.scene.geotools_analysis.sun
+    props = h.project()
+    props.placement_mode = "ANCHOR"
+    props.anchor_lon, props.anchor_lat, props.anchor_height = "0.0", "51.18", "4000"
+    sun_props.year, sun_props.month, sun_props.day = 2026, 6, 21
+    sun_props.hour, sun_props.minute = 3, 50
+    sun_props.tz_mode = "OFFSET"
+    sun_props.utc_offset = 0.0
+    result, error = h.call_op(bpy.ops.geotools.sun_place)
+    assert result == {"FINISHED"}, error
+    stored = _result()
+    utc = dt.datetime(2026, 6, 21, 3, 50, tzinfo=dt.UTC).timestamp()
+    core = _sun()
+    at_site = core.solar_position(
+        utc, 51.18, 0.0, 4000.0, pressure_hpa=core.standard_pressure(4000.0)
+    )
+    at_sea = core.solar_position(utc, 51.18, 0.0, 4000.0)
+    assert abs(stored["elevation"] - at_site.elevation[0]) < 1e-9
+    assert 0.15 < at_sea.elevation[0] - stored["elevation"] < 0.3
+
+
 def test_local_project_uses_the_anchor_latitude() -> None:
     _reset()
     props = h.project()

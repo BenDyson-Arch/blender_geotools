@@ -761,7 +761,12 @@ def shadow_study(context: bpy.types.Context) -> dict:
     moments, notes = study_moments(context)
     times = np.array([m["utc"].timestamp() for m in moments], dtype=np.float64)
     position = sun.solar_position(
-        times, where.latitude, where.longitude, where.height, refraction=sun_props.refraction
+        times,
+        where.latitude,
+        where.longitude,
+        where.height,
+        pressure_hpa=sun.standard_pressure(where.height),
+        refraction=sun_props.refraction,
     )
     scene_azimuth = (position.azimuth - where.convergence) % 360.0
     euler = sun.light_euler(scene_azimuth, position.elevation)

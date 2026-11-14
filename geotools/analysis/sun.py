@@ -22,6 +22,8 @@ is set by the inputs, not the algorithm:
 - Refraction uses the paper's formula with the given pressure and temperature,
   and is only applied above the horizon (as in the paper). Near the horizon
   the real refraction varies by a fraction of a degree with the weather.
+  GeoTools passes the standard-atmosphere pressure at the site's height
+  (:func:`standard_pressure`) and the paper's 12 °C.
 
 Conventions: azimuth is measured clockwise (eastward) from true north, in
 degrees in [0, 360). Elevation is above the horizon, with refraction when
@@ -69,6 +71,7 @@ __all__ = [
     "nutation",
     "solar_position",
     "solar_position_jd",
+    "standard_pressure",
     "time_zone_database_available",
     "to_utc",
     "zone",
@@ -87,6 +90,28 @@ SUN_RADIUS_ARCSEC = 959.63
 """The sun's apparent radius at 1 AU, arc seconds (IAU)."""
 
 _CHUNK = 32_768  # time steps per block: (64 terms x 32k) doubles is 16 MB
+
+_ISA_LAPSE = 0.0065 / 288.15
+"""The ICAO standard atmosphere's lapse rate over its sea-level temperature, 1/m."""
+_ISA_EXPONENT = 5.255877
+"""g M / (R L) of the ICAO standard atmosphere."""
+
+
+def standard_pressure(height_m: float, sea_level_hpa: float = DEFAULT_PRESSURE_HPA) -> float:
+    """Air pressure at ``height_m`` metres, hPa: ``sea_level_hpa`` scaled by the ISA.
+
+    The barometric formula of the ICAO standard atmosphere's troposphere,
+    P = P0 (1 - L h / T0) ^ (g M / R L), so exactly ``sea_level_hpa`` at 0 m
+    (results at sea level do not change), 0.887 of it at 1,000 m and 0.608 at
+    4,000 m. Heights are held to -500 m to 11,000 m, the troposphere. The
+    height is the site's ellipsoidal one: the geoid's separation (up to about
+    100 m) changes the pressure by about 1 % at most, and refraction with it.
+    """
+    h = float(height_m)
+    if not math.isfinite(h):
+        raise ValueError(f"height must be finite, not {height_m!r}")
+    h = min(max(h, -500.0), 11_000.0)
+    return float(sea_level_hpa) * (1.0 - _ISA_LAPSE * h) ** _ISA_EXPONENT
 
 
 @dataclass(frozen=True, slots=True)

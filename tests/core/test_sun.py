@@ -108,6 +108,25 @@ def test_refraction_only_lifts_the_sun_near_and_above_the_horizon() -> None:
     assert 0.4 < lift[np.argmin(np.abs(airless.elevation))] < 0.6  # about 0.5 at the horizon
 
 
+def test_standard_pressure_at_the_site_height() -> None:
+    """The ICAO standard atmosphere: exactly the sea-level pressure at 0 m."""
+    from geotools.analysis import clearsky
+
+    assert sun.standard_pressure(0.0) == sun.DEFAULT_PRESSURE_HPA  # unchanged at sea level
+    assert sun.standard_pressure(0.0, 1010.0) == 1010.0
+    # The ICAO table: 898.76 hPa at 1,000 m, 616.40 hPa at 4,000 m.
+    assert sun.standard_pressure(1000.0) == pytest.approx(898.76, abs=0.02)
+    assert sun.standard_pressure(4000.0) == pytest.approx(616.40, abs=0.02)
+    assert sun.standard_pressure(-400.0) > sun.DEFAULT_PRESSURE_HPA
+    # pvlib's alt2pres (which clear-sky air mass uses) agrees to 1e-5.
+    for h in (0.0, 1500.0, 4000.0):
+        ratio = clearsky.altitude_pressure(h) / clearsky.altitude_pressure(0.0)
+        assert sun.standard_pressure(h) / sun.DEFAULT_PRESSURE_HPA == pytest.approx(ratio, rel=1e-5)
+    assert sun.standard_pressure(30_000.0) == sun.standard_pressure(11_000.0)  # troposphere
+    with pytest.raises(ValueError):
+        sun.standard_pressure(float("nan"))
+
+
 def test_delta_t() -> None:
     assert sun.delta_t(2000.0) == pytest.approx(63.86, abs=0.01)
     # Continuous across the 2005 and 2050 joins, to a fraction of a second.

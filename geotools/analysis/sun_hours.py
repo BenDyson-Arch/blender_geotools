@@ -165,9 +165,17 @@ def sun_steps(
     ``convergence`` (degrees, true north to the scene's +Y, clockwise) is
     subtracted from the azimuths, as for a Sun light. ``horizon`` raises the
     horizon (see :func:`horizon_elevation`); only steps above both it and 0°
-    count.
+    count. Refraction is at the standard-atmosphere pressure for ``height``
+    (:func:`.sun.standard_pressure`).
     """
-    position = sun.solar_position(steps.times, latitude, longitude, height, refraction=refraction)
+    position = sun.solar_position(
+        steps.times,
+        latitude,
+        longitude,
+        height,
+        pressure_hpa=sun.standard_pressure(height),
+        refraction=refraction,
+    )
     up = position.elevation > 0.0
     above = up & (position.elevation > horizon_elevation(position.azimuth, horizon))
     keep = np.flatnonzero(above)

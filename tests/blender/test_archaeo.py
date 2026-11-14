@@ -203,6 +203,30 @@ def test_events_on_the_profile() -> None:
     assert "June solstice sunrise" in text and repr(june.azimuth) in text
 
 
+def test_events_refract_at_the_site_height() -> None:
+    """An anchor 3,000 m up: Bennett's pressure scaled to that height, stored with the
+    events; the June sunrise moves about 0.27 degrees from the sea-level one."""
+    _reset()
+    props = h.project()
+    props.placement_mode = "ANCHOR"
+    props.anchor_lon, props.anchor_lat, props.anchor_height = "-1.83", "51.18", "3000"
+    _observer()
+    archaeo = bpy.context.scene.geotools_analysis.archaeo
+    archaeo.epoch_year = 2000
+    archaeo.moon_events = False
+    result, error = h.call_op(bpy.ops.geotools.archaeo_events)
+    assert result == {"FINISHED"}, error or archaeo.events_error
+    events, summary = _blender().load_events(bpy.context)
+    pressure = h.submodule("analysis.sun").standard_pressure(3000.0, 1010.0)
+    assert summary["height"] == 3000.0 and summary["pressure_hpa"] == pressure
+    assert abs(pressure - 698.84) < 0.01, pressure  # 701.08 hPa x 1010 / 1013.25
+    june = next(e for e in events if e.name == "June solstice sunrise")
+    at_site, _ = _core().epoch_events(2000, 51.18, moon_events=False, pressure_hpa=pressure)
+    at_sea, _ = _core().epoch_events(2000, 51.18, moon_events=False)
+    assert june.azimuth == at_site[0].azimuth
+    assert 0.2 < june.azimuth - at_sea[0].azimuth < 0.35, (june.azimuth, at_sea[0].azimuth)
+
+
 def test_sightlines_export_and_alignment() -> None:
     _reset(lat="51.0")
     _terrain()

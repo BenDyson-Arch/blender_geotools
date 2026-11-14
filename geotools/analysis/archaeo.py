@@ -16,7 +16,8 @@ Both are found against the astronomical horizon (apparent altitude 0) and,
 when given, a real horizon profile (:class:`.horizon.HorizonProfile`). A body
 is on the horizon when the true altitude of its chosen limb equals the
 horizon's apparent altitude h less the refraction there, h - R(h) (Bennett,
-:func:`.horizon.refraction`). Rise is the first moment it comes above the
+:func:`.horizon.refraction`, at 10 °C and the standard-atmosphere pressure at
+the site's height, :func:`.sun.standard_pressure`). Rise is the first moment it comes above the
 horizon and set the last moment it goes below, so a jagged skyline that
 hides a body for a while gives the outer pair.
 
@@ -180,11 +181,14 @@ def epoch_trust(year: int) -> list[str]:
 
 
 def _horizon_threshold(
-    azimuth: np.ndarray, profile: horizon.HorizonProfile | None, refract: bool
+    azimuth: np.ndarray,
+    profile: horizon.HorizonProfile | None,
+    refract: bool,
+    pressure_hpa: float = horizon.REFRACTION_PRESSURE_HPA,
 ) -> np.ndarray:
     """True altitude of a point on the horizon at ``azimuth``: h - R(h), h the apparent altitude."""
     h = np.zeros_like(azimuth) if profile is None else profile.at(azimuth)
-    return horizon.true_altitude(h, refract)
+    return horizon.true_altitude(h, refract, pressure_hpa)
 
 
 def _parallax_drop(true_geocentric: np.ndarray, parallax_deg: float | np.ndarray) -> np.ndarray:
@@ -213,6 +217,7 @@ def rise_set_azimuths(
     refract: bool = True,
     limb: float = 0.0,
     parallax: float | np.ndarray = 0.0,
+    pressure_hpa: float = horizon.REFRACTION_PRESSURE_HPA,
 ) -> list[RiseSet]:
     """Rise and set azimuths of bodies at declinations ``dec`` from ``latitude``.
 
@@ -222,7 +227,8 @@ def rise_set_azimuths(
     in degrees (+ semi-diameter for the upper limb); ``parallax`` the
     horizontal parallax (the Moon's). Rise is the first crossing upwards
     after lower culmination and set the last one downwards before the next.
-    A body that never rises, or never sets, gives NaN.
+    A body that never rises, or never sets, gives NaN. ``pressure_hpa`` sets the
+    refraction (the site's, from :func:`.sun.standard_pressure`).
     """
     decs = np.atleast_1d(np.asarray(dec, dtype=np.float64))
     pars = np.broadcast_to(np.asarray(parallax, dtype=np.float64), decs.shape)
@@ -243,7 +249,7 @@ def rise_set_azimuths(
         + 180.0
     ) % 360.0
     topocentric = altitude - _parallax_drop(altitude, pars[:, None])
-    g = topocentric + limbs[:, None] - _horizon_threshold(azimuth, profile, refract)
+    g = topocentric + limbs[:, None] - _horizon_threshold(azimuth, profile, refract, pressure_hpa)
     out = []
     for i in range(len(decs)):
         out.append(_crossings(g[i], azimuth[i], profile))
@@ -283,6 +289,7 @@ def declination(
     refract: bool = True,
     limb: float = 0.0,
     parallax: float = 0.0,
+    pressure_hpa: float = horizon.REFRACTION_PRESSURE_HPA,
 ) -> np.ndarray:
     """The declination a body has when its limb is on the horizon at ``azimuth``, ``altitude``.
 
@@ -293,7 +300,7 @@ def declination(
     sin δ = sin φ sin h_g + cos φ cos h_g cos A. Arrays broadcast.
     """
     az = np.radians(np.asarray(azimuth, dtype=np.float64))
-    h = horizon.true_altitude(altitude, refract) - float(limb)
+    h = horizon.true_altitude(altitude, refract, pressure_hpa) - float(limb)
     if parallax:
         sin_pi = math.sin(math.radians(parallax))
         h = h + np.degrees(np.arcsin(sin_pi * np.cos(np.radians(h))))
@@ -329,6 +336,7 @@ def sun_rise_set(
     *,
     refract: bool = True,
     limb: float = 1.0,
+    pressure_hpa: float = horizon.REFRACTION_PRESSURE_HPA,
 ) -> SunRiseSet:
     """Sunrise and sunset on local ``day`` in ``tz`` against ``profile`` (or the astronomical horizon).
 
@@ -347,7 +355,7 @@ def sun_rise_set(
     g = (
         position.elevation_airless
         + float(limb) * semi
-        - _horizon_threshold(position.azimuth, profile, refract)
+        - _horizon_threshold(position.azimuth, profile, refract, pressure_hpa)
     )
     above = g > 0.0
     up = np.flatnonzero(~above[:-1] & above[1:])
@@ -512,14 +520,16 @@ def _rows(
     latitude: float,
     profile: horizon.HorizonProfile | None,
     refract: bool,
+    pressure_hpa: float,
 ) -> list[Event]:
     """Events for (name, body, declination, limb, parallax) rows; rise then set each."""
     decs = np.array([n[2] for n in names])
     limbs = np.array([n[3] for n in names])
     pars = np.array([n[4] for n in names])
-    flat = rise_set_azimuths(decs, latitude, None, refract=refract, limb=limbs, parallax=pars)
+    kw = {"refract": refract, "limb": limbs, "parallax": pars, "pressure_hpa": pressure_hpa}
+    flat = rise_set_azimuths(decs, latitude, None, **kw)
     real = (
-        rise_set_azimuths(decs, latitude, profile, refract=refract, limb=limbs, parallax=pars)
+        rise_set_azimuths(decs, latitude, profile, **kw)
         if profile is not None
         else [None] * len(names)
     )
@@ -555,13 +565,15 @@ def epoch_events(
     limb: str = "UPPER",
     lunar: str = "MEAN",
     moon_events: bool = True,
+    pressure_hpa: float = horizon.REFRACTION_PRESSURE_HPA,
 ) -> tuple[list[Event], dict]:
     """The solstice, equinox and lunar standstill rises and sets at an epoch.
 
     ``lunar`` is "MEAN" (±(ε ± i), the node-cycle geometry, with the mean
     parallax) or "EXTREME" (the declinations the ephemeris reaches at the
-    standstills nearest the epoch, with the parallax then). Returns the
-    events and a summary (obliquity, standstill dates and declinations).
+    standstills nearest the epoch, with the parallax then). ``pressure_hpa``
+    sets the refraction (the site's). Returns the events and a summary
+    (obliquity, standstill dates and declinations).
     """
     jd = epoch_jd(year)
     eps = float(sun.mean_obliquity(_jde(jd))[0])
@@ -607,7 +619,7 @@ def epoch_events(
                 )
                 label = f"{kind.capitalize()} standstill {which}"
                 rows.append((label, "moon", dec, side * semi, par))
-    return _rows(rows, when, latitude, profile, refract), summary
+    return _rows(rows, when, latitude, profile, refract, pressure_hpa), summary
 
 
 def _local_time(seconds: float, tz: _dt.tzinfo) -> str:
@@ -626,14 +638,16 @@ def dated_sun_events(
     *,
     refract: bool = True,
     limb: str = "UPPER",
+    pressure_hpa: float = horizon.REFRACTION_PRESSURE_HPA,
 ) -> list[Event]:
     """Sunrise and sunset on each (label, local day), against 0° and the profile."""
     side = LIMBS[limb]
+    kw = {"refract": refract, "limb": side, "pressure_hpa": pressure_hpa}
     events = []
     for label, day in days:
-        flat = sun_rise_set(day, tz, latitude, longitude, height, None, refract=refract, limb=side)
+        flat = sun_rise_set(day, tz, latitude, longitude, height, None, **kw)
         real = (
-            sun_rise_set(day, tz, latitude, longitude, height, profile, refract=refract, limb=side)
+            sun_rise_set(day, tz, latitude, longitude, height, profile, **kw)
             if profile is not None
             else None
         )
@@ -692,6 +706,7 @@ def alignments(
     refract: bool = True,
     count: int = 3,
     indices: np.ndarray | None = None,
+    pressure_hpa: float = horizon.REFRACTION_PRESSURE_HPA,
 ) -> list[Alignment]:
     """Each line's azimuth (and back azimuth) against every event's best azimuth.
 
@@ -707,8 +722,8 @@ def alignments(
     lat = np.broadcast_to(np.asarray(latitude, dtype=np.float64), az.shape)
     alt = profile.at(az) if profile is not None else np.zeros_like(az)
     back_alt = profile.at(back) if profile is not None else np.zeros_like(az)
-    dec = declination(az, alt, lat, refract=refract)
-    back_dec = declination(back, back_alt, lat, refract=refract)
+    dec = declination(az, alt, lat, refract=refract, pressure_hpa=pressure_hpa)
+    back_dec = declination(back, back_alt, lat, refract=refract, pressure_hpa=pressure_hpa)
     names = [e.name for e in events]
     targets = np.array([e.best_azimuth for e in events], dtype=np.float64).reshape(1, -1)
     valid = np.isfinite(targets)

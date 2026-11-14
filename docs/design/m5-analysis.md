@@ -91,12 +91,18 @@ a day of keyframes takes about 2 ms.
   is given. A few seconds of error moves the sun by about 0.00005° today. For
   ancient dates ΔT is uncertain by minutes to hours. That moves the sun's hour
   angle directly, so archaeoastronomy must pass its own ΔT and state it.
-- Refraction uses the paper's formula, at standard pressure (1013.25 hPa) and
-  12 °C, and only when the sun is above the paper's switch near the horizon.
-  Real refraction at the horizon varies by a few tenths of a degree with the
-  weather. It is a toggle in the UI.
-- Height enters only through the parallax term (8.8″ at most), so
-  ellipsoidal height and height above sea level give the same result.
+- Refraction uses the paper's formula at 12 °C and the ICAO standard
+  atmosphere's pressure at the site's ellipsoidal height
+  (`sun.standard_pressure`: 1013.25 hPa at sea level, scaled by
+  (1 − 0.0065 h / 288.15)^5.2559, so 899 hPa at 1,000 m and 616 hPa at
+  4,000 m), and only when the sun is above the paper's switch near the
+  horizon. Sea-level results are unchanged from before 0.3.0, when every
+  site refracted at 1013.25 hPa. Real refraction at the horizon varies by a
+  few tenths of a degree with the weather. It is a toggle in the UI.
+- Height enters through the parallax term (8.8″ at most) and the pressure.
+  Ellipsoidal height stands for height above sea level there: the geoid's
+  separation (up to about 100 m) changes the pressure by about 1 % at most.
+  A Local project has no height, so it refracts at sea level.
 
 **Time zones.** Named zones use `zoneinfo` IANA names, so daylight saving is
 handled. Python on Windows has no system time zone database. Blender's bundled
@@ -586,8 +592,12 @@ horizon's apparent altitude h less the refraction there:
     h_true = h − R(h),   R = cot(h + 7.31 / (h + 4.4)) arc minutes
 
 (Bennett 1982, Meeus eq. 16.4, at 1010 hPa and 10 °C): 34.5′ at h = 0, 9.9′
-at 5°. Below −1° (an observer above the land around) the value at −1° is
-used. **Refraction** off sets R to 0 (and k to 0). Real refraction near the
+at 5°. The pressure is scaled to the observer's ellipsoidal height by the
+standard atmosphere (`sun.standard_pressure(height, 1010)`, ground point,
+the eye height left out), so R is 30.6′ at h = 0 at 1,000 m and 21.0′ at
+4,000 m; the temperature stays 10 °C. The events' summary records the height
+and pressure, and Check Alignment inverts at that pressure. Below −1° (an
+observer above the land around) the value at −1° is used. **Refraction** off sets R to 0 (and k to 0). Real refraction near the
 horizon varies by several arc minutes with temperature and pressure, and by
 much more in inversions; it, and the horizon itself, limit an archaeoastronomical
 azimuth more than any ephemeris here. **Limb** chooses the upper limb (first
@@ -778,8 +788,8 @@ of it.
   at −2000, but the azimuth of a solstice or standstill depends only on its
   declination, which the obliquity sets. So epochs reach 10,000 years either
   side of 2000, and dated events stay with the Sun panel's calendar.
-- **Deferred:** a local ΔT, pressure and temperature for the refraction
-  (standard conditions now), stellar risings (they need precession and proper
+- **Deferred:** a local ΔT, and pressure and temperature settings for the
+  refraction (now the standard atmosphere at the site's height, 10 °C), stellar risings (they need precession and proper
   motion), the Moon's dated rises and sets on a chosen day, an animated
   sightline or horizon diagram, and grouping a polyline's edges into one
   feature axis in the alignment check (each edge is a line).

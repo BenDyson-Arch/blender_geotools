@@ -57,6 +57,21 @@ def test_kasten_young_air_mass() -> None:
     assert np.isnan(clearsky.relative_airmass(np.array([90.0, 120.0]))).all()
 
 
+def test_sun_steps_refract_at_the_site_height() -> None:
+    """Refraction at the standard-atmosphere pressure of the site: unchanged at sea level,
+    a June day at 51 N 4.0 minutes shorter at 4,000 m (616 hPa) than with sea-level
+    pressure."""
+    steps = sh.period_steps(dt.date(2026, 6, 21), dt.date(2026, 6, 21), dt.UTC, 0.25)
+    sea = sh.sun_steps(steps, 51.18, -1.83, 0.0)
+    standard = sun.solar_position(steps.times, 51.18, -1.83, 0.0)  # 1013.25 hPa
+    assert np.array_equal(sea.elevation, standard.elevation[standard.elevation > 0.0])
+    high = sh.sun_steps(steps, 51.18, -1.83, 4000.0)
+    at_site = sun.solar_position(steps.times, 51.18, -1.83, 4000.0, pressure_hpa=616.4023)
+    assert len(high.hours) == int(np.count_nonzero(at_site.elevation > 0.0))
+    shorter = (sea.hours.sum() - high.hours.sum()) * 60.0
+    assert shorter == pytest.approx(4.0, abs=0.25)  # was 0: sea-level pressure everywhere
+
+
 def test_standard_pressure() -> None:
     assert clearsky.altitude_pressure(0.0) == pytest.approx(101325.0, rel=1e-4)
     assert clearsky.altitude_pressure(1000.0) == pytest.approx(89874.75046856777, rel=1e-12)

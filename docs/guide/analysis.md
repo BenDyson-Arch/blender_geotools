@@ -50,7 +50,12 @@ The result shows the time in UTC, the sun's **Azimuth** from true north, its
 **Elevation**, the grid **Convergence**, and the azimuth in the scene (**Scene
 Az.**, from +Y). In a CRS project the sun is turned from true north to grid
 north by the convergence, up to about 1.5° at the edge of a UTM or MGA zone.
-**Refraction** (on) lifts the sun near the horizon as the atmosphere does.
+**Refraction** (on) lifts the sun near the horizon as the atmosphere does,
+at the standard atmosphere's pressure for the site's height (1013.25 hPa at
+sea level, 899 hPa at 1,000 m) and 12 °C: on high ground the sun rises a
+little later and sets a little earlier (4 minutes off a June day at 51° N at
+4,000 m). The height is the site's ellipsoidal height; a Local project has
+none, so it refracts at sea level.
 
 **Over a Day** keyframes the light: set the **Hours** (from and to), the **Step
 (min)**, the **First Frame** and the **Frame Step**, then press **Animate
@@ -150,6 +155,13 @@ are flagged. To use the profile as the far horizon in
 The table gives each event's azimuth on the astronomical horizon and on the
 real one (when a horizon profile exists). Copy it with the copy button. The
 panel says how far back the results can be trusted.
+
+Rises and sets include astronomical refraction (Bennett's formula, 34′ at the
+horizon at sea level and 10 °C), at the standard atmosphere's pressure for
+the site's ellipsoidal height: 30′ at 1,000 m, 21′ at 4,000 m. A June
+sunrise at 51° N is 0.11° further from north at 1,000 m than at sea level,
+0.37° at 4,000 m. Check Alignment uses the same pressure as the events. The
+weather moves refraction at the horizon by several arc minutes either way.
 
 ### Sightlines and alignments
 

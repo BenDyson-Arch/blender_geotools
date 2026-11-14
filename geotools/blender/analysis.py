@@ -523,7 +523,12 @@ def place_sun(context: bpy.types.Context) -> dict:
     props, where, tz, label = _prepare(context)
     utc, notes = sun.to_utc(_local_moment(props), tz)
     position = sun.solar_position(
-        utc.timestamp(), where.latitude, where.longitude, where.height, refraction=props.refraction
+        utc.timestamp(),
+        where.latitude,
+        where.longitude,
+        where.height,
+        pressure_hpa=sun.standard_pressure(where.height),
+        refraction=props.refraction,
     )
     scene_azimuth = (position.azimuth - where.convergence) % 360.0
     euler = sun.light_euler(scene_azimuth, position.elevation)[0]
@@ -556,7 +561,12 @@ def animate_sun(context: bpy.types.Context) -> dict:
         raise ValueError(f"{count} keyframes is too many; use a longer step.")
     times = sun.local_times(start_utc, count, step)
     position = sun.solar_position(
-        times, where.latitude, where.longitude, where.height, refraction=props.refraction
+        times,
+        where.latitude,
+        where.longitude,
+        where.height,
+        pressure_hpa=sun.standard_pressure(where.height),
+        refraction=props.refraction,
     )
     scene_azimuth = (position.azimuth - where.convergence) % 360.0
     euler = sun.light_euler(scene_azimuth, position.elevation)
