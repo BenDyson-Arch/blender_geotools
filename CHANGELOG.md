@@ -7,6 +7,25 @@ and the project follows semantic versioning where practical.
 
 ## [Unreleased]
 
+### Added
+
+- Development checks that make the rules from 0.3.0 fail the build, each
+  message saying what to use instead. ruff now runs the full B, SIM, PLW, RUF,
+  DTZ, PTH, UP, BLE and a few smaller rule families on top of its defaults,
+  with banned APIs for `datetime.fromtimestamp` (use
+  `sun.utc_datetime`) and `zoneinfo.ZoneInfo` (use `sun.zone`). import-linter
+  checks in CI that only `geotools.blender` imports Blender and that the
+  layers run blender, then publish, analysis and bake, then core. Tests check
+  that `geotools/` never feature-detects rusty-tiles, reads stored paths only
+  through `blend_paths`, turns true north only through the site map, passes
+  `always_xy=True` to pyproj, and writes no Scene custom property but the
+  five GeoScene keys.
+
+### Changed
+
+- The publish record's `cleanup_diagnostics` and `rusty_tiles_version` come
+  from rusty-tiles 0.4.1's API directly, with no fallback for older wheels.
+
 ## [0.3.0] - 2026-11-14
 
 The rebuilt GeoTools: GIS for Blender 5.2. Georeference a site, bring in
