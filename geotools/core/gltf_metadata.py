@@ -290,7 +290,9 @@ class Georeference:
     origin_lon_lat_height: tuple[float, float, float] | None = None
     origin_model: tuple[float, float, float] | None = None  # glTF (Y-up) model coordinates
     model_to_ecef: tuple[float, ...] | None = None  # glTF node matrix, column-major
-    grid_scale: float | None = None
+    ground_metres_per_model_metre: float | None = None
+    """Metres on the ground (the ellipsoid at the origin's height) per model metre along
+    +X: about 1 / the combined scale factor. Source CRS only."""
     crs_operation: str | None = None
     earth_placed: bool = False
     source: str = ""  # e.g. the .blend file name
@@ -343,8 +345,8 @@ def xmp_packet(geo: Georeference) -> dict[str, object]:
         packet["geotools:originModel"] = _list(geo.origin_model)
     if geo.heading_degrees is not None:
         packet["geotools:heading"] = float(geo.heading_degrees)
-    if geo.grid_scale is not None:
-        packet["geotools:gridScale"] = float(geo.grid_scale)
+    if geo.ground_metres_per_model_metre is not None:
+        packet["geotools:groundMetresPerModelMetre"] = float(geo.ground_metres_per_model_metre)
     if geo.crs_operation:
         packet["geotools:crsOperation"] = geo.crs_operation
     if geo.model_to_ecef is not None:

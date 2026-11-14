@@ -15,7 +15,8 @@ The pipeline:
 2. :func:`sun_steps`: NREL SPA at each midpoint. Only steps with the sun's
    centre above the horizon (apparent elevation > 0, or above a horizon
    profile) count. Directions are turned from true north to the scene's +Y by
-   the grid convergence (``site.sun_site``).
+   the grid convergence (``site.sun_site``), or in a non-conformal CRS by the
+   grid-to-ellipsoid map at the site (``site.SunSite.scene_azimuth``).
 3. :func:`group_directions` (optional): sun directions closer than a
    tolerance share one ray, with their weights summed. Shadows are only as
    sharp as that tolerance, but a year collapses from thousands of rays per
@@ -37,6 +38,7 @@ from __future__ import annotations
 import datetime as _dt
 import math
 from dataclasses import dataclass, field
+from typing import Protocol
 
 import numpy as np
 
@@ -150,12 +152,32 @@ class SunSteps:
     """Steps with the sun above the horizon but below the horizon profile."""
 
 
+class NorthTurn(Protocol):
+    """Turns true azimuths into scene ones and back (``site.SunSite``)."""
+
+    def scene_azimuth(self, true_azimuth: np.ndarray) -> np.ndarray: ...
+
+    def true_azimuth(self, scene_azimuth: np.ndarray) -> np.ndarray: ...
+
+
+def _scene_azimuth(azimuth: np.ndarray, north: float | NorthTurn) -> np.ndarray:
+    if isinstance(north, (int, float)):
+        return (azimuth - float(north)) % 360.0
+    return north.scene_azimuth(azimuth)
+
+
+def _true_azimuth(azimuth: np.ndarray, north: float | NorthTurn) -> np.ndarray:
+    if isinstance(north, (int, float)):
+        return (azimuth + float(north)) % 360.0
+    return north.true_azimuth(azimuth)
+
+
 def sun_steps(
     steps: TimeSteps,
     latitude: float,
     longitude: float,
     height: float = 0.0,
-    convergence: float = 0.0,
+    convergence: float | NorthTurn = 0.0,
     *,
     refraction: bool = True,
     horizon: float | tuple[np.ndarray, np.ndarray] | None = None,
@@ -163,18 +185,28 @@ def sun_steps(
     """SPA at each step; keep the steps with the sun's centre above the horizon.
 
     ``convergence`` (degrees, true north to the scene's +Y, clockwise) is
-    subtracted from the azimuths, as for a Sun light. ``horizon`` raises the
+    subtracted from the azimuths, as for a Sun light; or it is the site
+    (``site.SunSite``), whose :meth:`scene_azimuth` turns them, exactly in a
+    non-conformal CRS too. ``horizon`` raises the
     horizon (see :func:`horizon_elevation`); only steps above both it and 0°
-    count.
+    count. Refraction is at the standard-atmosphere pressure for ``height``
+    (:func:`.sun.standard_pressure`).
     """
-    position = sun.solar_position(steps.times, latitude, longitude, height, refraction=refraction)
+    position = sun.solar_position(
+        steps.times,
+        latitude,
+        longitude,
+        height,
+        pressure_hpa=sun.standard_pressure(height),
+        refraction=refraction,
+    )
     up = position.elevation > 0.0
     above = up & (position.elevation > horizon_elevation(position.azimuth, horizon))
     keep = np.flatnonzero(above)
     azimuth = position.azimuth[keep]
     elevation = position.elevation[keep]
     return SunSteps(
-        directions=sun.direction((azimuth - float(convergence)) % 360.0, elevation),
+        directions=sun.direction(_scene_azimuth(azimuth, convergence), elevation),
         hours=steps.durations[keep] / 3600.0,
         azimuth=azimuth,
         elevation=elevation,
@@ -282,7 +314,7 @@ def build_rays(
     linke_turbidity: float = clearsky.DEFAULT_LINKE_TURBIDITY,
     altitude_m: float = 0.0,
     diffuse_rays: int = 0,
-    convergence: float = 0.0,
+    convergence: float | NorthTurn = 0.0,
     horizon: float | tuple[np.ndarray, np.ndarray] | None = None,
 ) -> Rays:
     """The rays for sun hours and (optionally) clear-sky insolation.
@@ -318,7 +350,7 @@ def build_rays(
     sky_count = 0
     if insolation and diffuse_rays > 0:
         sky = sky_directions(diffuse_rays)
-        true_azimuth = (np.degrees(np.arctan2(sky[:, 0], sky[:, 1])) + convergence) % 360.0
+        true_azimuth = _true_azimuth(np.degrees(np.arctan2(sky[:, 0], sky[:, 1])), convergence)
         sky_elevation = np.degrees(np.arcsin(sky[:, 2]))
         sky = sky[sky_elevation > horizon_elevation(true_azimuth, horizon)]
         sky_count = len(sky)
@@ -394,5 +426,5 @@ def season_moments(year: int) -> dict[str, _dt.datetime]:
     moments: dict[str, _dt.datetime] = {}
     for name, target in zip(SEASONS, (360.0, 450.0, 540.0, 630.0), strict=True):
         seconds = float(np.interp(target, lam, times))
-        moments[name] = _dt.datetime.fromtimestamp(round(seconds), _dt.UTC)
+        moments[name] = sun.utc_datetime(round(seconds))
     return moments

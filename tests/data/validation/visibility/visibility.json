@@ -1,0 +1,169 @@
+{
+ "versions": {
+  "gdal": "GDAL 3.13.3 \"Iowa City\", released 2026/08/13",
+  "gdal_image": "ghcr.io/osgeo/gdal:ubuntu-small-3.13.3",
+  "grass": "GRASS 8.5.0",
+  "grass_image": "osgeo/grass-gis:8.5.0-alpine"
+ },
+ "ridge": {
+  "faces": 14400,
+  "faces_seen": 10440,
+  "faces_grazing": 0,
+  "gdal_vs_exact_nodes": {
+   "compared": 7320,
+   "differ": 0,
+   "agree_pct": 100.0
+  },
+  "grass_vs_exact_nodes": {
+   "compared": 7320,
+   "differ": 182,
+   "agree_pct": 97.514
+  },
+  "gdal_vs_grass": {
+   "compared": 7381,
+   "differ": 242,
+   "agree_pct": 96.721
+  },
+  "gdal_differ_max_cells_from_boundary": 0.0,
+  "gdal_differ_beyond_1_cell": 0,
+  "grass_differ_max_cells_from_boundary": 8.0,
+  "grass_differ_beyond_1_cell": 132,
+  "gdal_last_hidden_node_x": 26.5,
+  "grass_last_hidden_node_x": 26.5,
+  "exact_last_hidden_node_x": 26.0,
+  "analytic_shadow_end_x": 26.666666666666664
+ },
+ "ridge_target": {
+  "faces": 14400,
+  "faces_seen": 12720,
+  "faces_grazing": 60,
+  "gdal_vs_exact_nodes": {
+   "compared": 7381,
+   "differ": 0,
+   "agree_pct": 100.0
+  },
+  "grass_vs_exact_nodes": {
+   "compared": 7381,
+   "differ": 126,
+   "agree_pct": 98.293
+  },
+  "gdal_vs_grass": {
+   "compared": 7381,
+   "differ": 126,
+   "agree_pct": 98.293
+  },
+  "gdal_differ_max_cells_from_boundary": 0.0,
+  "gdal_differ_beyond_1_cell": 0,
+  "grass_differ_max_cells_from_boundary": 5.0,
+  "grass_differ_beyond_1_cell": 72,
+  "gdal_last_hidden_node_x": 18.0,
+  "grass_last_hidden_node_x": 18.0,
+  "exact_last_hidden_node_x": 18.0,
+  "analytic_shadow_end_x": 18.333333333333332
+ },
+ "dome": {
+  "faces": 38400,
+  "faces_seen": 30849,
+  "faces_grazing": 5,
+  "gdal_vs_exact_nodes": {
+   "compared": 19468,
+   "differ": 90,
+   "agree_pct": 99.538
+  },
+  "grass_vs_exact_nodes": {
+   "compared": 19468,
+   "differ": 24,
+   "agree_pct": 99.877
+  },
+  "gdal_vs_grass": {
+   "compared": 19481,
+   "differ": 74,
+   "agree_pct": 99.62
+  },
+  "gdal_differ_max_cells_from_boundary": 1.0,
+  "gdal_differ_beyond_1_cell": 0,
+  "grass_differ_max_cells_from_boundary": 1.4142135623730951,
+  "grass_differ_beyond_1_cell": 0
+ },
+ "hills": {
+  "faces": 32768,
+  "faces_seen": 10441,
+  "faces_grazing": 6,
+  "gdal_vs_exact_nodes": {
+   "compared": 16624,
+   "differ": 119,
+   "agree_pct": 99.284
+  },
+  "grass_vs_exact_nodes": {
+   "compared": 16624,
+   "differ": 92,
+   "agree_pct": 99.447
+  },
+  "gdal_vs_grass": {
+   "compared": 16641,
+   "differ": 65,
+   "agree_pct": 99.609
+  },
+  "gdal_differ_max_cells_from_boundary": 2.0,
+  "gdal_differ_beyond_1_cell": 2,
+  "grass_differ_max_cells_from_boundary": 2.0,
+  "grass_differ_beyond_1_cell": 1
+ },
+ "cumulative": {
+  "observers": 4,
+  "faces_grazing_any": 20,
+  "counts": [
+   6111,
+   20544,
+   6057,
+   56
+  ],
+  "gdal_vs_exact_nodes": {
+   "compared": 16641,
+   "differ": 396,
+   "agree_pct": 97.62
+  },
+  "grass_vs_exact_nodes": {
+   "compared": 16641,
+   "differ": 272,
+   "agree_pct": 98.365
+  },
+  "gdal_minus_exact_nodes_abs_max": 2
+ },
+ "intervisibility": {
+  "pairs": 15,
+  "visible": 5,
+  "grazing": 0,
+  "gdal_agree": 15,
+  "grass_agree": 15
+ },
+ "long": {
+  "faces": 80000,
+  "faces_seen": 80000,
+  "faces_grazing": 0,
+  "gdal_vs_exact_nodes": {
+   "compared": 40401,
+   "differ": 0,
+   "agree_pct": 100.0
+  },
+  "grass_vs_exact_nodes": {
+   "compared": 40401,
+   "differ": 0,
+   "agree_pct": 100.0
+  },
+  "gdal_vs_grass": {
+   "compared": 40401,
+   "differ": 0,
+   "agree_pct": 100.0
+  },
+  "gdal_differ_max_cells_from_boundary": 0.0,
+  "gdal_differ_beyond_1_cell": 0,
+  "grass_differ_max_cells_from_boundary": 0.0,
+  "grass_differ_beyond_1_cell": 0,
+  "gdal_curved_farthest_seen_m": 12267.436570041844,
+  "gdal_curved_nearest_hidden_m": 12278.843593759146,
+  "grass_curved_farthest_seen_m": 12233.15167894194,
+  "grass_curved_nearest_hidden_m": 12234.786471369249,
+  "horizon_k_1_7_m": 12192.492444123145
+ }
+}

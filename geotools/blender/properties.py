@@ -448,7 +448,7 @@ REMEDY_ITEMS = (
         "Downscale",
         (
             "Publish a copy scaled down to the max edge, as PNG, or as JPEG at the chosen "
-            "quality if the PNG is still over 32 MiB"
+            "quality if the PNG is still over rusty-tiles' 1 GiB limit"
         ),
     ),
     ("CONVERT_8BIT", "8-bit", "Publish an 8-bit PNG copy of a 16-bit image"),

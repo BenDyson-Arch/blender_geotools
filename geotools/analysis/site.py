@@ -27,7 +27,11 @@ positive in the northern hemisphere and negative in the southern. Hence::
     grid bearing = true bearing - convergence
     true bearing = grid bearing + convergence
 
-For an ANCHOR scene it is minus the heading.
+For an ANCHOR scene it is minus the heading. Those two identities hold for
+every direction only in a conformal grid. In a non-conformal one (Albers,
+Web Mercator) they hold along the meridian; other directions turn through the
+grid-to-ellipsoid map below (``_Located.true_bearing``, and for the sun and
+other true directions ``SunSite.scene_azimuth``).
 
 Distances: grid distance = scale factor x ellipsoid distance, and ellipsoid
 distance = ground distance x R / (R + h), with R the Gaussian mean radius of
@@ -37,6 +41,17 @@ scale factor. Along a line the grid scale factor is averaged with Simpson's
 rule from its ends and middle, and h is the mean of the ends' heights. That is
 the usual survey reduction; it is exact to well under 1 ppm for lines of a
 few kilometres.
+
+The scale factor is taken in the line's own direction. Each point carries
+the linear map from a grid step to the step it makes on the ellipsoid (true
+east and north metres): the CRS's geodetic metric (the ellipsoid's radii of
+curvature M and N) times the inverse of the projection's Jacobian (PROJ's
+partial derivatives from ``get_factors``). In a conformal projection
+(transverse Mercator, Lambert conformal conic, stereographic) that map is a
+rotation by the convergence divided by the point scale factor, so the
+reduction is the textbook one. In a non-conformal one (Albers equal-area,
+Web Mercator, which is conformal only on a sphere) the scale and the turn
+from grid to true bearing depend on the direction, and the map gives both.
 
 Precision: Blender stores positions as float32. A local position is read as
 exactly that float32 value, then the binary64 offsets are added in binary64,
@@ -52,7 +67,7 @@ turns the project's CRS text into what pyproj is given.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from typing import Any
 
@@ -126,6 +141,8 @@ class _Grid:
     semi_major: float
     flattening: float
     geographic: bool
+    conformal: bool = True
+    """Conformal on its own ellipsoid: PROJ's point scale factor and convergence hold."""
 
 
 def _pyproj() -> Any:
@@ -165,7 +182,34 @@ def _grid(text: str) -> _Grid:
         inverse = pyproj.Transformer.from_crs(crs, geodetic, always_xy=True)
     except pyproj.exceptions.ProjError as exc:
         raise SiteError(f"PROJ cannot use the project CRS {_short(text)}: {exc}") from exc
-    return _Grid(text, proj, inverse, geodetic.name, a, flattening, False)
+    grid = _Grid(text, proj, inverse, geodetic.name, a, flattening, False)
+    return replace(grid, conformal=_is_conformal(grid, crs))
+
+
+def _is_conformal(grid: _Grid, crs: Any) -> bool:
+    """Whether the projection is conformal on the CRS's ellipsoid, tested once.
+
+    At the centre of the CRS's area of use (or its natural origin): PROJ's
+    Jacobian against the ellipsoid's metric must be its conformal map (point
+    scale factor and convergence) to :data:`_CONFORMAL_TOLERANCE`. Transverse
+    Mercator, Lambert conformal conic and the stereographics pass to about
+    1e-10; Albers and Web Mercator fail by 1e-3 or more.
+    """
+    area = crs.area_of_use
+    if area is not None:
+        east = area.east + 360.0 if area.east < area.west else area.east
+        lon = math.remainder((area.west + east) / 2.0, 360.0)
+        lat = (area.south + area.north) / 2.0
+    else:
+        lon = lat = 0.0
+    lat = max(-80.0, min(80.0, lat))  # PROJ's numerical derivatives fail at a pole
+    factors = grid.proj.get_factors(lon, lat, errcheck=False)
+    convergence = np.atleast_1d(np.asarray(factors.meridian_convergence, dtype=np.float64))
+    jacobian = _jacobian_map(grid, factors, np.array([lat]))
+    conformal = _conformal_map(factors, convergence)
+    with np.errstate(invalid="ignore"):
+        error = float(np.abs(jacobian - conformal).max() * float(factors.meridional_scale))
+    return not error > _CONFORMAL_TOLERANCE
 
 
 @lru_cache(maxsize=1)
@@ -200,9 +244,37 @@ class _Located:
     lon: np.ndarray | None
     lat: np.ndarray | None
     convergence: np.ndarray  # degrees, true north to scene +Y, clockwise
-    grid_scale: np.ndarray  # grid / ellipsoid
+    grid_scale: np.ndarray  # grid / ellipsoid along grid north (+Y)
     radius: np.ndarray | None  # Gaussian radius for the height factor; None: no height factor
     geodetic_name: str | None
+    to_ellipsoid: np.ndarray | None = None
+    """(N, 2, 2): a grid step (dE, dN) to the step on the ellipsoid (true east, north
+    metres), SOURCE_CRS projected only; None where scene metres are true metres."""
+
+    def line_scale(self, d_east: float, d_north: float) -> np.ndarray:
+        """Grid / ellipsoid length of a short step in the direction (d_east, d_north)."""
+        if self.to_ellipsoid is None:
+            return self.grid_scale
+        length = math.hypot(d_east, d_north)
+        if length == 0.0:
+            return self.grid_scale
+        step = np.array([d_east, d_north]) / length
+        return 1.0 / np.linalg.norm(self.to_ellipsoid @ step, axis=1)
+
+    def true_bearing(self, d_east: np.ndarray, d_north: np.ndarray) -> np.ndarray:
+        """True bearing (degrees, [0, 360)) of grid steps, one per point; NaN for no step."""
+        d_east = np.asarray(d_east, dtype=np.float64)
+        d_north = np.asarray(d_north, dtype=np.float64)
+        with np.errstate(invalid="ignore"):
+            if self.to_ellipsoid is None:
+                grid = np.degrees(np.arctan2(d_east, d_north))
+                bearing = grid + self.convergence
+            else:
+                g = self.to_ellipsoid
+                east = g[:, 0, 0] * d_east + g[:, 0, 1] * d_north
+                north = g[:, 1, 0] * d_east + g[:, 1, 1] * d_north
+                bearing = np.degrees(np.arctan2(east, north))
+        return np.where(np.hypot(d_east, d_north) > 0, bearing % 360.0, np.nan)
 
 
 def _points(local: Any) -> np.ndarray:
@@ -267,8 +339,10 @@ def _locate(placement: Placement, local: Any, *, need_geodetic: bool = True) -> 
             "offset and the CRS."
         )
     factors = grid.proj.get_factors(lon, lat, errcheck=False)
-    convergence = np.asarray(factors.meridian_convergence, dtype=np.float64)
-    scale = np.asarray(factors.meridional_scale, dtype=np.float64)
+    convergence = np.atleast_1d(np.asarray(factors.meridian_convergence, dtype=np.float64))
+    to_ellipsoid = _to_ellipsoid(grid, factors, lat, convergence)
+    # Along grid north: the meridional scale factor of a conformal projection.
+    scale = 1.0 / np.linalg.norm(to_ellipsoid[:, :, 1], axis=1)
     radius = _gaussian_radius(grid.semi_major, grid.flattening, lat)
     return _Located(
         east,
@@ -277,11 +351,77 @@ def _locate(placement: Placement, local: Any, *, need_geodetic: bool = True) -> 
         height,
         lon,
         lat,
-        np.atleast_1d(convergence),
-        np.atleast_1d(scale),
+        convergence,
+        scale,
         radius,
         grid.geodetic_name,
+        to_ellipsoid,
     )
+
+
+_CONFORMAL_TOLERANCE = 1e-7
+"""Largest difference (relative) between the Jacobian's map and PROJ's conformal one
+that still counts as conformal. Conformal grids differ by about 1e-10 (PROJ takes its
+derivatives numerically); Web Mercator differs by about 3e-3 and Albers by more."""
+
+
+def _to_ellipsoid(
+    grid: _Grid, factors: Any, lat: np.ndarray, convergence: np.ndarray
+) -> np.ndarray:
+    """(N, 2, 2) maps from a grid step to the step on the ellipsoid (true east, north metres).
+
+    A conformal grid: PROJ's point scale factor and convergence. Otherwise the
+    Jacobian's map (:func:`_jacobian_map`), with the conformal one standing in
+    where the Jacobian is singular (a pole).
+    """
+    conformal = _conformal_map(factors, convergence)
+    if grid.conformal:
+        return conformal
+    out = _jacobian_map(grid, factors, lat)
+    bad = ~np.isfinite(out).all(axis=(1, 2))
+    out[bad] = conformal[bad]
+    return out
+
+
+def _conformal_map(factors: Any, convergence: np.ndarray) -> np.ndarray:
+    """A grid step turned clockwise by the convergence onto true east/north, divided by k."""
+    k = np.broadcast_to(
+        np.atleast_1d(np.asarray(factors.meridional_scale, dtype=np.float64)), convergence.shape
+    )
+    g = np.radians(convergence)
+    c, s = np.cos(g) / k, np.sin(g) / k
+    return np.stack([np.stack([c, s], -1), np.stack([-s, c], -1)], -2)
+
+
+def _jacobian_map(grid: _Grid, factors: Any, lat: np.ndarray) -> np.ndarray:
+    """metric @ inverse(J): the grid-to-ellipsoid map of any projection.
+
+    PROJ's partial derivatives are of the projection's normalised coordinates,
+    so times the semi-major axis they are grid metres per radian of longitude
+    and latitude: the Jacobian J. The ellipsoid's metric is diag(N cos(lat), M)
+    metres per radian. NaN where J is singular.
+    """
+
+    def column(values: Any) -> np.ndarray:
+        return np.atleast_1d(np.asarray(values, dtype=np.float64)) * grid.semi_major
+
+    x_lam, x_phi = column(factors.dx_dlam), column(factors.dx_dphi)
+    y_lam, y_phi = column(factors.dy_dlam), column(factors.dy_dphi)
+    e2 = grid.flattening * (2.0 - grid.flattening)
+    phi = np.radians(lat)
+    w2 = 1.0 - e2 * np.sin(phi) ** 2
+    m = grid.semi_major * (1.0 - e2) / w2**1.5
+    n = grid.semi_major / np.sqrt(w2)
+    det = x_lam * y_phi - x_phi * y_lam
+    out = np.empty((len(det), 2, 2))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        east_per = np.where(det != 0.0, n * np.cos(phi) / det, np.nan)
+        north_per = np.where(det != 0.0, m / det, np.nan)
+        out[:, 0, 0] = east_per * y_phi
+        out[:, 0, 1] = -east_per * x_phi
+        out[:, 1, 0] = -north_per * y_lam
+        out[:, 1, 1] = north_per * x_lam
+    return out
 
 
 def _anchor_geodetic(placement: Placement, enu: np.ndarray) -> tuple[np.ndarray, ...]:
@@ -330,6 +470,9 @@ class PointReading:
     convergence: float
     """Degrees from true north to the scene's +Y, clockwise."""
     grid_scale: float
+    """Grid / ellipsoid length along the scene's +Y (grid north): the point scale factor
+    in a conformal grid. In a non-conformal one (Albers, Web Mercator) the scale
+    depends on direction, and :func:`measure` uses the line's own."""
     height_factor: float
 
     @property
@@ -418,9 +561,10 @@ class Measurement:
     grid_bearing: float
     """Degrees clockwise from the scene's +Y (grid north), in [0, 360)."""
     true_bearing: float
-    """Grid bearing plus the convergence at the middle of the line, in [0, 360)."""
+    """The line's direction at its middle from true north, in [0, 360): the grid bearing
+    plus the convergence there in a conformal grid."""
     grid_scale: float
-    """Grid scale factor along the line (Simpson's rule)."""
+    """Grid scale factor along the line, in its direction (Simpson's rule)."""
     height_factor: float
     combined_scale: float
     resolution: float
@@ -460,7 +604,7 @@ def measure(placement: Placement, a: Vec3, b: Vec3) -> Measurement:
     # In the scene's own axes: +Y is grid north (SOURCE_CRS) or the anchor's heading.
     d_east, d_north, d_level = (float(v) for v in ends[1] - ends[0])
     grid = math.hypot(d_east, d_north)
-    k = located.grid_scale
+    k = located.line_scale(d_east, d_north)  # in the line's direction
     grid_scale = float((k[0] + 4.0 * k[2] + k[1]) / 6.0)
     if located.radius is not None and located.height is not None:
         radius = float(located.radius[2])
@@ -471,7 +615,10 @@ def measure(placement: Placement, a: Vec3, b: Vec3) -> Measurement:
     combined = grid_scale * height_factor
     ground = grid / combined
     bearing = math.degrees(math.atan2(d_east, d_north)) % 360.0 if grid > 0 else 0.0
-    true_bearing = (bearing + float(located.convergence[2])) % 360.0
+    if grid > 0 and located.to_ellipsoid is not None:
+        true_bearing = float(located.true_bearing(np.full(3, d_east), np.full(3, d_north))[2])
+    else:
+        true_bearing = (bearing + float(located.convergence[2])) % 360.0
     return Measurement(
         grid_distance=grid,
         ground_distance=ground,
@@ -524,7 +671,11 @@ def line_bearings(
     located = _locate(placement, (a + b) / 2.0)
     if located.lat is None:
         raise SiteError("The project CRS has no latitude.")
-    return (grid + located.convergence) % 360.0, np.asarray(located.lat, dtype=np.float64)
+    if located.to_ellipsoid is not None:
+        true = located.true_bearing(d[:, 0], d[:, 1])
+    else:
+        true = (grid + located.convergence) % 360.0
+    return true, np.asarray(located.lat, dtype=np.float64)
 
 
 # --- area -------------------------------------------------------------------------------
@@ -540,9 +691,11 @@ class AreaReading:
     grid_plan: float
     """Area projected onto the horizontal (XY) plane."""
     ground_surface: float
-    """3D area with each triangle's horizontal extent at ground level (divided by its CSF)."""
+    """3D area with each triangle's horizontal extent at ground level (divided by its CSF
+    in a conformal grid), its vertical extent unchanged."""
     ground_plan: float
-    """Horizontal area at ground level: plan area / CSF squared, per triangle."""
+    """Horizontal area at ground level: plan area / CSF squared, per triangle (in a
+    non-conformal grid, times the area scale of the grid-to-ground map)."""
 
     def as_text(self) -> str:
         rows = (
@@ -558,8 +711,9 @@ class AreaReading:
 def face_areas(placement: Placement, triangles: np.ndarray) -> AreaReading:
     """Grid and ground areas of triangles (T, 3, 3) in Blender world coordinates.
 
-    One combined scale factor per triangle, at its centroid, all vectorised
-    (about a second per million triangles in PROJ). Raises like :func:`measure`.
+    One grid-to-ground map per triangle, at its centroid (the combined scale
+    factor in a conformal grid), all vectorised (about a second per million
+    triangles in PROJ). Raises like :func:`measure`.
     """
     tris = np.asarray(triangles, dtype=np.float64)
     if tris.ndim != 3 or tris.shape[1:] != (3, 3):
@@ -573,23 +727,29 @@ def face_areas(placement: Placement, triangles: np.ndarray) -> AreaReading:
             "The project CRS is geographic: scene coordinates are degrees, so areas cannot "
             "be measured. Use a projected CRS."
         )
-    csf = located.grid_scale * _height_factor(located)
+    height_factor = _height_factor(located)
     u = tris[:, 1] - tris[:, 0]
     v = tris[:, 2] - tris[:, 0]
     cross = np.cross(u, v)
     grid_surface = 0.5 * np.linalg.norm(cross, axis=1)
     grid_plan = 0.5 * np.abs(cross[:, 2])
-    # Ground: horizontal components divided by the CSF, vertical unchanged.
-    scale = (1.0 / csf)[:, None]
-    ground_u = np.concatenate([u[:, :2] * scale, u[:, 2:]], axis=1)
-    ground_v = np.concatenate([v[:, :2] * scale, v[:, 2:]], axis=1)
+    # Ground: horizontal components taken to ground metres, vertical unchanged.
+    # Conformal grids: divided by the CSF (and turned by the convergence, which
+    # changes no area). Otherwise the full grid-to-ellipsoid map, per triangle.
+    if located.to_ellipsoid is not None:
+        to_ground = located.to_ellipsoid / height_factor[:, None, None]
+    else:
+        to_ground = np.eye(2)[None, :, :] / (located.grid_scale * height_factor)[:, None, None]
+    ground_u = np.concatenate([np.einsum("tij,tj->ti", to_ground, u[:, :2]), u[:, 2:]], axis=1)
+    ground_v = np.concatenate([np.einsum("tij,tj->ti", to_ground, v[:, :2]), v[:, 2:]], axis=1)
     ground_surface = 0.5 * np.linalg.norm(np.cross(ground_u, ground_v), axis=1)
+    plan_scale = np.abs(np.linalg.det(to_ground))
     return AreaReading(
         triangles=len(tris),
         grid_surface=float(grid_surface.sum()),
         grid_plan=float(grid_plan.sum()),
         ground_surface=float(ground_surface.sum()),
-        ground_plan=float((grid_plan / (csf * csf)).sum()),
+        ground_plan=float((grid_plan * plan_scale).sum()),
     )
 
 
@@ -598,17 +758,72 @@ def face_areas(placement: Placement, triangles: np.ndarray) -> AreaReading:
 
 @dataclass(frozen=True, slots=True)
 class SunSite:
-    """Where the sun is seen from, and how the scene's +Y relates to true north."""
+    """Where the sun is seen from, and how the scene's +Y relates to true north.
+
+    Directions turn between true and scene azimuths with :meth:`scene_azimuth`
+    and :meth:`true_azimuth`. In a conformal grid (and in ANCHOR and LOCAL
+    scenes) that is the convergence: scene = true - convergence. In a
+    non-conformal one (Albers, Web Mercator) the turn depends on the
+    direction, so the grid-to-ellipsoid map at the site turns them; there
+    ``convergence`` is exact only along the meridian. Elevations are unchanged.
+    """
 
     longitude: float
     latitude: float
     height: float
-    """Ellipsoidal metres (only the SPA's tiny parallax term uses it)."""
+    """Ellipsoidal metres: the SPA's parallax term and the refraction's pressure."""
     convergence: float
-    """Degrees from true north to the scene's +Y, clockwise: subtract from true azimuths."""
+    """Degrees from true north to the scene's +Y, clockwise (the meridian's grid bearing,
+    negated): subtract from true azimuths in a conformal grid."""
     north: str
     """What the scene's +Y is: "grid north", "anchor heading" or "true north"."""
     geodetic_crs: str | None
+    to_ellipsoid: tuple[tuple[float, float], tuple[float, float]] | None = None
+    """A non-conformal grid's map at the site from a grid step (dE, dN) to the step on
+    the ellipsoid (true east, north metres); None where the convergence is exact."""
+
+    @property
+    def conformal(self) -> bool:
+        """True where one rotation (the convergence) turns every direction exactly."""
+        return self.to_ellipsoid is None
+
+    def scene_azimuth(self, true_azimuth: np.ndarray | float) -> np.ndarray:
+        """Scene azimuths (degrees clockwise from +Y, [0, 360)) of true azimuths."""
+        true = np.asarray(true_azimuth, dtype=np.float64)
+        if self.to_ellipsoid is None:
+            return (true - self.convergence) % 360.0
+        a = np.radians(true)
+        inverse = np.linalg.inv(np.array(self.to_ellipsoid, dtype=np.float64))
+        east = inverse[0, 0] * np.sin(a) + inverse[0, 1] * np.cos(a)
+        north = inverse[1, 0] * np.sin(a) + inverse[1, 1] * np.cos(a)
+        return np.degrees(np.arctan2(east, north)) % 360.0
+
+    def true_azimuth(self, scene_azimuth: np.ndarray | float) -> np.ndarray:
+        """True azimuths (degrees, [0, 360)) of scene azimuths (clockwise from +Y)."""
+        scene = np.asarray(scene_azimuth, dtype=np.float64)
+        if self.to_ellipsoid is None:
+            return (scene + self.convergence) % 360.0
+        a = np.radians(scene)
+        g = self.to_ellipsoid
+        east = g[0][0] * np.sin(a) + g[0][1] * np.cos(a)
+        north = g[1][0] * np.sin(a) + g[1][1] * np.cos(a)
+        return np.degrees(np.arctan2(east, north)) % 360.0
+
+    @property
+    def rotation(self) -> float:
+        """The one rotation (degrees, clockwise, true north to +Y) nearest the map.
+
+        The convergence in a conformal grid. Otherwise the rotation of the map's
+        polar decomposition (nearest in the least-squares sense), which turns
+        vectors (the sun) and gradients (an aspect) alike; in Albers and Web
+        Mercator, where meridians and parallels cross at right angles, it is the
+        convergence too, and exact for the four directions along and across the
+        meridian. For presets that take one angle (Aspect (True North)).
+        """
+        if self.to_ellipsoid is None:
+            return self.convergence
+        (a, b), (c, d) = self.to_ellipsoid
+        return math.degrees(math.atan2(b - c, a + d))
 
 
 def sun_site(
@@ -620,7 +835,8 @@ def sun_site(
     """The sun's site for a project, at the Blender world position ``local``.
 
     SOURCE_CRS: the point's latitude and longitude and the grid convergence
-    there (needs pyproj). ANCHOR: the anchor's latitude and longitude, and the
+    there (needs pyproj), and in a non-conformal grid the grid-to-ellipsoid map
+    there, which turns directions exactly. ANCHOR: the anchor's latitude and longitude, and the
     heading (no pyproj needed: the frame is the anchor's tangent plane). LOCAL:
     ``local_lon_lat`` (longitude, latitude), with +Y taken as true north.
     """
@@ -640,6 +856,10 @@ def sun_site(
     located = _locate(placement, np.asarray(local, dtype=np.float32).astype(np.float64)[None, :])
     lon, lat = float(located.lon[0]), float(located.lat[0])  # type: ignore[index]
     _check_lon_lat(lon, lat)
+    to_ellipsoid = None
+    if located.to_ellipsoid is not None and not _grid(crs_input(placement.source_crs)).conformal:
+        g = located.to_ellipsoid[0]
+        to_ellipsoid = ((float(g[0, 0]), float(g[0, 1])), (float(g[1, 0]), float(g[1, 1])))
     return SunSite(
         lon,
         lat,
@@ -647,6 +867,7 @@ def sun_site(
         float(located.convergence[0]),
         "grid north" if located.radius is not None else "true north",
         located.geodetic_name,
+        to_ellipsoid,
     )
 
 

@@ -37,6 +37,7 @@ to try the tools.
    These are ordinary Blender settings. Change them as you like afterwards.
    To paint a different image, choose it in the **Image** field at the top of
    the panel.
+
 2. **Watch for UV overlaps.** Overlapping UV islands share texels, so painting
    one place also changes another place on the model, or on another object
    that uses the same image. Paint Texture rasterises every face that uses the
@@ -47,8 +48,10 @@ to try the tools.
    Stencil Mask). Strokes then cannot change the overlapping texels, and the
    viewport's mask overlay shows where they are. Turn the stencil off in
    Blender's Masking panel when you mean to paint there.
+
 3. **Clean** with Blender's brushes (see the recipes) and the GeoTools tools
    (see below). Each GeoTools tool marks the image as edited.
+
 4. **Run Checks.** Run Checks now also reports:
    - `image-unsaved` (warning): an image has edits that are not saved
      anywhere. The message says where Publish will save them. It is an error
@@ -59,6 +62,7 @@ to try the tools.
    - `texture-balance-preview` (error): a material still shows the colour
      balance preview. Apply or Clear it first, otherwise the published
      material would lose its texture.
+
 5. **Publish.** The Publish panel shows **N textures changed since last
    publish**, with the first few names and the reason for each: unsaved edits,
    changed, new, or no longer used. Publish saves every edited source image

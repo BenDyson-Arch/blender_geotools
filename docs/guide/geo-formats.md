@@ -108,6 +108,15 @@ GeoPackage table that already exists.
 A GeoJSON in a projected CRS is outside RFC 7946, which allows only WGS84.
 GeoTools writes the legacy `crs` member, which QGIS and GDAL read.
 
+A GeoPackage records the CRS in its `gpkg_spatial_ref_sys` table: the EPSG
+code (organization and code) and, as the GeoPackage standard asks, the CRS as
+WKT (WKT1, which GDAL and QGIS read). A CRS that WKT1 cannot express (a 3D
+geographic CRS, say) is written as WKT2 in the standard's CRS WKT extension
+(`definition_12_063`). The WKT comes from pyproj; without pyproj (see About)
+GeoTools writes the CRS as the project holds it (`EPSG:7856`, or a PROJ
+string) instead of WKT. GDAL and QGIS still find an EPSG CRS by its code,
+but a CRS without a code is then lost to them.
+
 The analysis tools' lines and points (contours, sections, sightlines, flow
 paths, depressions) export the same way.
 

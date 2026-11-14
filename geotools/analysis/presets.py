@@ -391,9 +391,9 @@ PRESETS: tuple[Preset, ...] = (
     Preset(
         id="curvature_plan",
         version=1,
-        group="GeoTools Plan Curvature",
+        group="GeoTools Plan (Tangential) Curvature",
         category=Category.TERRAIN,
-        label="Plan Curvature",
+        label="Plan (Tangential) Curvature",
         layer="curvature_plan",
         domain=Domain.CORNER,
         units="1/m",
@@ -485,7 +485,7 @@ PRESETS: tuple[Preset, ...] = (
             PresetInput(
                 "Samples",
                 "INT",
-                24,
+                96,
                 "Heights sampled in the annulus: point-symmetric pairs on a sunflower pattern of even "
                 "density (an odd number is rounded up)",
                 min=1,
@@ -857,7 +857,7 @@ PRESETS: tuple[Preset, ...] = (
     ),
     Preset(
         id="closed_volume",
-        version=1,
+        version=2,
         group="GeoTools Closed Volume",
         category=Category.VOLUMES,
         label="Closed Volume",

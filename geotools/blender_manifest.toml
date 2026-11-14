@@ -1,9 +1,9 @@
 schema_version = "1.0.0"
 
 id = "geotools"
-version = "0.3.0-dev"
+version = "0.3.0"
 name = "GeoTools"
-tagline = "Create, analyse and publish 3D Tiles from Blender"
+tagline = "GIS for Blender: georeference, analyse and publish 3D sites"
 maintainer = "BenDyson-Arch"
 type = "add-on"
 website = "https://github.com/BenDyson-Arch/blender_geotools"

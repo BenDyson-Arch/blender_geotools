@@ -243,6 +243,57 @@ def test_lines_and_points_from_mesh() -> None:
     assert [d.kinds() for d in datas] == [[Kind.LINES], [Kind.POINTS]]
 
 
+def test_lines_carry_a_point_attribute_as_m(tmp_path) -> None:
+    """A section's chainage: LineString ZM in a GeoPackage, a per-point property in GeoJSON."""
+    import json
+    import sqlite3
+    import struct
+
+    from geotools.core.vector import geojson, gpkg
+
+    pos = np.array([[float(i), 0.0, 10.0 + i] for i in range(6)])
+    chainage = np.array([0.0, 1.0, 2.0, 0.0, 1.5, 0.1], dtype=np.float32)
+    mesh = _mesh_input(
+        pos,
+        [],
+        edges=[[0, 1], [1, 2], [3, 4], [4, 5]],
+        edge_attrs={"fid": (ColumnType.INT, np.array([1, 1, 2, 2]))},
+        point_attrs={"chainage": (ColumnType.FLOAT, chainage)},
+    )
+    mesh.measure = "chainage"
+    (data,) = vm.vectors_from_mesh(mesh, "sections", None)
+    geoms = data.geometries[Kind.LINES]
+    assert geoms.measure_name == "chainage"
+    assert geoms.measures.tolist() == [0.0, 1.0, 2.0, 0.0, 1.5, 0.1]  # shortest decimals
+    out = tmp_path / "s.gpkg"
+    gpkg.write_layer(out, "sections", data, Kind.LINES, None)
+    with sqlite3.connect(out) as con:
+        assert con.execute("SELECT z, m FROM gpkg_geometry_columns").fetchone() == (1, 1)
+        blobs = [r[0] for r in con.execute("SELECT geom FROM sections ORDER BY fid")]
+    for blob, expected in zip(blobs, ([0.0, 1.0, 2.0], [0.0, 1.5, 0.1]), strict=True):
+        wkb = blob[8 + 48 :]  # header, XYZ envelope
+        byte_order, code, n = struct.unpack("<BII", wkb[:9])
+        assert (byte_order, code, n) == (1, 3002, 3)  # ISO LineString ZM
+        xyzm = np.frombuffer(wkb[9:], "<f8").reshape(n, 4)
+        assert xyzm[:, 3].tolist() == expected
+        assert xyzm[:, 2].tolist() == [10.0 + v for v in xyzm[:, 0]]
+    # The readers drop M; the geometry is unchanged.
+    back = gpkg.read_layer(out, "sections").geometries[Kind.LINES]
+    np.testing.assert_array_equal(back.coords, geoms.coords)
+    path = tmp_path / "s.geojson"
+    geojson.write(path, data, None)
+    features = json.loads(path.read_text())["features"]
+    assert [f["properties"]["chainage"] for f in features] == [[0.0, 1.0, 2.0], [0.0, 1.5, 0.1]]
+    assert [len(f["geometry"]["coordinates"][0]) for f in features] == [3, 3]  # XYZ, no M
+    # Without a measure, plain XYZ as before.
+    mesh.measure = None
+    (plain,) = vm.vectors_from_mesh(mesh, "lines", None)
+    assert plain.geometries[Kind.LINES].measures is None
+    gpkg.write_layer(tmp_path / "p.gpkg", "lines", plain, Kind.LINES, None)
+    with sqlite3.connect(tmp_path / "p.gpkg") as con:
+        assert con.execute("SELECT z, m FROM gpkg_geometry_columns").fetchone() == (1, 0)
+
+
 def test_mesh_round_trip_through_tessellation() -> None:
     """Polygons -> mesh arrays -> polygons gives the same rings (as sets of points)."""
 

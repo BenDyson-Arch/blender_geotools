@@ -33,6 +33,8 @@ Run Checks also refreshes every layer's value range and status.
 | `crs-refused` | rusty-tiles cannot publish this CRS. | Choose another CRS. See [Georeference and projects](projects.md). |
 | `crs-operation` | The datum operation rusty-tiles will use, and its accuracy. | Nothing; an info note. |
 | `georef-height-shift` | Offset A is not 0, so BlenderGIS sees heights shifted. | Nothing, unless you share the scene. See [BlenderGIS](blendergis.md). |
+| `georef-origin-lat-lon-only` | The scene has a latitude and longitude but no projected origin (E, N). | **Origin from Latitude/Longitude** in the Project panel or Checks. See [BlenderGIS](blendergis.md). |
+| `georef-origin-lat-lon-differ` | The scene's latitude and longitude lie some metres from E and N. | Nothing, if E and N are right; else **Origin from Latitude/Longitude**. |
 | `georef-keys-ignored` | The scene has a BlenderGIS georeference, but the project is Local or Anchor. | **Use the Scene's BlenderGIS Georeference** in the Project panel, or ignore it. |
 | `uv-overlap` | UV triangles share texels on an object with texture layers. | Fix the UVs, or bake anyway. See [Layers](layers.md#texture-layers-and-the-bake-sub-panel). |
 | `image-missing` | An image's file is missing and it is not packed. | Find the file, or pack the image. |
@@ -42,11 +44,16 @@ Run Checks also refreshes every layer's value range and status.
 
 ### Images rusty-tiles refuses
 
-rusty-tiles refuses source images over 16,384 pixels a side, over 32 MiB
+rusty-tiles refuses source images over 16,384 pixels a side, over 1 GiB
 encoded, or with 16 bits per channel. GeoTools reports them
 (`image-too-large`, `image-file-too-large`, `image-png-size`, `image-16-bit`)
 with fix buttons: **Re-encode as JPEG**, **Downscale** or **Convert to 8-bit**.
 **Clear Remedy** takes the fix off again.
+
+Below 1 GiB, an image of any encoded size is accepted as long as the build's
+memory budget can hold it while it is decoded. If it can't, the publish fails
+with a `ResourceLimitError` that names the bytes it needs: raise the build
+profile's **Memory GiB**, or choose **Downscale** for the image.
 
 A fix changes only the copy that is published. Your image, its file and its
 pixels stay as they are. The **Images** sub-panel of Checks lists every source

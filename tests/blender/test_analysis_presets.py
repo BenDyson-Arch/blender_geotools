@@ -320,6 +320,37 @@ def test_mga_true_north_uses_the_site_convergence() -> None:
     _clear_trees()
 
 
+def test_albers_true_north_is_one_rotation_with_a_note() -> None:
+    """EPSG:3577 is not conformal: Aspect (True North) takes the site's nearest rotation
+    (the convergence there, as meridians and parallels cross at right angles) and says
+    that aspects between the meridian and the parallel are not exact."""
+    if h.CONFIG.expect != "available":
+        return  # needs pyproj
+    import pyproj
+
+    _reset()
+    east, north = pyproj.Transformer.from_crs("EPSG:4283", "EPSG:3577", always_xy=True).transform(
+        150.0, -12.0
+    )
+    props = h.project()
+    props.placement_mode = "SOURCE_CRS"
+    props.crs = "EPSG:3577"
+    props.origin_e = repr(east)
+    props.origin_n = repr(north)
+    plane = _grid("Tilted", 8, 2.0, lambda x, y: y * TAN30)  # faces grid south
+    preset = h.submodule("analysis.presets").get("aspect")
+    _name, notes = _ap().add_preset(bpy.context, preset, [plane], north="TRUE")
+    site = h.submodule("analysis.site")
+    placement = h.submodule("blender.properties").placement_from_props(props)
+    where = site.sun_site(placement, _ap()._centre(plane))
+    angle = _ap().convergence(bpy.context.scene, plane)[0]
+    assert angle == where.rotation and abs(angle - where.convergence) < 1e-6, angle
+    assert -8.2 < angle < -8.0, angle
+    assert any("not conformal" in note for note in notes), notes
+    np.testing.assert_allclose(_values(plane, "aspect")[0], (180.0 + angle) % 360.0, atol=1e-3)
+    _clear_trees()
+
+
 def test_readding_never_duplicates() -> None:
     _reset()
     a = _grid("A", 6, 1.0, lambda x, y: 0.1 * x)
@@ -336,8 +367,8 @@ def test_readding_never_duplicates() -> None:
     assert _node_group_names() == groups and len(a.modifiers) == 1
     # Another preset sharing the helpers appends only its own group.
     assert _add("curvature_plan") == {"FINISHED"}
-    assert _node_group_names() == sorted([*groups, "GeoTools Plan Curvature"])
-    plan = bpy.data.node_groups["GeoTools Plan Curvature"]
+    assert _node_group_names() == sorted([*groups, "GeoTools Plan (Tangential) Curvature"])
+    plan = bpy.data.node_groups["GeoTools Plan (Tangential) Curvature"]
     helper = next(n for n in plan.nodes if n.bl_idname == "GeometryNodeGroup")
     assert helper.node_tree == bpy.data.node_groups["GeoTools Surface Derivatives"]
     # A renamed (or edited) group is still the preset's group.

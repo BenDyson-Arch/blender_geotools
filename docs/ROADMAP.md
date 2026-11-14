@@ -4,9 +4,14 @@ Status: agreed 2026-11-11. This replaces the 0.2 importer/analysis add-on.
 
 ## What GeoTools becomes
 
-You prepare a site in Blender, bake analysis and cleaned textures onto it, and
-publish it as OGC 3D Tiles with [rusty-tiles](https://github.com/BenDyson-Arch/rusty-tiles).
-GeoTools creates tilesets; it no longer imports them.
+GeoTools brings GIS into Blender. You place a site in a real coordinate system,
+bring in geodata, and analyse the full 3D mesh rather than a 2.5D raster:
+terrain shape, archaeological visualisation, visibility, sun and shadow,
+archaeoastronomy, hydrology, measurement, contours and sections. The results
+are layers, alongside cleaned textures, that you view in Blender, export as
+vectors or GLB metadata, or publish as OGC 3D Tiles with
+[rusty-tiles](https://github.com/BenDyson-Arch/rusty-tiles). GeoTools creates
+tilesets; it no longer imports them.
 
 - **Blender:** the latest release only (5.2 LTS at the time of writing). It ships
   as a Blender extension (`blender_manifest.toml`) with the rusty-tiles wheels
@@ -79,7 +84,7 @@ operability and quality); new capabilities come in 0.5.
 | E. Blender 5.2 LTS in wheel acceptance | 0.4.1 | [#330](https://github.com/BenDyson-Arch/rusty-tiles/issues/330) | **0.3.0 release** |
 | CRS allow-list: GDAL-verified EPSG codes in the wheel | 0.4.1 (merged on develop) | [#337](https://github.com/BenDyson-Arch/rusty-tiles/issues/337) | M1 follow-up: EPSG picker replaces the PROJ-string presets (done; ships in 0.3.0, on the 0.4.1 wheel) |
 | CRS resolve without converting, and the supported EPSG list, from Python | 0.4.1 | [#367](https://github.com/BenDyson-Arch/rusty-tiles/issues/367) | The picker lists only codes that will publish; Check shows the datum operation and accuracy before a bake |
-| Encoded images admitted by memory budget, not a fixed 32 MiB | 0.4.1 | [#338](https://github.com/BenDyson-Arch/rusty-tiles/issues/338) | Publishing 8K PNG photogrammetry without re-encoding; GeoTools drops its 32 MiB check |
+| Encoded images admitted by memory budget, not a fixed 32 MiB | 0.4.1 | [#338](https://github.com/BenDyson-Arch/rusty-tiles/issues/338) | Publishing 8K PNG photogrammetry without re-encoding; GeoTools' encoded-size check moved to rusty-tiles' 1 GiB ceiling (done) |
 | C. Decoded tile export (`decode_tile` to plain GLB or arrays) | 0.4.1 | [#329](https://github.com/BenDyson-Arch/rusty-tiles/issues/329) | M7 (moved forward) |
 | Coarse smooth normals fixed on untextured surfaces | 0.4.1 | [#336](https://github.com/BenDyson-Arch/rusty-tiles/issues/336) | Untextured analysis publishes (M3 colour variants) shade correctly |
 | Mesh inspect: open edges, seams, predicted coarse omissions | 0.4.2 | [#348](https://github.com/BenDyson-Arch/rusty-tiles/issues/348) | M2 Check: run it before a bake once the wheel exposes it; GeoTools' own open-edge checks defer to it |
@@ -96,10 +101,10 @@ operability and quality); new capabilities come in 0.5.
 ## Milestones
 
 **Release scope, decided 2026-11-12.** 0.3.0 ships everything finished on
-`develop` while rusty-tiles 0.4.1 is awaited: M0 to M8. It still waits
-for rusty-tiles 0.4.1, which carries Blender 5.2 wheel acceptance (E), the
-CRS allow-list that the EPSG picker needs and the tile decoding M7 reads
-(C). M6 and M7 were first planned for 0.4.0 and moved into 0.3.0 on
+`develop` while rusty-tiles 0.4.1 was awaited: M0 to M8. rusty-tiles 0.4.1
+was released on 2026-11-14 with Blender 5.2 wheel acceptance (E), the CRS
+allow-list that the EPSG picker needs and the tile decoding M7 reads (C), and
+the pin moved to it the same day. M6 and M7 were first planned for 0.4.0 and moved into 0.3.0 on
 2026-11-13, once both were built and tested.
 
 **User guide.** [guide/](guide/README.md) is the user documentation for the
@@ -181,8 +186,8 @@ grouped and every control given a tooltip. New panels follow
   `core/crs_migration.py` is the migration-only preset table. Migration
   happens only when rusty-tiles resolves the code to the preset's very
   definition, and a test compares probe ECEF within 1 mm for all 15 presets.
-  `build.json` records `placement.crs_operation`. The pin moves from 0.4.0 to
-  0.4.1 when that release exists (the develop wheel still reports 0.4.0).
+  `build.json` records `placement.crs_operation`. The pin moved from 0.4.0 to
+  0.4.1 on 2026-11-14.
 
 ### M2 Publish (first release, 0.3.0)
 
@@ -288,7 +293,7 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
     animates Blender's sun; shadows are rendered or baked by Blender.
   - **Sun hours and insolation:** hours of direct sun, or kWh/m² with a
     clear-sky model, over a day, season or year, from real sun positions
-    (Cycles bakes over time steps). Solstice and equinox shadow studies.
+    (Cycles bakes over time steps). Solstice and equinox shadow studies. Validated ([validation/solar.md](validation/solar.md)).
   - **Archaeoastronomy:** sunrise and sunset azimuths for solstices and
     equinoxes and lunar standstills, and the horizon profile from a point
     with the terrain, which sets when the sun actually clears the skyline.
@@ -296,7 +301,7 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
     - *Status:* built ([m5-analysis.md](design/m5-analysis.md#archaeoastronomy)):
       the horizon by a Cycles bake, event geometry for epochs within 10,000
       years of 2000, Meeus' Moon with standstill dates, sightlines as vector
-      lines and the alignment check.
+      lines and the alignment check. Validated ([validation/archaeoastronomy.md](validation/archaeoastronomy.md)).
   - **3D surface hydrology:** flow paths, flow accumulation and ponding
     (depressions, spill level, volume) on the mesh's connectivity, so walls,
     overhangs and multi-level surfaces work, which a 2.5D DEM cannot do.
@@ -308,7 +313,7 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
     objects; 20 s on 10M triangles ([design](design/m5-analysis.md#3d-surface-hydrology)).
   - **Coordinates and measurement:** pick a point to read E/N/RL and
     latitude/longitude at full precision; grid and ground distances and areas
-    (combined scale factor).
+    (combined scale factor). Validated with the geo formats' CRS handling ([validation/geodesy.md](validation/geodesy.md)).
   - **Contours and sections out:** contours at an interval and cross-sections
     along a line, as GeoPackage lines with elevation (M8 I/O).
     *Status:* built: line objects with elevation or chainage in the project's
@@ -333,6 +338,9 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
     cast by the sun-hours Cycles Raycast engine (now shared,
     `ray_bake.py`) and stored once as a layer, chosen in Add Analysis
     ([analysis-presets.md](analysis-presets.md#fast-bake-paths)).
+    Terrain and archaeological presets validated ([validation/terrain.md](validation/terrain.md)).
+    Hydrology, contours and sections validated ([validation/hydrology.md](validation/hydrology.md)).
+    Visibility, distance, volume and path presets validated ([validation/visibility.md](validation/visibility.md)).
   - Terrain shape: slope, aspect, curvature (plan and profile), roughness and
     rugosity, TPI and TRI.
   - Archaeological visualisation: local relief model, sky-view factor,
@@ -404,8 +412,8 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
   placement, traces both ways through the face map, and has the distance,
   texel-density and level views. The exit test
   (`tests/blender/test_inspect.py`) publishes a synthetic site, opens a leaf
-  and the coarse root, and traces each to its source faces. It needs the
-  0.4.1 wheel, which the 0.3.0 release waits for.
+  and the coarse root, and traces each to its source faces. It runs on the
+  released 0.4.1 wheel.
 
 ### M8 Geo formats: vectors and rasters (can run in parallel after M2)
 

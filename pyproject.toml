@@ -11,7 +11,7 @@ platforms = ["linux-x64", "windows-x64", "macos-arm64"]
 [tool.geotools.wheels]
 # One exact version per bundled distribution; scripts/fetch_wheels.py fetches
 # them and scripts/build_extension.py refuses wheels that do not match.
-rusty-tiles = "0.4.0"
+rusty-tiles = "0.4.1"
 # Reprojection of imported vector points (M8). PROJ is inside the wheel; no GDAL.
 # 3.8.0 has cp313 wheels for every platform above (macOS arm64:
 # 14.0); see docs/design/m8-geo-formats.md for why 3.8.0 and not 3.7.2.
