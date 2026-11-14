@@ -554,3 +554,63 @@ def test_origin_from_lat_lon_leaves_local_and_anchor_keys_alone() -> None:
         }
         assert _keys() == before
     h.reset_scene()
+
+
+# --- what GeoTools writes on the Scene --------------------------------------------------------
+
+
+def _geotools_scene_properties() -> set[str]:
+    """GeoTools' own registered Scene properties: scene.geotools and the scene.geotools_* groups."""
+    return {
+        p.identifier
+        for p in bpy.types.Scene.bl_rna.properties
+        if p.identifier.startswith("geotools")
+    }
+
+
+def _foreign_scene_keys(before: set[str]) -> list[str]:
+    allowed = set(KEYS) | _geotools_scene_properties()
+    return sorted(set(bpy.context.scene.keys()) - before - allowed)
+
+
+def test_geotools_writes_only_geoscene_keys_on_the_scene() -> None:
+    """Scene custom properties: BlenderGIS's five GeoScene keys and GeoTools' registered groups."""
+    h.reset_scene()
+    _grid_source()
+    scene = bpy.context.scene
+    before = set(scene.keys())
+    props = h.project()
+    p = _props_mod()
+    scene_georef = h.submodule("blender.scene_georef")
+    props.placement_mode = "SOURCE_CRS"
+    props.crs = "EPSG:7856 — GDA2020 / MGA zone 56"
+    p.write_number(props, "origin_e", E0)
+    p.write_number(props, "origin_n", N0)
+    p.write_number(props, "source_offset_a", 2.0)
+    props.crs = "EPSG:7856+5711"  # held by GeoTools, off the keys
+    props.crs = "EPSG:7856"
+    saved = scene_georef.snapshot(scene)
+    props.crs = "EPSG:28356"
+    scene_georef.restore(scene, saved)
+    for mode in ("LOCAL", "ANCHOR"):
+        props.placement_mode = mode
+        props.origin_e = "1.0"
+    assert bpy.ops.geotools.use_blendergis_georef() == {"FINISHED"}
+    h.call_op(bpy.ops.geotools.run_checks)
+    h.call_op(bpy.ops.geotools.sun_place)
+    if bpy.ops.geotools.origin_from_lat_lon.poll():
+        h.call_op(bpy.ops.geotools.origin_from_lat_lon)
+    with tempfile.TemporaryDirectory(prefix="geotools-test-") as tmp:
+        try:
+            _save_and_reload(Path(tmp) / "keys.blend")  # the load handlers run too
+            scene = bpy.context.scene
+            assert scene["SRID"] == "EPSG:7856", dict(scene.items())
+            found = _foreign_scene_keys(before)
+        finally:
+            bpy.ops.wm.read_homefile(use_empty=True)  # not left open from a deleted folder
+    assert not found, (
+        f"GeoTools wrote the Scene custom properties {found}. On the Scene it writes only "
+        f"BlenderGIS's GeoScene keys {KEYS} (through core.geoscene); its own settings go in "
+        "its registered properties (scene.geotools and the other scene.geotools_* groups)."
+    )
+    h.reset_scene()

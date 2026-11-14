@@ -187,7 +187,7 @@ def _write_npz(path: Path, **overrides) -> None:
         "topology_digests": np.asarray(["a" * 64]),
     }
     arrays.update(overrides)
-    with open(path, "wb") as f:
+    with path.open("wb") as f:
         np.savez(f, **{k: v for k, v in arrays.items() if v is not None})
 
 

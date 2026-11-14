@@ -67,20 +67,20 @@ class DependencyStatus:
         return f"{self.name} not available: {self.error or 'unknown error'}"
 
 
-_cached: DependencyStatus | None = None
-_cached_pyproj: DependencyStatus | None = None
+# Probed statuses by distribution name ("rusty-tiles", "pyproj"); reset_cache() empties it.
+_cache: dict[str, DependencyStatus] = {}
 
 
 def probe_rusty_tiles() -> DependencyStatus:
     """Return the rusty-tiles status, probing once and caching the result."""
-    global _cached
-    if _cached is None:
-        _cached = _probe()
-        if _cached.available:
-            log.info("%s", _cached.summary)
+    status = _cache.get("rusty-tiles")
+    if status is None:
+        status = _cache["rusty-tiles"] = _probe()
+        if status.available:
+            log.info("%s", status.summary)
         else:
-            log.warning("%s", _cached.summary)
-    return _cached
+            log.warning("%s", status.summary)
+    return status
 
 
 def probe_pyproj() -> DependencyStatus:
@@ -89,14 +89,14 @@ def probe_pyproj() -> DependencyStatus:
     Not called at registration: importing pyproj loads PROJ, which only the
     About panel, Check Dependencies and an import that reprojects need.
     """
-    global _cached_pyproj
-    if _cached_pyproj is None:
-        _cached_pyproj = _probe_pyproj()
-        if _cached_pyproj.available:
-            log.info("%s, data %s", _cached_pyproj.summary, _cached_pyproj.data_dir)
+    status = _cache.get("pyproj")
+    if status is None:
+        status = _cache["pyproj"] = _probe_pyproj()
+        if status.available:
+            log.info("%s, data %s", status.summary, status.data_dir)
         else:
-            log.warning("%s", _cached_pyproj.summary)
-    return _cached_pyproj
+            log.warning("%s", status.summary)
+    return status
 
 
 def probe_all() -> tuple[DependencyStatus, ...]:
@@ -106,9 +106,7 @@ def probe_all() -> tuple[DependencyStatus, ...]:
 
 def reset_cache() -> None:
     """Forget the cached statuses so the next probe imports again."""
-    global _cached, _cached_pyproj
-    _cached = None
-    _cached_pyproj = None
+    _cache.clear()
     importlib.invalidate_caches()
     from . import crs_catalog  # its EPSG list and names come from these libraries
 

@@ -635,7 +635,7 @@ class GEOTOOLS_OT_bake_texture_layer(bpy.types.Operator):
                     "attribute": attribute,
                     "source_layer": self.source_layer or None,
                     "method": self.method,
-                    "methods": {obj: method for obj, method in baked},
+                    "methods": dict(baked),
                     "uv_map": item.uv_map,
                     "resolution": item.resolution,
                     "margin": item.margin,

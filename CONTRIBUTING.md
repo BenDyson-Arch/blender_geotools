@@ -85,11 +85,12 @@ pip install pytest numpy ruff pyproj==3.8.0   # pyproj at the pin in pyproject.t
 Without pyproj the reprojection tests (`tests/core/test_reproject.py`) are
 skipped; everything else runs.
 
-Lint and format:
+Lint, format and import layering:
 
 ```sh
 ruff check .
 ruff format --check .
+uvx --from import-linter==2.15 lint-imports
 ```
 
 ## Fetching the wheels
@@ -249,8 +250,8 @@ own.
 CI (`.github/workflows/ci.yml`) runs on pull requests and on pushes to `main`
 and `develop`. It has these jobs:
 
-- `core`: ruff and pytest, with pyproj installed at the pin so the reprojection
-  tests run.
+- `core`: ruff, import-linter and pytest, with pyproj installed at the pin so
+  the reprojection tests run.
 - `blender`: an official, checksum-pinned Blender 5.2 LTS runs the Blender
   tests with `--expect missing`, then uploads the zip.
 - `blender-wheel`: the same with the pinned PyPI wheels (rusty-tiles 0.4.1,

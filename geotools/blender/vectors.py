@@ -836,8 +836,8 @@ def export_vectors(
     depsgraph = context.evaluated_depsgraph_get()
     by_kind: dict[Kind, list[VectorData]] = {}
     for obj in objects:
-        for data in mesh_input(obj, depsgraph, frame.offset):
-            data = source_names(obj, data)
+        for raw in mesh_input(obj, depsgraph, frame.offset):
+            data = source_names(obj, raw)
             (kind,) = data.kinds()
             by_kind.setdefault(kind, []).append(data)
     if not by_kind:

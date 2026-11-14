@@ -48,7 +48,7 @@ def test_extract_refuses_unsafe_names(tmp_path: Path, name: str) -> None:
 
 def test_extract_needs_tileset(tmp_path: Path) -> None:
     archive = _archive(tmp_path / "x.3tz", {"other.json": b"{}"})
-    with pytest.raises(pv.PreviewError, match="tileset.json"):
+    with pytest.raises(pv.PreviewError, match=r"tileset\.json"):
         pv.extract_archive(archive, tmp_path / "out")
     with pytest.raises(pv.PreviewError, match="publish first"):
         pv.extract_archive(tmp_path / "missing.3tz", tmp_path / "out")

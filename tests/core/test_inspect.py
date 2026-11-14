@@ -74,7 +74,7 @@ def test_record_beside_an_archive(tmp_path: Path) -> None:
     assert loaded.face_map().object_names == ("Ground", "Wall")
     assert loaded.source_glb_path == staging / "source.glb"
     (staging / "build.json").write_text(json.dumps({"output_type": "glb"}))
-    with pytest.raises(InspectError, match="not a .3tz"):
+    with pytest.raises(InspectError, match=r"not a \.3tz"):
         OutputRecord.load(archive)
 
 

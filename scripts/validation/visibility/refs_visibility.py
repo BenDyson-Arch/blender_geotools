@@ -162,7 +162,7 @@ def single(
     nseen, nunsure = C.viewshed_nodes(g, eye, target)
     data[f"{key}__exact_nodes"] = code(nseen, nunsure)
     gd = nodes_of(gdal_viewshed(work, xy, eye_height, target, 0.0, md))
-    (gr,) = grass_viewshed(work, [(xy, eye_height, target, md if md else -1.0)])
+    (gr,) = grass_viewshed(work, [(xy, eye_height, target, md or -1.0)])
     gr = nodes_of(gr)
     data[f"{key}__gdal"] = np.nan_to_num(gd, nan=2).astype(np.uint8)
     data[f"{key}__grass"] = np.nan_to_num(gr, nan=2).astype(np.uint8)

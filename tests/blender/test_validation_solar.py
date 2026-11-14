@@ -20,6 +20,7 @@ import bpy
 import numpy as np
 
 DATA = Path(__file__).resolve().parents[1] / "data" / "validation" / "solar"
+sun = h.submodule("analysis.sun")
 
 
 @cache
@@ -270,7 +271,7 @@ def test_shadow_study_days_in_far_time_zones() -> None:
         rows = json.loads(study.result)["moments"]
         assert [row["season"] for row in rows] == names
         for row in rows:
-            moment = dt.datetime.fromtimestamp(moments[row["season"]], zone)
+            moment = sun.utc_datetime(moments[row["season"]]).astimezone(zone)
             assert row["local"] == f"{moment.date().isoformat()}T12:00:00", (zone, row, moment)
 
 

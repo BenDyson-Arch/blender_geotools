@@ -196,7 +196,7 @@ def run_gdal_contours(work: Path, cases):
     for name in cases:
         data = json.loads((work / f"gdal_contour_{name}.geojson").read_text())
         pts, line, elev = [], [], []
-        for k, feature in enumerate(data["features"]):
+        for feature in data["features"]:
             geom = feature["geometry"]
             parts = [geom["coordinates"]] if geom["type"] == "LineString" else geom["coordinates"]
             for part in parts:

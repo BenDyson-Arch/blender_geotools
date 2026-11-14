@@ -19,6 +19,7 @@ a file never changes them.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from collections.abc import Callable, Iterator
@@ -143,10 +144,8 @@ def restore(changed: list[tuple[PathRef, str]]) -> None:
     _pending["saving"] = True
     try:
         for (owner, attr), text in changed:
-            try:
+            with contextlib.suppress(ReferenceError):  # removed meanwhile
                 setattr(owner, attr, text)
-            except ReferenceError:  # removed meanwhile
-                pass
     finally:
         _pending["saving"] = False
 

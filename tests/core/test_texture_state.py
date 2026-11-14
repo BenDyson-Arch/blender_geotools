@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 
 from geotools.core import preflight
 from geotools.core.issues import Severity
@@ -90,7 +89,7 @@ def test_same_file_needs_path_size_time_and_a_hash() -> None:
 def test_hash_cache(tmp_path) -> None:
     path = tmp_path / "t.png"
     path.write_bytes(b"pixels")
-    stat = os.stat(path)
+    stat = path.stat()
     cache = HashCache(limit=2)
     expected = hashlib.sha256(b"pixels").hexdigest()
     assert sha256_file(path) == expected

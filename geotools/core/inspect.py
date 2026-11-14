@@ -325,10 +325,10 @@ def selected_rows(face_map: FaceMap, selection: Mapping[str, np.ndarray]) -> np.
     ``selection`` maps object names to a bool mask over that object's polygons;
     objects not in the face map are ignored."""
     rows = np.zeros(face_map.source_object.shape[0], dtype=bool)
-    for name, mask in selection.items():
+    for name, given in selection.items():
         if name not in face_map.object_names:
             continue
-        mask = np.asarray(mask, dtype=bool)
+        mask = np.asarray(given, dtype=bool)
         index = face_map.object_names.index(name)
         mine = face_map.source_object == index
         polygons = face_map.source_polygon[mine]

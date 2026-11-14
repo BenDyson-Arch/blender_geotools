@@ -21,12 +21,12 @@ RESOLUTION = 90.0 / 2 ** (8 - 1)  # Steps 8
 
 
 def test_fast_presets_and_their_inputs() -> None:
-    assert fast.FAST == {
+    assert {
         "sky_view_factor",
         "openness_positive",
         "openness_negative",
         "viewshed_cumulative",
-    }
+    } == fast.FAST
     assert not fast.is_fast("slope") and fast.is_fast("viewshed_cumulative")
     for preset in fast.HORIZON:
         assert fast.input_names(preset) == ("Max Distance", "Directions", "Steps", "Ray Offset")

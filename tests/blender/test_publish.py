@@ -294,7 +294,7 @@ def test_publish_end_to_end() -> None:
         assert set(face_map.topology) == {"Grid"}
         obj_index, polygon = face_map.lookup_many(np.array([0, 0]), np.array([0, 71]))
         assert set(obj_index.tolist()) == {0}
-        assert 0 <= polygon.min() and polygon.max() < 36
+        assert polygon.min() >= 0 and polygon.max() < 36
 
         profile = h.project().build_profiles[profile.name]
         assert profile.last_output == str(output)

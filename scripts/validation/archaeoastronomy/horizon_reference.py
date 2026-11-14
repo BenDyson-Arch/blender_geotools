@@ -114,7 +114,7 @@ def grass_profile(z: np.ndarray, work: Path, eye_z: float) -> dict:
     c = z.shape[0] // 2
     raster[c, c] = eye_z  # the observer's cell holds the eye
     e0, n0 = 500_000.0, 5_000_000.0  # UTM 33N false origin for the grid
-    with open(work / "dem.asc", "w") as f:
+    with (work / "dem.asc").open("w") as f:
         f.write(
             f"ncols {z.shape[1]}\nnrows {z.shape[0]}\n"
             f"xllcorner {e0 - HALF - SPACING / 2}\nyllcorner {n0 - HALF - SPACING / 2}\n"
@@ -180,7 +180,7 @@ def grass_bands(work: Path) -> dict:
     c = n // 2
     z[c - 302 : c - 299, :] = 100.0  # rows (north first) about 30 km north
     z[:, c + 99 : c + 102] = 50.0  # columns about 10 km east
-    with open(work / "bands.asc", "w") as f:
+    with (work / "bands.asc").open("w") as f:
         f.write(f"ncols {n}\nnrows {n}\nxllcorner 460000\nyllcorner 5960000\n")
         f.write(f"cellsize {SPACING}\nNODATA_value -9999\n")
         np.savetxt(f, z, fmt="%.4f")

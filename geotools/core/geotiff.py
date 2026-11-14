@@ -353,7 +353,7 @@ def read_info(path: str | os.PathLike[str]) -> GeoTiffInfo:
     """Parse the first image of a GeoTIFF. Raises :class:`GeoTiffError`."""
     path = os.fspath(path)
     try:
-        with open(path, "rb") as fh:
+        with Path(path).open("rb") as fh:
             reader = _Reader(fh, path)
             entries = reader.entries()
             return _info(reader, entries, path)
@@ -663,7 +663,7 @@ def read_band(info: GeoTiffInfo, band: int = 0, *, threads: int | None = None) -
             try:
                 raw = zlib.decompress(raw)
             except zlib.error as ex:
-                raise GeoTiffError(f"{info.name}: corrupt deflate data in chunk {k}: {ex}")
+                raise GeoTiffError(f"{info.name}: corrupt deflate data in chunk {k}: {ex}") from ex
         if not raw:  # a sparse (missing) chunk
             fill = info.nodata if info.nodata is not None else 0
             return np.full((rows, cols), fill, dtype=dtype.newbyteorder("="))
@@ -674,7 +674,7 @@ def read_band(info: GeoTiffInfo, band: int = 0, *, threads: int | None = None) -
 
     # Reading is serial (one file handle); decompressing runs in threads, since
     # zlib releases the GIL.
-    with open(info.path, "rb") as fh:
+    with Path(info.path).open("rb") as fh:
         raws = [_read_chunk(fh, int(offsets[k]), int(counts[k])) for k in range(per_plane)]
     workers = threads if threads is not None else min(8, os.cpu_count() or 1)
     if workers > 1 and per_plane > 1 and info.compression != 1:

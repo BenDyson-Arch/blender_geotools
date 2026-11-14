@@ -175,7 +175,7 @@ def _check_accessors(glb: Glb, align: int) -> None:
         _dtype, size = COMPONENTS[acc["componentType"]]
         element = size * WIDTHS[acc["type"]]
         stride = view.get("byteStride", element)
-        assert stride >= element and stride % 4 == 0 or "byteStride" not in view, f"stride {i}"
+        assert (stride >= element and stride % 4 == 0) or "byteStride" not in view, f"stride {i}"
         need = acc.get("byteOffset", 0) + stride * (acc["count"] - 1) + element
         assert need <= view["byteLength"], f"accessor {i} needs {need} bytes of its view"
 

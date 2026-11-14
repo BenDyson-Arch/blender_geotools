@@ -520,7 +520,7 @@ def test_image_validation(tmp_path: Path) -> None:
     jpg = write_jpeg(tmp_path / "ok.jpg", np.array([[100]]))
     wide = write_png(tmp_path / "png16.png", np.zeros((8, 8, 4), np.uint16), bit_depth=16)
     huge = tmp_path / "huge.png"
-    with open(huge, "wb") as f:  # sparse; the size is refused before reading
+    with huge.open("wb") as f:  # sparse; the size is refused before reading
         f.write(png.read_bytes())
         f.truncate((1 << 30) + 1)
     truncated = tmp_path / "truncated.jpg"
@@ -718,9 +718,10 @@ def _meshopt_bytes(data: bytes, pos: int, count: int) -> tuple[bytearray, int]:
         ]
         for i, enc in enumerate(values):
             if enc == (1 << width) - 1:
-                enc = data[extra]
+                out[g * 16 + i] = data[extra]
                 extra += 1
-            out[g * 16 + i] = enc
+            else:
+                out[g * 16 + i] = enc
         pos = extra
     return out, pos
 

@@ -26,8 +26,8 @@ importer only sets ``surface_render_method`` (``BLENDED`` for glTF BLEND,
 
 from __future__ import annotations
 
-import os
 from collections.abc import Iterable
+from pathlib import Path
 
 import bpy
 import numpy as np
@@ -106,7 +106,7 @@ def image_summary(image: bpy.types.Image) -> ImageSummary:
     filepath = ""
     if image.source in {"FILE", "SEQUENCE", "TILED"} and image.filepath:
         filepath = blend_paths.image_path(image)
-    on_disk = bool(filepath) and os.path.isfile(filepath)
+    on_disk = bool(filepath) and Path(filepath).is_file()
     # Generated and painted images are exportable too: the exporter saves their
     # current pixels as PNG.
     in_memory = image.source == "GENERATED" or (image.is_dirty and image.has_data)
@@ -122,7 +122,7 @@ def image_summary(image: bpy.types.Image) -> ImageSummary:
         # 16-bit PNGs (and only those, of PNG and JPEG) into a float buffer.
         bit_depth = 16 if image.is_float else 8
     elif used_as_is and on_disk:
-        file_bytes = os.path.getsize(filepath)
+        file_bytes = Path(filepath).stat().st_size
         bit_depth = encoded_bit_depth(filepath)
     return ImageSummary(
         name=image.name,

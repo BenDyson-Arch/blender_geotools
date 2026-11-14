@@ -208,7 +208,7 @@ def read_config(pyproject: Path = PYPROJECT) -> Config:
         raise FetchError(
             f"cannot read [tool.geotools] platforms / [tool.geotools.wheels] from {pyproject}: "
             f"{ex!r}"
-        )
+        ) from ex
     if not isinstance(table, dict) or not table:
         raise FetchError(f"[tool.geotools.wheels] in {pyproject} must be a non-empty table")
     pins: dict[str, str] = {}
@@ -237,7 +237,7 @@ def wheel_metadata(path: Path) -> tuple[str, str]:
                 )
             text = zf.read(meta[0]).decode("utf-8", "replace")
     except zipfile.BadZipFile as ex:
-        raise FetchError(f"{path.name}: not a valid wheel archive ({ex})")
+        raise FetchError(f"{path.name}: not a valid wheel archive ({ex})") from ex
     fields: dict[str, str] = {}
     for line in text.splitlines():
         if not line.strip():

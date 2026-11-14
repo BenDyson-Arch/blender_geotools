@@ -27,6 +27,90 @@ addopts = "--import-mode=importlib"
 line-length = 100
 target-version = "py313"
 
+[tool.ruff.lint]
+# ruff's default rule set (pinned with RUFF_VERSION in CI) plus every rule of these families.
+extend-select = [
+    "B",  # likely bugs: raise-from, unused loop variables, zip() without strict=
+    "SIM",  # simpler equivalents: contextlib.suppress, conditional expressions
+    "PLW",  # pylint warnings: no global statements, no reassigned loop variables
+    "RUF",  # ruff's own: escaped pytest.raises patterns, explicit and/or precedence
+    "DTZ",  # naive datetimes: times are aware UTC (sun.utc_datetime) or sun.wall_clock
+    "PTH",  # pathlib for file access; stored paths are text, see the ignores below
+    "TID",  # banned APIs, each naming GeoTools' own helper (below)
+    "UP",  # pyupgrade, for the Python 3.13 that Blender 5.2 ships
+    "BLE",  # blind except: a broad handler must log with exc_info or re-raise
+    "S110",  # try/except/pass: say why with contextlib.suppress(SpecificError)
+    "C4",  # comprehensions
+    "FURB",  # refurb
+    "G",  # logging calls take %-arguments, not pre-formatted strings
+    "LOG",  # logging: module loggers, exc_info only in handlers
+    "PGH",  # pygrep-hooks: no blanket noqa or type: ignore
+    "PIE",  # unnecessary pass, duplicate class fields, needless spread
+    "PLE",  # pylint errors
+    "T10",  # no debugger calls
+]
+ignore = [
+    # Tuple/list concatenation to unpacking. It cannot tell sequences from numpy arrays
+    # and mathutils vectors, where `array + (dx, dy, dz)` is vector addition, not concatenation.
+    "RUF005",
+    # os.path.abspath() to Path.resolve(). resolve() follows symlinks; GeoTools resolves
+    # only to compare (core/paths.py same_file, real) and keeps the path the user gave.
+    "PTH100",
+    # Relative imports. The add-on installs as bl_ext.<repository>.geotools, so it must
+    # import itself relatively; tests and scripts import `geotools` absolutely.
+    "TID252",
+]
+# Typography that UI strings and docstrings use on purpose (minus sign, en dash,
+# multiplication sign, prime, Greek letters for angles and gamma).
+allowed-confusables = ["−", "–", "×", "′", "α", "γ"]
+
 [tool.ruff.lint.per-file-ignores]
 # Blender reads bl_options and similar as plain mutable class attributes.
 "geotools/blender/**" = ["RUF012"]
+# Stored paths are text in the OS's spelling (or ntpath/posixpath under test), with
+# Blender's // prefix; pathlib would re-spell them.
+"geotools/core/paths.py" = ["PTH"]
+"geotools/blender/blend_paths.py" = ["PTH"]
+"tests/core/test_paths.py" = ["PTH"]
+# The file browser's start folder needs a trailing separator, which Path cannot spell.
+"geotools/blender/source.py" = ["PTH118"]
+# splitext() splits image datablock names, which are not paths.
+"geotools/blender/texture_state.py" = ["PTH122"]
+# The MkDocs build hook is site tooling, outside the add-on and the checks here.
+"docs/hooks/**" = ["PLW2901", "PTH"]
+# wall_clock() makes the one naive datetime, the input of to_utc(); sun.py also owns
+# the helpers that the banned APIs below point to.
+"geotools/analysis/sun.py" = ["DTZ001", "TID251"]
+# Validation references are computed without GeoTools' own helpers, on purpose.
+"scripts/validation/**" = ["TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"datetime.datetime.fromtimestamp".msg = "Use geotools.analysis.sun.utc_datetime(seconds) (aware UTC; fromtimestamp raises OSError before 1970 on Windows), then .astimezone(zone) for a local time."
+"datetime.datetime.utcfromtimestamp".msg = "Use geotools.analysis.sun.utc_datetime(seconds): aware UTC, and valid before 1970 on Windows."
+"zoneinfo.ZoneInfo".msg = "Use geotools.analysis.sun.zone(name): it raises TimeZoneUnavailable, which tells the user what to install when the OS has no time zone database (Windows)."
+
+# Import layering, checked in CI (IMPORT_LINTER_VERSION in .github/workflows/ci.yml):
+#   uvx --from import-linter==2.15 lint-imports
+[tool.importlinter]
+root_package = "geotools"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Only geotools.blender imports Blender (bpy, bmesh, mathutils); core, analysis, publish and bake take plain data"
+type = "forbidden"
+source_modules = ["geotools.core", "geotools.analysis", "geotools.publish", "geotools.bake"]
+forbidden_modules = ["geotools.blender", "bpy", "bmesh", "mathutils", "addon_utils"]
+
+[[tool.importlinter.contracts]]
+name = "Layers: blender > publish | analysis | bake > core; never import a higher layer or a sibling, pass values down"
+type = "layers"
+layers = [
+    "geotools.blender",
+    "geotools.publish | geotools.analysis | geotools.bake",
+    "geotools.core",
+]
+ignore_imports = [
+    # The build record's file names and staging folder are publish.staging's; Inspect
+    # reads that record (lazily, inside OutputRecord.load).
+    "geotools.core.inspect -> geotools.publish.staging",
+]

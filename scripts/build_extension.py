@@ -94,7 +94,9 @@ def bundled_wheels(
             hint = ""
             if python == BLENDER_PYTHON:
                 hint = " (wheels fetched with --python for a local Blender need the same --python here)"
-            raise BuildError(f"stale or invalid wheel: {ex}; re-run scripts/fetch_wheels.py{hint}")
+            raise BuildError(
+                f"stale or invalid wheel: {ex}; re-run scripts/fetch_wheels.py{hint}"
+            ) from ex
 
     covered: set[str] = set()
     for _path, wheel in wheels:

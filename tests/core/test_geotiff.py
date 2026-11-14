@@ -109,7 +109,7 @@ def test_rotated_transform_is_refused(tmp_path: Path) -> None:
     c, s = np.cos(0.1), np.sin(0.1)
     m = (c, -s, 0.0, 400_000.0, s, c, 0.0, 6_000_000.0, 0, 0, 0, 0, 0, 0, 0, 1)
     path = _write(tmp_path, gw.dem(4, 4), gw.GeoTiffSpec(transformation=m))
-    with pytest.raises(gt.GeoTiffError, match="rotated or sheared.*QGIS"):
+    with pytest.raises(gt.GeoTiffError, match=r"rotated or sheared.*QGIS"):
         gt.read_info(path)
 
 

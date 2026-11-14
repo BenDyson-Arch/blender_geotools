@@ -111,8 +111,8 @@ def prepare(context: bpy.types.Context, profile: bpy.types.PropertyGroup) -> Pre
         datas = vectors.mesh_input(obj, depsgraph, frame.offset, apply_modifiers=apply)
         if not datas:
             empty.append(obj.name)
-        for data in datas:
-            data = vectors.source_names(obj, data)
+        for raw in datas:
+            data = vectors.source_names(obj, raw)
             (kind,) = data.kinds()
             pieces.append((obj.name, kind, data))
     if not pieces:

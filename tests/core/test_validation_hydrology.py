@@ -80,7 +80,9 @@ def priority_flood(surface: hy.Surface, drops: hy.Drops) -> np.ndarray:
     neighbour to at least the popped level."""
     z = surface.centroids[:, 2]
     adj = neighbours(surface)
-    heap = [(z[f], f) for f, t in zip(drops.face.tolist(), drops.target.tolist()) if t < 0]
+    heap = [
+        (z[f], f) for f, t in zip(drops.face.tolist(), drops.target.tolist(), strict=True) if t < 0
+    ]
     heapq.heapify(heap)
     filled = np.full(surface.n, np.nan)
     while heap:
@@ -149,7 +151,7 @@ def test_flats_drain_by_the_shortest_way_to_their_exit() -> None:
     floor = np.flatnonzero(surface.centroids[:, 2] == 0.0)
     adj = neighbours(surface)
     exits = [f for f in floor if result.receiver[f] < 0]
-    dist = {f: 0 for f in exits}
+    dist = dict.fromkeys(exits, 0)
     queue = deque(exits)
     on_floor = set(floor.tolist())
     while queue:

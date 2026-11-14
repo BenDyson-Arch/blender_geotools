@@ -36,6 +36,7 @@ then only skips validation, and the job still records the build and ends DONE.
 
 from __future__ import annotations
 
+import contextlib
 import datetime as _dt
 import hashlib
 import json
@@ -345,7 +346,7 @@ def write_json(path: Path, data: object) -> None:
     tmp = path.with_name(path.name + ".tmp")
     text = json.dumps(_jsonable(data), indent=2, sort_keys=True, allow_nan=False)
     tmp.write_text(text + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    tmp.replace(path)
 
 
 def _rmtree(path: Path) -> None:
@@ -535,12 +536,10 @@ class BuildJob:
                     error += " (the archive was installed, but its build record was not written)"
                 message = error
                 if self._work_ready:
-                    try:
+                    with contextlib.suppress(OSError):
                         (work / st.ERROR_NAME).write_text(
                             error + "\n\n" + traceback.format_exc(), encoding="utf-8"
                         )
-                    except OSError:
-                        pass
         finally:
             # Touch the staging directory only while holding its lock: if taking
             # the lock failed, another job owns everything in it.
@@ -656,7 +655,7 @@ class BuildJob:
             "seconds": seconds,
             "phase_seconds": phase_seconds,
             "rusty_tiles_phase_seconds": diagnostics.get("phase_seconds", {}),
-            "rusty_tiles_version": _rusty_tiles_version(rt),
+            "rusty_tiles_version": _rusty_tiles_version(),
             "geotools": dict(request.extra_record),
             "settings": {
                 "profile": request.profile,
@@ -690,13 +689,13 @@ class BuildJob:
             "report_summary": summary,
             "validation": validation,
             "warnings": {"count": self._warning_count, "first": list(self._warnings)},
-            "cleanup_diagnostics": list(getattr(tiled, "cleanup_diagnostics", ()) or ()),
+            "cleanup_diagnostics": list(tiled.cleanup_diagnostics),
         }
         record_path.unlink(missing_ok=True)  # no record is better than a stale one
         for name in st.PROMOTED_FILES:
             src = work / name
             if src.exists():
-                os.replace(src, staging / name)
+                src.replace(staging / name)
             else:
                 (staging / name).unlink(missing_ok=True)
         write_json(record_path, record)
@@ -751,7 +750,7 @@ class BuildJob:
             raise OutputExistsError(
                 f"{output} already exists; turn on Overwrite (force) to replace it"
             )
-        os.replace(work / output.name, output)
+        (work / output.name).replace(output)
         self._published = True
 
         staging = self._staging
@@ -796,7 +795,7 @@ class BuildJob:
             "warnings": {"count": 0, "first": []},
         }
         record_path.unlink(missing_ok=True)
-        os.replace(work / st.FACEMAP_NAME, staging / st.FACEMAP_NAME)
+        (work / st.FACEMAP_NAME).replace(staging / st.FACEMAP_NAME)
         write_json(record_path, record)
         result = BuildResult(
             output=output,
@@ -907,7 +906,7 @@ class BuildJob:
             "seconds": seconds,
             "phase_seconds": phase_seconds,
             "rusty_tiles_phase_seconds": {},
-            "rusty_tiles_version": _rusty_tiles_version(rt),
+            "rusty_tiles_version": _rusty_tiles_version(),
             "geotools": dict(request.extra_record),
             "settings": {
                 "force": request.force,
@@ -935,13 +934,13 @@ class BuildJob:
             "report_summary": summary,
             "validation": validation,
             "warnings": {"count": self._warning_count, "first": list(self._warnings)},
-            "cleanup_diagnostics": list(getattr(tiled, "cleanup_diagnostics", ()) or ()),
+            "cleanup_diagnostics": list(tiled.cleanup_diagnostics),
         }
         record_path.unlink(missing_ok=True)
         for name in st.PROMOTED_FILES:
             src = work / name
             if src.exists():
-                os.replace(src, staging / name)
+                src.replace(staging / name)
             else:
                 (staging / name).unlink(missing_ok=True)
         write_json(record_path, record)
@@ -1011,10 +1010,8 @@ class BuildJob:
             return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
         report = dict(report)
         payloads = report.pop("payloads", None)
-        try:
+        with contextlib.suppress(TypeError):
             report["payload_rows"] = len(payloads)  # type: ignore[arg-type]
-        except TypeError:
-            pass
         write_json(work / st.VALIDATION_NAME, report)
         return {"ok": bool(report.get("ok")), "summary": summarise_validation(report)}
 
@@ -1028,7 +1025,7 @@ def _sha256_file(path: Path) -> str | None:
     """Hex SHA-256 of a file, or None if it cannot be read."""
     digest = hashlib.sha256()
     try:
-        with open(path, "rb") as f:
+        with path.open("rb") as f:
             while chunk := f.read(1 << 20):
                 digest.update(chunk)
     except OSError:
@@ -1044,9 +1041,6 @@ def _size(path: Path) -> int | None:
         return None
 
 
-def _rusty_tiles_version(rt: ModuleType) -> str | None:
+def _rusty_tiles_version() -> str | None:
     status = deps.probe_rusty_tiles()
-    if status.available and status.version:
-        return status.version
-    version = getattr(rt, "__version__", None)
-    return version if isinstance(version, str) else None
+    return status.version if status.available else None

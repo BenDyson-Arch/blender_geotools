@@ -92,7 +92,9 @@ def fake_rt(**overrides: object) -> SimpleNamespace:
             callback({"event": "log", "message": "phase capture done"})
         Path(output).write_bytes(b"new archive")
         report = {"triangles": 128, "tiles": 1, "leaves": 1, "max_depth": 0}
-        return SimpleNamespace(report=report, diagnostics={"phase_seconds": {}}, output=output)
+        return SimpleNamespace(
+            report=report, diagnostics={"phase_seconds": {}}, output=output, cleanup_diagnostics=[]
+        )
 
     def validate(path, **_kwargs):
         return {"ok": True, "tiles": 1, "checks": ["a", "b"], "payloads": [{"uri": "x"}]}

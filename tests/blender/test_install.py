@@ -24,7 +24,7 @@ def test_loaded_from_installed_extension() -> None:
     )
     # Nothing may come from a source checkout under the bare name.
     assert "geotools" not in sys.modules, sys.modules["geotools"]
-    assert h.submodule("blender.common").ADDON_PACKAGE == h.CONFIG.package
+    assert h.CONFIG.package == h.submodule("blender.common").ADDON_PACKAGE
 
 
 def test_no_bl_info() -> None:

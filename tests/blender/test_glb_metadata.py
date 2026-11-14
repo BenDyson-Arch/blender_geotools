@@ -337,7 +337,7 @@ def test_metadata_glb_values() -> None:
             texel = schema["classes"]["texel"]["properties"]["shade"]
             assert texel["componentType"] == "FLOAT32"
 
-            for name, offset, k in (("Terrain", 0.0, 1), ("Hut", 10.0, 0)):
+            for name, offset in (("Terrain", 0.0), ("Hut", 10.0)):
                 p = _primitive_of(glb, name)
                 indices, points = _triangles(glb, p)
                 centroids = points[indices].mean(axis=1)
@@ -380,7 +380,7 @@ def test_metadata_glb_values() -> None:
                 np.testing.assert_array_equal(got, textures[name][row_blender, col])
 
             # Feature IDs per primitive.
-            for p, prim in enumerate(glb.primitives):
+            for prim in glb.primitives:
                 sets = prim["extensions"]["EXT_mesh_features"]["featureIds"]
                 assert sets == [
                     {"featureCount": 1, "attribute": 0, "propertyTable": 0, "label": "object"}

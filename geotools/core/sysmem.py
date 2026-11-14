@@ -11,6 +11,7 @@ from __future__ import annotations
 import ctypes
 import subprocess
 import sys
+from pathlib import Path
 
 GIB = 1 << 30
 
@@ -51,7 +52,7 @@ def auto_memory_budget(available: int | None, cap_bytes: int | None = None) -> i
 
 
 def _linux_available() -> int | None:
-    with open("/proc/meminfo", encoding="ascii") as meminfo:
+    with Path("/proc/meminfo").open(encoding="ascii") as meminfo:
         for line in meminfo:
             if line.startswith("MemAvailable:"):
                 return int(line.split()[1]) * 1024
