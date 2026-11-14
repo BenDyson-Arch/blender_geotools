@@ -135,6 +135,9 @@ nav:
       - Analysis presets: analysis-presets.md
       - Texture cleanup workflow: texture-cleanup.md
       - "Recipe: drape excavation contexts": recipes/drape-contexts.md
+      - Validation:
+          - validation/README.md
+          - Terrain shape and archaeological visualisation: validation/terrain.md
   - Developer:
       - Contributing: contributing.md
       - Changelog: changelog.md
