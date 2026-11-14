@@ -9,8 +9,8 @@ this module stores settings and results and drives Blender:
   temporary sample object (``ray_bake.build_sample_object``): its direction
   is the sample's face attribute, and a probe shader with one ``Raycast``
   node emits (hit, distance, 1). A coarse pass (every 0.1°) and a fine pass
-  (64 rays inside each azimuth's best 0.1°) find the skyline to about
-  0.002°. Everything that renders is terrain; the source objects are shown
+  (64 rays inside each 0.1° bracket that can hold the skyline,
+  ``horizon.fine_brackets``) find the skyline to about 0.002°. Everything that renders is terrain; the source objects are shown
   for the bake.
 * **Events** (``geotools.archaeo_events``): the epoch's solstice, equinox and
   lunar standstill rises and sets, and the Sun panel year's dated sunrises
@@ -388,29 +388,26 @@ def compute_horizon(context: bpy.types.Context) -> horizon.HorizonProfile:
     closed = hit[:, -1]
     first = time.perf_counter() - began
 
-    found = np.isfinite(hits.geometric)
-    if found.any():
-        fine = horizon.fine_elevations(np.where(found, hits.geometric, coarse[0]))[found]
+    # Every bracket that can hold the skyline (usually one or two per azimuth).
+    rows, base = horizon.fine_brackets(
+        coarse, hit, distance, scale_factor=csf, curvature=props.curvature, k=k
+    )
+    fine_rays = 0
+    if len(rows):
+        fine = horizon.fine_elevations(base)
         f_hit, f_distance = cast_rays(
-            context, eye, horizon.ray_directions(scene_az[found], fine).astype(np.float32), start
+            context, eye, horizon.ray_directions(scene_az[rows], fine).astype(np.float32), start
         )
-        fshape = fine.shape
         refined = horizon.best_hits(
             fine,
-            f_hit.reshape(fshape),
-            f_distance.reshape(fshape),
+            f_hit.reshape(fine.shape),
+            f_distance.reshape(fine.shape),
             scale_factor=csf,
             curvature=props.curvature,
             k=k,
-            previous=horizon.Hits(
-                hits.apparent[found], hits.geometric[found], hits.distance[found]
-            ),
         )
-        hits = horizon.Hits(
-            apparent=_put(hits.apparent, found, refined.apparent),
-            geometric=_put(hits.geometric, found, refined.geometric),
-            distance=_put(hits.distance, found, refined.distance),
-        )
+        hits = horizon.merge_rows(hits, rows, refined)
+        fine_rays = fine.size
     edge = _edge_flags(context, eye, scene_az, hits)
     seconds = time.perf_counter() - began
     reading = site.read_point(analysis._placement(context), point, geodetic=False)
@@ -434,7 +431,8 @@ def compute_horizon(context: bpy.types.Context) -> horizon.HorizonProfile:
         "earth_radius": horizon.EARTH_RADIUS,
         "ignore_within": start,
         "azimuth_step": float(360.0 / len(true_az)),
-        "rays": int(hit.size + (fine.size if found.any() else 0)),
+        "rays": int(hit.size + fine_rays),
+        "fine_brackets": len(rows),
         "seconds": seconds,
         "first_pass_seconds": first,
         "key": analysis.placement_key(context),
@@ -450,12 +448,6 @@ def compute_horizon(context: bpy.types.Context) -> horizon.HorizonProfile:
     props.profile = profile.to_json()
     props.profile_error = ""
     return profile
-
-
-def _put(base: np.ndarray, mask: np.ndarray, values: np.ndarray) -> np.ndarray:
-    out = base.copy()
-    out[mask] = values
-    return out
 
 
 def _edge_flags(context, eye: np.ndarray, scene_az: np.ndarray, hits: horizon.Hits) -> np.ndarray:

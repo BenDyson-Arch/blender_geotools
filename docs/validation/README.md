@@ -28,3 +28,17 @@ sites. One bug fixed (Measure in non-conformal CRSs: Albers, Web Mercator);
 four points left for a decision (the GLB metadata frame's one-sided probes,
 the `geotools:gridScale` name, the sun in non-conformal CRSs, the GeoPackage
 `definition` text).
+
+## Archaeoastronomy
+
+[archaeoastronomy.md](archaeoastronomy.md): the horizon profile (curvature,
+terrestrial refraction, the Cycles ray search), Bennett refraction, Meeus'
+Moon and its parallax, the lunar standstills, the obliquity at ancient epochs,
+rise and set azimuths, dated sunrises and Check Alignment, against closed
+forms, Skyfield 1.53 with JPL DE440s and DE441, ERFA 2.0.1.5 (Vondrák 2011
+long-term precession), astropy 7.1.0 and GRASS GIS 8.5.0 r.horizon. All agree.
+Two bugs fixed: Compute Events failed at the ends of the epoch range, and the
+horizon could miss a near crest by up to 0.1° with curvature on. Open: the
+stated accuracy of Laskar's obliquity at the ends (42″ from Vondrák at
+8000 BCE), the sun's parallax in the alignment declination, the horizon's
+fine-step bias and fixed refraction conditions.
