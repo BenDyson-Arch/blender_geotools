@@ -1,0 +1,192 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, "release/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.13"
+  # Tool pins: ruff's default rule set changes between releases.
+  RUFF_VERSION: "0.17.4"
+  PYTEST_VERSION: "9.2.0"
+  NUMPY_VERSION: "2.5.4"
+  # Official Blender 5.2 LTS, latest patch release. To update, take the
+  # linux-x64 .tar.xz, macos-arm64 .dmg and windows-x64 .zip lines from
+  #   https://download.blender.org/release/Blender5.2/blender-<version>.sha256
+  BLENDER_VERSION: "5.2.4"
+  BLENDER_SHA256: "2fd14c50987426897ba60237ee996edf2b4151f4b1a72a460ca20be58c1d2d86"
+  BLENDER_SHA256_MACOS_ARM64: "e73d564f97061b2496ccc5a0bd738937d2d3d0acae23621a00bbc7534dfd135f"
+  BLENDER_SHA256_WINDOWS_X64: "bbd78f8931dc940444da4ff2983374930f9f5c092ae0e330588e9760bb9d967c"
+
+jobs:
+  core:
+    name: core (pytest, ruff)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install tools
+        # pyproj at the pin bundled in the extension ([tool.geotools.wheels]), so the
+        # reprojection tests run instead of skipping.
+        run: |
+          pyproj_pin=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["tool"]["geotools"]["wheels"]["pyproj"])')
+          python -m pip install "pytest==${PYTEST_VERSION}" "ruff==${RUFF_VERSION}" \
+            "numpy==${NUMPY_VERSION}" "pyproj==${pyproj_pin}"
+      - name: ruff check
+        run: ruff check --output-format=github geotools scripts tests
+      - name: ruff format --check
+        run: ruff format --check geotools scripts tests
+      - name: pytest (tests/core)
+        run: python -m pytest
+
+  # macOS and Windows. Not required checks yet: they run on every pull request
+  # but do not gate merges (see CONTRIBUTING.md, CI).
+  core-os:
+    name: core (pytest, ${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: macOS arm64
+          - os: windows-latest
+            label: Windows x64
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install tools
+        run: |
+          pyproj_pin=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["tool"]["geotools"]["wheels"]["pyproj"])')
+          python -m pip install "pytest==${PYTEST_VERSION}" \
+            "numpy==${NUMPY_VERSION}" "pyproj==${pyproj_pin}"
+      - name: pytest (tests/core)
+        run: python -m pytest
+
+  blender:
+    name: blender (official 5.2 LTS, no wheels)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Set up Blender
+        id: blender
+        uses: ./.github/actions/setup-blender
+        with:
+          version: ${{ env.BLENDER_VERSION }}
+          sha256: ${{ env.BLENDER_SHA256 }}
+      - name: Validate and build the extension (no wheels)
+        run: python scripts/build_extension.py --blender "$BLENDER" --no-wheels --out dist
+      - name: Upload the extension zip
+        uses: actions/upload-artifact@v7
+        with:
+          name: geotools-extension-no-wheels
+          path: dist/*.zip
+          if-no-files-found: error
+      - name: Install and test in Blender (rusty-tiles missing)
+        run: |
+          shopt -s failglob
+          python scripts/run_blender_tests.py --blender "$BLENDER" --zip dist/geotools-*.zip \
+            --expect missing
+
+  blender-os:
+    name: blender (${{ matrix.label }}, no wheels)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: macOS arm64
+            platform: macos-arm64
+            artifact: macos_arm64
+          - os: windows-latest
+            label: Windows x64
+            platform: windows-x64
+            artifact: windows_x64
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Set up Blender
+        id: blender
+        uses: ./.github/actions/setup-blender
+        with:
+          version: ${{ env.BLENDER_VERSION }}
+          platform: ${{ matrix.platform }}
+          sha256: ${{ matrix.platform == 'macos-arm64' && env.BLENDER_SHA256_MACOS_ARM64 || env.BLENDER_SHA256_WINDOWS_X64 }}
+      - name: Validate and build the extension (no wheels)
+        run: python scripts/build_extension.py --blender "$BLENDER" --no-wheels --out dist
+      - name: Upload the extension zip
+        uses: actions/upload-artifact@v7
+        with:
+          name: geotools-extension-no-wheels-${{ matrix.artifact }}
+          path: dist/*.zip
+          if-no-files-found: error
+      - name: Install and test in Blender (rusty-tiles missing)
+        run: |
+          shopt -s failglob
+          python scripts/run_blender_tests.py --blender "$BLENDER" --zip dist/geotools-*.zip \
+            --expect missing
+
+  blender-wheel:
+    name: blender (official 5.2 LTS, rusty-tiles wheel from PyPI)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # Tests the pinned PyPI wheels ([tool.geotools.wheels] in pyproject.toml:
+    # rusty-tiles 0.4.1, pyproj, certifi) in Blender with --expect available, so the
+    # publish, inspect and CRS tests run against the real wheel. It gates: a failure
+    # fails the run, and it never falls back to a wheel-less build.
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Set up Blender
+        id: blender
+        uses: ./.github/actions/setup-blender
+        with:
+          version: ${{ env.BLENDER_VERSION }}
+          sha256: ${{ env.BLENDER_SHA256 }}
+      - name: Fetch the pinned wheels (rusty-tiles, pyproj, certifi; PyPI, linux-x64)
+        run: python scripts/fetch_wheels.py --platform linux-x64
+      - name: Validate and build the extension (linux-x64 wheel)
+        run: python scripts/build_extension.py --blender "$BLENDER" --out dist
+      - name: Upload the extension zip
+        uses: actions/upload-artifact@v7
+        with:
+          name: geotools-extension-linux-x64
+          path: dist/*.zip
+          if-no-files-found: error
+      - name: Install and test in Blender (rusty-tiles and pyproj available at the pins)
+        # --expect-version and --expect-pyproj-version default to the pins in pyproject.toml.
+        run: |
+          shopt -s failglob
+          python scripts/run_blender_tests.py --blender "$BLENDER" \
+            --zip dist/geotools-*-linux_x64.zip --expect available

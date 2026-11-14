@@ -1,0 +1,171 @@
+name: Release
+
+# Push a tag vX.Y.Z on main to publish a release. The tag must match the
+# manifest version, be on main, and have a matching CHANGELOG.md section. A
+# version with a suffix (0.4.0-rc.1) becomes a prerelease; any other becomes the
+# latest release. The release body is .github/release-notes/<version>.md when
+# there is one (see scripts/release_notes.py, which also fails the check job if
+# the page links to a file the tag does not have), and the release carries the
+# platform zips, the demo data (examples/drape-contexts) as
+# geotools-demo-data-<version>.zip, and SHA256SUMS of every zip.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.13"
+  # Keep in step with ci.yml.
+  BLENDER_VERSION: "5.2.4"
+  BLENDER_SHA256: "2fd14c50987426897ba60237ee996edf2b4151f4b1a72a460ca20be58c1d2d86"
+
+jobs:
+  check:
+    name: Check release tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      prerelease: ${{ steps.tag.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - id: tag
+        name: Match the tag to the manifest, main and the changelog
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          version=$(python -c 'import tomllib; print(tomllib.load(open("geotools/blender_manifest.toml", "rb"))["version"])')
+          if [ "$RELEASE_TAG" != "v$version" ]; then
+            echo "::error::Tag $RELEASE_TAG does not match the manifest version $version"; exit 1
+          fi
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::$RELEASE_TAG is not on main; merge its release/X.Y.Z branch into main first (CONTRIBUTING.md, Releasing)"; exit 1
+          fi
+          case "$version" in
+            *-dev*) echo "::error::$version is a development version"; exit 1 ;;
+            *-*) echo 'prerelease=true' >> "$GITHUB_OUTPUT" ;;
+            *) echo 'prerelease=false' >> "$GITHUB_OUTPUT" ;;
+          esac
+          python scripts/release_notes.py "$version" > /dev/null
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build and test the platform zips
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Set up Blender
+        uses: ./.github/actions/setup-blender
+        with:
+          version: ${{ env.BLENDER_VERSION }}
+          sha256: ${{ env.BLENDER_SHA256 }}
+      - name: Fetch the pinned wheels (rusty-tiles, pyproj, certifi; PyPI, every platform)
+        # Always for CPython 3.13 (Blender 5.2 LTS): no --python here.
+        run: python scripts/fetch_wheels.py
+      - name: Validate and build the split extension zips
+        run: python scripts/build_extension.py --blender "$BLENDER" --out dist
+      - name: Check that every platform was built
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          set -eu
+          for platform in linux_x64 windows_x64 macos_arm64; do
+            zip="dist/geotools-${VERSION}-${platform}.zip"
+            test -f "$zip" || { echo "::error::missing $zip"; exit 1; }
+            for wheel in rusty_tiles pyproj certifi; do
+              python -c 'import sys, zipfile; names = zipfile.ZipFile(sys.argv[1]).namelist(); sys.exit(not any(n.startswith("wheels/" + sys.argv[2] + "-") for n in names))' "$zip" "$wheel" \
+                || { echo "::error::$zip has no $wheel wheel"; exit 1; }
+            done
+          done
+      - name: Install and test in Blender (linux-x64, rusty-tiles and pyproj at the pins)
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          python scripts/run_blender_tests.py --blender "$BLENDER" \
+            --zip "dist/geotools-${VERSION}-linux_x64.zip" --expect available
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-zips
+          path: dist/*.zip
+          if-no-files-found: error
+
+  publish:
+    name: Publish the GitHub release
+    needs: [check, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: release-zips
+          path: dist
+      - name: Zip the demo data
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          set -eu
+          # python -m zipfile writes an empty zip (and exits 0) for a missing folder.
+          for f in drape-contexts.blend terrain.ply terrain_offset.txt contexts.geojson; do
+            test -f "examples/drape-contexts/$f" || { echo "::error::examples/drape-contexts/$f is missing"; exit 1; }
+          done
+          python -m zipfile -c "dist/geotools-demo-data-${VERSION}.zip" examples/drape-contexts
+          python -m zipfile -l "dist/geotools-demo-data-${VERSION}.zip"
+          python - "dist/geotools-demo-data-${VERSION}.zip" <<'PY'
+          import sys, zipfile
+          names = zipfile.ZipFile(sys.argv[1]).namelist()
+          for f in ("drape-contexts.blend", "terrain.ply", "terrain_offset.txt", "contexts.geojson"):
+              if f"drape-contexts/{f}" not in names:
+                  sys.exit(f"::error::the demo data zip has no drape-contexts/{f}")
+          PY
+      - name: Attach checksums and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.check.outputs.version }}
+          PRERELEASE: ${{ needs.check.outputs.prerelease }}
+        run: |
+          set -eu
+          python scripts/release_notes.py "$VERSION" > notes.md
+          (cd dist && sha256sum ./*.zip > SHA256SUMS)
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft \
+              --title "GeoTools $VERSION" --notes-file notes.md
+          fi
+          gh release upload "$RELEASE_TAG" dist/*.zip dist/SHA256SUMS --clobber
+          if [ "$PRERELEASE" = true ]; then
+            gh release edit "$RELEASE_TAG" --draft=false --prerelease
+          else
+            gh release edit "$RELEASE_TAG" --draft=false --latest
+          fi

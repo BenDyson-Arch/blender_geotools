@@ -1,0 +1,29 @@
+/* GeoTools docs site: small additions to the Material theme. */
+
+/* Images in grid cards (the home page): full card width, rounded, no stray
+   gap below. */
+.md-typeset .grid.cards img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 0.2rem;
+  margin: 0.4rem 0;
+}
+
+/* The home page's feature cards: at most two to a row, so the sidebar text in
+   their screenshots stays readable. */
+.md-typeset .grid.cards.features {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+}
+
+/* Wide reference tables scroll inside their own box instead of squeezing
+   every column. */
+.md-typeset__table {
+  max-width: 100%;
+}
+
+/* Screenshots and figures never overflow the content column. */
+.md-typeset img {
+  max-width: 100%;
+  height: auto;
+}

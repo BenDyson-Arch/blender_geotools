@@ -1,0 +1,32 @@
+# Tooling configuration only. GeoTools is a Blender extension, not a Python
+# distribution; the add-on lives in geotools/ and ships via
+# scripts/build_extension.py.
+
+[tool.geotools]
+# Platforms the extension is built for (Blender platform names). Each platform
+# zip carries one wheel of every pin below (a pure wheel serves them all).
+# Blender 5.x has no Intel macOS build, so there is no macos-x64 zip.
+platforms = ["linux-x64", "windows-x64", "macos-arm64"]
+
+[tool.geotools.wheels]
+# One exact version per bundled distribution; scripts/fetch_wheels.py fetches
+# them and scripts/build_extension.py refuses wheels that do not match.
+rusty-tiles = "0.4.1"
+# Reprojection of imported vector points (M8). PROJ is inside the wheel; no GDAL.
+# 3.8.0 has cp313 wheels for every platform above (macOS arm64:
+# 14.0); see docs/design/m8-geo-formats.md for why 3.8.0 and not 3.7.2.
+pyproj = "3.8.0"
+# pyproj's only dependency (CA bundle for optional PROJ grid downloads).
+certifi = "2026.10.23"
+
+[tool.pytest.ini_options]
+testpaths = ["tests/core"]
+addopts = "--import-mode=importlib"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint.per-file-ignores]
+# Blender reads bl_options and similar as plain mutable class attributes.
+"geotools/blender/**" = ["RUF012"]

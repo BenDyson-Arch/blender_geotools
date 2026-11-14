@@ -20,3 +20,11 @@ release/
 *.blend1
 *.blend2
 *.bak
+# Fetched rusty-tiles wheels and extension build output
+geotools/wheels/
+dist/
+.build/
+
+# MkDocs output and the docs venv (CONTRIBUTING.md, "Docs site")
+/site/
+/.venv-docs/

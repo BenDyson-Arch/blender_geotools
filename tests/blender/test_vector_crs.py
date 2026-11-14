@@ -1,0 +1,450 @@
+"""Vector imports in another CRS (reprojection) and into LOCAL and ANCHOR projects (M8)."""
+
+from __future__ import annotations
+
+import json
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import Path
+
+import _harness as h
+import _vector_fixtures as vf
+import bpy
+import numpy as np
+
+E0, N0, A0 = vf.E0, vf.N0, 10.0
+COLUMNS = {"context": "TEXT", "depth": "REAL", "phase": "INTEGER", "sealed": "BOOLEAN"}
+
+
+@contextmanager
+def _tmpdir() -> Iterator[Path]:
+    with tempfile.TemporaryDirectory(prefix="geotools-vector-crs-") as tmp:
+        yield Path(tmp)
+
+
+@contextmanager
+def _without_pyproj() -> Iterator[None]:
+    """Make ``core.reproject.available()`` say no, as in a Blender without pyproj."""
+    module = h.submodule("core.reproject")
+    original = module.available
+    module.available = lambda: False
+    try:
+        yield
+    finally:
+        module.available = original
+
+
+def _has_pyproj() -> bool:
+    return h.submodule("core.reproject").available()
+
+
+def _project(mode: str = "SOURCE_CRS") -> None:
+    h.reset_scene()
+    h.submodule("blender.data_origin").clear_offer(bpy.context)
+    props = h.project()
+    props.placement_mode = mode
+    props.crs = "EPSG:7856"
+    props.origin_e = repr(E0)
+    props.origin_n = repr(N0)
+    props.source_offset_a = repr(A0)
+
+
+def _positions(mesh: bpy.types.Mesh) -> np.ndarray:
+    co = np.empty(len(mesh.vertices) * 3, dtype=np.float32)
+    mesh.vertices.foreach_get("co", co)
+    return co.reshape(-1, 3)
+
+
+def _transform(points: np.ndarray, source: str, target: str = "EPSG:7856") -> np.ndarray:
+    """The reference, computed here with pyproj against the EPSG code."""
+    import pyproj
+
+    transformer = pyproj.Transformer.from_crs(source, target, always_xy=True)
+    x, y = transformer.transform(points[:, 0], points[:, 1])
+    return np.stack([x, y], axis=1)
+
+
+# Three synthetic finds near (E0, N0), in WGS84 longitude and latitude.
+LONLAT = np.array([[153.02035, -27.47466], [153.02092, -27.47488], [153.01995, -27.47436]])
+
+
+def _wgs84_geojson(path: Path, extra: int = 0) -> tuple[Path, np.ndarray]:
+    points = np.concatenate([LONLAT, LONLAT[:1] + 1e-4 * np.arange(1, extra + 1)[:, None]])
+    features = [
+        vf.feature({"type": "Point", "coordinates": [float(x), float(y)]}, {"k": i}, i + 1)
+        for i, (x, y) in enumerate(points)
+    ]
+    return vf.write_geojson(path, features, crs=None), points
+
+
+def _bump(path: Path) -> None:
+    import os
+
+    st = path.stat()
+    os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns - 10_000_000_000))
+
+
+# --- reprojection ---------------------------------------------------------------------------
+
+
+def test_wgs84_geojson_into_an_mga56_project_is_reprojected() -> None:
+    _project()
+    with _tmpdir() as tmp:
+        path, lonlat = _wgs84_geojson(tmp / "finds.geojson")
+        result, error = h.call_op(bpy.ops.geotools.import_geojson, filepath=str(path))
+        if not _has_pyproj():
+            assert result == {"ERROR_REPORTED"}, result
+            assert "Reprojection is not available" in error, error
+            return
+        assert result == {"FINISHED"}, error
+        obj = bpy.data.objects["finds"]
+        expected = _transform(lonlat, "EPSG:4326") - (E0, N0)
+        got = _positions(obj.data).astype(np.float64)
+        np.testing.assert_allclose(got[:, :2], expected, atol=1e-3)  # within a millimetre
+        assert np.all(got[:, 2] == 0.0)  # 2D data: z = 0
+        link = obj.geotools_link
+        assert json.loads(link.crs)["epsg"] == "EPSG:4326"  # the data's CRS, as read
+        options = json.loads(link.options)
+        report = options["reprojection"]
+        assert report["source"] == "EPSG:4326" and report["target"] == "EPSG:7856", report
+        assert report["operation"] and "network" in report
+        assert options["allow_grid_downloads"] is False
+
+
+def test_gda94_gpkg_shifts_about_1_5_m() -> None:
+    if not _has_pyproj():
+        return
+    _project()
+    with _tmpdir() as tmp:
+        ring = vf.square(E0, N0, 10.0)
+        path = vf.write_gpkg(
+            tmp / "gda94.gpkg",
+            "old",
+            [(1, {"type": "Polygon", "coordinates": [ring]}, {"context": "C1"})],
+            {"context": "TEXT"},
+            srs_id=28356,
+            definition="undefined",
+        )
+        result, error = h.call_op(bpy.ops.geotools.import_gpkg, filepath=str(path))
+        assert result == {"FINISHED"}, error
+        got = _positions(bpy.data.objects["old"].data).astype(np.float64)[:, :2]
+        corners = np.array(ring[:-1], dtype=np.float64)
+        expected = _transform(corners, "EPSG:28356") - (E0, N0)
+        order = np.lexsort(got.T[::-1])
+        np.testing.assert_allclose(got[order], expected[np.lexsort(expected.T[::-1])], atol=1e-3)
+        shift = np.hypot(*(expected[0] - (corners[0] - (E0, N0))))
+        assert 1.4 < shift < 1.6, shift  # GDA94 to GDA2020 near Brisbane
+        options = json.loads(bpy.data.objects["old"].geotools_link.options)
+        assert options["reprojection"]["accuracy_m"] == 0.01, options
+
+
+def test_reprojection_report_is_stored_and_reused_on_refresh() -> None:
+    if not _has_pyproj():
+        return
+    _project()
+    links = h.submodule("blender.links")
+    with _tmpdir() as tmp:
+        path, lonlat = _wgs84_geojson(tmp / "finds.geojson")
+        _bump(path)
+        assert bpy.ops.geotools.import_geojson(filepath=str(path)) == {"FINISHED"}
+        obj = bpy.data.objects["finds"]
+        before = _positions(obj.data).copy()
+        stored = json.loads(obj.geotools_link.options)["reprojection"]
+
+        _path, lonlat = _wgs84_geojson(path, extra=2)  # two more finds
+        result = links.refresh_link(obj)
+        assert result.added == 2 and result.removed == 0, result
+        assert f"Reprojected as at import: {stored['operation']}" in result.message, result
+        after = _positions(obj.data)
+        np.testing.assert_array_equal(after[:3], before)  # the same features, the same place
+        expected = _transform(lonlat, "EPSG:4326") - (E0, N0)
+        np.testing.assert_allclose(after[:, :2].astype(np.float64), expected, atol=1e-3)
+        assert json.loads(obj.geotools_link.options)["reprojection"] == stored
+
+
+def test_without_pyproj_another_crs_is_refused() -> None:
+    _project()
+    with _tmpdir() as tmp, _without_pyproj():
+        path, _lonlat = _wgs84_geojson(tmp / "finds.geojson")
+        result, error = h.call_op(bpy.ops.geotools.import_geojson, filepath=str(path))
+        assert result == {"ERROR_REPORTED"}
+        assert "EPSG:4326" in error and "EPSG:7856" in error, error
+        assert "Reprojection is not available" in error and "QGIS" in error, error
+        assert not bpy.data.objects and not bpy.data.meshes
+        # Data in the project CRS needs no pyproj.
+        same = vf.write_geojson(tmp / "same.geojson", vf.contexts(1))
+        result, error = h.call_op(bpy.ops.geotools.import_geojson, filepath=str(same))
+        assert result == {"FINISHED"}, error
+
+
+def test_grid_downloads_option() -> None:
+    for op in (bpy.ops.geotools.import_geojson, bpy.ops.geotools.import_gpkg):
+        prop = op.get_rna_type().properties["allow_grid_downloads"]
+        assert prop.default is False, op
+
+
+@contextmanager
+def _online_access(allowed: bool) -> Iterator[list[bool]]:
+    """Patch Blender's Allow Online Access; yield the ``allow_network`` of each reprojection.
+
+    ``bpy.app.online_access`` is read-only, so ``vectors.online_access`` is
+    patched. The recorded reprojection runs offline either way, so the test
+    never reaches cdn.proj.org.
+    """
+    vectors = h.submodule("blender.vectors")
+    original_online, original_reproject = vectors.online_access, vectors.reproject_data
+    seen: list[bool] = []
+
+    def recording(data, project, *, allow_network=False):
+        seen.append(allow_network)
+        return original_reproject(data, project, allow_network=False)
+
+    vectors.online_access = lambda: allowed
+    vectors.reproject_data = recording
+    try:
+        yield seen
+    finally:
+        vectors.online_access = original_online
+        vectors.reproject_data = original_reproject
+
+
+def test_online_access_reads_blender() -> None:
+    assert h.submodule("blender.vectors").online_access() is bpy.app.online_access
+
+
+def test_online_access_off_keeps_grid_downloads_off() -> None:
+    """Neither a ticked option nor a link's stored option gets past online access being off."""
+    if not _has_pyproj():
+        return
+    _project()
+    links = h.submodule("blender.links")
+    skipped = h.submodule("blender.vectors").GRID_DOWNLOADS_SKIPPED
+    with _tmpdir() as tmp:
+        path, _lonlat = _wgs84_geojson(tmp / "finds.geojson")
+        _bump(path)
+        with _online_access(False) as seen:
+            result, error = h.call_op(
+                bpy.ops.geotools.import_geojson, filepath=str(path), allow_grid_downloads=True
+            )
+            assert result == {"FINISHED"}, error
+            assert seen == [False], seen
+            obj = bpy.data.objects["finds"]
+            # The link keeps what was asked for; Refresh is gated all the same.
+            options = json.loads(obj.geotools_link.options)
+            assert options["allow_grid_downloads"] is True
+            # The import report's notes say the gate overrode the ticked option.
+            assert skipped in options["reprojection"]["notes"], options
+            _wgs84_geojson(path, extra=1)
+            refreshed = links.refresh_link(obj)
+            assert seen == [False, False], seen
+            assert skipped in refreshed.message, refreshed
+        h.reset_scene()
+        _project()
+        with _online_access(True) as seen:
+            result, error = h.call_op(
+                bpy.ops.geotools.import_geojson, filepath=str(path), allow_grid_downloads=True
+            )
+            assert result == {"FINISHED"}, error
+            assert seen == [True], seen
+            notes = json.loads(bpy.data.objects["finds"].geotools_link.options)["reprojection"]
+            assert skipped not in notes["notes"], notes
+
+
+def test_online_access_off_rewords_the_missing_grid_note() -> None:
+    """With online access off, "Allow grid downloads" alone would not help; say what would."""
+    if not _has_pyproj():
+        return
+    from dataclasses import replace
+
+    vectors = h.submodule("blender.vectors")
+    advice = h.submodule("core.reproject").GRID_ADVICE
+    grid_note = f"A more accurate operation is not available offline: X (needs y.tif). {advice}"
+    original, original_online = vectors.reproject_data, vectors.online_access
+
+    def with_grid_note(data, project, *, allow_network=False):
+        moved, report = original(data, project, allow_network=False)
+        return moved, replace(report, notes=(*report.notes, grid_note))
+
+    _project()
+    with _tmpdir() as tmp:
+        path, _lonlat = _wgs84_geojson(tmp / "finds.geojson")
+        for allowed, ticked in ((False, True), (False, False), (True, True)):
+            h.reset_scene()
+            _project()
+            vectors.reproject_data = with_grid_note
+            vectors.online_access = lambda allowed=allowed: allowed
+            try:
+                result = vectors.import_vectors(
+                    bpy.context, "GEOJSON", path, ["finds"], allow_grid_downloads=ticked
+                )
+            finally:
+                vectors.reproject_data = original
+                vectors.online_access = original_online
+            text = " ".join(result.notes)
+            assert (vectors.OFFLINE_GRID_ADVICE in text) is not allowed, (allowed, text)
+            assert (advice in text) is allowed, (allowed, text)
+            assert (vectors.GRID_DOWNLOADS_SKIPPED in text) is (ticked and not allowed), text
+
+
+class _EnabledLayout(h.StubLayout):
+    """A :class:`StubLayout` that records each prop with whether its layout is enabled."""
+
+    def __init__(self, calls: list, drawn: list[tuple[str, bool]]) -> None:
+        super().__init__(calls)
+        self.drawn = drawn
+
+    def _child(self, **_kwargs: object) -> _EnabledLayout:
+        child = _EnabledLayout(self.calls, self.drawn)
+        child.enabled = self.enabled
+        return child
+
+    column = row = box = split = _child
+
+    def prop(self, data: object, prop: str, **kwargs: object) -> None:
+        super().prop(data, prop, **kwargs)
+        self.drawn.append((prop, self.enabled))
+
+
+def test_grid_downloads_toggle_says_when_online_access_is_off() -> None:
+    from types import SimpleNamespace
+
+    vectors = h.submodule("blender.vectors")
+    for op, cls in (
+        (bpy.ops.geotools.import_geojson, vectors.GEOTOOLS_OT_import_geojson),
+        (bpy.ops.geotools.import_gpkg, vectors.GEOTOOLS_OT_import_gpkg),
+    ):
+        data = SimpleNamespace(bl_rna=op.get_rna_type())
+        for allowed in (True, False):
+            with _online_access(allowed):
+                calls = h.draw(cls, data=data)
+                drawn: list[tuple[str, bool]] = []
+                vectors.draw_grid_downloads(_EnabledLayout([], drawn), bpy.context, data)
+            assert "allow_grid_downloads" in h.props_drawn(calls), (op, calls)
+            off = "Online access is off" in h.label_text(calls)
+            assert off is not allowed, (op, allowed, calls)
+            # Greyed out (not just labelled) when online access is off.
+            assert drawn == [("allow_grid_downloads", allowed)], (op, allowed, drawn)
+
+
+# --- LOCAL and ANCHOR projects -------------------------------------------------------------
+
+
+def test_projected_geojson_in_a_local_project_offers_its_centre() -> None:
+    data_origin = h.submodule("blender.data_origin")
+    for mode in ("LOCAL", "ANCHOR"):
+        _project(mode)
+        with _tmpdir() as tmp:
+            path = vf.write_geojson(tmp / "dig.geojson", vf.contexts(2))  # EPSG:7856
+            result, error = h.call_op(bpy.ops.geotools.import_geojson, filepath=str(path))
+            assert result == {"ERROR_REPORTED"}, mode
+            assert "project origin" in error and "local metres" in error, error
+            assert not bpy.data.objects
+            pending = data_origin.pending_offer(bpy.context)
+            assert pending["request"]["kind"] == "GEOJSON", pending
+            assert pending["origin"]["offset"] == [E0 + 15.0, N0 + 15.0, 0.0], pending
+
+            # The Linked Data panel shows the refusal with the one-click fix.
+            calls = h.draw(h.submodule("blender.links_ui").GEOTOOLS_PT_linked_data)
+            assert ("operator", "geotools.use_data_origin", "ORIENTATION_GLOBAL") in calls
+            assert "project origin" in h.label_text(calls)
+
+            assert not data_origin.needs_confirmation(bpy.context.scene)
+            result, error = h.call_op(bpy.ops.geotools.use_data_origin, **pending["request"])
+            assert result == {"FINISHED"}, error
+            props = h.project()
+            assert props.placement_mode == "SOURCE_CRS"
+            assert props.crs == "EPSG:7856"
+            read = h.submodule("blender.properties").read_number
+            centre = (E0 + 15.0, N0 + 15.0, 0.0)  # the extent is E0..E0+30, N0..N0+30
+            assert (
+                tuple(read(props, k) for k in ("origin_e", "origin_n", "source_offset_a")) == centre
+            )
+            obj = bpy.data.objects["dig"]
+            got = _positions(obj.data)
+            assert got[:, 0].min() == -15.0 and got[:, 0].max() == 15.0, got
+            assert got[:, 1].min() == -15.0 and got[:, 1].max() == 15.0, got
+            assert json.loads(obj.geotools_link.crs)["epsg"] == "EPSG:7856"
+            assert data_origin.pending_offer(bpy.context) is None
+
+
+def test_projected_gpkg_without_a_preset_and_the_confirmation() -> None:
+    data_origin = h.submodule("blender.data_origin")
+    _project("ANCHOR")
+    collection = bpy.data.collections.new("Site")
+    bpy.context.scene.collection.children.link(collection)
+    for name in ("Ground", "Wall"):
+        collection.objects.link(bpy.data.objects.new(name, bpy.data.meshes.new(name)))
+    h.project().source_collection = collection
+    with _tmpdir() as tmp:
+        rows = [(f["id"], f["geometry"], f["properties"]) for f in vf.contexts(1)]
+        path = vf.write_gpkg(tmp / "utm.gpkg", "contexts", rows, COLUMNS, srs_id=32756)
+        result, error = h.call_op(bpy.ops.geotools.import_gpkg, filepath=str(path))
+        assert result == {"ERROR_REPORTED"} and "an Anchor project" in error, error
+        pending = data_origin.pending_offer(bpy.context)
+        assert pending["request"]["layer"] == "contexts", pending
+
+        assert data_origin.needs_confirmation(bpy.context.scene)
+        text = h.label_text(h.draw(data_origin.GEOTOOLS_OT_use_data_origin))
+        assert "changes how the existing scene is placed on Earth" in text, text
+        assert "'Site' (2 objects)" in text and "from Anchor to EPSG:32756" in text, text
+
+        result, error = h.call_op(bpy.ops.geotools.use_data_origin, **pending["request"])
+        assert result == {"FINISHED"}, error
+        props = h.project()
+        assert props.placement_mode == "SOURCE_CRS" and props.crs == "EPSG:32756"
+        assert "contexts" in bpy.data.objects
+        # The project checks then say whether rusty-tiles takes EPSG:32756.
+
+
+def test_local_project_keeps_small_or_unknown_data() -> None:
+    _project("LOCAL")
+    with _tmpdir() as tmp:
+        small = vf.write_geojson(
+            tmp / "small.geojson",
+            [vf.feature({"type": "Point", "coordinates": [30.0, -40.0, 2.0]}, {}, 1)],
+        )
+        result, error = h.call_op(bpy.ops.geotools.import_geojson, filepath=str(small))
+        assert result == {"FINISHED"}, error
+        rows = [(f["id"], f["geometry"], f["properties"]) for f in vf.contexts(1)]
+        unknown = vf.write_gpkg(
+            tmp / "unknown.gpkg",
+            "far",
+            rows,
+            COLUMNS,
+            srs_id=-1,
+            organization="NONE",
+            definition="undefined",
+        )
+        result, error = h.call_op(bpy.ops.geotools.import_gpkg, filepath=str(unknown))
+        assert result == {"FINISHED"}, error
+        assert _positions(bpy.data.objects["far"].data)[:, 0].min() == np.float32(E0)
+    assert h.project().placement_mode == "LOCAL"
+    assert h.submodule("blender.data_origin").pending_offer(bpy.context) is None
+
+
+def test_a_project_without_a_crs_is_offered_the_datas() -> None:
+    data_origin = h.submodule("blender.data_origin")
+    _project()
+    props = h.project()
+    props.crs = ""
+    props.origin_e = props.origin_n = props.source_offset_a = "0"
+    with _tmpdir() as tmp:
+        path = vf.write_geojson(tmp / "dig.geojson", vf.contexts(2))  # EPSG:7856
+        result, error = h.call_op(bpy.ops.geotools.import_geojson, filepath=str(path))
+        assert result == {"ERROR_REPORTED"} and not bpy.data.objects
+        assert "no CRS yet" in error and "EPSG:7856" in error, error
+        pending = data_origin.pending_offer(bpy.context)
+        assert pending["origin"]["set_offset"] is True  # a zero offset: the data's centre
+        calls = h.draw(h.submodule("blender.links_ui").GEOTOOLS_PT_linked_data)
+        assert ("operator", "geotools.use_data_origin", "ORIENTATION_GLOBAL") in calls
+        result, error = h.call_op(bpy.ops.geotools.use_data_origin, **pending["request"])
+        assert result == {"FINISHED"}, error
+        assert props.crs == "EPSG:7856"
+        read = h.submodule("blender.properties").read_number
+        assert tuple(read(props, k) for k in ("origin_e", "origin_n", "source_offset_a")) == (
+            E0 + 15.0,
+            N0 + 15.0,
+            0.0,
+        )
+        assert "dig" in bpy.data.objects
