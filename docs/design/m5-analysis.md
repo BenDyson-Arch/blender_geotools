@@ -1191,7 +1191,8 @@ the observers).
   as a pinned wheel can be revisited if users ask for named zones on Windows.
 - **Below the horizon, the light is off.** A Blender Sun light below the
   horizon would light the scene from underneath, so its strength is 0 then
-  (keyframed when animating).
+  (keyframed when animating, with constant interpolation, so it switches at
+  the first key with the sun up or down rather than fading between keys).
 - **Readings are snapshots.** Results are stored with the placement they were
   made with. When the project changes, the panel says so and offers Read Again.
 - **The sun light is Blender's.** GeoTools creates or reuses one Sun light

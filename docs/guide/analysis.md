@@ -54,7 +54,10 @@ north by the convergence, up to about 1.5° at the edge of a UTM or MGA zone.
 
 **Over a Day** keyframes the light: set the **Hours** (from and to), the **Step
 (min)**, the **First Frame** and the **Frame Step**, then press **Animate
-Day**. The light is switched off while the sun is below the horizon.
+Day**. The light is switched off while the sun is below the horizon: its
+strength switches at the first key with the sun up (or down), and the frames
+between two keys keep the earlier key's strength, as in a Shadow Study. Its
+direction moves smoothly between keys.
 
 The sun's position is NREL's Solar Position Algorithm, within 0.00001° of the
 paper's own example.

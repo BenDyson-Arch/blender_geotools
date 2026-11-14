@@ -212,6 +212,41 @@ def test_animate_a_day() -> None:
     assert not [a for a in bpy.data.actions if a.name.startswith("GeoTools Sun")]
 
 
+def test_day_strength_switches_between_keys() -> None:
+    """With a Frame Step above 1 the light switches at a key; it never fades between keys.
+
+    Brisbane in June, 30-minute keys 4 frames apart: every frame between two
+    keys has the earlier key's strength, 0 or the full strength, around both
+    sunrise and sunset (linear keys gave 0.75, 1.5 and 2.25 there).
+    """
+    _reset()
+    sun_props = bpy.context.scene.geotools_analysis.sun
+    props = h.project()
+    props.placement_mode = "ANCHOR"
+    props.anchor_lon, props.anchor_lat, props.anchor_height = "153.02", "-27.47", "10"
+    sun_props.year, sun_props.month, sun_props.day = 2026, 6, 21
+    sun_props.tz_mode = "OFFSET"
+    sun_props.utc_offset = 10.0
+    sun_props.start_hour, sun_props.end_hour, sun_props.step_minutes = 5.0, 19.0, 30
+    sun_props.frame_start, sun_props.frames_per_step = 1, 4
+    sun_props.strength = 3.0
+    result, error = h.call_op(bpy.ops.geotools.sun_animate)
+    assert result == {"FINISHED"}, error
+    obj = bpy.data.objects["GeoTools Sun"]
+    scene = bpy.context.scene
+    keys = []
+    for i in range(29):  # 05:00 to 19:00
+        scene.frame_set(1 + 4 * i)
+        keys.append(obj.data.energy)
+    assert set(keys) == {0.0, 3.0}, keys
+    switches = [i for i in range(28) if keys[i] != keys[i + 1]]
+    assert len(switches) == 2, keys  # sunrise and sunset
+    for i in switches:
+        for between in range(1, 4):
+            scene.frame_set(1 + 4 * i + between)
+            assert obj.data.energy == keys[i], (i, between, obj.data.energy)
+
+
 def test_local_project_uses_the_anchor_latitude() -> None:
     _reset()
     props = h.project()

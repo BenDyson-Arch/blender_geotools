@@ -567,7 +567,16 @@ def animate_sun(context: bpy.types.Context) -> dict:
     _clear_sun_animation(obj)
     obj.rotation_mode = "XYZ"
     _keyframe(obj, "rotation_euler", frames, euler.T, f"{SUN_ACTION_PREFIX} Rotation")
-    _keyframe(obj.data, "energy", frames, energy[None, :], f"{SUN_ACTION_PREFIX} Strength")
+    # Constant: the light switches at the first key with the sun up (or down), rather
+    # than fading over the frames between two keys (as Shadow Study does).
+    _keyframe(
+        obj.data,
+        "energy",
+        frames,
+        energy[None, :],
+        f"{SUN_ACTION_PREFIX} Strength",
+        CONSTANT,
+    )
     context.scene.frame_set(context.scene.frame_current)
 
     current = _frame_index(
