@@ -54,6 +54,7 @@ __all__ = [
     "format_date",
     "format_year",
     "julian_day_of",
+    "obliquity_gap",
     "rise_set_azimuths",
     "standstill",
     "sun_rise_set",
@@ -150,15 +151,49 @@ def _jde(jd: float) -> float:
     return jd + float(sun.delta_t(2000.0 + (jd - sun.J2000) / 365.25)) / 86400.0
 
 
+# |Laskar - Vondrák et al. (2011)| obliquity, arc seconds, against the year
+# (docs/validation/archaeoastronomy.md); linear between, within 1" from 1000 BCE to 6000 CE.
+_OBLIQUITY_GAP = (
+    (-7999, 42.1),
+    (-4999, 17.5),
+    (-2999, 5.5),
+    (-1999, 2.0),
+    (-999, 0.5),
+    (6000, 0.5),
+    (9000, 6.6),
+    (11600, 25.0),
+    (11999, 26.0),
+)
+
+
+def obliquity_gap(year: int) -> float:
+    """About how far Laskar's obliquity is from Vondrák et al. (2011) in ``year``, arc seconds."""
+    years, gaps = zip(*_OBLIQUITY_GAP, strict=True)
+    return float(np.interp(float(year), years, gaps))
+
+
 def epoch_trust(year: int) -> list[str]:
     """Plain statements of how far the results for ``year`` can be trusted."""
     years = abs(int(year) - 2000)
-    notes = [
-        (
-            "Declinations: the obliquity (Laskar 1986) is good to arc seconds at this epoch; "
-            "lunar extremes to about 0.01°. Refraction near the horizon varies by several arc "
-            "minutes with the weather, which outweighs both."
+    gap = obliquity_gap(year)
+    if gap <= 1.0:
+        accuracy = (
+            "Declinations: the obliquity (Laskar 1986) is within 1″ of the modern long-term "
+            "series (Vondrák et al. 2011) at this epoch, and the lunar extremes within a few "
+            "arc seconds of JPL's ephemeris."
         )
+    else:
+        # The Moon adds Meeus' drifting mean elements: 2″ to 3000 BCE, 10″ at 8000 BCE.
+        moon = math.ceil((gap + (2.0 if gap < 6.0 else 10.0)) / 3.6) / 1000.0  # degrees, up
+        accuracy = (
+            f"Declinations: the obliquity (Laskar 1986) is about {gap:.0f}″ "
+            f"({gap / 3600.0:.3f}°) from the modern long-term series (Vondrák et al. 2011) "
+            f"at this epoch, the lunar extremes up to about {moon:.3f}° from JPL's ephemeris "
+            "(at 8000 BCE 42″ and 0.015°, about 0.02° in a sunrise azimuth)."
+        )
+    notes = [
+        accuracy + " Refraction near the horizon varies by several arc minutes with the weather, "
+        "which outweighs both."
     ]
     if years > 4000:
         notes.append(

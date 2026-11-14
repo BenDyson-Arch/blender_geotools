@@ -514,9 +514,13 @@ Common rules:
   the face normal (viewshed) or along the sight line (intervisibility), so the
   surface does not block itself. A surface closer than this to an occluder may
   see past it at the joint.
-- Earth curvature and refraction are not applied: over 1 km they lower a
-  distant point by about 7 cm (k = 0.13), which matters for landscape
-  viewsheds, not for a site.
+- Earth curvature and refraction are not applied. GDAL (by default) and
+  GRASS (with `-c -r`) lower a point at distance d by (1 − k) d² / 2R with
+  k = 1/7: 0.7 mm at 100 m, 6.7 cm at 1 km, 0.27 m at 2 km and 1.7 m at
+  5 km. That is below a site's survey error, but matters for landscape
+  viewsheds beyond about 2 km, where a target just below a ridge line of
+  sight can be hidden; use GDAL or GRASS through the geo formats for views
+  over kilometres ([validation](validation/visibility.md#earth-curvature-and-refraction)).
 
 ### Viewshed (`viewshed`, FACE, ratio)
 

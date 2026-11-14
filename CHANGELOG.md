@@ -66,7 +66,8 @@ and the project follows semantic versioning where practical.
   GeoPackage and GeoTIFF CRS handling, against Krüger's series, GeographicLib
   2.1, the ICSM worked example and GDAL 3.12.0 at twelve synthetic sites. All
   agree to nanometres or float32, published vertices to 0.3 mm; one bug fixed
-  (see Fixed) and four points left for a decision. Reference scripts in
+  (see Fixed); the four points it left for a decision are resolved (see
+  Changed and Fixed). Reference scripts in
   `scripts/validation/geodesy/`, fixtures in `tests/data/validation/geodesy/`,
   tests in normal CI.
 - Validation of archaeoastronomy
@@ -102,15 +103,29 @@ and the project follows semantic versioning where practical.
   geodesics and GRASS GIS 8.4.1 r.sun. All agree with what they claim (SPA to
   pvlib within 10⁻⁹°, to DE440 within 0.00017°; sun hours within half a step
   per edge). Insolation is Ineichen–Perez as in pvlib, not ESRA: it differs
-  from r.sun by the models' known differences. Three points are left for a
-  decision: sun directions in non-conformal CRSs (Albers, Web Mercator, up to
-  0.24°), refraction at standard pressure at any altitude, and the Over a Day
-  strength fading between keys. Reference scripts in
+  from r.sun by the models' known differences. The three points it left for a
+  decision (sun directions in non-conformal CRSs, refraction at standard
+  pressure at any altitude, the Over a Day strength fading between keys) are
+  fixed (see Fixed). Reference scripts in
   `scripts/validation/solar/`, fixtures in `tests/data/validation/solar/`,
   tests in normal CI.
 
 ### Changed
 
+- The analysis docs state what the 0.3.0 validation measured and the user
+  decided to keep: Laskar's obliquity is 42″ from Vondrák et al. (2011) at
+  8000 BCE, not "a few arc seconds", and the lunar extremes 0.015°, not
+  0.01° (docstrings, design note, guide, and the Archaeoastronomy panel's
+  trust note, which now gives the gap for the chosen epoch); Check
+  Alignment's declination leaves out the sun's 8.8″ parallax; the horizon
+  reads up to 0.0016° low; hydrology's false pits in V-channels along mesh
+  edges (accumulation unaffected; raise Minimum Depth on coarse meshes) and
+  face-centre spill levels; no contour at the lowest level or round a vertex
+  exactly on a level; Distance to Surface's sign near edges sharper than 90°
+  (as CloudCompare); and the viewshed's missing Earth curvature (0.7 mm at
+  100 m, 6.7 cm at 1 km, 1.7 m at 5 km). docs/BACKLOG.md has the deferred
+  work (ANA-1 to ANA-4, and Import Source Mesh's case (c)), and every
+  validation page marks its decisions resolved.
 - **Sections export their chainage**: Export Vectors writes each section piece
   to a GeoPackage as a LineString ZM with the chainage as M, the GIS
   convention for linear referencing that QGIS and GDAL read, and to GeoJSON

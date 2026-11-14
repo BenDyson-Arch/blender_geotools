@@ -136,7 +136,8 @@ within 10,000 years of 2000, and checks alignments against them.
 3. Press **Compute Horizon**.
 
 GeoTools casts rays over the scene's meshes and finds the apparent altitude of
-the skyline in each direction, to about 0.002°. **Earth Curvature** and
+the skyline in each direction, to about 0.002°: it reads 0 to 0.0016° low,
+since the skyline is the highest of the fine rays that hit. **Earth Curvature** and
 **Refraction** (terrestrial, k = 0.13) are on by default. **Ignore Within**
 leaves out terrain near the eye. **Open Horizon** is the altitude used where no
 terrain is hit; such open azimuths, and skylines at the edge of the terrain,
@@ -175,7 +176,10 @@ weather moves refraction at the horizon by several arc minutes either way.
   Vectors, or publish it as vectors.
 - **Check Alignment** takes each selected edge of a mesh, such as a wall or a
   line of stones you drew, and gives its true azimuth both ways, the nearest
-  events and the declination it implies.
+  events and the declination it implies. That declination is for the centre
+  of the sun or a star with no parallax: the sun's 8.8″ is left out, as is
+  usual in archaeoastronomy. For the Moon, add its parallax (about 0.95°)
+  yourself, or compare azimuths with the events, which include it.
 
 **Limits.** The horizon is only as good as the terrain in the scene. Beyond
 it, set **Open Horizon** or import a wider terrain. Results for old epochs
@@ -296,6 +300,23 @@ open edges and overhangs onto whatever lies below, across objects. The result
 lists the largest catchment, the depressions and the ponded volume. It takes
 about 20 seconds on 10 million triangles.
 
+**Limits.**
+
+- **False pits in V-channels.** Faces link only across shared edges. Where a
+  V-shaped channel runs exactly along a line of mesh edges (common on a DEM
+  converted to a mesh), the channel's two lowest faces in each cell meet only
+  at a vertex, so each cell is a shallow pit, (side slope − 2 × fall) × h/3
+  deep for cells h wide: 67 mm for 0.3 side slopes and a 5 % fall on 1 m
+  cells. Water fills them and passes on, so flow accumulation is unaffected,
+  but `ponded_depth` and `depression` show them and coarse meshes list them.
+  Set **Minimum Depth** to about a third of a face's fall across the channel
+  (side slope × h/3) to hide them; on photogrammetry meshes, with faces of a
+  few centimetres, they are millimetres deep and the default hides them.
+- **Spill levels at face centres.** Heights are taken at face centres, so a
+  depression's spill level reads about a third of a cell times the slope
+  lower than a raster tool's (h/3 × slope): millimetres on photogrammetry
+  meshes, 3 % of the volume of a cone-shaped pit at 1 m cells.
+
 ## Contours and Sections
 
 Cuts contour lines and cross-sections from the meshes, with heights in the
@@ -309,7 +330,10 @@ project's height system (RL: Blender Z plus offset A).
 3. Press **Create Contours**.
 
 The result is a line object (`Contours`) with `elevation`, `index`, `major`
-and `closed` attributes.
+and `closed` attributes. A level that only touches the surface gives no line:
+the lowest level of a flat-bottomed surface, or an isolated vertex (a peak
+or pit) exactly on a level. GDAL's `gdal_contour` draws a line along the
+bottom edge or a tiny loop there; no area is missed either way.
 
 **Sections:**
 

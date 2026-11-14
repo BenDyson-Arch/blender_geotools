@@ -2,9 +2,9 @@
 
 Status: validated on `val/geodesy` (2026-11-14), against GeoTools develop at
 38fd2e3 with rusty-tiles 0.4.1, pyproj 3.8.0 (PROJ 9.8.1) and Blender 5.2.4.
-One bug was found and fixed (Measure in non-conformal CRSs); four points are
-left for a decision, each with a recommendation
-([Discrepancies](#discrepancies-left-for-a-decision)).
+One bug was found and fixed (Measure in non-conformal CRSs); four points were
+left for a decision, and all four are now resolved
+([Decisions](#decisions-resolved)).
 
 This covers the **Measure** sub-panel (`geotools/analysis/site.py` and its
 operators in `geotools/blender/analysis.py`), the placement maths that analysis
@@ -33,9 +33,9 @@ a verdict.
 | LOCAL / ANCHOR / SOURCE_CRS modes | LOCAL: no Earth; ANCHOR: rigid ENU frame at the anchor, heading counter-clockwise | **agrees** (ANCHOR against the closed form to 1 nm) |
 | GeoScene frame and lat/lon sync | X = E − crs x, Y = N − crs y, grid north; lat/lon of the origin through rusty-tiles' CRS operation | **agrees** to 10⁻⁹° |
 | Published placement (SOURCE_CRS → ECEF) | rusty-tiles' allow-listed operation, then ECEF | **agrees**: every vertex within 0.3 mm of the closed form at six sites |
-| GLB metadata frame (`core.georef`) | one matrix: rusty-tiles' ENU frame times the measured grid axes | **discrepancy left for a decision**: one-sided probes tilt it |
+| GLB metadata frame (`core.georef`) | one matrix: rusty-tiles' ENU frame times the measured grid axes (central differences) | **agrees** to first order; **fixed** (the one-sided probes tilted it, [decision 1](#decisions-resolved)) |
 | GeoJSON CRS and axis order | RFC 7946 lon/lat WGS 84; legacy `crs` member read; written for a projected CRS | **agrees** with GDAL 3.12.0 (identical numbers) |
-| GeoPackage SRS and axis order | `srs_id` → `gpkg_spatial_ref_sys`; x = longitude/easting | **agrees** with GDAL; minor spec point on the `definition` text |
+| GeoPackage SRS and axis order | `srs_id` → `gpkg_spatial_ref_sys` (WKT1 `definition`); x = longitude/easting | **agrees** with GDAL; the `definition` is now WKT ([decision 4](#decisions-resolved)) |
 | GeoTIFF geotransform | GDAL's corner geotransform; PixelIsPoint shifted half a pixel; rotated refused | **agrees** with GDAL exactly |
 | Import into the project frame and export back | binary64 reprojection, float32 local, binary64 offset back | **agrees**: 0.27 mm round trip, read back by GDAL |
 
@@ -369,10 +369,10 @@ datum shift GDA2020 and RGF93 coordinates are taken on GRS80 or WGS 84,
 whose semi-minor axes differ by 0.1 mm.
 
 **GLB metadata frame** (`core.georef.measure_frame`, the node matrix of a
-`.glb` with Earth placement): see [the first discrepancy](#1-the-glb-metadata-frame-is-measured-one-sided).
+`.glb` with Earth placement): measured with one-sided probes until
+[decision 1](#decisions-resolved), now with central differences.
 
-**Verdict: agrees** (publishing); the GLB metadata frame is left for a
-decision.
+**Verdict: agrees** (publishing and, to first order, the GLB metadata frame).
 
 ## Geo formats (M8)
 
@@ -399,7 +399,8 @@ minus the offset (as float32); the nodata pixel and the one vertex whose faces
 all touch it are dropped, as documented. GDAL's `validate_gpkg` accepts
 GeoTools' GeoPackage.
 
-**Verdict: agrees** (one minor spec point, below).
+**Verdict: agrees.** The `definition` text, a minor spec point, is resolved
+([decision 4](#decisions-resolved)).
 
 ## Limits users should know
 
@@ -415,65 +416,71 @@ GeoTools' GeoPackage.
   the RL, not the ellipsoidal height (about 6 ppm per 40 m of geoid
   separation). The Gaussian radius against the azimuth's radius: below
   0.4 ppm at 1.5 km.
-- **Non-conformal CRSs.** Measure is right there now, but a point's Scale is
-  the scale along grid north only, and the sun and Aspect (True North) still
-  turn directions by one convergence (discrepancy 3).
+- **Non-conformal CRSs.** Measure and the sun are right there now, but a
+  point's Scale is the scale along grid north only, and Aspect (True North),
+  which takes one angle, is exact only for aspects along and across the
+  meridian ([decision 3](#decisions-resolved)).
 - **Rotated GeoTIFFs** are refused; warp them north-up in QGIS first.
 
-## Discrepancies left for a decision
+## Decisions (resolved)
 
-### 1. The GLB metadata frame is measured one-sided
+The validation left four points for a decision. The user's decisions
+(2026-11-14) are implemented on `fix/validation-decisions`, each with
+regression tests.
 
-`core.georef.measure_frame` builds the GLB's node matrix from three probes:
-the bounds' centre, and the centre moved half the extent east and north. The
-axes are secants from the centre, so they dip below the tangent plane by
-step / 2R and carry half the change of k over the step. For a 10 km site that
-tilts both axes by 4×10⁻⁴ rad and biases the scale by 18 ppm at the MGA zone
-edge. Mapping the reference grid through the matrix: the vertex nearest the
-centre is exact, the +E corner is 3.9 m off (Earth curvature over 7 km, which
-no single matrix can follow), and the −E corner 7.8 m (twice that, from the
-tilt). The design note says "exact at the centre, first order elsewhere"; with
-the tilt the first-order term is wrong.
-
-**Recommendation:** central differences: probe at the centre ± the step
-(two more 10 ms probes) and take (P₊ − P₋) / 2d. That removes the tilt and the
-scale bias and leaves the unavoidable curvature (3.9 m at 7 km, symmetric). It
-changes the matrix in GLBs users may have published, so it is not changed
-here.
-
-### 2. `geotools:gridScale` is not the grid scale factor
-
-The GLB metadata key `geotools:gridScale` (and `EcefFrame.scale`) is "true
-metres per model metre along +X": about 1/CSF (0.99940 at the MGA zone edge
-where k = 1.00063). The m4 design note defines it that way, but surveyors read
-"grid scale factor" as k = grid / true, the inverse, and `EcefFrame.scale`'s
-docstring calls it "the grid scale factor".
-
-**Done here:** the docstring now says what the number is. **Recommendation:**
-at the next metadata schema change, rename the key (for example
-`geotools:metresPerUnit`) or publish k itself.
-
-### 3. Sun and Aspect (True North) in non-conformal CRSs
-
-`site.sun_site` gives one convergence, and the sun light (and the Aspect (True
-North) preset) turn true azimuths into grid ones by subtracting it. In a
-non-conformal grid the turn depends on the direction: in EPSG:3577 the sun's
-grid azimuth is out by up to 1.1° at 150° E, 12° S (0.66° at 133° E, 25° S),
-and in EPSG:3857 by up to 0.13°. Conformal CRSs are exact.
-
-**Recommendation:** map the sun direction through the grid-to-ground map
-`site` now computes (its inverse turns a true horizontal direction into a grid
-one; the vertical is unchanged), or warn in the Sun panel that Albers and Web
-Mercator are not conformal. Both change results users of those CRSs see; the
-sun is outside this area's scope.
-
-### 4. GeoPackage `definition` text
-
-GeoTools writes the project CRS's text (`EPSG:7856`) in
-`gpkg_spatial_ref_sys.definition`. The GeoPackage standard asks for WKT there
-(or `undefined`). GDAL reads the file by `organization` and
-`organization_coordsys_id` and its `validate_gpkg` accepts it, so nothing
-fails today, but a strict reader could.
-
-**Recommendation:** write pyproj's WKT1 (`CRS.to_wkt("WKT1_GDAL")`) when pyproj
-is available, else `undefined`.
+1. **The GLB metadata frame was measured one-sided.**
+   `core.georef.measure_frame` took each grid axis as (P₊ − P₀) / d from the
+   bounds' centre and the centre moved half the extent east (north). Those
+   secants dip below the tangent plane by d / 2R and carry half the change of
+   k over the step: on a 10 km site at the MGA zone 56 edge both axes were
+   tilted 3.9×10⁻⁴ rad, the scale was 18 ppm high, and mapping the grid's
+   corners through the matrix put them 0.18 m to 7.84 m from where
+   rusty-tiles places them (the −E −N corner worst). **Done:** two more
+   probes (west and south) give central differences, (P₊ − P₋) / 2d. The tilt
+   is now 1.4×10⁻⁸ rad, the scale is the centre's tangent (to 10⁻⁶), and
+   every corner of that site is 3.93 m off: the Earth's curvature over 7 km,
+   symmetric, which no single matrix can follow. On a 200 m site a corner
+   moves by at most 3 mm. `tests/core/test_metadata_glb.py::test_measure_frame_is_not_tilted_on_a_large_site`.
+2. **`geotools:gridScale` was not the grid scale factor.** It holds true
+   metres per model metre along +X (about 1/CSF, 1.0004 where k = 0.9996),
+   where surveyors read "grid scale factor" as k. **Done:** the term is now
+   `geotools:groundMetresPerModelMetre` (the `Georeference` field and
+   `EcefFrame` attribute `ground_metres_per_model_metre`), documented in the
+   GLB metadata guide and m4-glb-metadata.md. No alias: no release wrote the
+   old name. Inspect Output does not read it. Tests check the new key, its
+   value and that the old one is gone.
+3. **Sun and Aspect (True North) in non-conformal CRSs.** One convergence
+   turned true azimuths into grid ones; in EPSG:3577 that was up to 1.12°
+   out at 150° E, 12° S (1.35° at Cape York, 1.81° in Tasmania, 0.66° at
+   133° E, 25° S) and in EPSG:3857 up to 0.19° (at the equator; 0.09° at
+   47°), worst 45° from the meridian. **Done:** `site.sun_site` carries, for a
+   non-conformal grid, the grid-to-ellipsoid map Measure uses, and
+   `SunSite.scene_azimuth` / `true_azimuth` map directions through it. Place
+   Sun, Over a Day, Sun Hours (sun rays and the sky rays' horizon lookups),
+   Shadow Study and the archaeoastronomy horizon rays and sightlines use it:
+   within 10⁻⁶° of projected geodesic steps
+   (`tests/core/test_site.py::test_sun_directions_in_a_non_conformal_grid`,
+   `tests/core/test_validation_solar.py::test_convergence_matches_geodesics`,
+   `tests/blender/test_validation_solar.py::test_light_in_a_non_conformal_crs`).
+   Conformal CRSs keep the old arithmetic bit for bit. Aspect (True North) is
+   a preset of stock nodes with one Convergence input, so it takes one
+   angle, the rotation nearest the map (`SunSite.rotation`, its polar
+   decomposition), which in Albers and Web Mercator is the convergence:
+   aspects along and across the meridian are exact, others off by up to the
+   numbers above. analysis-presets.md tabulates the limit and Add Analysis
+   says so in those CRSs.
+4. **GeoPackage `definition` text.** GeoTools wrote the CRS text
+   (`EPSG:7856`) where the standard asks for WKT. GDAL found an EPSG CRS by
+   its code, but a CRS without one was lost: GDAL 3.12.0 read no CRS from a
+   custom transverse Mercator export. **Done:** with pyproj, `definition` is
+   the CRS's WKT1 (`to_wkt("WKT1_GDAL")`); when WKT1 cannot express the CRS
+   (3D geographic CRSs, such as EPSG:9989) it is `undefined` and the WKT2
+   (2019) goes in `definition_12_063` of the GeoPackage 1.4 CRS WKT extension
+   (`gpkg_crs_wkt_1_1`, with `epoch`, the table rebuilt as GDAL does because
+   the column is `NOT NULL` without a default). Without pyproj the text is
+   written as before, and the geo-formats guide says so. GDAL 3.12.0
+   (Docker `ghcr.io/osgeo/gdal:ubuntu-small-3.12.0`): `validate_gpkg` accepts
+   EPSG:7856, EPSG:3577, EPSG:9989 (WKT2), the WKT2 layer added to GDAL's own
+   GeoPackage, and the custom CRS; GDAL reads each CRS, the custom one from
+   its WKT (`scripts/validation/exports/run.sh` reproduces this).
+   `tests/core/test_vector_formats.py::test_gpkg_srs_definition_*`.

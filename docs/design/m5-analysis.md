@@ -542,7 +542,9 @@ default 1.6 m) casts a fan of rays in the vertical plane, from −10° to +60°
 every 0.1°. A ray stops at its first hit, which is a terrain point the eye
 can see; the skyline is the visible point that appears highest. A second pass
 casts 64 rays inside the 0.1° above each azimuth's best hit, so the skyline is
-found to about 0.002°. With curvature on, a farther range hit by the coarse
+found to about 0.002°: 0 to 0.0016° low (median 0.0007°), as it is the
+highest fine ray that hits. Adding half a fine step would centre the error but
+make a hard surface edge appear above itself, so the bias is kept and stated. With curvature on, a farther range hit by the coarse
 ray above a near crest can appear lower than the crest, so the second pass
 also fills the 0.1° above any other coarse hit that appears within 0.1° of the
 best (the ray just below the skyline always does; usually one or two brackets
@@ -654,8 +656,12 @@ The event geometry takes its declinations from the mean obliquity ε at the
 epoch: ±ε at the solstices, 0 at the equinoxes, ±(ε + i) at a major
 standstill and ±(ε − i) at a minor one, with i = 5.1454°. ε is Laskar's
 (1986) polynomial, as in SPA (`sun.mean_obliquity`), fitted for 10,000 years
-either side of J2000 and good to 0.01″ over 1,000 years and a few arc seconds
-at the ends; epochs beyond that are refused. A test evaluates it
+either side of J2000 and good to 0.01″ over 1,000 years; epochs beyond that
+are refused. Against the modern long-term series (Vondrák, Capitaine and
+Wallace 2011, which DE441's ecliptic follows to 1.1″) it is within 1″ from
+1000 BCE to 6000 CE, 5.5″ at 3000 BCE, 17.5″ at 5000 BCE and 42″ at
+8000 BCE (0.012°, about 0.02° in a June sunrise azimuth at 51° N), and 26″
+at 12000 CE (see docs/validation/archaeoastronomy.md). A test evaluates it
 independently and against the IAU 2006 polynomial (within 0.5″ from 1000 to
 3000 CE and 0.002° at 3000 BCE).
 
@@ -675,8 +681,10 @@ are astronomical (0 is 1 BCE, −2999 is 3000 BCE) and shown both ways.
 
 **How far back to trust it** (shown in the panel for the chosen epoch):
 
-- Declinations: ε to arc seconds within the 10,000 years; lunar extremes to
-  about 0.01°. Refraction outweighs both.
+- Declinations: ε within 1″ of Vondrák (2011) from 1000 BCE to 6000 CE, 5.5″
+  at 3000 BCE, 42″ at 8000 BCE (the panel gives the value for the epoch);
+  lunar extremes within a few arc seconds of DE441 back to 3000 BCE and
+  0.015° at 8000 BCE. Refraction outweighs both.
 - Standstill dates: to hours near the present, days beyond 2,000 years from
   2000 and weeks beyond 4,000, as the Moon's mean elements drift.
 - ΔT (Earth rotation, Espenak and Meeus 2006) is uncertain by minutes around
@@ -768,7 +776,8 @@ and compares it, and its back bearing, with the best azimuth of every event
 (on the profile when there is one), vectorised over lines and events. Each
 line gets its true azimuth both ways, the horizon altitude along each (from
 the profile, else 0), the declination each implies for a body's centre
-without parallax (the inversion above), and the three nearest events with
+without parallax (the inversion above; the sun's 8.8″ parallax is left out,
+as is customary, and the Moon's must be applied by the user), and the three nearest events with
 the signed difference. A mesh with an EDGE `fid` (an M8 import) reports it.
 Up to 2,000 lines are kept.
 
@@ -982,10 +991,14 @@ heights and unchanged. Levels are reported in RL (plus offset A).
   one's lake, which spills out over the low edge.
 
 **Limits.** Single flow direction (above). Heights are face centres, so a
-face is wet or dry as a whole. A V-shaped channel running along a line of mesh edges
+face is wet or dry as a whole, and a spill level reads about h/3 × slope low
+against a raster priority-flood (cells h wide; 3 % of an inverted cone's
+volume at 1 m cells). A V-shaped channel running along a line of mesh edges
 is a chain of shallow pits, (side slope − 2 × fall) × h/3 deep, since the two
 lowest faces of each cell meet only at a vertex; filled, they pass their water
-on, but on coarse meshes they are listed as depressions
+on, so accumulation is unaffected, but on coarse meshes they are listed as
+depressions (a Minimum Depth of about side slope × h/3 hides them; linking
+faces through shared vertices is in the backlog)
 ([validation](../validation/hydrology.md#v-channels-along-mesh-edges)). Faces are not welded across objects: two
 objects that touch exchange water only by drops, so a building closed at its
 base and sunk into the terrain drips from its base, which is under the ground
@@ -1047,7 +1060,10 @@ real-world heights.
 distance is ≥ the plane's, so a triangle crossing it has exactly two
 crossing edges and gives one segment, and a vertex exactly on a level is no
 special case: the level of the lowest vertices of a flat-bottomed surface
-crosses nothing, and the highest is drawn along its edge. A crossing point is
+crosses nothing, and the highest is drawn along its edge. So the lowest level,
+and an isolated vertex (a peak or pit) exactly on a level, give no line where
+`gdal_contour` draws one along the bottom edge or a microscopic loop; no area
+is missed. A crossing point is
 named by its mesh edge (two vertex ids) and plane, or by the vertex when it
 falls exactly on one, so the two triangles of an edge share it; faces with
 more than three corners come in as Blender's loop triangles, whose diagonals

@@ -3,7 +3,10 @@
 Independent evidence that each analysis tool is correct and follows the GIS
 definition it claims, or a statement of where and why it differs. One page per
 area: the definitions, reference tools and versions, cases, tolerances,
-results and a verdict per tool.
+results and a verdict per tool. Every point the validation left for a
+decision has been decided (2026-11-14); each page's Decisions section says
+what was done. `scripts/validation/exports/` checks GeoTools' GeoPackage and
+GeoJSON exports with GDAL.
 
 ## Terrain shape and archaeological visualisation
 
@@ -24,10 +27,12 @@ and areas, the Gaussian radius, the LOCAL/ANCHOR/SOURCE_CRS frames, the
 GeoScene frame and lat/lon sync, where publishing puts vertices (ECEF), and the
 CRS handling of GeoJSON, GeoPackage and GeoTIFF, against Krüger's series,
 GeographicLib 2.1, the ICSM worked example and GDAL 3.12.0 at twelve synthetic
-sites. One bug fixed (Measure in non-conformal CRSs: Albers, Web Mercator);
-four points left for a decision (the GLB metadata frame's one-sided probes,
-the `geotools:gridScale` name, the sun in non-conformal CRSs, the GeoPackage
-`definition` text).
+sites. One bug fixed (Measure in non-conformal CRSs: Albers, Web Mercator).
+Resolved: the GLB metadata frame is measured with central differences,
+`geotools:gridScale` is now `geotools:groundMetresPerModelMetre`, the sun
+turns through the grid-to-ground map in non-conformal CRSs (Aspect (True
+North) keeps one rotation, with its limit documented), and the GeoPackage
+`definition` is WKT.
 
 ## Archaeoastronomy
 
@@ -38,10 +43,12 @@ rise and set azimuths, dated sunrises and Check Alignment, against closed
 forms, Skyfield 1.53 with JPL DE440s and DE441, ERFA 2.0.1.5 (Vondrák 2011
 long-term precession), astropy 7.1.0 and GRASS GIS 8.5.0 r.horizon. All agree.
 Two bugs fixed: Compute Events failed at the ends of the epoch range, and the
-horizon could miss a near crest by up to 0.1° with curvature on. Open: the
-stated accuracy of Laskar's obliquity at the ends (42″ from Vondrák at
-8000 BCE), the sun's parallax in the alignment declination, the horizon's
-fine-step bias and fixed refraction conditions.
+horizon could miss a near crest by up to 0.1° with curvature on. Resolved:
+the stated accuracy of Laskar's obliquity (42″ from Vondrák at 8000 BCE, now
+in the docs and the panel; Vondrák's series is in the backlog), the sun's
+parallax left out of the alignment declination and the horizon's fine-step
+bias (both documented), and refraction at the site's height (the
+standard-atmosphere pressure).
 
 ## Hydrology, contours and sections
 
@@ -52,9 +59,11 @@ independent priority-flood on the same face graph, WhiteboxTools 2.4.0,
 richdem 0.3.4, GDAL 3.12.0 and SciPy 1.18.1. All agree. One bug fixed
 (duplicate contour and section segments where a mesh edge lies on the plane);
 face-centre spill levels, three flow directions per face and flats routed
-towards their exit are documented convention differences. Five points are left
-for a decision, among them spurious shallow pits along V-channels that follow
-mesh edges.
+towards their exit are documented convention differences. Resolved: sections
+export chainage as M (LineString ZM; a per-point property in GeoJSON); the
+V-channel pits, face-centre spill levels and the contour convention are in
+the guide; linking faces through vertices and stream order are in the
+backlog.
 
 ## Visibility, change, volumes and paths
 
@@ -67,8 +76,9 @@ domes, hills and solids. All agree; Earth curvature (GDAL applies it by
 default, GeoTools does not), the cut/fill split by face and least-cost
 routing on the mean of both directions are documented convention
 differences. One bug fixed (Closed Volume lost float32 precision far from the
-origin). Open: the sign of distance to surface within the wedge of edges
-sharper than 90°.
+origin). Resolved: the sign of distance to surface within the wedge of
+edges sharper than 90° (kept, as CloudCompare, documented) and Earth
+curvature (documented with its size; an optional input is in the backlog).
 
 ## Sun, sun hours, clear-sky insolation and shadow studies
 
@@ -77,5 +87,5 @@ convergence, Place Sun and Over a Day, Sun Hours, clear-sky insolation and
 Shadow Study, against pvlib 0.16.1, Skyfield 1.55 with JPL DE440s, pyproj
 3.8.0 geodesics and GRASS GIS 8.4.1 r.sun. All agree with the definitions
 they claim; insolation is Ineichen–Perez (as pvlib), not r.sun's ESRA. No bugs
-found. Open: sun directions in non-conformal CRSs, refraction at altitude,
-and the Over a Day strength between keys.
+found. Resolved: sun directions in non-conformal CRSs (now exact), refraction
+at the site's height, and the Over a Day strength (now switched, not faded).

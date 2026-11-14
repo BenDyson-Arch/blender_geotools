@@ -2,8 +2,8 @@
 
 Status: validated on `val/hydrology` (2026-11-14), against GeoTools 0.4.0-dev
 (develop at 3a90e20) in Blender 5.2.4. One bug was found and fixed (duplicate
-contour and section segments). Five discrepancies are left for a decision, each
-with a recommendation ([below](#discrepancies-left-for-a-decision)).
+contour and section segments). Five discrepancies were left for a decision;
+all five are now [resolved](#decisions-resolved).
 
 This covers 3D surface hydrology (`geotools/analysis/hydrology.py`,
 `geotools/blender/hydrology.py`), the Flow Path (Quick Look) preset, contours
@@ -27,7 +27,7 @@ the cases, the tolerances, the results and a verdict. The design is in
 | Flow Path (Quick Look) | line of steepest descent, explicit steps on the facets | **agrees** (SciPy `solve_ivp`: within 1.0 cm at a 2 cm step, 4.4 cm at the default 10 cm) |
 | Contours | linear interpolation on each triangle ("marching triangles" on the TIN), levels `base + k × interval` in the height datum | **agrees** after the fix (gdal_contour: the same points on every grid edge, to 2×10⁻¹⁴ m); **documented convention difference** for levels exactly at vertex heights |
 | Sections | the vertical plane of each section-line segment cut through the TIN; chainage is plan distance along the line | **agrees** after the fix (GDAL bilinear: equal on a twist-free surface to 6×10⁻¹⁵ m, within the twist bound elsewhere; chainage exact) |
-| Export Vectors (GeoPackage, GeoJSON) | simple-feature points and line strings with Z in the project CRS | **agrees** (read back with sqlite3 and json, not GeoTools' reader); per-point chainage is not exported ([gap](#export-vectors)) |
+| Export Vectors (GeoPackage, GeoJSON) | simple-feature points and line strings with Z in the project CRS; sections as LineString ZM with chainage as M (GeoJSON: a per-point `chainage` property) | **agrees** (read back with sqlite3 and json, not GeoTools' reader, and with GDAL 3.12.0); per-point chainage exported since [decision 3](#decisions-resolved) |
 
 **Bug fixed** (commit e420aae, "Contours and sections: draw an edge lying on
 the plane once"): a mesh edge lying exactly on a contour level, or on a section
@@ -278,7 +278,7 @@ the thalweg still carries the whole valley
 depth, the depression layer and the Depressions object do show the pits. On
 photogrammetry meshes (faces of a few centimetres) they are millimetres deep
 and the default Minimum Depth hides them; on coarse meshes (a DEM converted at
-1 m) they are listed. See [recommendation 1](#discrepancies-left-for-a-decision).
+1 m) they are listed. See [recommendation 1](#decisions-resolved).
 
 ## Channel From, Networks and the Flow Paths object
 
@@ -297,7 +297,7 @@ validated above, so the network is D8-like (channels median ratio 1.01).
 
 **Stream order.** There is no Strahler (1957) or Shreve (1966) order; the
 networks are ranked by outlet area only. See
-[recommendation 5](#discrepancies-left-for-a-decision).
+[recommendation 5](#decisions-resolved).
 
 **Verdict.** Agrees.
 
@@ -381,7 +381,7 @@ highest along the top edge; GDAL draws 0 to 20, including the lowest along the
 bottom edge. A vertex that is a local peak exactly on a level gives GDAL a
 microscopic line around it and GeoTools nothing (the monkey saddle's corners
 at ±2 and its edge peak at 1.0). Either way no area is missed. See
-[recommendation 4](#discrepancies-left-for-a-decision).
+[recommendation 4](#decisions-resolved).
 
 **Topology** (`test_monkey_saddle_contour_topology`, z = x³ − 3xy², level 0
 through the saddle along the vertex column x = 0): every point is exactly on its
@@ -465,40 +465,45 @@ per piece only. See [decision 3](#decisions-resolved).
 
 **Verdict.** Agrees.
 
-## Discrepancies left for a decision
+## Decisions (resolved)
 
-None of these is changed: each would change documented behaviour or a result
-users may rely on, or is a choice between legitimate conventions.
+The validation left five points for a decision. The user's decisions
+(2026-11-14) are implemented on `fix/validation-decisions`.
 
 1. **Pits along V-channels that follow mesh edges** ([above](#v-channels-along-mesh-edges)).
    Faces linked only through shared edges make each cell of such a channel a
-   pit (s − 2f) × h/3 deep. On 1 m DEM-derived meshes this lists dozens of
-   depressions of several centimetres that a raster tool does not see.
-   *Recommendation:* for 0.3.0, document it in the user guide's hydrology
-   section, and suggest a Minimum Depth of about a third of a face's fall
-   across a channel for coarse meshes. After 0.3.0, evaluate linking faces
-   that share a vertex (about 12 neighbours). That removes these pits and
-   narrows the 3-direction bias, at roughly four times the links, which
-   m5-analysis.md already weighs.
+   pit (s − 2f) × h/3 deep: on 1 m DEM-derived meshes dozens of depressions
+   of several centimetres that a raster tool does not see; accumulation is
+   unaffected. **Done (documented):** the guide's hydrology Limits explain
+   the pits, how deep and why, that accumulation is unaffected, and suggest a
+   Minimum Depth of about a third of a face's fall across the channel
+   (side slope × h/3) on coarse meshes; m5-analysis.md says the same. Linking
+   faces that share a vertex is in the backlog
+   ([ANA-2](../BACKLOG.md#ana-2-link-hydrology-faces-through-shared-vertices)).
 2. **Spill levels at face centres.** Levels are low by about h/3 × slope
    against a raster priority-flood (3 % of the inverted cone's volume at 1 m
-   cells). *Recommendation:* keep. It follows from FACE layers and is
-   millimetres on photogrammetry meshes. State it in the guide next to
-   Minimum Depth.
-3. **Section chainage on export.** *Recommendation:* write sections as
-   LineString ZM with chainage as the M value, the GIS convention for linear
-   referencing (GeoPackage and GDAL support M; GeoJSON does not, so keep
-   `chainage_from`/`chainage_to` there).
+   cells). **Done (documented):** kept; the guide states it next to Minimum
+   Depth, and m5-analysis.md in its Limits.
+3. **Section chainage on export.** **Done:** sections export as LineString
+   ZM with chainage as M in a GeoPackage (`m` = 1, ISO WKB 3002), and, since
+   GeoJSON positions hold no M, with a `chainage` property holding one value
+   per point; `chainage_from`/`chainage_to` stay. GDAL 3.12.0 reads the
+   GeoPackage as a measured 3D line string with those M values and the
+   GeoJSON property as a RealList; `validate_gpkg` accepts it
+   (`scripts/validation/exports/run.sh`). A Vectors
+   publish leaves M out, as rusty-tiles 0.4.1 refuses measured geometry
+   ("retain or explicitly remove M"). Tests:
+   `test_export_vectors_round_trips_hydrology_contours_and_sections` (above),
+   `tests/core/test_vector_mesh.py::test_lines_carry_a_point_attribute_as_m`,
+   `tests/core/test_publish_vector.py::test_write_source_drops_measures`.
 4. **Contours at the lowest level and at isolated vertex peaks** give no line
    in GeoTools, where gdal_contour draws a line along the bottom edge or a
-   microscopic loop. *Recommendation:* keep (no area is missed, and the
-   convention is stated in m5-analysis.md).
-5. **No stream order and no flat convergence.** There is no Strahler or
-   Shreve order on the flow paths, and flats route only towards their exit.
-   *Recommendation:* if wanted after 0.3.0, Strahler order is a vectorised
-   pass over the channel tree (by depth, as the accumulation). The "away from
-   higher terrain" gradient (Barnes et al. 2014b) would make lake and flat
-   paths converge, but changes no accumulation leaving a flat.
+   microscopic loop. **Done (documented):** kept (no area is missed); the
+   guide's Contours section now says so, as m5-analysis.md does.
+5. **No stream order and no flat convergence.** **Done:** in the backlog
+   ([ANA-3](../BACKLOG.md#ana-3-stream-order-and-convergent-flow-on-flats)):
+   Strahler or Shreve order over the channel tree, and the "away from higher
+   terrain" gradient on flats.
 
 ## References
 

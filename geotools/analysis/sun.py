@@ -555,8 +555,12 @@ def mean_obliquity(jde: np.ndarray | float) -> np.ndarray:
     Laskar (1986), "Secular terms of classical planetary theories using the
     results of general relativity", A&A 157, 59 (the SPA paper's eq. 24 and
     Meeus' eq. 22.3). Fitted for 10,000 years either side of J2000: 0.01"
-    over 1,000 years and a few arc seconds at the ends. Raises ValueError
-    beyond that.
+    over 1,000 years. Against the modern long-term series (Vondrák, Capitaine
+    and Wallace 2011) it is within 1" from 1000 BCE to 6000 CE, 5.5" at
+    3000 BCE, 17.5" at 5000 BCE and 42" at 8000 BCE (0.012°, about 0.02° in a
+    solstice sunrise azimuth at 51° N), and 26" at 12000 CE
+    (docs/validation/archaeoastronomy.md). Raises ValueError beyond the
+    10,000 years.
     """
     jde = np.atleast_1d(np.asarray(jde, dtype=np.float64))
     jce = (jde - J2000) / 36525.0

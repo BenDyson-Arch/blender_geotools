@@ -155,6 +155,12 @@ def test_epoch_limits() -> None:
     assert archaeo.format_year(2026) == "2026 CE"
     notes = " ".join(archaeo.epoch_trust(-2999))
     assert "weeks" in notes and "ΔT" in notes
+    # The obliquity's stated accuracy is Vondrák et al. (2011)'s: 42″ at 8000 BCE.
+    assert "about 6″" in notes
+    far = archaeo.epoch_trust(-7999)[0]
+    assert "about 42″ (0.012°)" in far and "0.015°" in far and "0.02°" in far
+    assert "within 1″" in archaeo.epoch_trust(2026)[0]
+    assert archaeo.obliquity_gap(-7999) == 42.1 and archaeo.obliquity_gap(11999) == 26.0
 
 
 # --- calendar ------------------------------------------------------------------------------------------
