@@ -47,8 +47,9 @@ The script needs only Blender, and writes into `examples/drape-contexts/` (or
    drawn in and set the offset. The example uses EPSG:32631, with E 500000,
    N 5400000 and A 100.
 2. **Bring in the site mesh** with **Import Source Mesh** in the Source panel. GeoTools
-   reads the offset file beside it. In the example the mesh is called
-   `terrain`.
+   reads the offset file beside it, which matches the offset you set (if it
+   does not, the Source panel asks which to use). In the example the mesh is
+   called `terrain`.
 3. **Check the context attributes.** The recipe expects two numbers on each
    context:
    - `depth_top`: how far the top of the context is below the ground surface,

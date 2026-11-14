@@ -9,6 +9,16 @@ and the project follows semantic versioning where practical.
 
 ### Added
 
+- **Origin from Latitude/Longitude** for CRS projects. A scene with only a
+  geographic origin (`latitude`/`longitude` GeoScene keys, as BlenderGIS or
+  blender_ogc3dtiles can leave it) gets offset E/N by projecting it into the
+  project CRS, as BlenderGIS's own CRS switch does: full doubles, written to
+  `crs x`/`crs y`, latitude/longitude re-synced, undoable. The Project panel
+  and Check offer it when the scene has latitude/longitude but no projected
+  origin, and say by how many metres latitude/longitude and an existing E/N
+  disagree, without changing either. Choosing a CRS for such a scene no longer
+  writes E/N 0 over it and overwrites its latitude/longitude. Needs pyproj;
+  Local and Anchor projects leave the keys alone.
 - **Extract for Web** in Last Build: writes a published `.3tz` as a folder any
   web server can serve, next to it (`site.web/` for `site.3tz`,
   `site.slope.web/` for a variant), with `tileset.json`, the tiles and an optional `index.html`
@@ -70,6 +80,18 @@ and the project follows semantic versioning where practical.
 
 ### Fixed
 
+- Import Source Mesh no longer silently re-origins a georeferenced scene. An
+  offset file found beside the mesh sets the project origin only when the
+  project has none yet, or already has exactly that E, N and A (so a chunk
+  imported again, or several chunks sharing one offset file, change nothing).
+  When the scene has a BlenderGIS georeference with another origin, the
+  project another origin, or the project is Anchor, the mesh is imported
+  unshifted, the report gives the file's E/N/A next to the project's, and the
+  Source panel offers **Use This Offset File as the Project Origin** (it asks
+  first when the source collection has objects) and, in a CRS project,
+  **Place the Imported Objects at the Project Origin** (a double-precision
+  move, with a warning when single-precision object locations would round by
+  more than 1 mm).
 - Getting started step 8 (View the result) works as written: it uses Extract
   for Web and a complete viewer page instead of a snippet with an undefined
   `viewer`, and gives the Windows `py` command for Python's web server. The

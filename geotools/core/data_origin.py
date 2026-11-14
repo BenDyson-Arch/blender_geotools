@@ -20,6 +20,11 @@ A SOURCE_CRS project with no CRS yet is offered the data's CRS the same way
 (:func:`offer_project_crs`): the CRS only, when the project already has an
 offset, else the CRS and the data's centre.
 
+An offset file found beside an imported source mesh (:func:`check_offset_file`)
+sets the project origin only when the project has none yet, or already has
+the same one. Otherwise the mesh is imported unshifted and the file is
+offered as the origin, never applied behind the user's back.
+
 See docs/design/m8-geo-formats.md ("LOCAL and ANCHOR projects"). No ``bpy``.
 """
 
@@ -27,10 +32,12 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from enum import StrEnum
 
 from . import crs_catalog
 from .crs_match import DataCrs, is_geographic
-from .placement import PlacementMode
+from .geoscene import GeoScene
+from .placement import PlacementMode, Vec3
 
 LOCAL_RADIUS_M = 100_000.0
 """Data whose extent stays within this distance of the origin counts as local metres."""
@@ -204,3 +211,132 @@ def check_local_project(
         f"{kind} project: {what}'s coordinates ({crs_text}) are used as local metres, "
         "unshifted. Set the project to a CRS with an offset to place it on Earth."
     )
+
+
+# --- an offset file beside an imported source mesh ------------------------------------------
+
+
+class OffsetAction(StrEnum):
+    APPLY = "apply"
+    """The project has no origin yet: the file becomes it (and the project a CRS project)."""
+    MATCH = "match"
+    """The project already uses exactly this offset: nothing changes, nothing is said."""
+    OFFER = "offer"
+    """The project has another origin: import unshifted and offer the file."""
+
+
+Origin3 = tuple[float | None, float | None, float | None]
+"""The project's E, N and A; None where a field holds no number (or E/N have no key)."""
+
+FAR_LOCATION_STEP_M = 0.001
+"""Object locations whose single-precision step exceeds this get a warning (from 16,384 m)."""
+
+
+@dataclass(frozen=True, slots=True)
+class OffsetFileCheck:
+    """What :func:`check_offset_file` decided about one offset file."""
+
+    action: OffsetAction
+    offset: Vec3
+    """The file's E, N, A."""
+    project: Origin3
+    """The project's E, N, A when the file was read."""
+    reason: str = ""
+    """For an offer: what the project already has, as a clause."""
+    shift: Vec3 | None = None
+    """For an offer in a CRS project with a numeric origin: file minus project, the
+    float64 move that places objects imported against the file at the project origin."""
+
+    def message(self, name: str) -> str:
+        """The import report and the Source panel's text for an offer."""
+        e, n, a = self.offset
+        place = (
+            ", place the imported objects at the project origin" if self.shift is not None else ""
+        )
+        return (
+            f"{name} holds E {_num(e)}, N {_num(n)}, A {_num(a)}, but {self.reason}. The mesh "
+            "was imported unshifted, so its coordinates are relative to the file's offset, and "
+            f"the project origin was left as it is. Use this offset file as the project origin{place}, "
+            "or set the origin yourself."
+        )
+
+
+def _num(value: float | None) -> str:
+    if value is None:
+        return "not set"
+    return f"{value:.0f}" if float(value).is_integer() else repr(float(value))
+
+
+def _origin_text(origin: Origin3) -> str:
+    e, n, a = origin
+    return f"E {_num(e)}, N {_num(n)}, A {_num(a)}"
+
+
+def _is_zero(value: float | None) -> bool:
+    return value is None or value == 0.0
+
+
+def check_offset_file(
+    mode: PlacementMode | str, scene: GeoScene, project: Origin3, offset: Vec3
+) -> OffsetFileCheck:
+    """Whether an offset file found beside an imported mesh may set the project origin.
+
+    ``scene`` is the scene's GeoScene keys and ``project`` GeoTools' E, N and A
+    (in a CRS project with live keys, E and N are ``crs x``/``crs y``).
+    Comparisons are exact, in float64, A included.
+
+    - **Match:** a CRS project whose E, N and A are the file's. Several chunks
+      sharing one offset file, or a chunk imported again, change nothing.
+    - **Apply** when the project has no origin yet: a Local project with no
+      GeoScene keys and E, N, A all 0, or a CRS project whose E, N and A are 0
+      (or E/N not set) and whose scene has no geographic origin. Also a Local
+      project whose complete GeoScene keys are the file's E/N (the file only
+      adds A), or whose E, N, A from before are the file's.
+    - **Offer** otherwise: (a) complete GeoScene keys with another ``crs x``/
+      ``crs y``; (b) a CRS project with another non-zero origin; an Anchor
+      project (never silently switched to a CRS project); a Local project
+      that holds other keys or an E/N/A from before; a scene with only a
+      latitude/longitude origin.
+    """
+    mode = PlacementMode(str(getattr(mode, "value", mode)).lower())
+    file = (float(offset[0]), float(offset[1]), float(offset[2]))
+    project = tuple(None if v is None else float(v) for v in project)  # type: ignore[assignment]
+
+    def offer(reason: str, shift: Vec3 | None = None) -> OffsetFileCheck:
+        return OffsetFileCheck(OffsetAction.OFFER, file, project, reason, shift)
+
+    if mode is PlacementMode.ANCHOR:
+        return offer("this is an Anchor project, which the file would make a CRS project")
+    if mode is PlacementMode.SOURCE_CRS:
+        if project == file:
+            return OffsetFileCheck(OffsetAction.MATCH, file, project)
+        if scene.latitude is not None and scene.longitude is not None and not scene.has_origin:
+            return offer(
+                f"the scene has a geographic origin (latitude {scene.latitude:.7f}°, "
+                f"longitude {scene.longitude:.7f}°) and no E/N"
+            )
+        if all(_is_zero(v) for v in project):
+            return OffsetFileCheck(OffsetAction.APPLY, file, project)
+        shift = None
+        if all(v is not None for v in project):
+            shift = tuple(f - p for f, p in zip(file, project, strict=True))  # type: ignore[operator]
+        return offer(f"the project's origin is {_origin_text(project)}", shift)  # type: ignore[arg-type]
+    # LOCAL
+    if scene.complete:
+        if (scene.x, scene.y) == file[:2]:
+            return OffsetFileCheck(OffsetAction.APPLY, file, project)
+        return offer(f"the scene has a BlenderGIS (GeoScene) georeference ({scene.describe()})")
+    if scene.present:
+        return offer(f"the scene has BlenderGIS (GeoScene) keys ({scene.describe()})")
+    if not all(_is_zero(v) for v in project) and project != file:
+        return offer(f"this Local project holds the origin {_origin_text(project)} from before")
+    return OffsetFileCheck(OffsetAction.APPLY, file, project)
+
+
+def float32_step(value: float) -> float:
+    """The spacing of single-precision floats at ``value``: how finely Blender keeps it."""
+    value = abs(float(value))
+    if value == 0.0 or not math.isfinite(value):
+        return 0.0
+    _mantissa, exponent = math.frexp(value)  # value = m * 2**exponent, 0.5 <= m < 1
+    return math.ldexp(1.0, max(exponent - 24, -149))

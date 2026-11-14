@@ -33,6 +33,8 @@ Run Checks also refreshes every layer's value range and status.
 | `crs-refused` | rusty-tiles cannot publish this CRS. | Choose another CRS. See [Georeference and projects](projects.md). |
 | `crs-operation` | The datum operation rusty-tiles will use, and its accuracy. | Nothing; an info note. |
 | `georef-height-shift` | Offset A is not 0, so BlenderGIS sees heights shifted. | Nothing, unless you share the scene. See [BlenderGIS](blendergis.md). |
+| `georef-origin-lat-lon-only` | The scene has a latitude and longitude but no projected origin (E, N). | **Origin from Latitude/Longitude** in the Project panel or Checks. See [BlenderGIS](blendergis.md). |
+| `georef-origin-lat-lon-differ` | The scene's latitude and longitude lie some metres from E and N. | Nothing, if E and N are right; else **Origin from Latitude/Longitude**. |
 | `georef-keys-ignored` | The scene has a BlenderGIS georeference, but the project is Local or Anchor. | **Use the Scene's BlenderGIS Georeference** in the Project panel, or ignore it. |
 | `uv-overlap` | UV triangles share texels on an object with texture layers. | Fix the UVs, or bake anyway. See [Layers](layers.md#texture-layers-and-the-bake-sub-panel). |
 | `image-missing` | An image's file is missing and it is not packed. | Find the file, or pack the image. |

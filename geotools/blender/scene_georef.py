@@ -19,6 +19,9 @@ module only connects them to the scene:
 - LOCAL and ANCHOR projects write no keys. If the scene has some, the Project
   panel and Check warn, and :class:`GEOTOOLS_OT_use_blendergis_georef` switches
   to a CRS project that uses them.
+- A CRS project whose scene has ``latitude``/``longitude`` but no projected
+  origin, or E/N that disagree with them, gets a warning in the Project panel
+  and Check, with :class:`GEOTOOLS_OT_origin_from_lat_lon` as the remedy.
 
 GeoTools never imports BlenderGIS and works the same without it. See
 docs/design/georeference-interop.md.
@@ -31,7 +34,7 @@ from typing import Any
 
 import bpy
 
-from ..core import geoscene
+from ..core import deps, geoscene
 from ..core.issues import Issue
 from .common import redraw_ui
 from .ui import wrapped
@@ -158,7 +161,17 @@ def offset_a(props: Any) -> float | None:
 def issues(scene: bpy.types.Scene) -> list[Issue]:
     """How GeoScene tools (BlenderGIS) will see this scene: the panel's and Check's warnings."""
     props = scene.geotools
-    return geoscene.interop_issues(scene, props.placement_mode, offset_a(props))
+    return geoscene.interop_issues(scene, props.placement_mode, offset_a(props), _Store(props))
+
+
+LAT_LON_CODES = frozenset(("georef-origin-lat-lon-only", "georef-origin-lat-lon-differ"))
+"""Issues whose remedy is :class:`GEOTOOLS_OT_origin_from_lat_lon`."""
+
+
+def lat_lon_origin(scene: bpy.types.Scene) -> geoscene.LatLonOrigin | None:
+    """Whether the panel offers Origin from Latitude/Longitude (``core.geoscene``)."""
+    props = scene.geotools
+    return geoscene.lat_lon_origin(scene, _Store(props), props.placement_mode)
 
 
 def start_crs_project(props: Any) -> bool:
@@ -265,6 +278,13 @@ def draw_notes(
         wrapped(box, context, issue.message, icon="ERROR", max_lines=8)
         if issue.code == "georef-keys-ignored" and read(scene).crs:
             box.operator(GEOTOOLS_OT_use_blendergis_georef.bl_idname, icon="ORIENTATION_GLOBAL")
+        draw_remedy(box, issue.code)
+
+
+def draw_remedy(layout: bpy.types.UILayout, code: str) -> None:
+    """The button that fixes a georeference issue (the Project and Checks panels)."""
+    if code in LAT_LON_CODES:
+        layout.operator(GEOTOOLS_OT_origin_from_lat_lon.bl_idname, icon="WORLD_DATA")
 
 
 def draw_storage(
@@ -319,6 +339,93 @@ class GEOTOOLS_OT_use_blendergis_georef(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def _lat_lon_refusal(scene: bpy.types.Scene) -> str | None:
+    """Why Origin from Latitude/Longitude cannot run now; None when it can."""
+    props = scene.geotools
+    if props.placement_mode != "SOURCE_CRS":
+        return "Only a CRS project takes its origin from latitude/longitude"
+    found = read(scene)
+    if found.latitude is None or found.longitude is None:
+        return "The scene has no latitude/longitude"
+    if not props.crs.strip():
+        return "Set the project CRS first"
+    if geoscene.srid_for(props.crs) is None:
+        return "The project CRS is not one a GeoScene (BlenderGIS) can hold"
+    return None
+
+
+class GEOTOOLS_OT_origin_from_lat_lon(bpy.types.Operator):
+    """Set offset E/N by projecting the scene's latitude/longitude (BlenderGIS GeoScene keys) into the project CRS, as BlenderGIS does when it changes the CRS. Objects keep their Blender positions. Asks first when it replaces an existing origin under a source collection with objects"""
+
+    bl_idname = "geotools.origin_from_lat_lon"
+    bl_label = "Origin from Latitude/Longitude"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context: bpy.types.Context) -> bool:
+        scene = context.scene
+        if scene is None:
+            return False
+        reason = _lat_lon_refusal(scene)
+        if reason is not None:
+            cls.poll_message_set(reason)
+            return False
+        return True
+
+    def invoke(self, context: bpy.types.Context, event: bpy.types.Event) -> set[str]:
+        offer = lat_lon_origin(context.scene)
+        collection = context.scene.geotools.source_collection
+        populated = collection is not None and len(collection.all_objects) > 0
+        if offer is not None and not offer.missing and populated:
+            return context.window_manager.invoke_props_dialog(
+                self, width=440, title="Replace the Project Origin?", confirm_text="Replace"
+            )
+        return self.execute(context)
+
+    def draw(self, context: bpy.types.Context) -> None:
+        offer = lat_lon_origin(context.scene)
+        text = offer.message() if offer is not None else ""
+        wrapped(
+            self.layout,
+            context,
+            f"{text} The source collection's objects keep their Blender positions, so they "
+            "move on Earth with the origin. Undo reverts it.".strip(),
+            "ERROR",
+            max_lines=16,
+        )
+
+    def execute(self, context: bpy.types.Context) -> set[str]:
+        scene = context.scene
+        reason = _lat_lon_refusal(scene)
+        if reason is not None:
+            self.report({"ERROR"}, reason)
+            return {"CANCELLED"}
+        if not deps.probe_pyproj().available:
+            self.report(
+                {"ERROR"},
+                "Origin from Latitude/Longitude needs pyproj, which is not available (see About)",
+            )
+            return {"CANCELLED"}
+        props = scene.geotools
+        before = read(scene)
+        found = geoscene.set_origin_from_lat_lon(scene, _Store(props), props.placement_mode)
+        if found is None:
+            self.report(
+                {"ERROR"},
+                f"Cannot project latitude {before.latitude!r}, longitude {before.longitude!r} "
+                f"into {props.crs}",
+            )
+            return {"CANCELLED"}
+        e, n = found
+        self.report(
+            {"INFO"},
+            f"Offset E {e!r}, N {n!r} ({props.crs}) set from latitude {before.latitude!r}, "
+            f"longitude {before.longitude!r}",
+        )
+        redraw_ui(context)
+        return {"FINISHED"}
+
+
 class GEOTOOLS_OT_dismiss_georef_notice(bpy.types.Operator):
     """Hide the georeference migration notice"""
 
@@ -332,7 +439,11 @@ class GEOTOOLS_OT_dismiss_georef_notice(bpy.types.Operator):
         return {"FINISHED"}
 
 
-classes = (GEOTOOLS_OT_use_blendergis_georef, GEOTOOLS_OT_dismiss_georef_notice)
+classes = (
+    GEOTOOLS_OT_use_blendergis_georef,
+    GEOTOOLS_OT_origin_from_lat_lon,
+    GEOTOOLS_OT_dismiss_georef_notice,
+)
 
 _register_classes, _unregister_classes = bpy.utils.register_classes_factory(classes)
 

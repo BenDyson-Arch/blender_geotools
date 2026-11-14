@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import tempfile
 from collections.abc import Iterator
@@ -204,6 +205,197 @@ def test_load_offset_file_operator() -> None:
     placement = p.placement_from_props(props)
     assert placement.source_offset == (300000.25, 6961000.123456, -4.0)
     assert placement.source_crs == ""  # the file says nothing about the CRS
+
+
+# --- an offset file that would move an existing origin ----------------------------------
+
+E1, N1, A1 = "512000.25", "6961000.5", "10"
+E2, N2, A2 = "512100.75", "6961050.125", "12.5"
+GEOSCENE = ("SRID", "crs x", "crs y", "latitude", "longitude")
+
+
+def _keys() -> dict[str, object]:
+    scene = bpy.context.scene
+    return {k: scene[k] for k in GEOSCENE if k in scene}
+
+
+def _chunk(folder: Path, name: str, offset: tuple[str, str, str] | None) -> Path:
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{name}.obj"
+    fx.write_obj(path, [fx.TRIANGLE])
+    if offset is not None:
+        fx.write_offset(folder / f"{name}_offset.txt", *offset)
+    return path
+
+
+def _import(path: Path) -> list[bpy.types.Object]:
+    before = set(bpy.data.objects)
+    assert bpy.ops.geotools.ingest_source(filepath=str(path)) == {"FINISHED"}
+    return [obj for obj in bpy.data.objects if obj not in before]
+
+
+def _origin() -> tuple[float, float, float]:
+    p = h.submodule("blender.properties")
+    props = h.project()
+    return tuple(p.read_number(props, a) for a in ("origin_e", "origin_n", "source_offset_a"))
+
+
+def _offer() -> dict | None:
+    return h.submodule("blender.source").pending_offset_offer(bpy.context)
+
+
+def _source_panel_calls() -> list:
+    return h.draw(h.submodule("blender.panels").GEOTOOLS_PT_source)
+
+
+def test_second_chunk_with_another_offset_is_offered_not_applied() -> None:
+    h.reset_scene()
+    with _tmpdir() as tmp:
+        first = _import(_chunk(tmp / "one", "chunk1", (E1, N1, A1)))
+        props = h.project()
+        assert props.placement_mode == "SOURCE_CRS"
+        assert _origin() == (float(E1), float(N1), float(A1))
+        props.crs = "EPSG:7856"
+        keys = _keys()
+        assert keys["crs x"] == float(E1)
+        assert _offer() is None
+
+        second = _import(_chunk(tmp / "two", "chunk2", (E2, N2, A2)))
+        # The project origin, its keys and the file it came from are as they were.
+        assert _origin() == (float(E1), float(N1), float(A1))
+        assert _keys() == keys
+        assert Path(props.offset_file).name == "chunk1_offset.txt"
+        assert tuple(second[0].location) == (0.0, 0.0, 0.0)  # imported unshifted
+        pending = _offer()
+        assert pending is not None
+        message = pending["message"]
+        assert f"E {E2}, N {N2}, A {A2}" in message and f"E {E1}, N {N1}, A {A1}" in message
+        shift = (float(E2) - float(E1), float(N2) - float(N1), float(A2) - float(A1))
+        assert tuple(pending["shift"]) == shift
+        calls = _source_panel_calls()
+        assert ("operator", "geotools.use_offset_file_origin", "ORIENTATION_GLOBAL") in calls
+        assert ("operator", "geotools.place_at_project_origin", "OBJECT_ORIGIN") in calls
+        assert "imported unshifted" in h.label_text(calls)
+
+        # Place the imported objects at the project origin: a float64 difference.
+        assert pending["objects"] == [o.name for o in second]
+        result = bpy.ops.geotools.place_at_project_origin(
+            objects=json.dumps(pending["objects"]),
+            shift=h.submodule("blender.properties").format_vec(shift),
+        )
+        assert result == {"FINISHED"}
+        assert tuple(second[0].location) == tuple(float(np.float32(d)) for d in shift)
+        assert tuple(first[0].location) == (0.0, 0.0, 0.0)
+        assert _offer() is None
+        assert _origin() == (float(E1), float(N1), float(A1))
+
+        # Or use the second file as the project origin instead (EXEC: no question).
+        third = _import(_chunk(tmp / "three", "chunk3", (E2, N2, A2)))
+        assert third and _offer() is not None
+        path = _offer()["path"]
+        assert bpy.ops.geotools.use_offset_file_origin(filepath=path) == {"FINISHED"}
+        assert _origin() == (float(E2), float(N2), float(A2))
+        assert bpy.context.scene["crs x"] == float(E2) and props.crs == "EPSG:7856"
+        assert Path(props.offset_file).name == "chunk3_offset.txt"
+        assert _offer() is None
+
+
+def test_the_same_offset_reimported_or_shared_is_silent() -> None:
+    h.reset_scene()
+    with _tmpdir() as tmp:
+        chunk1 = _chunk(tmp / "one", "chunk1", (E1, N1, A1))
+        _import(chunk1)
+        props = h.project()
+        props.crs = "EPSG:7856"
+        keys = _keys()
+        _import(chunk1)  # imported again
+        _import(_chunk(tmp / "two", "chunk2", (E1, N1, A1)))  # another chunk, the same offset
+        assert _offer() is None
+        assert _keys() == keys  # not rewritten, lat/lon included
+        assert _origin() == (float(E1), float(N1), float(A1))
+        level, message = h.submodule("blender.source").detect_offset(props, chunk1, bpy.context)
+        assert level == {"INFO"} and "project's origin already" in message, (level, message)
+        assert not any(
+            kind == "operator" and "offset_file_origin" in text
+            for kind, text, _ in _source_panel_calls()
+        )
+
+
+def test_blendergis_keys_are_not_re_origined_by_an_offset_file() -> None:
+    h.reset_scene()
+    scene = bpy.context.scene
+    scene["SRID"], scene["crs x"], scene["crs y"] = "EPSG:7856", 502_000.0, 6_961_000.0
+    scene["latitude"], scene["longitude"] = -27.47, 153.02
+    keys = _keys()
+    props = h.project()
+    with _tmpdir() as tmp:
+        objects = _import(_chunk(tmp, "site", (E1, N1, A1)))
+        assert props.placement_mode == "LOCAL"  # not switched behind the user's back
+        assert _keys() == keys
+        pending = _offer()
+        assert pending is not None and pending["shift"] is None  # a Local frame: no shift
+        assert "BlenderGIS (GeoScene) georeference" in pending["message"]
+        calls = _source_panel_calls()
+        assert ("operator", "geotools.use_offset_file_origin", "ORIENTATION_GLOBAL") in calls
+        assert not any(text == "geotools.place_at_project_origin" for _, text, _ in calls)
+        assert objects
+        # The user chooses the file: a CRS project at the file's origin, keys rewritten.
+        assert bpy.ops.geotools.use_offset_file_origin(filepath=pending["path"]) == {"FINISHED"}
+        assert props.placement_mode == "SOURCE_CRS"
+        assert (scene["SRID"], scene["crs x"], scene["crs y"]) == (
+            "EPSG:7856",
+            float(E1),
+            float(N1),
+        )
+        assert _origin() == (float(E1), float(N1), float(A1))
+        assert props.georef_notice == ""  # nothing of GeoTools' own was overruled
+
+    # Keys that are the file's E/N: the file applies, and only adds A.
+    h.reset_scene()
+    scene["SRID"], scene["crs x"], scene["crs y"] = "EPSG:7856", float(E1), float(N1)
+    with _tmpdir() as tmp:
+        _import(_chunk(tmp, "site", (E1, N1, A1)))
+        assert _offer() is None
+        assert h.project().placement_mode == "SOURCE_CRS"
+        assert _origin() == (float(E1), float(N1), float(A1))
+
+
+def test_an_anchor_project_gets_the_offer_not_a_switch() -> None:
+    h.reset_scene()
+    props = h.project()
+    props.placement_mode = "ANCHOR"
+    with _tmpdir() as tmp:
+        _import(_chunk(tmp, "site", (E1, N1, A1)))
+        assert props.placement_mode == "ANCHOR"
+        pending = _offer()
+        assert pending is not None and "Anchor project" in pending["message"]
+        assert bpy.ops.geotools.use_offset_file_origin(filepath=pending["path"]) == {"FINISHED"}
+        assert props.placement_mode == "SOURCE_CRS"
+        assert _origin() == (float(E1), float(N1), float(A1))
+        # Dismissing an offer clears it.
+        _import(_chunk(tmp / "b", "other", (E2, N2, A2)))
+        assert _offer() is not None
+        assert bpy.ops.geotools.dismiss_offset_offer() == {"FINISHED"}
+        assert _offer() is None
+
+
+def test_placing_far_objects_warns_about_single_precision() -> None:
+    h.reset_scene()
+    with _tmpdir() as tmp:
+        objects = _import(_chunk(tmp, "site", None))
+    source = h.submodule("blender.source")
+    recorder = h.ReportRecorder()
+    recorder.objects = json.dumps([o.name for o in objects])
+    recorder.shift = "20000.123456, 5.0, 0.0"
+    assert source.GEOTOOLS_OT_place_at_project_origin.execute(recorder, bpy.context) == {"FINISHED"}
+    levels = {next(iter(level)): text for level, text in recorder.reports}
+    assert "single precision" in levels["WARNING"], recorder.reports
+    assert objects[0].location.x == float(np.float32(20000.123456))
+    objects[0].location = (0.0, 0.0, 0.0)
+    recorder = h.ReportRecorder()
+    recorder.objects, recorder.shift = json.dumps([o.name for o in objects]), "1.0, 0.0, 0.0"
+    source.GEOTOOLS_OT_place_at_project_origin.execute(recorder, bpy.context)
+    assert all("WARNING" not in level for level, _ in recorder.reports)
 
 
 # --- summary ---------------------------------------------------------------------------

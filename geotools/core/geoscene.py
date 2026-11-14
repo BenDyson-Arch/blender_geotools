@@ -37,6 +37,13 @@ Rules, in short:
   ``longitude`` (:func:`sync_lat_lon`). When they cannot be computed, it deletes
   them, as BlenderGIS's own ``setOriginPrj`` does: stale geographic
   coordinates are never left beside a changed projected origin.
+- A scene with ``latitude``/``longitude`` but no projected origin (other
+  GeoScene tools can leave one) keeps them: GeoTools invents no E/N over them
+  and never recomputes them from E/N it held (:func:`reconcile`). The user can
+  set E/N from them (:func:`set_origin_from_lat_lon`, offered by
+  :func:`lat_lon_origin`), which projects them into the project CRS as
+  BlenderGIS's own CRS switch does. Latitude/longitude that disagree with E/N
+  are reported, in metres, and neither is changed.
 - LOCAL and ANCHOR projects cannot be expressed as GeoScene keys: GeoTools
   writes none for them, and leaves any it finds alone (the panel and Check warn).
 """
@@ -74,6 +81,8 @@ ORIGIN_KEYS = {STORE_E: CRS_X, STORE_N: CRS_Y}
 
 LonLatFn = Callable[[str, float, float], "tuple[float, float] | None"]
 """``locate(definition, easting, northing) -> (lon, lat)`` or None."""
+ProjectFn = Callable[[str, float, float], "tuple[float, float] | None"]
+"""``project(definition, lon, lat) -> (easting, northing)`` or None: ``locate``'s inverse."""
 
 
 def _is_source_crs(mode: object) -> bool:
@@ -284,6 +293,14 @@ def _to_wgs84(source: str) -> Any:
     )
 
 
+def _datum_source(text: str) -> str:
+    """The definition a GeoScene position is transformed from: rusty-tiles' resolution."""
+    resolution = crs_catalog.resolve(text)
+    if resolution is not None and resolution.accepted and resolution.resolved:
+        return resolution.resolved
+    return crs_catalog.epsg_code(text) or text
+
+
 def origin_lon_lat(definition: str, easting: float, northing: float) -> tuple[float, float] | None:
     """WGS84 (lon, lat) of a projected origin with the bundled pyproj; None if it can't tell.
 
@@ -299,11 +316,7 @@ def origin_lon_lat(definition: str, easting: float, northing: float) -> tuple[fl
     text = (definition or "").strip()
     if not text or not deps.probe_pyproj().available:
         return None
-    resolution = crs_catalog.resolve(text)
-    if resolution is not None and resolution.accepted and resolution.resolved:
-        source = resolution.resolved
-    else:
-        source = crs_catalog.epsg_code(text) or text
+    source = _datum_source(text)
     try:
         lon, lat = _to_wgs84(source).transform(float(easting), float(northing))
     except Exception:
@@ -312,6 +325,41 @@ def origin_lon_lat(definition: str, easting: float, northing: float) -> tuple[fl
     if not (math.isfinite(lon) and math.isfinite(lat)) or abs(lat) > 90.0 or abs(lon) > 180.0:
         return None
     return float(lon), float(lat)
+
+
+@lru_cache(maxsize=64)
+def _from_wgs84(target: str) -> Any:
+    import pyproj
+
+    return pyproj.Transformer.from_crs(
+        "EPSG:4326", pyproj.CRS.from_user_input(target), always_xy=True
+    )
+
+
+def lon_lat_to_origin(definition: str, lon: float, lat: float) -> tuple[float, float] | None:
+    """A WGS84 (lon, lat) as (easting, northing) in ``definition``; None if it can't tell.
+
+    The inverse of :func:`origin_lon_lat`, with the same datum convention, so an
+    origin set from latitude/longitude gives the same latitude/longitude back
+    when they are synced. Doubles throughout, nothing rounded.
+    """
+    text = (definition or "").strip()
+    if not text or not deps.probe_pyproj().available:
+        return None
+    try:
+        lon, lat = float(lon), float(lat)
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(lon) and math.isfinite(lat)) or abs(lat) > 90.0 or abs(lon) > 180.0:
+        return None
+    try:
+        x, y = _from_wgs84(_datum_source(text)).transform(lon, lat)
+    except Exception:
+        log.debug("cannot project %r, %r into %r", lon, lat, text, exc_info=True)
+        return None
+    if not (math.isfinite(x) and math.isfinite(y)):
+        return None
+    return float(x), float(y)
 
 
 def sync_lat_lon(keys: Any, locate: LonLatFn = origin_lon_lat) -> bool:
@@ -492,14 +540,24 @@ def reconcile(
       origin keys that are absent; values that differ from the keys are
       dropped and named in the notice.
 
+    - The scene has latitude/longitude but no projected origin: only E/N
+      GeoTools actually held are written (no zero default), and the
+      latitude/longitude are kept as found, not recomputed. :func:`lat_lon_origin`
+      then offers them as the origin, or reports how far they lie from E/N.
+
     GeoTools' own CRS and E/N text is then removed, so no second copy remains.
-    Lat/lon are synced when a key was written.
+    Lat/lon are otherwise synced when a key was written.
     """
     if not _is_source_crs(mode):
         return None
     stored_crs = str(store.get(STORE_CRS, "")).strip()
     result = Reconciled()
     wrote = False
+    # A scene with only a geographic origin (latitude/longitude, as BlenderGIS or
+    # another GeoScene tool may leave it): no zero E/N is invented over it, and
+    # the keys found are never recomputed from E/N GeoTools held. The panel and
+    # Check then offer Origin from Latitude/Longitude, or say how far they differ.
+    geographic_only = _geographic_only(read(keys))
     if SRID not in keys:
         srid = srid_for(stored_crs)
         if srid is None:
@@ -530,16 +588,212 @@ def reconcile(
                 )
             elif held or fresh:
                 result.kept.append(f"origin {label} {existing!r} ({key})")
-        elif number is not None and (held or fresh):
+        elif number is not None and (held or (fresh and not geographic_only)):
             keys[key] = number
             wrote = True
             result.moved.append(f"origin {label} {number!r} ({key})")
         elif held and number is None:
             result.dropped.append(f"origin {label}: GeoTools' text {text!r} is not a number")
     _drop_store(store, STORE_CRS, STORE_E, STORE_N)
-    if wrote:
+    if geographic_only:
+        scene = read(keys)
+        if wrote:
+            result.kept.append(
+                f"latitude {scene.latitude!r}, longitude {scene.longitude!r} as found"
+            )
+    elif wrote:
         sync_lat_lon(keys, locate)
     return result
+
+
+# --- an origin from latitude and longitude --------------------------------------------------
+
+EARTH_RADIUS_M = 6_371_008.8
+"""The mean Earth radius (IUGG), for the distance between two geographic positions."""
+LAT_LON_TOLERANCE_M = 0.01
+"""Latitude/longitude within this of the projected origin agree with it.
+
+A position synced by GeoTools or BlenderGIS round-trips to well under a
+millimetre; a different tool's datum convention can differ by more, and is
+reported."""
+
+
+def _lat_lon(scene: GeoScene) -> tuple[float, float] | None:
+    """The scene's (latitude, longitude) when both are finite and in range."""
+    lat, lon = scene.latitude, scene.longitude
+    if lat is None or lon is None or abs(lat) > 90.0 or abs(lon) > 180.0:
+        return None
+    return lat, lon
+
+
+def _geographic_only(scene: GeoScene) -> bool:
+    """A geographic origin (latitude/longitude) without a complete projected one."""
+    return _lat_lon(scene) is not None and not scene.has_origin
+
+
+def ground_distance(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
+    """Metres between two WGS84 positions on the mean sphere (haversine; 0.5% at worst)."""
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = p2 - p1, math.radians(lon2 - lon1)
+    h = math.sin(dp / 2.0) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2.0) ** 2
+    return 2.0 * EARTH_RADIUS_M * math.asin(min(1.0, math.sqrt(h)))
+
+
+def origin_from_lat_lon(
+    keys: Any, definition: str, project: ProjectFn = lon_lat_to_origin
+) -> tuple[float, float] | None:
+    """``crs x``/``crs y`` for the scene's ``latitude``/``longitude`` in ``definition``.
+
+    ``definition`` must be a CRS GeoTools can write as ``SRID``
+    (:func:`srid_for`). The result is the projected doubles, unrounded. None
+    when it cannot be computed: no such CRS, no finite latitude and longitude,
+    or a projection that fails or is not finite (no pyproj, a CRS it cannot read).
+    """
+    if srid_for(definition) is None:
+        return None
+    found = _lat_lon(read(keys))
+    if found is None:
+        return None
+    lat, lon = found
+    xy = project(definition, lon, lat)
+    if xy is None:
+        return None
+    x, y = float(xy[0]), float(xy[1])
+    if not (math.isfinite(x) and math.isfinite(y)):
+        return None
+    return x, y
+
+
+@dataclass(frozen=True, slots=True)
+class LatLonOrigin:
+    """A scene whose latitude/longitude could give the project's E/N (:func:`lat_lon_origin`)."""
+
+    crs: str
+    latitude: float
+    longitude: float
+    current: tuple[float, float] | None = None
+    """The project's E/N; None when it has no projected origin."""
+    distance_m: float | None = None
+    """How far E/N lie from latitude/longitude, in metres; None when E/N are missing."""
+
+    @property
+    def missing(self) -> bool:
+        return self.current is None
+
+    @property
+    def code(self) -> str:
+        return "georef-origin-lat-lon-only" if self.missing else "georef-origin-lat-lon-differ"
+
+    def message(self) -> str:
+        where = f"latitude {self.latitude:.7f}°, longitude {self.longitude:.7f}°"
+        if self.current is None:
+            return (
+                f"The scene has a geographic origin ({where}, written by BlenderGIS or another "
+                f"GeoScene tool) but no projected origin (crs x, crs y) in {self.crs}. Use "
+                "Origin from Latitude/Longitude to set offset E/N from it."
+            )
+        e, n = self.current
+        return (
+            f"The scene's latitude/longitude ({where}) lie {format_metres(self.distance_m)} "
+            f"from its projected origin (E {_fmt(e)}, N {_fmt(n)} in {self.crs}); another "
+            "GeoScene tool may have moved one of them. GeoTools places the scene by E/N and "
+            "changes neither. Use Origin from Latitude/Longitude to take E/N from "
+            "latitude/longitude instead."
+        )
+
+    def issue(self) -> Issue:
+        return Issue(Severity.WARNING, self.code, self.message())
+
+
+def format_metres(value: float | None) -> str:
+    """``"0.042 m"``, ``"12.35 m"``, ``"3.21 km"``."""
+    if value is None:
+        return "an unknown distance"
+    if value >= 1000.0:
+        return f"{value / 1000.0:,.2f} km"
+    if value >= 1.0:
+        return f"{value:,.2f} m"
+    return f"{value:.3f} m"
+
+
+def _current_origin(keys: Any, store: Any, mode: object) -> tuple[float, float] | None:
+    """The project's E/N as numbers; None when it has no projected origin."""
+    if keys_live(keys, mode):
+        scene = read(keys)
+        return (scene.x, scene.y) if scene.has_origin else None  # type: ignore[return-value]
+    if STORE_E not in store and STORE_N not in store:
+        return None
+    e = _parse(str(store.get(STORE_E, STORE_DEFAULTS[STORE_E])))
+    n = _parse(str(store.get(STORE_N, STORE_DEFAULTS[STORE_N])))
+    return (e, n) if e is not None and n is not None else None
+
+
+def lat_lon_origin(
+    keys: Any, store: Any, mode: object, locate: LonLatFn = origin_lon_lat
+) -> LatLonOrigin | None:
+    """When to offer Origin from Latitude/Longitude, and what to say.
+
+    Only for a SOURCE_CRS project with a CRS GeoTools can write as ``SRID`` and
+    a scene with finite ``latitude``/``longitude``:
+
+    - no projected origin (no ``crs x``/``crs y``, no GeoTools E/N): offered;
+    - E/N that lie more than :data:`LAT_LON_TOLERANCE_M` from latitude/longitude:
+      the disagreement, in metres, with the offer (nothing is changed);
+    - otherwise (they agree, or ``locate`` cannot tell): None.
+
+    LOCAL and ANCHOR projects give None: GeoTools leaves their keys alone.
+    """
+    if not _is_source_crs(mode):
+        return None
+    crs = get_crs(keys, store, mode).strip()
+    if not crs or srid_for(crs) is None:
+        return None
+    found = _lat_lon(read(keys))
+    if found is None:
+        return None
+    lat, lon = found
+    current = _current_origin(keys, store, mode)
+    if current is None:
+        return LatLonOrigin(crs, lat, lon)
+    located = locate(crs, current[0], current[1])
+    if located is None:
+        return None
+    distance = ground_distance(lon, lat, float(located[0]), float(located[1]))
+    if distance <= LAT_LON_TOLERANCE_M:
+        return None
+    return LatLonOrigin(crs, lat, lon, current, distance)
+
+
+def set_origin_from_lat_lon(
+    keys: Any,
+    store: Any,
+    mode: object,
+    project: ProjectFn = lon_lat_to_origin,
+    locate: LonLatFn = origin_lon_lat,
+) -> tuple[float, float] | None:
+    """Set the project's E/N from the scene's latitude/longitude in the project CRS.
+
+    Written as :func:`set_origin` writes a typed E/N (so the keys stay the
+    georeference), then latitude/longitude are re-synced from the new origin.
+    Returns the E/N set, or None when nothing changed: not a SOURCE_CRS project,
+    no CRS GeoTools can write as ``SRID``, no latitude/longitude, or no
+    projection (:func:`origin_from_lat_lon`).
+    """
+    if not _is_source_crs(mode):
+        return None
+    crs = get_crs(keys, store, mode).strip()
+    found = origin_from_lat_lon(keys, crs, project)
+    if found is None:
+        return None
+    if not keys_live(keys, mode):
+        reconcile(keys, store, mode, locate)  # the CRS becomes SRID, as choosing it does
+        if not keys_live(keys, mode):
+            return None
+    x, y = found
+    set_origin(keys, store, mode, STORE_E, repr(x), locate)
+    set_origin(keys, store, mode, STORE_N, repr(y), locate)
+    sync_lat_lon(keys, locate)
+    return x, y
 
 
 def _short(text: str) -> str:
@@ -550,11 +804,19 @@ def _short(text: str) -> str:
 # --- warnings ------------------------------------------------------------------------------
 
 
-def interop_issues(keys: Any, mode: object, offset_a: float | None) -> list[Issue]:
+def interop_issues(
+    keys: Any,
+    mode: object,
+    offset_a: float | None,
+    store: Any = None,
+    locate: LonLatFn = origin_lon_lat,
+) -> list[Issue]:
     """Warnings about how GeoScene tools (BlenderGIS) will see this scene.
 
     - LOCAL or ANCHOR with GeoScene keys: GeoTools ignores the scene's
       georeference, which other tools still use.
+    - SOURCE_CRS with latitude/longitude but no projected origin, or with
+      latitude/longitude that disagree with E/N (:func:`lat_lon_origin`).
     - SOURCE_CRS with keys and A not 0: GeoScene's Z is absolute height, so
       other tools see every height shifted by A.
     """
@@ -578,8 +840,12 @@ def interop_issues(keys: Any, mode: object, offset_a: float | None) -> list[Issu
                 f"ignores it. BlenderGIS and other GeoScene tools still use it.{fix}",
             )
         ]
+    found: list[Issue] = []
+    offer = lat_lon_origin(keys, {} if store is None else store, mode, locate)
+    if offer is not None:
+        found.append(offer.issue())
     if scene.has_crs and offset_a is not None and offset_a != 0.0:
-        return [
+        found.append(
             Issue(
                 Severity.WARNING,
                 "georef-height-shift",
@@ -588,5 +854,5 @@ def interop_issues(keys: Any, mode: object, offset_a: float | None) -> list[Issu
                 f"{'lower' if offset_a > 0 else 'higher'} than GeoTools publishes it. Use A = 0 "
                 "for scenes shared with them.",
             )
-        ]
-    return []
+        )
+    return found
