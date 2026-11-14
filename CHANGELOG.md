@@ -28,6 +28,15 @@ and the project follows semantic versioning where practical.
 - Each release attaches the synthetic demo site (`examples/drape-contexts/`)
   as `geotools-demo-data-<version>.zip`, included in `SHA256SUMS`. Getting
   started now points to it instead of to the repository.
+- Validation of the terrain-shape and archaeological-visualisation presets
+  ([docs/validation/terrain.md](docs/validation/terrain.md)): slope, aspect
+  (grid and true north), curvatures, rugosity, TPI, TRI, local relief model,
+  sky-view factor and openness, live and fast, against closed forms and GDAL
+  3.12.0, WhiteboxTools 2.4.0 and rvt-py 2.2.1 on synthetic DEMs. All agree;
+  the plan-curvature naming, TPI sampling and horizon search region are
+  documented convention differences, now settled (see Changed). Reference script
+  `scripts/validation/terrain/make_references.py`, fixtures in
+  `tests/data/validation/terrain/`, tests in normal CI.
 
 ### Changed
 
@@ -39,6 +48,25 @@ and the project follows semantic versioning where practical.
   Checks reports `image-file-too-large` only over 1 GiB. An image the build's
   memory budget cannot hold fails the publish with a `ResourceLimitError`
   naming the bytes it needs; raise **Memory GiB** or choose **Downscale**.
+- **TPI results change**: the Topographic Position preset now samples 96
+  heights by default instead of 24, so its mean is Weiss's (2001) mean over
+  the whole disc or annulus, as other tools compute TPI, to about 2% RMS of the
+  TPI on smooth terrain instead of about 7.5%. On the validation terrain new
+  TPI layers differ from ones made with 24 samples by 7–9% RMS of the TPI
+  (4.4 mm RMS, 11 mm at most, with the default 0.5 m disc), and the preset
+  takes three to four times as long (about 9 s at 1M triangles and 76 s at
+  10M, against 2 s and 25 s, on a shared machine). Existing modifiers keep the
+  Samples they have, and so does a file that already holds the TPI node group
+  (new TPI layers in it start at 24: set Samples to 96); set Samples to 24 for
+  the old values.
+- The plan curvature preset is labelled **Plan (Tangential) Curvature** (node
+  group *GeoTools Plan (Tangential) Curvature*), because WhiteboxTools' and
+  SAGA's *Plan Curvature* is the contour curvature; GeoTools' equals their
+  *Tangential Curvature*. The preset id and layer stay `curvature_plan`, so
+  existing files and scripts keep working. analysis-presets.md now also
+  states the curvature window rule, the float32 height limit, and that the
+  horizon presets' Max Distance is measured along the ray (RVT's is
+  horizontal).
 
 ### Fixed
 

@@ -338,6 +338,7 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
     cast by the sun-hours Cycles Raycast engine (now shared,
     `ray_bake.py`) and stored once as a layer, chosen in Add Analysis
     ([analysis-presets.md](analysis-presets.md#fast-bake-paths)).
+    Terrain and archaeological presets validated ([validation/terrain.md](validation/terrain.md)).
   - Terrain shape: slope, aspect, curvature (plan and profile), roughness and
     rugosity, TPI and TRI.
   - Archaeological visualisation: local relief model, sky-view factor,

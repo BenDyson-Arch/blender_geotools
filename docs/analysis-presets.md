@@ -277,7 +277,7 @@ taken as true north). The layer's provenance records `"north": "true"` and
 the value used. Aggregation is **none**: aspect is circular, and an area mean
 of 350° and 10° is not 0°.
 
-### Curvature: profile, plan and mean (`curvature_profile`, `curvature_plan`, `curvature_mean`, CORNER, 1/m)
+### Curvature: profile, plan (tangential) and mean (`curvature_profile`, `curvature_plan`, `curvature_mean`, CORNER, 1/m)
 
 From a 3 × 3 window of heights at spacing w around each vertex (eight vertical
 rays; the centre is the vertex), the Evans-Young derivatives (Florinsky 2016,
@@ -295,7 +295,7 @@ s = (z3 + z7 − z1 − z9) / 4w²
 
 - **profile** (vertical) curvature `k_v = −(p²r + 2pqs + q²t) / (g (1 + g)^{3/2})`:
   the normal curvature along the slope line;
-- **plan** curvature is the horizontal (tangential) curvature
+- **plan (tangential)** curvature is the horizontal (tangential) curvature
   `k_h = −(q²r − 2pqs + p²t) / (g √(1 + g))`: the normal curvature along the
   contour. It is the contour curvature times sin(slope), so it stays bounded on
   gentle ground, where the contour curvature diverges;
@@ -304,10 +304,43 @@ s = (z3 + z7 − z1 − z9) / 4w²
 **Positive is convex** (crests, spurs, breaks of slope), negative concave
 (hollows, ditches, feet of slope); a sphere of radius R gives +1/R for all
 three. Profile and plan curvature are undefined on exactly level ground (no
-data where g < 10⁻¹²). The window must be several mesh spacings: a window
-close to the spacing samples the mesh's flat facets between vertices and
-overstates curvature (+4% on a sphere of R = 5 m at w = 2.5 spacings, 0.03% at
-w = 10 spacings).
+data where g < 10⁻¹²).
+
+**Names in other tools.** "Plan curvature" means different things in
+different tools, so the preset is labelled **Plan (Tangential) Curvature**
+(its id and layer stay `curvature_plan`). It equals WhiteboxTools'
+`TangentialCurvature` and SAGA's *Tangential Curvature* (Florinsky's
+*horizontal* curvature). WhiteboxTools' `PlanCurvature`, SAGA's *Plan
+Curvature* and Shary and Florinsky's *plan curvature* are the **contour
+curvature**, k_h / sin(slope): it diverges on gentle ground, so it differs
+from this preset most where the ground is nearly level. Compare with the
+tangential output of those tools. Sign and unit agree: positive convex, 1/m.
+
+**Window and mesh spacing.** The window's rays read the mesh, which is flat
+between vertices. Where they land on vertices (a regular grid with w a whole
+number of spacings), the result is the Evans-Young curvature of the vertices
+themselves, with no added bias. Where they land mid-facet, the facets' chords
+cut inside the curved surface and the curvature is overstated by up to
+(h/w)²/4, for mesh spacing h: measured +4.0% at w = 2.5 h on a sphere, a bowl
+and a paraboloid. On an irregular photogrammetry mesh the rays land anywhere,
+so expect up to that bias: 4% at w = 2.5 h, 1% at 5 h, 0.25% at 10 h. In
+practice set Window to at least five times the mesh spacing, and choose it
+for the scale of the landform you want, not the finest the mesh allows.
+
+**Heights far from 0 (float32).** Blender stores heights in float32, and the
+window divides small height differences by w², so the rounding of large
+heights shows in the curvature. On a sphere of R = 5 m (spacing 0.05 m):
+
+| Heights near | Window 0.05 m: max (RMS) error | Window 0.2 m: max error |
+|---|---|---|
+| 5 m | 0.09% (0.03%) | 0.10% |
+| 105 m | 1.3% (0.4%) | 0.17% |
+| 1,005 m | 9.5% (3.6%) | 0.6% |
+
+The relative error grows as about 3×10⁻⁸ |z| / (w² |k|) (z in m, w in m, k in
+1/m). Keep the scene's heights near 0, with the project's **Offset A**
+carrying the absolute height ([Projects](guide/projects.md#heights-a-and-the-height-offset)),
+or widen the window.
 
 | Input | Default | |
 |---|---|---|
@@ -339,11 +372,20 @@ sunflower pattern of even areal density, in point-symmetric pairs, so a plane
 gives exactly 0. Positive on rises and crests, negative in hollows. No data
 where no sample hit.
 
+Weiss's TPI, as other tools compute it, subtracts the mean over every cell of
+the neighbourhood; the preset samples it. The default 96 samples give that mean
+to about 2% RMS of the TPI on smooth terrain (measured against the exact disc
+and annulus mean: 1.7%; 24 samples gave 7.6%, 48 gave 3.3%). Fewer samples are
+proportionally faster and noisier. Use a radius of several mesh spacings: the
+mesh's linear interpolation adds about 2% at five spacings and is as large as
+the TPI itself below two. `gdaldem TPI` uses the eight neighbours of a 3 × 3
+window, which matches a disc of radius √3 cells (the same second moment).
+
 | Input | Default | |
 |---|---|---|
 | Inner Radius | 0 m | 0 for a disc. |
 | Outer Radius | 0.5 m | |
-| Samples | 24 | Rounded up to an even number. |
+| Samples | 96 | Rounded up to an even number. Was 24 up to GeoTools 0.3; a file that already holds that TPI group keeps its default of 24 for new layers. |
 | Search Height | 2 m | See 2.5D sampling. |
 
 ### Terrain Ruggedness Index (`tri`, CORNER, m)
@@ -384,9 +426,19 @@ level, exactly) and then bisects: Steps rays in all, resolving γ to
 `90° / 2^(Steps − 1)` (0.7° at the default 8), and the midpoint of the last
 interval is used. Raycast hits back faces too, so thin walls occlude.
 
+**Search region.** Max Distance is measured along each ray, so the search
+reaches a sphere around the ray's start: a horizon point at elevation γ counts
+if it is within Max Distance in a straight line, so at most Max Distance × cos γ
+away horizontally. RVT (the Relief Visualization Toolbox) measures its search
+radius horizontally and skips the nearest cell (its noise radius is at least
+one pixel). So with the same number GeoTools searches slightly less far on
+steep ground, but also looks at the closest surface, which RVT leaves out. On
+the validation terrain the two definitions differ by 0.004 in SVF and 0.3° in
+openness ([validation](validation/terrain.md#sky-view-factor-and-openness)).
+
 | Input | Default | |
 |---|---|---|
-| Max Distance | 2 m | Search radius. |
+| Max Distance | 2 m | Length of each ray, measured along it from the ray's start. |
 | Directions | 16 | Azimuths from +Y, evenly spaced. |
 | Steps | 8 | Rays per direction. |
 | Ray Offset | 0.002 m | Start of each ray from the surface, along the vertex normal. |
@@ -738,7 +790,7 @@ meshes are triangles, so 1M faces is about 0.5M vertices.
 | rugosity (R = 0.1 m) | 0.2 s | 1.9 s | ~10 blur iterations |
 | profile, plan, mean curvature | 0.5–1 s | 13 s | 8 rays |
 | TRI | 0.5–1.3 s | ~13 s (est., as curvature) | 8 rays |
-| TPI | 2.6 s | 34 s | 24 rays |
+| TPI | 9 s | 76 s | 96 rays |
 | local relief model | 4.7 s | 67 s | 48 rays |
 | sky-view factor | 12.5 s | 163 s | 128 rays |
 | positive, negative openness | 15–19 s | ~210 s (est.) | 128 rays |
@@ -748,11 +800,18 @@ is rays per vertex times vertices. A modifier evaluates when it is added, when
 the mesh or an input changes and when the file is opened; otherwise its result
 is cached.
 
-**Not within the target at 10M.** Slope, aspect, rugosity, curvature, TRI
-and TPI evaluate within a minute at 10M triangles. The local relief model
-takes about a minute (67 s, or half that with 24 samples), and the horizon
-presets (sky-view factor and openness) take three to four minutes, past the
-M5 target of a minute per tool. Directions 8 and Steps 6 cut that to about
+The TPI row is the default of 96 samples, measured on 2026-11-14 on a
+20-thread desktop while it was shared (load average 17–30; a second 1M run
+took 16.6 s).
+In the same runs 24 samples took 1.8–2.0 s at 1M and 25 s at 10M, and 48
+samples 4 s at 1M: the time grows about in proportion to Samples.
+
+**Not within the target at 10M.** Slope, aspect, rugosity, curvature and TRI
+evaluate within a minute at 10M triangles. TPI takes about 76 s with its
+default 96 samples (25 s with 24), and the local relief model about a minute
+(67 s, or half that with 24 samples). The horizon presets (sky-view factor
+and openness) take three to four minutes, past the M5 target of a minute per
+tool. Directions 8 and Steps 6 cut that to about
 a third, with a coarser result. Their [fast path](#fast-bake-paths), the same
 search cast in a Cycles bake, takes 37 to 52 s at 10M triangles and is the
 way for large sites.

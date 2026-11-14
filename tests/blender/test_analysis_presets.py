@@ -336,8 +336,8 @@ def test_readding_never_duplicates() -> None:
     assert _node_group_names() == groups and len(a.modifiers) == 1
     # Another preset sharing the helpers appends only its own group.
     assert _add("curvature_plan") == {"FINISHED"}
-    assert _node_group_names() == sorted([*groups, "GeoTools Plan Curvature"])
-    plan = bpy.data.node_groups["GeoTools Plan Curvature"]
+    assert _node_group_names() == sorted([*groups, "GeoTools Plan (Tangential) Curvature"])
+    plan = bpy.data.node_groups["GeoTools Plan (Tangential) Curvature"]
     helper = next(n for n in plan.nodes if n.bl_idname == "GeometryNodeGroup")
     assert helper.node_tree == bpy.data.node_groups["GeoTools Surface Derivatives"]
     # A renamed (or edited) group is still the preset's group.
