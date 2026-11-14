@@ -219,6 +219,9 @@ and the project follows semantic versioning where practical.
   faded the light (to a quarter, a half and three quarters of the strength
   with a Frame Step of 4). The strength is now keyed constant, as Shadow
   Study keys it; the light's direction still moves smoothly between keys.
+- Shadow Study, Compute Events and Over a Day no longer fail on Windows for
+  dates before 1970: Python's `datetime.fromtimestamp` refuses negative
+  timestamps there.
 - The archaeoastronomy **horizon profile** no longer misses a near crest by up
   to 0.1° when, with Earth curvature on, a farther range is hit by the coarse
   ray just above the crest but appears lower than it: the fine pass now

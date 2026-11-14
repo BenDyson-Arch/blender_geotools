@@ -119,6 +119,31 @@ def _core(pts, tris, **kwargs):
     return surface, hy.analyse(surface, drops, **kwargs)
 
 
+def _core_as_read(props, pts, **kwargs):
+    """The core's analysis of the arrays the operator reads, every drop leaving the model.
+
+    Built from Blender's own edge numbering (``read_surface``), not the test's: on
+    a symmetric surface many slopes tie exactly, and ties are broken by edge
+    index, so a different numbering routes a few faces differently on some CPUs.
+    """
+    hy = h.submodule("analysis.hydrology")
+    objects = h.submodule("blender.hydrology").surface_objects(bpy.context, props.surface)
+    arrays = h.submodule("blender.surface").read_surface(bpy.context, objects, topology=True)
+    np.testing.assert_allclose(arrays.positions, pts, atol=1e-6)
+    surface = hy.surface_from_mesh(
+        arrays.positions,
+        arrays.face_starts,
+        arrays.corner_verts,
+        arrays.corner_edges,
+        arrays.n_edges,
+        flip=arrays.flip,
+    )
+    queries = hy.drop_queries(surface, 1e-6)
+    miss = np.full(len(queries.face), -1)
+    drops = hy.resolve_drops(queries, surface, miss, queries.origin, miss, queries.origin)
+    return surface, hy.analyse(surface, drops, **kwargs)
+
+
 def _values(obj, name, domain="FACE", dtype=np.float32) -> np.ndarray:
     attr = obj.data.attributes[name]
     assert attr.domain == domain, (name, attr.domain)
@@ -138,7 +163,7 @@ def _co(obj) -> np.ndarray:
 
 def test_hydrology_operator_equals_the_core() -> None:
     _reset()
-    bowls, pts, tris = _two_bowls(_source())
+    bowls, pts, _tris = _two_bowls(_source())
     props = bpy.context.scene.geotools_hydrology
     props.min_depth = 0.01
     props.depression_points = True
@@ -149,7 +174,7 @@ def test_hydrology_operator_equals_the_core() -> None:
     assert error is None and result == {"FINISHED"}, error
     out = json.loads(props.result)
     assert out["stats"]["drips"] == 0 and out["stats"]["drops"] == out["stats"]["drops_out"]
-    surface, core = _core(pts, tris, min_depth=0.01)
+    surface, core = _core_as_read(props, pts, min_depth=0.01)
     np.testing.assert_allclose(
         _values(bowls, "gt_flow_accumulation"), core.accumulation.astype(np.float32), rtol=1e-6
     )

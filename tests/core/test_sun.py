@@ -239,3 +239,16 @@ def test_light_euler_is_continuous_through_north() -> None:
     azimuth = np.array([350.0, 355.0, 0.0, 5.0, 10.0])  # the sun passing north
     z = sun.light_euler(azimuth, np.full(5, 40.0))[:, 2]
     assert np.allclose(np.diff(z), np.radians(-5.0))
+
+
+def test_utc_datetime_before_1970():
+    """Negative timestamps work on every platform (fromtimestamp fails on Windows)."""
+    import datetime as dt
+
+    from geotools.analysis import sun as _sun
+
+    assert _sun.utc_datetime(0.0) == dt.datetime(1970, 1, 1, tzinfo=dt.UTC)
+    when = dt.datetime(1850, 3, 20, 12, 30, tzinfo=dt.UTC)
+    assert _sun.utc_datetime(when.timestamp()) == when
+    ancient = dt.datetime(1, 1, 1, tzinfo=dt.UTC)
+    assert _sun.utc_datetime(ancient.timestamp()) == ancient

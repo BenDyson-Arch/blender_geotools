@@ -148,6 +148,18 @@ class SunPosition:
 # --- time ------------------------------------------------------------------------------
 
 
+_UNIX_EPOCH = _dt.datetime(1970, 1, 1, tzinfo=_dt.UTC)
+
+
+def utc_datetime(unix_seconds: float) -> _dt.datetime:
+    """The aware UTC datetime of ``unix_seconds``, before 1970 too.
+
+    ``datetime.fromtimestamp`` raises OSError for negative timestamps on
+    Windows, so ancient epochs and pre-1970 dates count from the epoch instead.
+    """
+    return _UNIX_EPOCH + _dt.timedelta(seconds=float(unix_seconds))
+
+
 def julian_day(unix_seconds: np.ndarray | float) -> np.ndarray:
     """Julian day (UT) of Unix seconds (UTC)."""
     return np.asarray(unix_seconds, dtype=np.float64) / 86400.0 + UNIX_EPOCH_JD

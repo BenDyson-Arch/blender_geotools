@@ -604,7 +604,7 @@ def animate_sun(context: bpy.types.Context) -> dict:
         position,
         current,
         where,
-        dt.datetime.fromtimestamp(float(times[current]), dt.UTC),
+        sun.utc_datetime(float(times[current])),
         label,
         notes,
         light=obj.name,
