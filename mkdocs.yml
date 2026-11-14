@@ -133,6 +133,7 @@ nav:
       - Working alongside BlenderGIS: guide/blendergis.md
   - Reference:
       - Analysis presets: analysis-presets.md
+      - GLB format: reference/glb-format.md
       - Texture cleanup workflow: texture-cleanup.md
       - "Recipe: drape excavation contexts": recipes/drape-contexts.md
       - Validation:

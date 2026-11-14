@@ -23,6 +23,12 @@ and the project follows semantic versioning where practical.
 
 ### Changed
 
+- GLBs with metadata name their `geotools:` XMP terms with a permanent
+  namespace IRI, the docs site's
+  [GLB format reference](docs/reference/glb-format.md)
+  (`https://bendyson-arch.github.io/blender_geotools/reference/glb-format/#`),
+  instead of a link to a design note on GitHub. Files from 0.3.0 keep the old
+  IRI; `gltf_metadata.geotools_terms` reads both.
 - The publish record's `cleanup_diagnostics` and `rusty_tiles_version` come
   from rusty-tiles 0.4.1's API directly, with no fallback for older wheels.
 

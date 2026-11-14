@@ -58,6 +58,7 @@ __all__ = [
     "FACE_CLASS",
     "FACE_FEATURE_ID",
     "GEOTOOLS_NAMESPACE",
+    "GEOTOOLS_NAMESPACES",
     "KHR_XMP_JSON_LD",
     "OBJECT_FEATURE_ID",
     "TEXEL_CLASS",
@@ -70,6 +71,7 @@ __all__ = [
     "decode_png",
     "encode_png",
     "face_class",
+    "geotools_terms",
     "layer_attribute_values",
     "pack_strings",
     "pack_texture",
@@ -88,9 +90,21 @@ FACE_CLASS = "face"
 VERTEX_CLASS = "vertex"
 TEXEL_CLASS = "texel"
 
-GEOTOOLS_NAMESPACE = (
+GEOTOOLS_NAMESPACE = "https://bendyson-arch.github.io/blender_geotools/reference/glb-format/#"
+"""The ``geotools:`` XMP namespace IRI, written into every GLB with metadata.
+
+A permanent identifier: the GLB format reference page of the docs site
+(``docs/reference/glb-format.md``). Never change it; ``tests/core`` pins it.
+"""
+
+GEOTOOLS_NAMESPACE_0_3 = (
     "https://github.com/BenDyson-Arch/blender_geotools/blob/main/docs/design/m4-glb-metadata.md#"
 )
+"""The IRI GeoTools 0.3 wrote. Its page is gone, but published GLBs carry it, so
+readers accept it (:func:`geotools_terms`)."""
+
+GEOTOOLS_NAMESPACES = (GEOTOOLS_NAMESPACE, GEOTOOLS_NAMESPACE_0_3)
+"""Every IRI that names the ``geotools:`` terms, newest first."""
 DC_NAMESPACE = "http://purl.org/dc/elements/1.1/"
 XMP_CONTEXT = {"dc": DC_NAMESPACE, "geotools": GEOTOOLS_NAMESPACE}
 
@@ -359,6 +373,39 @@ def xmp_packet(geo: Georeference) -> dict[str, object]:
         if isinstance(value, float) and not math.isfinite(value):
             raise ExportError(f"The georeference {key} is not finite.")
     return packet
+
+
+def geotools_terms(packet: dict[str, object]) -> dict[str, object]:
+    """The ``geotools:`` terms of an XMP packet, by local name (``"crs"``, ``"sourceOffset"``).
+
+    Matches on the namespace IRI, not the prefix, and accepts every IRI in
+    :data:`GEOTOOLS_NAMESPACES`, so GLBs from GeoTools 0.3 read like new ones.
+    Terms may be compact (``prefix:name`` with ``prefix`` in ``@context``) or
+    full IRIs. ``@list`` values are returned as plain lists.
+    """
+    context = packet.get("@context")
+    prefixes = {
+        prefix
+        for prefix, iri in (context.items() if isinstance(context, dict) else ())
+        if iri in GEOTOOLS_NAMESPACES
+    }
+    terms: dict[str, object] = {}
+    for key, value in packet.items():
+        if key.startswith("@"):
+            continue
+        name = None
+        prefix, colon, local = key.partition(":")
+        if colon and prefix in prefixes:
+            name = local
+        else:
+            for iri in GEOTOOLS_NAMESPACES:
+                if key.startswith(iri):
+                    name = key[len(iri) :]
+                    break
+        if name:
+            is_list = isinstance(value, dict) and set(value) == {"@list"}
+            terms[name] = list(value["@list"]) if is_list else value  # type: ignore[index]
+    return terms
 
 
 # --- the extension -------------------------------------------------------------------------

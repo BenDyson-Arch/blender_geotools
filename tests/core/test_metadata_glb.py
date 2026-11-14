@@ -679,3 +679,34 @@ def test_gltf_validator_accepts_the_glb(tmp_path: Path) -> None:
     report = json.loads(done.stdout)
     issues = report["issues"]
     assert issues["numErrors"] == 0 and issues["numWarnings"] == 0, done.stdout
+
+
+# --- the geotools: namespace -----------------------------------------------------------------
+
+
+def test_the_namespace_iri_is_pinned() -> None:
+    # Written into every GLB with metadata: a permanent identifier, never changed.
+    assert gm.GEOTOOLS_NAMESPACE == (
+        "https://bendyson-arch.github.io/blender_geotools/reference/glb-format/#"
+    )
+    assert gm.XMP_CONTEXT["geotools"] == gm.GEOTOOLS_NAMESPACE
+    assert gm.GEOTOOLS_NAMESPACES[0] == gm.GEOTOOLS_NAMESPACE
+
+
+def test_readers_accept_the_0_3_namespace() -> None:
+    old = "https://github.com/BenDyson-Arch/blender_geotools/blob/main/docs/design/m4-glb-metadata.md#"
+    assert old in gm.GEOTOOLS_NAMESPACES
+    geo = gm.Georeference(
+        mode="source_crs", crs_epsg="EPSG:32631", source_offset=(500000.0, 5400000.0, 100.0)
+    )
+    new_packet = gm.xmp_packet(geo)
+    terms = gm.geotools_terms(new_packet)
+    assert terms["crs"] == "EPSG:32631" and terms["sourceOffset"] == [500000.0, 5400000.0, 100.0]
+    # A 0.3 file: the old IRI, under any prefix, or as full IRIs.
+    renamed = {"@context": {"gt": old}, "gt:crs": "EPSG:32631", "gt:placement": "source_crs"}
+    assert gm.geotools_terms(renamed) == {"crs": "EPSG:32631", "placement": "source_crs"}
+    expanded = {"@context": {}, old + "crs": "EPSG:32631"}
+    assert gm.geotools_terms(expanded) == {"crs": "EPSG:32631"}
+    # Another vocabulary's terms are not GeoTools'.
+    other = {"@context": {"geotools": "https://example.org/other#"}, "geotools:crs": "x"}
+    assert gm.geotools_terms(other) == {}
