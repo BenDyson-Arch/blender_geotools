@@ -530,3 +530,39 @@ def test_lon_lat_to_origin_with_pyproj_inverts_origin_lon_lat() -> None:
     assert gs.set_origin_from_lat_lon(keys, {}, CRS_MODE) is not None
     assert keys["crs x"] == pytest.approx(502000.0, abs=1e-6)
     assert gs.lat_lon_origin(keys, {}, CRS_MODE) is None
+
+
+# --- the keys GeoTools writes ----------------------------------------------------------
+
+
+class _SceneKeys(dict):
+    """A Scene's custom properties that refuse any key but the GeoScene five."""
+
+    def __setitem__(self, key: str, value: object) -> None:
+        assert key in gs.GEOSCENE_KEYS, (
+            f"GeoTools wrote the Scene custom property {key!r}. On the Scene it writes only "
+            f"BlenderGIS's GeoScene keys {gs.GEOSCENE_KEYS}; keep its own settings in its "
+            "registered properties (scene.geotools and the other scene.geotools_* groups)."
+        )
+        super().__setitem__(key, value)
+
+
+@pytest.mark.parametrize("found", [locate, no_locate])
+def test_geoscene_writes_only_the_geoscene_keys(found) -> None:
+    keys = _SceneKeys()
+    store: dict[str, str] = {}
+    for mode in ("LOCAL", "ANCHOR"):
+        gs.set_crs(keys, store, mode, "EPSG:7856", found)
+        gs.set_origin(keys, store, mode, gs.STORE_E, "1.5", found)
+    store.update({gs.STORE_E: repr(E), gs.STORE_N: repr(N)})
+    gs.reconcile(keys, store, CRS_MODE, found)  # migration: the store moves into the keys
+    gs.set_crs(keys, store, CRS_MODE, "EPSG:7856 — GDA2020 / MGA zone 56", found)
+    gs.set_origin(keys, store, CRS_MODE, gs.STORE_E, repr(E + 10.0), found)
+    gs.set_origin(keys, store, CRS_MODE, gs.STORE_N, repr(N - 10.0), found)
+    gs.set_crs(keys, store, CRS_MODE, "EPSG:28356", found)
+    gs.set_crs(keys, store, CRS_MODE, "EPSG:7856+5711", found)  # held by GeoTools instead
+    gs.set_crs(keys, store, CRS_MODE, "EPSG:7856", found)  # and back into the keys
+    keys.update(GEOGRAPHIC)
+    gs.set_origin_from_lat_lon(keys, store, CRS_MODE, project, found)
+    gs.sync_lat_lon(keys, found)
+    assert set(keys) <= set(gs.GEOSCENE_KEYS) and keys["SRID"] == "EPSG:7856"
