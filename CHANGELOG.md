@@ -141,6 +141,16 @@ and the project follows semantic versioning where practical.
 
 ### Fixed
 
+- The **GLB metadata frame** (`geotools:modelToEcef` and the Earth-Placed node
+  matrix) is no longer tilted on large sites. The grid axes were measured
+  with one-sided probes (the centre and the centre moved half the extent),
+  which are secants: on a 10 km site at the MGA zone 56 edge both axes dipped
+  3.9×10⁻⁴ rad below the tangent plane, the scale was 18 ppm high, and the
+  corners landed 0.18 m to 7.84 m from where rusty-tiles puts them. Two more
+  probes (west and south) give central differences, the tangents at the
+  centre: the tilt is below 10⁻⁷ rad and every corner of that site is 3.93 m
+  off, the Earth's curvature over 7 km, which one matrix cannot follow. On a
+  200 m site a corner moves by at most 3 mm.
 - **Over a Day** switches the light off at sunset and on at sunrise, as the
   guide says. Its strength was keyed linearly, so with a Frame Step above 1
   the frames between the last key with the sun up and the first with it down

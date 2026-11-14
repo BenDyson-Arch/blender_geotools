@@ -266,11 +266,17 @@ says so.
   at the centre of the source bounds and puts that frame in the root
   transform, so copying it would ignore grid convergence and the scale factor.
   200 km from the UTM 56 central meridian at 27 S that is 0.93 degrees, 1.63 m
-  over 100 m. Instead two more probes (the centre moved half the extent east
-  and north, about 10 ms each) measure where grid east and grid north land in
-  that frame, and `M` = root transform x that measured frame at the centre.
-  Exact at the centre, first order elsewhere: a corner of a 200 m site lands
-  within 1 cm of where rusty-tiles puts it (core test).
+  over 100 m. Instead four more probes (the centre moved half the extent
+  east, west, north and south, about 10 ms each) measure where grid east and
+  grid north land in that frame, as central differences
+  ((P₊ − P₋) / 2d, the tangents at the centre), and `M` = root transform x
+  that measured frame at the centre. Exact at the centre, first order
+  elsewhere: a corner of a 200 m site lands within 1 cm of where rusty-tiles
+  puts it, and every corner of a 10 km site at the MGA zone 56 edge 3.93 m
+  from it, the Earth's curvature over 7 km that no single matrix can follow
+  (core tests). Until 0.3.0 the probes were one-sided ((P₊ − P₀) / d,
+  secants): the axes dipped 4×10⁻⁴ rad below the tangent plane on that site,
+  the scale was 18 ppm high, and the corners were 0.18 m to 7.84 m off.
 
 ## 6. Output and records
 

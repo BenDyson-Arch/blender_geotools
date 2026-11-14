@@ -541,8 +541,8 @@ def test_source_crs_frame_carries_convergence() -> None:
         PlacementMode.SOURCE_CRS,
         centre,
         _probe(lon, lat, 0.0, root),
-        probe_at(east_enu),
-        probe_at(north_enu),
+        (probe_at(east_enu), probe_at(-east_enu)),
+        (probe_at(north_enu), probe_at(-north_enu)),
         (d, d),
     )
     assert frame.heading_degrees == pytest.approx(1.0, abs=1e-6)
@@ -590,6 +590,43 @@ def test_measure_frame_matches_rusty_tiles(rusty_tiles) -> None:
     root = np.array(probe.probe_placement(crs, lo, hi).root_transform).reshape(4, 4).T
     naive = root @ np.append(corner - np.array([0.0, 0.0, 10.0]), 1.0)
     assert np.linalg.norm(naive[:3] - expected) > 1.0
+
+
+def test_measure_frame_is_not_tilted_on_a_large_site(rusty_tiles) -> None:
+    """A 10 km site at the MGA zone 56 edge: the axes are tangents, not secants.
+
+    One-sided probes tilted both axes 3.9e-4 rad below the tangent plane (step /
+    2R) and put the corners 0.18 m to 7.84 m from where rusty-tiles places
+    them. Central differences leave only the curvature, the same at every
+    corner (3.93 m 7 km out), and the scale of the centre's tangent.
+    """
+    from geotools.core import probe
+
+    crs = Placement(
+        PlacementMode.SOURCE_CRS, source_crs="EPSG:7856", source_offset=(210300.0, 6677000.0, 0.0)
+    )
+    lo, hi = (-5000.0, -5000.0, 0.0), (5000.0, 5000.0, 0.0)
+    frame = georef.measure_frame(crs, lo, hi)
+    lon, lat, _h = frame.origin_lon_lat_height
+    up = _enu(lon, lat, 0.0)[:3, 2]
+    for axis in frame.matrix[:3, :2].T:
+        assert abs(axis @ up) / np.linalg.norm(axis) < 1e-6  # was 3.9e-4
+    misses = []
+    for x, y in ((5000, 5000), (-5000, -5000), (5000, -5000), (-5000, 5000)):
+        corner = np.array([x, y, 0.0])
+        tiny = probe.probe_placement(crs, tuple(corner - 0.5), tuple(corner + 0.5))
+        expected = georef.ecef_from_lon_lat_height(*tiny.origin_lon_lat_height)
+        misses.append(np.linalg.norm((frame.matrix @ np.append(corner, 1.0))[:3] - expected))
+    assert max(misses) < 4.0, misses  # was 7.84 m at (-5000, -5000)
+    assert max(misses) - min(misses) < 0.01, misses  # symmetric: was 0.18 m to 7.84 m
+    # The scale is the tangent's at the centre: the combined scale factor's inverse there.
+    at_centre = probe.probe_placement(crs, (-0.5, -0.5, -0.5), (0.5, 0.5, 0.5))
+    east = probe.probe_placement(crs, (0.5, -0.5, -0.5), (1.5, 0.5, 0.5))
+    one_metre = np.linalg.norm(
+        georef.ecef_from_lon_lat_height(*east.origin_lon_lat_height)
+        - georef.ecef_from_lon_lat_height(*at_centre.origin_lon_lat_height)
+    )
+    assert frame.scale == pytest.approx(one_metre, rel=1e-6)  # one-sided: 18 ppm high
 
 
 # --- external validators (optional) ---------------------------------------------------------
