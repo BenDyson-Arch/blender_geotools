@@ -97,8 +97,8 @@ def period_steps(
     step = float(step_minutes) * 60.0
     if not (math.isfinite(step) and step > 0):
         raise ValueError(f"The step must be positive, not {step_minutes!r} minutes.")
-    start_local = _dt.datetime(first_day.year, first_day.month, first_day.day)
-    end_local = _dt.datetime(last_day.year, last_day.month, last_day.day) + _dt.timedelta(days=1)
+    start_local = sun.wall_clock(first_day.year, first_day.month, first_day.day)
+    end_local = sun.wall_clock(last_day.year, last_day.month, last_day.day) + _dt.timedelta(days=1)
     start_utc, notes = sun.to_utc(start_local, tz)
     end_utc, end_notes = sun.to_utc(end_local, tz)
     length = (end_utc - start_utc).total_seconds()

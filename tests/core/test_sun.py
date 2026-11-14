@@ -156,7 +156,7 @@ def test_utc_and_fixed_offsets_need_no_database() -> None:
     assert sun.fixed_offset(5.75).utcoffset(None) == dt.timedelta(hours=5, minutes=45)
     with pytest.raises(ValueError):
         sun.fixed_offset(24.0)
-    utc, notes = sun.to_utc(dt.datetime(2003, 10, 17, 12, 30, 30), sun.fixed_offset(-7))
+    utc, notes = sun.to_utc(sun.wall_clock(2003, 10, 17, 12, 30, 30), sun.fixed_offset(-7))
     assert utc == SPA_MOMENT and notes == ()
 
 
@@ -185,13 +185,13 @@ needs_tzdb = pytest.mark.skipif(
 @needs_tzdb
 def test_named_zone_and_daylight_saving() -> None:
     denver = sun.zone("America/Denver")
-    utc, notes = sun.to_utc(dt.datetime(2003, 10, 17, 12, 30, 30), denver)
+    utc, notes = sun.to_utc(sun.wall_clock(2003, 10, 17, 12, 30, 30), denver)
     assert notes == ()
     # Mid-October Denver is on MDT (UTC-6), so this is an hour before the paper's moment.
     assert utc == SPA_MOMENT - dt.timedelta(hours=1)
-    _, gap = sun.to_utc(dt.datetime(2026, 3, 8, 2, 30), denver)
+    _, gap = sun.to_utc(sun.wall_clock(2026, 3, 8, 2, 30), denver)
     assert "does not exist" in gap[0]
-    _, fold = sun.to_utc(dt.datetime(2026, 11, 1, 1, 30), denver)
+    _, fold = sun.to_utc(sun.wall_clock(2026, 11, 1, 1, 30), denver)
     assert "happens twice" in fold[0]
     with pytest.raises(sun.TimeZoneUnavailable, match="Unknown time zone") as raised:
         sun.zone("Mars/Olympus_Mons")

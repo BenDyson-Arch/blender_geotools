@@ -34,6 +34,7 @@ extend-select = [
     "SIM",  # simpler equivalents: contextlib.suppress, conditional expressions
     "PLW",  # pylint warnings: no global statements, no reassigned loop variables
     "RUF",  # ruff's own: escaped pytest.raises patterns, explicit and/or precedence
+    "DTZ",  # naive datetimes: times are aware UTC (sun.utc_datetime) or sun.wall_clock
 ]
 ignore = [
     # Tuple/list concatenation to unpacking. It cannot tell sequences from numpy arrays
@@ -47,5 +48,7 @@ allowed-confusables = ["−", "–", "×", "′", "α", "γ"]
 [tool.ruff.lint.per-file-ignores]
 # Blender reads bl_options and similar as plain mutable class attributes.
 "geotools/blender/**" = ["RUF012"]
+# wall_clock() makes the one naive datetime, the wall-clock input of to_utc().
+"geotools/analysis/sun.py" = ["DTZ001"]
 # The MkDocs build hook is site tooling, outside the add-on and the checks here.
 "docs/hooks/**" = ["PLW2901"]

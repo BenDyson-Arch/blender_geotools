@@ -442,7 +442,7 @@ def _time_zone(props: GeoToolsSunSettings) -> tuple[dt.tzinfo, str]:
 
 def _local_moment(props: GeoToolsSunSettings) -> dt.datetime:
     try:
-        return dt.datetime(
+        return sun.wall_clock(
             props.year, props.month, props.day, props.hour, props.minute, props.second
         )
     except ValueError as exc:

@@ -745,7 +745,7 @@ def study_moments(context: bpy.types.Context) -> tuple[list[dict], tuple[str, ..
         day = seasons[name].astimezone(tz).date()
         for i in range(count):
             hours = props.start_hour + i * props.step_hours
-            local = dt.datetime(day.year, day.month, day.day) + dt.timedelta(hours=hours)
+            local = sun.wall_clock(day.year, day.month, day.day) + dt.timedelta(hours=hours)
             utc, more = sun.to_utc(local, tz)
             notes.extend(more)
             moments.append({"season": name, "local": local, "utc": utc})

@@ -379,9 +379,9 @@ def sun_rise_set(
     midnight to the next, the limb (``limb`` times the day's semi-diameter)
     against the horizon, crossings interpolated linearly.
     """
-    start, _notes = sun.to_utc(_dt.datetime(day.year, day.month, day.day), tz)
+    start, _notes = sun.to_utc(sun.wall_clock(day.year, day.month, day.day), tz)
     end_day = day + _dt.timedelta(days=1)
-    end, _notes = sun.to_utc(_dt.datetime(end_day.year, end_day.month, end_day.day), tz)
+    end, _notes = sun.to_utc(sun.wall_clock(end_day.year, end_day.month, end_day.day), tz)
     t0, t1 = start.timestamp(), end.timestamp()
     count = math.ceil((t1 - t0) / DAY_STEP_SECONDS)
     times = t0 + (t1 - t0) * np.arange(count + 1, dtype=np.float64) / count

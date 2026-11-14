@@ -304,6 +304,17 @@ def fixed_offset(hours: float) -> _dt.timezone:
     return _dt.timezone(_dt.timedelta(minutes=minutes))
 
 
+def wall_clock(
+    year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0
+) -> _dt.datetime:
+    """A wall-clock time with no zone, the input of :func:`to_utc`.
+
+    The only naive datetime GeoTools makes: everything else is aware UTC
+    (:func:`utc_datetime`). Raises ValueError for a date that does not exist.
+    """
+    return _dt.datetime(year, month, day, hour, minute, second)
+
+
 def to_utc(local: _dt.datetime, tz: _dt.tzinfo) -> tuple[_dt.datetime, tuple[str, ...]]:
     """The UTC moment of wall-clock time ``local`` (naive) in ``tz``, with notes.
 
