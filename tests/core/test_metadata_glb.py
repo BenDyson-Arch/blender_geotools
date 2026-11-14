@@ -252,7 +252,7 @@ def test_xmp_packet() -> None:
         origin_lon_lat_height=(153.01, -27.47, 12.4),
         origin_model=(1.0, 2.0, -3.0),
         heading_degrees=-0.93,
-        grid_scale=0.9996,
+        ground_metres_per_model_metre=0.9996,
         model_to_ecef=tuple(float(v) for v in range(16)),
         crs_operation="portable",
         source="site.blend",
@@ -269,6 +269,8 @@ def test_xmp_packet() -> None:
     assert packet["geotools:heightOffset"] == -0.1
     assert packet["geotools:originLatitude"] == -27.47
     assert packet["geotools:heading"] == -0.93
+    assert packet["geotools:groundMetresPerModelMetre"] == 0.9996
+    assert "geotools:gridScale" not in packet  # renamed before 0.3.0: it is not k
     assert packet["geotools:earthPlaced"] is False
     assert len(packet["geotools:modelToEcef"]["@list"]) == 16
     # binary64 survives JSON exactly.
@@ -541,12 +543,12 @@ def test_source_crs_frame_carries_convergence() -> None:
         PlacementMode.SOURCE_CRS,
         centre,
         _probe(lon, lat, 0.0, root),
-        probe_at(east_enu),
-        probe_at(north_enu),
+        (probe_at(east_enu), probe_at(-east_enu)),
+        (probe_at(north_enu), probe_at(-north_enu)),
         (d, d),
     )
     assert frame.heading_degrees == pytest.approx(1.0, abs=1e-6)
-    assert frame.scale == pytest.approx(k, abs=1e-9)
+    assert frame.ground_metres_per_model_metre == pytest.approx(k, abs=1e-9)
     assert frame.origin_local == pytest.approx(centre, abs=1e-6)
     corner = frame.matrix @ np.array([100.0 + d, 200.0, 0.0, 1.0])
     np.testing.assert_allclose(corner[:3], root[:3, :3] @ east_enu + root[:3, 3], atol=1e-6)
@@ -590,6 +592,44 @@ def test_measure_frame_matches_rusty_tiles(rusty_tiles) -> None:
     root = np.array(probe.probe_placement(crs, lo, hi).root_transform).reshape(4, 4).T
     naive = root @ np.append(corner - np.array([0.0, 0.0, 10.0]), 1.0)
     assert np.linalg.norm(naive[:3] - expected) > 1.0
+
+
+def test_measure_frame_is_not_tilted_on_a_large_site(rusty_tiles) -> None:
+    """A 10 km site at the MGA zone 56 edge: the axes are tangents, not secants.
+
+    One-sided probes tilted both axes 3.9e-4 rad below the tangent plane (step /
+    2R) and put the corners 0.18 m to 7.84 m from where rusty-tiles places
+    them. Central differences leave only the curvature, the same at every
+    corner (3.93 m 7 km out), and the scale of the centre's tangent.
+    """
+    from geotools.core import probe
+
+    crs = Placement(
+        PlacementMode.SOURCE_CRS, source_crs="EPSG:7856", source_offset=(210300.0, 6677000.0, 0.0)
+    )
+    lo, hi = (-5000.0, -5000.0, 0.0), (5000.0, 5000.0, 0.0)
+    frame = georef.measure_frame(crs, lo, hi)
+    lon, lat, _h = frame.origin_lon_lat_height
+    up = _enu(lon, lat, 0.0)[:3, 2]
+    for axis in frame.matrix[:3, :2].T:
+        assert abs(axis @ up) / np.linalg.norm(axis) < 1e-6  # was 3.9e-4
+    misses = []
+    for x, y in ((5000, 5000), (-5000, -5000), (5000, -5000), (-5000, 5000)):
+        corner = np.array([x, y, 0.0])
+        tiny = probe.probe_placement(crs, tuple(corner - 0.5), tuple(corner + 0.5))
+        expected = georef.ecef_from_lon_lat_height(*tiny.origin_lon_lat_height)
+        misses.append(np.linalg.norm((frame.matrix @ np.append(corner, 1.0))[:3] - expected))
+    assert max(misses) < 4.0, misses  # was 7.84 m at (-5000, -5000)
+    assert max(misses) - min(misses) < 0.01, misses  # symmetric: was 0.18 m to 7.84 m
+    # The scale is the tangent's at the centre: the combined scale factor's inverse there.
+    at_centre = probe.probe_placement(crs, (-0.5, -0.5, -0.5), (0.5, 0.5, 0.5))
+    east = probe.probe_placement(crs, (0.5, -0.5, -0.5), (1.5, 0.5, 0.5))
+    one_metre = np.linalg.norm(
+        georef.ecef_from_lon_lat_height(*east.origin_lon_lat_height)
+        - georef.ecef_from_lon_lat_height(*at_centre.origin_lon_lat_height)
+    )
+    # One-sided probes made it 18 ppm high.
+    assert frame.ground_metres_per_model_metre == pytest.approx(one_metre, rel=1e-6)
 
 
 # --- external validators (optional) ---------------------------------------------------------

@@ -159,38 +159,46 @@ class _Reader:
 # --- writing ---------------------------------------------------------------------
 
 
-def encode_feature(geoms: Geometries, feature: int, multi: bool, has_z: bool) -> bytes:
+def encode_feature(
+    geoms: Geometries, feature: int, multi: bool, has_z: bool, has_m: bool = False
+) -> bytes:
     """ISO WKB (little-endian) of one feature of ``geoms``.
 
     ``multi`` writes a Multi* even for one part. ``has_z`` writes XYZ, with 0
-    for a missing Z.
+    for a missing Z; ``has_m`` adds ``geoms.measures`` as M (XYM or XYZM, NaN
+    for a missing M).
     """
     p0, p1 = int(geoms.feature_offsets[feature]), int(geoms.feature_offsets[feature + 1])
     base = {Kind.POINTS: POINT, Kind.LINES: LINESTRING, Kind.POLYGONS: POLYGON}[geoms.kind]
-    z = 1000 if has_z else 0
-    parts = [_encode_part(geoms, p, base, z, has_z) for p in range(p0, p1)]
+    dims = (1000 if has_z else 0) + (2000 if has_m else 0)
+    parts = [_encode_part(geoms, p, base, dims, has_z, has_m) for p in range(p0, p1)]
     if not multi and len(parts) == 1:
         return parts[0]
-    return struct.pack("<BII", 1, base + 3 + z, len(parts)) + b"".join(parts)
+    return struct.pack("<BII", 1, base + 3 + dims, len(parts)) + b"".join(parts)
 
 
-def _ring_bytes(geoms: Geometries, ring: int, has_z: bool, with_count: bool) -> bytes:
+def _ring_bytes(geoms: Geometries, ring: int, has_z: bool, has_m: bool, with_count: bool) -> bytes:
     r0, r1 = int(geoms.ring_offsets[ring]), int(geoms.ring_offsets[ring + 1])
     coords = geoms.coords[r0:r1, : 3 if has_z else 2]
     if has_z:
         coords = np.where(np.isnan(coords), 0.0, coords)
+    if has_m:
+        measures = geoms.measures if geoms.measures is not None else np.full(r1, np.nan)
+        coords = np.column_stack([coords, measures[r0:r1]])
     body = np.ascontiguousarray(coords, dtype="<f8").tobytes()
     return (struct.pack("<I", r1 - r0) + body) if with_count else body
 
 
-def _encode_part(geoms: Geometries, part: int, base: int, z: int, has_z: bool) -> bytes:
+def _encode_part(
+    geoms: Geometries, part: int, base: int, dims: int, has_z: bool, has_m: bool
+) -> bytes:
     q0, q1 = int(geoms.part_offsets[part]), int(geoms.part_offsets[part + 1])
-    header = struct.pack("<BI", 1, base + z)
+    header = struct.pack("<BI", 1, base + dims)
     if base == POINT:
-        return header + _ring_bytes(geoms, q0, has_z, with_count=False)
+        return header + _ring_bytes(geoms, q0, has_z, has_m, with_count=False)
     if base == LINESTRING:
-        return header + _ring_bytes(geoms, q0, has_z, with_count=True)
-    rings = [_ring_bytes(geoms, r, has_z, with_count=True) for r in range(q0, q1)]
+        return header + _ring_bytes(geoms, q0, has_z, has_m, with_count=True)
+    rings = [_ring_bytes(geoms, r, has_z, has_m, with_count=True) for r in range(q0, q1)]
     return header + struct.pack("<I", q1 - q0) + b"".join(rings)
 
 

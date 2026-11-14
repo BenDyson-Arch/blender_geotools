@@ -499,7 +499,7 @@ def test_publish_success_and_record(tmp_path: Path) -> None:
         "blend_sha256": None,
         "images": [image_record],  # M6: the source images' hashes, as handed over
     }
-    assert record["rusty_tiles_version"] == "0.4.0"
+    assert record["rusty_tiles_version"] == "0.4.1"
     assert record["geotools"] == {"geotools_version": "test", "build_profile": "Test"}
     assert record["started_utc"].endswith("Z") and record["finished_utc"].endswith("Z")
     assert set(record["phase_seconds"]) == {"write_glb", "face_map", "tiling", "validation"}

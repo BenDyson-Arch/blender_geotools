@@ -76,6 +76,27 @@ tools such as Metashape ask for it when you export with a local shift.
   reads the first it finds. Reading an offset file switches the project to
   CRS, but does not set the CRS: the file does not say which CRS it is in.
 
+Import Source Mesh uses the offset file only while the project has no origin
+yet (a Local project with no BlenderGIS keys and E, N, A all 0, or a CRS
+project with E, N, A all 0). A file with exactly the project's E, N and A
+changes nothing, so you can import a chunk again, or several chunks that
+share one offset file. When the project already has another origin (other E,
+N or A, a BlenderGIS georeference, an Anchor project), the mesh is imported
+unshifted, the origin stays as it is, and the report and the Source panel show
+the file's E/N/A next to the project's. The Source panel then offers:
+
+- **Use This Offset File as the Project Origin**: a CRS project at the file's
+  E, N and A. It asks first, because the objects already in the source
+  collection keep their Blender positions and so move on Earth.
+- **Place the Imported Objects at the Project Origin** (CRS projects): moves
+  the imported objects by the difference between the two offsets, computed in
+  double precision. Blender keeps object locations in single precision, so it
+  warns when the objects end up more than about 16 km from the scene origin,
+  where that rounds them by more than a millimetre.
+- The **X** dismisses the offer and leaves everything as it is.
+
+**Load Offset File** is your explicit choice, and always sets the origin.
+
 An offset file is rusty-tiles' `--source-offset-file` format: exactly three
 lines, at most 4 KiB.
 

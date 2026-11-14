@@ -62,41 +62,64 @@ REQUEST_KEYS = (
 # --- the pending offer -------------------------------------------------------------
 
 
-def offer(
-    context: bpy.types.Context, request: dict[str, object], refusal: NeedsProjectOrigin
+def store_offer(
+    context: bpy.types.Context,
+    prop: str,
+    pending: dict[str, object],
+    popup: object = None,
+    title: str = "",
 ) -> None:
-    """Remember the refused import and show the refusal with the one-click fix."""
+    """Keep an offer as JSON on the window manager's ``prop`` (not saved in the ``.blend``)
+    and, with a window, pop it up under the mouse with ``popup`` drawing it."""
     wm = context.window_manager
     if wm is None:
         return
-    pending = {
-        "request": {k: v for k, v in request.items() if k in REQUEST_KEYS},
-        "message": str(refusal),
-        "origin": refusal.origin.to_dict(),
-    }
-    wm.geotools_origin_offer = json.dumps(pending, sort_keys=True)
-    if getattr(context, "window", None) is not None and not bpy.app.background:
-        wm.popup_menu(_draw_popup, title="Import Refused", icon="ERROR")
+    setattr(wm, prop, json.dumps(pending, sort_keys=True))
+    windowed = getattr(context, "window", None) is not None and not bpy.app.background
+    if popup is not None and windowed:
+        wm.popup_menu(popup, title=title, icon="ERROR")
     redraw_ui(context)
 
 
-def pending_offer(context: bpy.types.Context) -> dict[str, object] | None:
-    """The refused import the Linked Data panel offers to fix, if any."""
+def load_offer(context: bpy.types.Context, prop: str, required: str) -> dict[str, object] | None:
+    """The offer kept on ``prop``, if any (a dict that has ``required``)."""
     wm = context.window_manager
-    text = getattr(wm, "geotools_origin_offer", "") if wm is not None else ""
+    text = getattr(wm, prop, "") if wm is not None else ""
     if not text:
         return None
     try:
         raw = json.loads(text)
     except ValueError:
         return None
-    return raw if isinstance(raw, dict) and isinstance(raw.get("request"), dict) else None
+    return raw if isinstance(raw, dict) and raw.get(required) is not None else None
+
+
+def drop_offer(context: bpy.types.Context, prop: str) -> None:
+    wm = context.window_manager
+    if wm is not None and getattr(wm, prop, ""):
+        setattr(wm, prop, "")
+
+
+def offer(
+    context: bpy.types.Context, request: dict[str, object], refusal: NeedsProjectOrigin
+) -> None:
+    """Remember the refused import and show the refusal with the one-click fix."""
+    pending = {
+        "request": {k: v for k, v in request.items() if k in REQUEST_KEYS},
+        "message": str(refusal),
+        "origin": refusal.origin.to_dict(),
+    }
+    store_offer(context, "geotools_origin_offer", pending, _draw_popup, "Import Refused")
+
+
+def pending_offer(context: bpy.types.Context) -> dict[str, object] | None:
+    """The refused import the Linked Data panel offers to fix, if any."""
+    raw = load_offer(context, "geotools_origin_offer", "request")
+    return raw if raw is not None and isinstance(raw.get("request"), dict) else None
 
 
 def clear_offer(context: bpy.types.Context) -> None:
-    wm = context.window_manager
-    if wm is not None and getattr(wm, "geotools_origin_offer", ""):
-        wm.geotools_origin_offer = ""
+    drop_offer(context, "geotools_origin_offer")
 
 
 def fill(op_props: object, request: dict[str, object]) -> None:

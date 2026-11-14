@@ -1,6 +1,6 @@
 # M7 design: output inspection
 
-Status: built for M7 (see [ROADMAP.md](../ROADMAP.md#m7-output-inspection-needs-c-in-rusty-tiles-041)),
+Status: built for M7 (see [ROADMAP.md](../ROADMAP.md#m7-output-inspection-needs-c-rusty-tiles-369-in-041)),
 against rusty-tiles' decoded tile views (#369, `feat/decoded-tile-export`,
 released in 0.4.1).
 

@@ -188,6 +188,43 @@ def test_write_source_keeps_fids_and_binary64(tmp_path: Path) -> None:
         pv.write_source(pv.VectorSource(layers=(), crs=None), path)
 
 
+def sections_with_chainage() -> VectorData:
+    """Two section pieces whose points carry chainage as M, as Create Sections makes them."""
+    builder = GeometryBuilder()
+    for i in range(2):
+        line = np.array([[E0 + 10.0 * k, N0 + 20.0 * i, A0 + k] for k in range(3)])
+        builder.add_line(i, line)
+    geometries = builder.finish()
+    lines = geometries[Kind.LINES]
+    lines.measures = np.array([0.0, 10.0, 20.0, 0.0, 10.0, 20.0])
+    lines.measure_name = "chainage"
+    return VectorData(
+        name="sections",
+        fids=np.array([1, 2]),
+        columns={"chainage_to": Column("chainage_to", ColumnType.FLOAT, np.array([20.0, 20.0]))},
+        geometries=geometries,
+        crs=None,
+    )
+
+
+def test_write_source_drops_measures(tmp_path: Path) -> None:
+    """rusty-tiles 0.4 refuses measured geometry, so the publish GeoPackage has no M."""
+    data = sections_with_chainage()
+    src = pv.VectorSource(
+        layers=(pv.VectorLayer("sections", data, Kind.LINES, "Sections"),), crs=project()
+    )
+    path = tmp_path / "v.gpkg"
+    pv.write_source(src, path)
+    with sqlite3.connect(path) as con:
+        assert con.execute("SELECT z, m FROM gpkg_geometry_columns").fetchone() == (1, 0)
+    assert data.geometries[Kind.LINES].measures is not None  # the caller's data is unchanged
+    if rusty_tiles is not None:
+        rusty_tiles.vector_to_3tz(
+            path, tmp_path / "s.3tz", layers=["sections"], source_crs=MGA56, height_offset=0.0
+        )
+        assert rusty_tiles.validate(tmp_path / "s.3tz")["ok"]
+
+
 def test_summarise_vector_report() -> None:
     report = {
         "features": 6,

@@ -129,6 +129,22 @@ def test_obliquity_is_laskar() -> None:
         )
 
 
+def test_events_at_the_ends_of_the_epoch_range() -> None:
+    """The standstill nearest an epoch at either end can lie just beyond Laskar's range."""
+    for year in (
+        archaeo.EPOCH_MIN,
+        archaeo.EPOCH_MIN + 1,
+        archaeo.EPOCH_MAX - 5,
+        archaeo.EPOCH_MAX,
+    ):
+        events, summary = archaeo.epoch_events(year, 51.0)
+        assert len(events) == 14, year
+        assert all(math.isfinite(e.azimuth) for e in events), year
+        assert summary["major"]["mean_north"] == pytest.approx(
+            summary["obliquity"] + moon.INCLINATION, abs=0.01
+        )
+
+
 def test_epoch_limits() -> None:
     with pytest.raises(ValueError, match="10,000 years"):
         archaeo.epoch_jd(-8000)
@@ -139,6 +155,12 @@ def test_epoch_limits() -> None:
     assert archaeo.format_year(2026) == "2026 CE"
     notes = " ".join(archaeo.epoch_trust(-2999))
     assert "weeks" in notes and "ΔT" in notes
+    # The obliquity's stated accuracy is Vondrák et al. (2011)'s: 42″ at 8000 BCE.
+    assert "about 6″" in notes
+    far = archaeo.epoch_trust(-7999)[0]
+    assert "about 42″ (0.012°)" in far and "0.015°" in far and "0.02°" in far
+    assert "within 1″" in archaeo.epoch_trust(2026)[0]
+    assert archaeo.obliquity_gap(-7999) == 42.1 and archaeo.obliquity_gap(11999) == 26.0
 
 
 # --- calendar ------------------------------------------------------------------------------------------
@@ -220,6 +242,58 @@ def test_best_hits_and_profile_round_trip() -> None:
     # Periodic interpolation across north.
     assert float(again.at(315.0)) == pytest.approx((0.25 + profile.elevation[0]) / 2)
     assert "open" in again.as_text()
+
+
+def _two_pass(walls: list[tuple[float, float]], eye: float = 1.6) -> tuple[float, float]:
+    """The skyline the coarse and fine passes find along one azimuth, and the true one.
+
+    ``walls`` are (distance, height) of thin flat-topped walls on a level plain;
+    the first hit of a ray is found in closed form, as Cycles would.
+    """
+
+    def cast(elevation: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        t = np.tan(np.radians(elevation))
+        reach = np.where(t < 0, -eye / np.where(t < 0, t, -1.0), np.inf)  # the plain
+        for d, height in walls:
+            reach = np.where((eye + d * t <= height) & (d < reach), d, reach)
+        hit = reach <= 60_000.0
+        return hit, np.where(hit, reach / np.cos(np.radians(elevation)), np.nan)
+
+    coarse = horizon.coarse_elevations()
+    hit, distance = cast(coarse)
+    hits = horizon.best_hits(coarse, hit[None], distance[None])
+    rows, base = horizon.fine_brackets(coarse, hit[None], distance[None])
+    fine = horizon.fine_elevations(base)
+    f_hit, f_distance = cast(fine)
+    hits = horizon.merge_rows(hits, rows, horizon.best_hits(fine, f_hit, f_distance))
+    drop = float(horizon.curvature_drop(1.0))
+    true = max(math.degrees(math.atan((height - eye) / d)) - drop * d for d, height in walls)
+    return float(hits.apparent[0]), true
+
+
+@pytest.mark.parametrize(
+    ("near", "far", "far_distance"),
+    [
+        (1.099, 1.101, 26_000.0),
+        (1.05, 1.102, 25_000.0),
+        (1.099, 1.105, 20_000.0),
+        (1.01, 1.3, 15_000.0),
+    ],
+)
+def test_fine_pass_finds_a_near_crest_below_a_farther_range(near, far, far_distance) -> None:
+    """A far range the coarse ray above a near crest hits, yet lower after curvature.
+
+    Refining only the best coarse hit's bracket gave the far range (up to 0.1° low);
+    every bracket within a coarse step of the best is refined, so the skyline is
+    found to the fine step (0.1° / 64).
+    """
+    eye = 1.6
+    walls = [
+        (1000.0, eye + 1000.0 * math.tan(math.radians(near))),
+        (far_distance, eye + far_distance * math.tan(math.radians(far))),
+    ]
+    got, true = _two_pass(walls, eye)
+    assert true - horizon.COARSE_STEP / horizon.FINE_RAYS <= got <= true + 1e-9, (got, true)
 
 
 # --- rise and set ------------------------------------------------------------------------------------
@@ -362,6 +436,36 @@ def test_rise_set_on_the_astronomical_horizon() -> None:
     assert math.isnan(never.rise_azimuth) and math.isnan(never.set_azimuth)
     circumpolar = archaeo.rise_set_azimuths(50.0, 60.0)[0]
     assert math.isnan(circumpolar.rise_azimuth)
+
+
+def test_events_refract_at_the_site_pressure() -> None:
+    """Bennett's 1010 hPa scaled to the site's height: sea level is unchanged, and less
+    refraction at height moves the June sunrise at 51.18 N from 49.243 to 49.614 degrees
+    at 4,000 m."""
+    sea_level = sun.standard_pressure(0.0, horizon.REFRACTION_PRESSURE_HPA)
+    assert sea_level == horizon.REFRACTION_PRESSURE_HPA
+    default, _ = archaeo.epoch_events(2000, 51.18, moon_events=False)
+    same, _ = archaeo.epoch_events(2000, 51.18, moon_events=False, pressure_hpa=sea_level)
+    assert [e.azimuth for e in same] == [e.azimuth for e in default]
+    p = sun.standard_pressure(4000.0, horizon.REFRACTION_PRESSURE_HPA)
+    high, summary = archaeo.epoch_events(2000, 51.18, moon_events=False, pressure_hpa=p)
+    assert default[0].azimuth == pytest.approx(49.243, abs=0.001)
+    assert high[0].azimuth == pytest.approx(49.614, abs=0.001)
+    # The inversion at the same pressure gives the upper limb's declination back.
+    back = archaeo.declination(
+        high[0].azimuth, 0.0, 51.18, limb=archaeo.SUN_SEMI_DIAMETER, pressure_hpa=p
+    )
+    assert float(back) == pytest.approx(summary["obliquity"], abs=0.002)
+    # Check Alignment inverts at the events' pressure (the centre, no limb).
+    rows = archaeo.alignments(np.array([high[0].azimuth]), 51.18, high, pressure_hpa=p)
+    at_site = float(archaeo.declination(high[0].azimuth, 0.0, 51.18, pressure_hpa=p))
+    at_sea = float(archaeo.declination(high[0].azimuth, 0.0, 51.18))
+    assert rows[0].declination == at_site and at_site - at_sea > 0.1
+    # A dated sunrise 4,000 m up is about two minutes later.
+    day = [("June", dt.date(2026, 6, 21))]
+    flat = archaeo.dated_sun_events(day, dt.UTC, 51.18, -1.83, 4000.0)
+    up = archaeo.dated_sun_events(day, dt.UTC, 51.18, -1.83, 4000.0, pressure_hpa=p)
+    assert (flat[0].time, up[0].time) == ("03:51:41", "03:53:35")
 
 
 def test_epoch_events_and_alignments() -> None:

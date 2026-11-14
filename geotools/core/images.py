@@ -1,18 +1,19 @@
 """Image remediation choices and encoded-image header facts (bpy-free).
 
-rusty-tiles 0.4.0 refuses a source image that is over 32 MiB encoded, over
+rusty-tiles 0.4.1 refuses a source image that is over 1 GiB encoded, over
 16384 px a side, or not 8 bits per decoded channel (``admitted_decoder`` in
 ``src/gltf_source/source/texture.rs`` accepts only the ``L8``, ``La8``, ``Rgb8``
 and ``Rgba8`` colour types after the PNG decoder expands palettes and low bit
-depths). Until rusty-tiles 0.4.1 (#338) admits encoded images by memory
-budget, GeoTools offers an explicit, per-image remedy. A remedy is stored, never
+depths). Below 1 GiB it admits an image by memory budget (#338; 0.4.0 refused
+anything over 32 MiB). For the refusals, GeoTools offers an explicit, per-image
+remedy. A remedy is stored, never
 chosen for the user, and only changes the file written for the export; the
 user's image, its file and its pixels are never touched.
 
 * ``JPEG``: re-encode as JPEG at ``quality`` (90 to 100). Lossy; in the lossless
   build profile the loss is not otherwise there, so checks warn about it.
 * ``DOWNSCALE``: scale so the longest side is at most ``max_edge``, written as
-  PNG, or as JPEG at ``quality`` if the PNG is still over 32 MiB.
+  PNG, or as JPEG at ``quality`` if the PNG is still over the 1 GiB limit.
 * ``CONVERT_8BIT``: write the same pixels as an 8-bit PNG.
 
 Every remedy writes 8-bit output, so each one also clears a 16-bit refusal.
@@ -90,7 +91,7 @@ class ImageRemedy:
                 size = f"at most {self.max_edge} px a side"
             return (
                 f"downscaled to {size} as PNG, or as JPEG quality {self.quality} if the PNG "
-                "is still over 32 MiB"
+                "is still over rusty-tiles' 1 GiB limit"
             )
         if self.kind is RemedyKind.CONVERT_8BIT:
             return "converted to an 8-bit PNG"

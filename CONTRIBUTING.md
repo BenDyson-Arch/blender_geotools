@@ -115,19 +115,19 @@ Download every wheel for every platform:
 python scripts/fetch_wheels.py
 ```
 
-The rusty-tiles pin is still 0.4.0, which is on PyPI, but GeoTools needs
-0.4.1's functions (`supported_epsg_codes`, `resolve_source_crs`, `list_tiles`,
-`decode_tile`) and reports a 0.4.0 wheel as not available. Until 0.4.1 is on
-PyPI and the pin moves to it, take rusty-tiles from a local build of
-rusty-tiles develop (below).
+The rusty-tiles pin is 0.4.1, from PyPI. GeoTools needs 0.4.1's functions
+(`supported_epsg_codes`, `resolve_source_crs`, `list_tiles`, `decode_tile`)
+and reports an older wheel as not available.
 
 This uses `pip download` from the running Python, or `uvx pip` if that Python
 has no pip, so pip settings such as `PIP_INDEX_URL` apply.
 
 `--from-dir` copies wheels from a local directory instead. `--from-dir DIR`
 takes every pin from `DIR`; `--from-dir NAME=DIR` takes one pin from `DIR` and
-downloads the others. Until rusty-tiles 0.4.1 is on PyPI, take it from a local
-directory, for example a rusty-tiles `dist/` folder:
+downloads the others. To test an unreleased rusty-tiles, take it from a local
+directory, for example a rusty-tiles `dist/` folder (`build_extension.py`
+refuses a wheel whose version does not match the pin, so a release still
+needs the pinned wheel):
 
 ```sh
 python scripts/fetch_wheels.py --from-dir rusty-tiles=/path/to/rusty-tiles/dist --platform linux-x64
@@ -253,12 +253,10 @@ and `develop`. It has these jobs:
   tests run.
 - `blender`: an official, checksum-pinned Blender 5.2 LTS runs the Blender
   tests with `--expect missing`, then uploads the zip.
-- `blender-wheel`: the same with the PyPI wheels (rusty-tiles, pyproj,
-  certifi). It doesn't gate yet: the pinned rusty-tiles 0.4.0 is on PyPI, but
-  GeoTools refuses it, so the job fails in its Blender tests until 0.4.1 is
-  published and pinned. Then, to make it gate, set the repository variable
-  `RUSTY_TILES_WHEEL_GATING` to `true` and add it to the required checks of
-  the `main` and `develop` rulesets.
+- `blender-wheel`: the same with the pinned PyPI wheels (rusty-tiles 0.4.1,
+  pyproj, certifi) and `--expect available`, so the publish, inspect and CRS
+  tests run against the real wheel. A failure fails the run; it never falls
+  back to a wheel-less build.
 - `core (pytest, macOS arm64)` and `core (pytest, Windows x64)`: the core
   tests (no ruff) on `macos-latest` and `windows-latest`, at the same pins.
 - `blender (macOS arm64, no wheels)` and `blender (Windows x64, no wheels)`:
@@ -293,6 +291,42 @@ scrolled top to bottom, and `state_empty.png`, `state_mid.png` and
 `state_ready.png` with the default open and closed panels. `--states` picks
 some of them. On Linux it runs Blender on Xwayland (`WAYLAND_DISPLAY=`) unless
 you pass `--native`; it needs a display, so it does not run in CI.
+
+## Docs site
+
+The site at <https://bendyson-arch.github.io/blender_geotools/> is built with
+[MkDocs](https://www.mkdocs.org/) and
+[Material for MkDocs](https://squidfunk.github.io/mkdocs-material/) from
+`docs/`, the root `CONTRIBUTING.md`, `CHANGELOG.md` and `LICENSE`.
+`mkdocs.yml` holds the nav; `requirements-docs.txt` pins every package. To
+preview it with live reload at <http://127.0.0.1:8000/>, from the repository
+root:
+
+```sh
+uvx --with-requirements requirements-docs.txt mkdocs serve
+```
+
+or, without uv:
+
+```sh
+python3 -m venv .venv-docs
+.venv-docs/bin/pip install -r requirements-docs.txt
+.venv-docs/bin/mkdocs serve
+```
+
+Before you push, run `mkdocs build --strict` the same way (with `uvx` or from
+the venv). It must finish with no warnings: CI (`.github/workflows/docs.yml`)
+runs it on every pull request, and fails on a broken link or anchor, or on a
+page under `docs/` that is not in the `nav` of `mkdocs.yml`. A new page goes in
+the `nav`, or under `not_in_nav` with a comment saying why.
+
+Write links as you would for GitHub, relative to the file (`../guide/layers.md#limits`).
+`docs/hooks/site_links.py` turns links that leave `docs/` into site pages
+(`CONTRIBUTING.md`, `CHANGELOG.md`, `LICENSE`) or GitHub links when it builds
+the site, and fails the strict build if such a link's target is not in the
+repository; the files are not changed. `docs/guide/README.md` is the guide's
+landing page on both. Pushes to `main` deploy the site to GitHub Pages; other
+branches only build it.
 
 ## Isolating the Blender profile
 
@@ -355,7 +389,9 @@ does the rest.
    the page links to a file at the tag that the branch does not have, so a
    page must reach `release/X.Y.Z` together with the guide pages it links to.
 3. Merge that into `release/X.Y.Z`, then open a pull request from
-   `release/X.Y.Z` to `main` and merge it.
+   `release/X.Y.Z` to `main` and merge it. The push to `main` deploys the docs
+   site; for 0.3.0, enable Pages first (Settings > Pages > Source: GitHub
+   Actions) and check that the `docs (deploy to GitHub Pages)` job passes.
 4. Tag the merge commit on `main` and push the tag:
    `git tag -a v0.3.0 -m "GeoTools 0.3.0" && git push origin v0.3.0`.
 5. The release workflow checks that the tag matches the manifest, is on

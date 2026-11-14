@@ -1,0 +1,80 @@
+name: Docs
+
+# Builds the documentation site (mkdocs.yml) with --strict on every pull request
+# and on pushes to main, develop and release branches, so a broken link or a
+# page missing from the nav fails the check. Only main deploys it.
+#
+# GitHub Pages must be enabled before the first deploy, at the 0.3.0 release:
+# Settings > Pages > Build and deployment > Source: "GitHub Actions". Until
+# then the deploy job fails at "Configure Pages" on pushes to main; the build
+# job does not need Pages and passes on its own.
+# The site is then served at https://bendyson-arch.github.io/blender_geotools/
+# (site_url in mkdocs.yml).
+
+on:
+  push:
+    branches: [main, develop, "release/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push cancels an older build, except on main, where a run may be
+# deploying.
+concurrency:
+  group: docs-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  PYTHON_VERSION: "3.13"
+
+jobs:
+  build:
+    name: docs (mkdocs build --strict)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-docs.txt
+      - name: Install MkDocs (pinned, requirements-docs.txt)
+        run: python -m pip install -r requirements-docs.txt
+      - name: Build the site (strict)
+        run: mkdocs build --strict --site-dir _site
+      - name: Upload the site for Pages
+        # Only for a deploy (below). Uploading needs no Pages setup.
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    name: docs (deploy to GitHub Pages)
+    needs: build
+    # Pushes to main and manual runs from main only; never pull requests,
+    # develop or release branches.
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    # One deployment at a time; a newer push waits rather than cancelling one
+    # that is half done.
+    concurrency:
+      group: docs-pages
+      cancel-in-progress: false
+    steps:
+      - name: Configure Pages
+        # Fails here if Pages is not enabled with Source: GitHub Actions (see top).
+        uses: actions/configure-pages@v6
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v5

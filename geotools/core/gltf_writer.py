@@ -140,15 +140,27 @@ class ExportError(ValueError):
     """The export data is inconsistent or would be refused by rusty-tiles."""
 
 
-# rusty-tiles 0.4.0 admission limits (src/gltf_source/source.rs, the LARGE
+# rusty-tiles 0.4.1 admission limits (src/gltf_source/source.rs, the LARGE
 # profile used by mesh_to_tileset, and src/mesh_large/images.rs).
 MAX_COORDINATE = 1_000_000.0  # POSITION and TEXCOORD magnitude
 UNIT_TOLERANCE = 1e-4  # | |NORMAL| - 1 |, | |TANGENT.xyz| - 1 |
 MAX_PRIMITIVES = 65_536
 MAX_MATERIALS = 4096
 MAX_IMAGES = 4096
-MAX_IMAGE_BYTES = 32 * 1024 * 1024  # encoded bytes per image
+MAX_IMAGE_BYTES = 1 << 30  # encoded bytes per image: rusty-tiles 0.4.1's sanity ceiling
+# Below MAX_IMAGE_BYTES, rusty-tiles 0.4.1 admits an image when the memory budget
+# holds its encoded bytes and its decode (#338); one it cannot hold fails the
+# build with ResourceLimitError, which names the bytes needed.
 MAX_IMAGE_EDGE = 16_384
+
+
+def size_limit_text(size: int) -> str:
+    """A byte limit as text: "1 GiB", "32 MiB" (whole GiB as GiB, else MiB)."""
+    if size >= 1 << 30 and size % (1 << 30) == 0:
+        return f"{size >> 30} GiB"
+    return f"{size / (1 << 20):g} MiB"
+
+
 MAX_JSON_BYTES = 16 << 20
 MAX_GLB_BYTES = 2**32 - 1  # the GLB header's u32 length
 
@@ -885,7 +897,8 @@ def _validate_image(i: int, image: ImageData) -> int:
         if size > MAX_IMAGE_BYTES:
             raise ExportError(
                 f"{where} is {size} bytes; rusty-tiles accepts encoded images of at most "
-                f"{MAX_IMAGE_BYTES} bytes (32 MiB). Re-encode or split it."
+                f"{MAX_IMAGE_BYTES} bytes ({size_limit_text(MAX_IMAGE_BYTES)}). Re-encode or "
+                "split it."
             )
         with open(path, "rb") as f:
             if image.mime_type == "image/png":

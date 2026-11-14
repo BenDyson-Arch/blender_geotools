@@ -7,10 +7,11 @@ and the project follows semantic versioning where practical.
 
 ## [Unreleased]
 
-## [0.3.0] - Unreleased
+## [0.3.0] - 2026-11-14
 
-GeoTools is being rebuilt to create, analyse and publish OGC 3D Tiles with
-rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
+The rebuilt GeoTools: GIS for Blender 5.2. Georeference a site, bring in
+geodata, analyse the full 3D mesh with validated tools, and publish OGC 3D
+Tiles with rusty-tiles. See `docs/ROADMAP.md` and the release notes.
 
 ### Added
 
@@ -447,6 +448,16 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
     `scripts/make_example_drape.py`.
   - Linked file paths and build profile output paths accept `//` (relative to
     the `.blend`) without a warning.
+- **Origin from Latitude/Longitude** for CRS projects. A scene with only a
+  geographic origin (`latitude`/`longitude` GeoScene keys, as BlenderGIS or
+  blender_ogc3dtiles can leave it) gets offset E/N by projecting it into the
+  project CRS, as BlenderGIS's own CRS switch does: full doubles, written to
+  `crs x`/`crs y`, latitude/longitude re-synced, undoable. The Project panel
+  and Check offer it when the scene has latitude/longitude but no projected
+  origin, and say by how many metres latitude/longitude and an existing E/N
+  disagree, without changing either. Choosing a CRS for such a scene no longer
+  writes E/N 0 over it and overwrites its latitude/longitude. Needs pyproj;
+  Local and Anchor projects leave the keys alone.
 - **Extract for Web** in Last Build: writes a published `.3tz` as a folder any
   web server can serve, next to it (`site.web/` for `site.3tz`,
   `site.slope.web/` for a variant), with `tileset.json`, the tiles and an optional `index.html`
@@ -466,6 +477,77 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
 - Each release attaches the synthetic demo site (`examples/drape-contexts/`)
   as `geotools-demo-data-<version>.zip`, included in `SHA256SUMS`. Getting
   started now points to it instead of to the repository.
+- Validation of the terrain-shape and archaeological-visualisation presets
+  ([docs/validation/terrain.md](docs/validation/terrain.md)): slope, aspect
+  (grid and true north), curvatures, rugosity, TPI, TRI, local relief model,
+  sky-view factor and openness, live and fast, against closed forms and GDAL
+  3.12.0, WhiteboxTools 2.4.0 and rvt-py 2.2.1 on synthetic DEMs. All agree;
+  the plan-curvature naming, TPI sampling and horizon search region are
+  documented convention differences, now settled (see Changed). Reference script
+  `scripts/validation/terrain/make_references.py`, fixtures in
+  `tests/data/validation/terrain/`, tests in normal CI.
+- Validation of the visibility, distance, volume and least-cost path presets
+  ([docs/validation/visibility.md](docs/validation/visibility.md)): viewshed,
+  cumulative viewshed (live and fast), intervisibility, line of sight,
+  distance to surface and to a feature, cut and fill, closed volume and
+  least-cost path, against an exact line of sight over the same mesh, GDAL
+  3.13.3, GRASS 8.5.0 (`r.viewshed`, `r.walk`), trimesh 5.2.1, shapely 2.2.0
+  and networkx 3.7 on synthetic ridges, domes, hills and solids. All agree;
+  Earth curvature, the cut/fill split by face and least-cost routing on the
+  mean of both directions are documented differences; one bug fixed (see
+  Fixed). Reference scripts in `scripts/validation/visibility/`, fixtures in
+  `tests/data/validation/visibility/`, tests in normal CI.
+- Validation of geodesy and measurement
+  ([docs/validation/geodesy.md](docs/validation/geodesy.md)): Measure's point
+  readout, scale factor and convergence, ground distances, bearings and areas,
+  the Gaussian radius, the Local/Anchor/CRS frames, the GeoScene frame and
+  latitude/longitude sync, published placement in ECEF, and GeoJSON,
+  GeoPackage and GeoTIFF CRS handling, against Krüger's series, GeographicLib
+  2.1, the ICSM worked example and GDAL 3.12.0 at twelve synthetic sites. All
+  agree to nanometres or float32, published vertices to 0.3 mm; one bug fixed
+  (see Fixed); the four points it left for a decision are resolved (see
+  Changed and Fixed). Reference scripts in
+  `scripts/validation/geodesy/`, fixtures in `tests/data/validation/geodesy/`,
+  tests in normal CI.
+- Validation of archaeoastronomy
+  ([docs/validation/archaeoastronomy.md](docs/validation/archaeoastronomy.md)):
+  the horizon profile against an exact TIN march, a cone, the dip of a plain
+  and GRASS GIS 8.5.0 r.horizon; Meeus' Moon, the standstills and the
+  obliquity against JPL DE440s and DE441 (Skyfield 1.53, ERFA 2.0.1.5 with
+  Vondrák's long-term precession); rise, set and dated sunrise azimuths
+  against closed forms, Skyfield and astropy 7.1.0; and Check Alignment's
+  azimuths and declinations. All agree; two bugs fixed (see Fixed), and the
+  obliquity's accuracy at the ends of the epoch range is documented (42″ from
+  Vondrák 2011 at 8000 BCE). Reference scripts in
+  `scripts/validation/archaeoastronomy/`, fixtures in
+  `tests/data/validation/archaeoastronomy/`, tests in normal CI.
+- Validation of hydrology, contours and sections
+  ([docs/validation/hydrology.md](docs/validation/hydrology.md)): depression
+  filling, depressions, flow routing, flats, accumulation, Channel From and
+  the Flow Paths object, Flow Path (Quick Look), contours, sections and their
+  Export Vectors output, against closed forms, a heap priority-flood on the
+  same face graph (bit-identical), WhiteboxTools 2.4.0, richdem 0.3.4, GDAL
+  3.12.0 (gdal_contour, bilinear sampling) and SciPy 1.18.1 on synthetic
+  DEMs. All agree; face-centre spill levels (low by about a third of a face's
+  fall), three flow directions per face and flats routed towards their exit
+  are documented, and spurious shallow pits along V-channels that follow mesh
+  edges are a known limit. Reference script
+  `scripts/validation/hydrology/make_references.py`, fixtures in
+  `tests/data/validation/hydrology/`, tests in normal CI.
+- Validation of the solar tools ([docs/validation/solar.md](docs/validation/solar.md)):
+  sun position (NREL SPA), ΔT, time zones, grid convergence, Place Sun and
+  Over a Day, Sun Hours (open ground, slopes, walls, overhangs, horizon
+  profiles, Merge Within, the Cycles bake), clear-sky insolation and Shadow
+  Study, against pvlib 0.16.1, Skyfield 1.55 with JPL DE440s, pyproj
+  geodesics and GRASS GIS 8.4.1 r.sun. All agree with what they claim (SPA to
+  pvlib within 10⁻⁹°, to DE440 within 0.00017°; sun hours within half a step
+  per edge). Insolation is Ineichen–Perez as in pvlib, not ESRA: it differs
+  from r.sun by the models' known differences. The three points it left for a
+  decision (sun directions in non-conformal CRSs, refraction at standard
+  pressure at any altitude, the Over a Day strength fading between keys) are
+  fixed (see Fixed). Reference scripts in
+  `scripts/validation/solar/`, fixtures in `tests/data/validation/solar/`,
+  tests in normal CI.
 
 ### Changed
 
@@ -569,6 +651,69 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
 - Build profiles have an Apply Modifiers option (Build Settings, on by
   default), as in Blender's glTF exporter. Off, the export and the layer reads
   use the original mesh data; `build.json` records the choice.
+- The analysis docs state what the 0.3.0 validation measured and the user
+  decided to keep: Laskar's obliquity is 42″ from Vondrák et al. (2011) at
+  8000 BCE, not "a few arc seconds", and the lunar extremes 0.015°, not
+  0.01° (docstrings, design note, guide, and the Archaeoastronomy panel's
+  trust note, which now gives the gap for the chosen epoch); Check
+  Alignment's declination leaves out the sun's 8.8″ parallax; the horizon
+  reads up to 0.0016° low; hydrology's false pits in V-channels along mesh
+  edges (accumulation unaffected; raise Minimum Depth on coarse meshes) and
+  face-centre spill levels; no contour at the lowest level or round a vertex
+  exactly on a level; Distance to Surface's sign near edges sharper than 90°
+  (as CloudCompare); and the viewshed's missing Earth curvature (0.7 mm at
+  100 m, 6.7 cm at 1 km, 1.7 m at 5 km). docs/BACKLOG.md has the deferred
+  work (ANA-1 to ANA-4, and Import Source Mesh's case (c)), and every
+  validation page marks its decisions resolved.
+- **Sections export their chainage**: Export Vectors writes each section piece
+  to a GeoPackage as a LineString ZM with the chainage as M, the GIS
+  convention for linear referencing that QGIS and GDAL read, and to GeoJSON
+  (which has no M) with a `chainage` property holding one value per point.
+  Before, only `chainage_from` and `chainage_to` per piece left Blender. A
+  Vectors publish leaves M out, as rusty-tiles 0.4 refuses measured geometry.
+- GeoPackage exports write the CRS as WKT in `gpkg_spatial_ref_sys.definition`,
+  as the GeoPackage standard asks: pyproj's WKT1, which GDAL and QGIS read, or,
+  for a CRS WKT1 cannot express (a 3D geographic CRS), `undefined` there and
+  the WKT2 in the standard's CRS WKT extension (`definition_12_063`). They
+  wrote the project's CRS text (`EPSG:7856`), which readers that go by the
+  EPSG code accepted but which lost a CRS without a code: GDAL read no CRS
+  from a custom transverse Mercator export, and reads it exactly now. Without
+  pyproj the definition is the CRS text, as before. GDAL 3.12's
+  `validate_gpkg` accepts every form.
+- The GLB metadata term `geotools:gridScale` is now
+  `geotools:groundMetresPerModelMetre`. It always held metres on the ground
+  per model metre along +X at the origin, about 1 / the combined scale factor
+  (1.0004 where the grid scale factor k is 0.9996), which surveyors would not
+  read as a grid scale factor. The value is unchanged (apart from the frame
+  fix under Fixed); there is no alias for the old name, which no release
+  wrote. The guide and the design note document it.
+- GeoTools now ships on rusty-tiles 0.4.1 from PyPI (it was pinned to 0.4.0,
+  which GeoTools reports as not available). CI's `blender-wheel` job tests the
+  pinned PyPI wheels in Blender and now gates.
+- Images up to 1 GiB encoded publish without a remedy: rusty-tiles 0.4.1 admits
+  them by memory budget instead of refusing anything over 32 MiB (#338), so
+  Checks reports `image-file-too-large` only over 1 GiB. An image the build's
+  memory budget cannot hold fails the publish with a `ResourceLimitError`
+  naming the bytes it needs; raise **Memory GiB** or choose **Downscale**.
+- **TPI results change**: the Topographic Position preset now samples 96
+  heights by default instead of 24, so its mean is Weiss's (2001) mean over
+  the whole disc or annulus, as other tools compute TPI, to about 2% RMS of the
+  TPI on smooth terrain instead of about 7.5%. On the validation terrain new
+  TPI layers differ from ones made with 24 samples by 7–9% RMS of the TPI
+  (4.4 mm RMS, 11 mm at most, with the default 0.5 m disc), and the preset
+  takes three to four times as long (about 9 s at 1M triangles and 76 s at
+  10M, against 2 s and 25 s, on a shared machine). Existing modifiers keep the
+  Samples they have, and so does a file that already holds the TPI node group
+  (new TPI layers in it start at 24: set Samples to 96); set Samples to 24 for
+  the old values.
+- The plan curvature preset is labelled **Plan (Tangential) Curvature** (node
+  group *GeoTools Plan (Tangential) Curvature*), because WhiteboxTools' and
+  SAGA's *Plan Curvature* is the contour curvature; GeoTools' equals their
+  *Tangential Curvature*. The preset id and layer stay `curvature_plan`, so
+  existing files and scripts keep working. analysis-presets.md now also
+  states the curvature window rule, the float32 height limit, and that the
+  horizon presets' Max Distance is measured along the ray (RVT's is
+  horizontal).
 
 ### Removed
 
@@ -588,6 +733,100 @@ rusty-tiles. The next release will be 0.3.0. See `docs/ROADMAP.md`.
 
 ### Fixed
 
+- **True north in non-conformal CRSs.** The sun (Place Sun, Over a Day, Sun
+  Hours and its sky rays, Shadow Study) and the archaeoastronomy horizon and
+  sightlines turned true azimuths into scene ones by the one meridian
+  convergence, which is exact only in conformal grids. In Australian Albers
+  (EPSG:3577) directions between the meridian and the parallel were off by up
+  to 1.1° at 150° E, 12° S and 1.8° in Tasmania, in Web Mercator by up to
+  0.19°. They now go through the grid-to-ground map at the site that Measure
+  uses: within 10⁻⁶° of projected geodesic steps, and the Sun panel says
+  when the CRS is not conformal. Conformal CRSs (UTM, MGA, Lambert conformal,
+  stereographic), Anchor and Local projects give identical results.
+  Aspect (True North) is a preset of stock nodes with one Convergence input,
+  so there it stays one rotation (the nearest to the map, which is the
+  convergence in both): aspects along and across the meridian are exact,
+  others up to the same 1.8° and 0.19° off, as analysis-presets.md now
+  states and Add Analysis says.
+- **Refraction at the site's height.** The sun's position (Place Sun, Over a
+  Day, Sun Hours, insolation, Shadow Study) and the archaeoastronomy rises and
+  sets refracted at sea-level pressure (1013.25 hPa for SPA, Bennett's 1010
+  hPa) at any height. They now use the standard atmosphere's pressure at the
+  site's ellipsoidal height (616 hPa at 4,000 m), with the temperature as
+  before (12 °C and 10 °C). At 4,000 m a June day at 51° N is 4.0 minutes
+  shorter than GeoTools counted, and the solstice sunrise 0.37° further from
+  north (0.11° at 1,000 m); clear-sky insolation at a 1,500 m site changes by
+  0.07 %. Check Alignment uses the events' pressure. Results at sea level do
+  not change.
+- The **GLB metadata frame** (`geotools:modelToEcef` and the Earth-Placed node
+  matrix) is no longer tilted on large sites. The grid axes were measured
+  with one-sided probes (the centre and the centre moved half the extent),
+  which are secants: on a 10 km site at the MGA zone 56 edge both axes dipped
+  3.9×10⁻⁴ rad below the tangent plane, the scale was 18 ppm high, and the
+  corners landed 0.18 m to 7.84 m from where rusty-tiles puts them. Two more
+  probes (west and south) give central differences, the tangents at the
+  centre: the tilt is below 10⁻⁷ rad and every corner of that site is 3.93 m
+  off, the Earth's curvature over 7 km, which one matrix cannot follow. On a
+  200 m site a corner moves by at most 3 mm.
+- **Over a Day** switches the light off at sunset and on at sunrise, as the
+  guide says. Its strength was keyed linearly, so with a Frame Step above 1
+  the frames between the last key with the sun up and the first with it down
+  faded the light (to a quarter, a half and three quarters of the strength
+  with a Frame Step of 4). The strength is now keyed constant, as Shadow
+  Study keys it; the light's direction still moves smoothly between keys.
+- Shadow Study, Compute Events and Over a Day no longer fail on Windows for
+  dates before 1970: Python's `datetime.fromtimestamp` refuses negative
+  timestamps there.
+- The archaeoastronomy **horizon profile** no longer misses a near crest by up
+  to 0.1° when, with Earth curvature on, a farther range is hit by the coarse
+  ray just above the crest but appears lower than it: the fine pass now
+  refines every 0.1° bracket that can hold the skyline (any coarse hit within
+  0.1° of the best), not only the best one, so the skyline is found to about
+  0.002° as documented. Profiles without such a geometry are unchanged.
+- Archaeoastronomy **Compute Events** no longer fails with "Laskar's obliquity
+  is only valid within 10,000 years" for the epochs at either end of its range
+  (8000 and 7999 BCE, 11994 to 11999 CE) when the lunar standstills are on: the
+  standstill nearest such an epoch can fall a few years beyond the obliquity's
+  range, where the polynomial is still smooth.
+- Closed Volume (preset version 2) keeps its precision far from the origin.
+  Version 1 took its reference point as the float32 mean of each part's face
+  centres and used Blender's Normal and Face Area fields, which lose precision
+  there: a 262,144-face hemisphere 10 km from the origin came out 0.27 % too
+  large. The preset now measures every vertex from the part's first vertex and
+  builds each face's centre and area vector (Newell) from those, so it is
+  within 10⁻⁴ there, the float32 sum over the faces; the per-face values of
+  small parts are within 10⁻⁵. Read Totals now sums centres and area vectors
+  computed from the vertices in binary64, and is exact. Files that already
+  hold version 1 keep it on their modifiers; Add Analysis appends version 2.
+- Import Source Mesh no longer silently re-origins a georeferenced scene. An
+  offset file found beside the mesh sets the project origin only when the
+  project has none yet, or already has exactly that E, N and A (so a chunk
+  imported again, or several chunks sharing one offset file, change nothing).
+  When the scene has a BlenderGIS georeference with another origin, the
+  project another origin, or the project is Anchor, the mesh is imported
+  unshifted, the report gives the file's E/N/A next to the project's, and the
+  Source panel offers **Use This Offset File as the Project Origin** (it asks
+  first when the source collection has objects) and, in a CRS project,
+  **Place the Imported Objects at the Project Origin** (a double-precision
+  move, with a warning when single-precision object locations would round by
+  more than 1 mm).
+- Measure: ground distances, true bearings and ground areas are right in
+  projected CRSs that are not conformal: the 24 Albers equal-area CRSs and Web
+  Mercator (EPSG:3857) that rusty-tiles accepts. The single point scale factor
+  and convergence used before hold only in conformal grids, so an east-west
+  kilometre in EPSG:3577 at 12° S was 39 m (3.9 %) too long and its true
+  bearing 0.3° out, and EPSG:3857 distances at 60° N were 0.08 to 0.25 %
+  short. The scale and the turn to true north now follow the line's direction,
+  from PROJ's Jacobian and the ellipsoid's radii; results agree with
+  GeographicLib geodesics to 0.002 ppm. Conformal CRSs (transverse Mercator,
+  Lambert conformal conic, stereographic) give the same results as before.
+- Contours and sections no longer draw a segment twice where a mesh edge lies
+  exactly on the cutting plane with both its triangles on the same side: a
+  ridge exactly at a contour level (common with heights quantised to the
+  centimetre and whole-metre contours), or a closed object's edge on a
+  section plane. Each such edge was cut by both of its triangles, so the
+  Contours object held two identical lines (a two-point "ring" in a section),
+  which a GIS showed as duplicate features.
 - Getting started step 8 (View the result) works as written: it uses Extract
   for Web and a complete viewer page instead of a snippet with an undefined
   `viewer`, and gives the Windows `py` command for Python's web server. The

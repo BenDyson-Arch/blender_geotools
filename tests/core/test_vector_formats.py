@@ -346,6 +346,128 @@ def test_gpkg_writes_xyz_envelope_and_spatial_ref(tmp_path: Path) -> None:
     assert vf.rows(out, "PRAGMA application_id")[0][0] == gpkg.APPLICATION_ID
 
 
+def _contexts(tmp_path: Path):
+    return geojson.read(
+        vf.write_geojson(tmp_path / "a.geojson", vf.contexts(1, z=40.0, holes=False))
+    )
+
+
+def test_gpkg_srs_definition_is_wkt1(tmp_path: Path) -> None:
+    """The standard asks for WKT in ``definition``: with pyproj it is the CRS's WKT1."""
+    pyproj = pytest.importorskip("pyproj")
+    out = tmp_path / "out.gpkg"
+    project = DataCrs("EPSG:7856", "EPSG:7856", "project")
+    gpkg.write_layer(out, "c", _contexts(tmp_path), Kind.POLYGONS, project)
+    ((definition,),) = vf.rows(
+        out, "SELECT definition FROM gpkg_spatial_ref_sys WHERE srs_id = 7856"
+    )
+    assert definition == pyproj.CRS("EPSG:7856").to_wkt("WKT1_GDAL")  # was "EPSG:7856"
+    assert definition.startswith('PROJCS["GDA2020 / MGA zone 56"')
+    assert pyproj.CRS(definition).to_epsg() == 7856
+    # WKT1 holds it, so no CRS WKT extension.
+    columns = {r[1] for r in vf.rows(out, "PRAGMA table_info(gpkg_spatial_ref_sys)")}
+    assert "definition_12_063" not in columns
+    assert not vf.rows(out, "SELECT 1 FROM sqlite_master WHERE name = 'gpkg_extensions'")
+    assert gpkg.read_layer(out, "c").crs.epsg == "EPSG:7856"
+
+
+def test_gpkg_srs_definition_falls_back_to_wkt2(tmp_path: Path) -> None:
+    """A CRS WKT1 cannot express (3D geographic) goes in the CRS WKT extension as WKT2."""
+    pyproj = pytest.importorskip("pyproj")
+    out = tmp_path / "out.gpkg"
+    gpkg.write_layer(
+        out, "c", _contexts(tmp_path), Kind.POLYGONS, DataCrs("EPSG:9989", None, "user")
+    )
+    ((definition, wkt2, epoch),) = vf.rows(
+        out,
+        "SELECT definition, definition_12_063, epoch FROM gpkg_spatial_ref_sys WHERE srs_id = 9989",
+    )
+    assert definition == "undefined" and epoch is None
+    assert wkt2 == pyproj.CRS("EPSG:9989").to_wkt("WKT2_2019")
+    # The column is NOT NULL with no default (Req 10), so the table was rebuilt,
+    # and the rows already there have their WKT2 (or "undefined").
+    column = next(
+        r
+        for r in vf.rows(out, "PRAGMA table_info(gpkg_spatial_ref_sys)")
+        if r[1] == "definition_12_063"
+    )
+    assert column[3] == 1 and column[4] is None
+    rows = dict(vf.rows(out, "SELECT srs_id, definition_12_063 FROM gpkg_spatial_ref_sys"))
+    assert rows[4326] == pyproj.CRS("EPSG:4326").to_wkt("WKT2_2019")
+    assert rows[0] == rows[-1] == "undefined"
+    extensions = vf.rows(
+        out, "SELECT table_name, column_name, extension_name, scope FROM gpkg_extensions"
+    )
+    assert sorted(extensions) == [
+        ("gpkg_spatial_ref_sys", "definition_12_063", "gpkg_crs_wkt_1_1", "read-write"),
+        ("gpkg_spatial_ref_sys", "epoch", "gpkg_crs_wkt_1_1", "read-write"),
+    ]
+    # A second layer, in a CRS WKT1 holds, has both.
+    gpkg.write_layer(
+        out, "d", _contexts(tmp_path), Kind.POLYGONS, DataCrs("EPSG:7856", None, "user")
+    )
+    ((definition, wkt2),) = vf.rows(
+        out, "SELECT definition, definition_12_063 FROM gpkg_spatial_ref_sys WHERE srs_id = 7856"
+    )
+    assert definition.startswith('PROJCS["GDA2020 / MGA zone 56"')
+    assert wkt2.startswith('PROJCRS["GDA2020 / MGA zone 56"')
+    assert gpkg.read_layer(out, "c").crs.epsg == "EPSG:9989"
+    assert gpkg.read_layer(out, "d").crs.epsg == "EPSG:7856"
+
+
+def test_gpkg_wkt2_layer_in_a_gdal_geopackage(tmp_path: Path) -> None:
+    """Adding the extension to a GeoPackage GDAL wrote keeps GDAL's layer and its CRS."""
+    pytest.importorskip("pyproj")
+    source = Path(__file__).parents[1] / "data/validation/geodesy/formats/mga56.gpkg"
+    out = tmp_path / "mga56.gpkg"
+    out.write_bytes(source.read_bytes())
+    (gdal_layer,) = [layer.name for layer in gpkg.list_layers(out)]
+    before = gpkg.read_layer(out, gdal_layer)
+    gpkg.write_layer(
+        out, "itrf", _contexts(tmp_path), Kind.POLYGONS, DataCrs("EPSG:9989", None, "user")
+    )
+    after = gpkg.read_layer(out, gdal_layer)
+    assert after.crs.epsg == before.crs.epsg == "EPSG:7856"
+    assert after.crs.definition == before.crs.definition  # GDAL's own WKT1 kept
+    assert gpkg.read_layer(out, "itrf").crs.epsg == "EPSG:9989"
+
+
+def test_gpkg_reads_wkt2_of_a_crs_without_a_code(tmp_path: Path) -> None:
+    pyproj = pytest.importorskip("pyproj")
+    out = tmp_path / "out.gpkg"
+    text = pyproj.CRS("EPSG:9989").to_wkt("WKT2_2019").replace(',ID["EPSG",9989]', "")
+    gpkg.write_layer(out, "c", _contexts(tmp_path), Kind.POLYGONS, DataCrs(None, text, "user"))
+    ((organization, definition, wkt2),) = vf.rows(
+        out,
+        "SELECT organization, definition, definition_12_063 FROM gpkg_spatial_ref_sys "
+        "WHERE srs_id = 100000",
+    )
+    assert (organization, definition) == ("NONE", "undefined")
+    assert wkt2.startswith('GEOGCRS["ITRF2020"')
+    crs = gpkg.read_layer(out, "c").crs
+    assert crs.definition.startswith("GEOGCRS[")  # from definition_12_063
+
+
+def test_gpkg_srs_definition_without_pyproj(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Without pyproj the definition is the CRS text, as before; readers use the code."""
+    from geotools.core import deps
+
+    missing = deps.DependencyStatus(False, error="pyproj is not installed", name="pyproj")
+    monkeypatch.setattr(deps, "probe_pyproj", lambda: missing)
+    out = tmp_path / "out.gpkg"
+    project = DataCrs("EPSG:7856", "EPSG:7856", "project")
+    gpkg.write_layer(out, "c", _contexts(tmp_path), Kind.POLYGONS, project)
+    assert vf.rows(out, "SELECT definition FROM gpkg_spatial_ref_sys WHERE srs_id = 7856") == [
+        ("EPSG:7856",)
+    ]
+    gpkg.write_layer(out, "d", _contexts(tmp_path), Kind.POLYGONS, DataCrs("EPSG:7855", None, "u"))
+    assert vf.rows(out, "SELECT definition FROM gpkg_spatial_ref_sys WHERE srs_id = 7855") == [
+        ("undefined",)
+    ]
+
+
 def test_geojson_write_round_trip(tmp_path: Path) -> None:
     features = [vf.feature(g, {"name": n}, i) for i, (n, g) in enumerate(GEOMETRIES.items())]
     src = geojson.read(vf.write_geojson(tmp_path / "a.geojson", features))

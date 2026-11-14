@@ -187,6 +187,7 @@ More observers cost about 0.3 to 0.4 s per observer at 10M; the bake takes
   `-- --check` compares a fresh build with the file, node by node, and fails
   when they differ. The Blender tests run it, so a change to the script or the
   catalog without regenerating fails CI.
+
 - Each group carries `geotools_preset` and `geotools_preset_version` custom
   properties. Add Analysis finds an existing group by them (so an edited or
   renamed group is reused, never duplicated) and merges the helper groups
@@ -276,7 +277,31 @@ taken as true north). The layer's provenance records `"north": "true"` and
 the value used. Aggregation is **none**: aspect is circular, and an area mean
 of 350° and 10° is not 0°.
 
-### Curvature: profile, plan and mean (`curvature_profile`, `curvature_plan`, `curvature_mean`, CORNER, 1/m)
+**Non-conformal CRSs.** Convergence is one rotation, which is exact in a
+conformal grid (transverse Mercator, Lambert conformal conic, stereographic)
+for every direction. Albers equal-area and Web Mercator (EPSG:3857) are not
+conformal: the turn from grid to true north depends on the direction. There
+Aspect (True North) takes the rotation nearest the grid-to-ground map at the
+object's centre (`site.SunSite.rotation`, the rotation of its polar
+decomposition), which in both is the meridian convergence, as their
+meridians and parallels cross at right angles. Aspects facing along and
+across the meridian are then exact, and others are off by up to the values
+below, worst at 45° from the meridian. Add Analysis says so. For exact true
+aspects in those CRSs, work in a conformal CRS (the local MGA or UTM zone).
+
+| CRS | Site | Largest aspect error |
+|---|---|---|
+| EPSG:3577 Australian Albers | 115° E, 32° S (Perth) | 0.51° |
+| | 133° E, 25° S (centre) | 0.66° |
+| | 150° E, 12° S | 1.12° |
+| | 142° E, 11° S (Cape York) | 1.35° |
+| | 147° E, 43° S (Tasmania) | 1.81° |
+| EPSG:3857 Web Mercator | equator, 30°, 47°, 60° latitude | 0.19°, 0.14°, 0.09°, 0.05° |
+
+The Sun, Sun Hours and Shadow Study have no such limit: they turn each
+direction through the map itself.
+
+### Curvature: profile, plan (tangential) and mean (`curvature_profile`, `curvature_plan`, `curvature_mean`, CORNER, 1/m)
 
 From a 3 × 3 window of heights at spacing w around each vertex (eight vertical
 rays; the centre is the vertex), the Evans-Young derivatives (Florinsky 2016,
@@ -294,7 +319,7 @@ s = (z3 + z7 − z1 − z9) / 4w²
 
 - **profile** (vertical) curvature `k_v = −(p²r + 2pqs + q²t) / (g (1 + g)^{3/2})`:
   the normal curvature along the slope line;
-- **plan** curvature is the horizontal (tangential) curvature
+- **plan (tangential)** curvature is the horizontal (tangential) curvature
   `k_h = −(q²r − 2pqs + p²t) / (g √(1 + g))`: the normal curvature along the
   contour. It is the contour curvature times sin(slope), so it stays bounded on
   gentle ground, where the contour curvature diverges;
@@ -303,10 +328,43 @@ s = (z3 + z7 − z1 − z9) / 4w²
 **Positive is convex** (crests, spurs, breaks of slope), negative concave
 (hollows, ditches, feet of slope); a sphere of radius R gives +1/R for all
 three. Profile and plan curvature are undefined on exactly level ground (no
-data where g < 10⁻¹²). The window must be several mesh spacings: a window
-close to the spacing samples the mesh's flat facets between vertices and
-overstates curvature (+4% on a sphere of R = 5 m at w = 2.5 spacings, 0.03% at
-w = 10 spacings).
+data where g < 10⁻¹²).
+
+**Names in other tools.** "Plan curvature" means different things in
+different tools, so the preset is labelled **Plan (Tangential) Curvature**
+(its id and layer stay `curvature_plan`). It equals WhiteboxTools'
+`TangentialCurvature` and SAGA's *Tangential Curvature* (Florinsky's
+*horizontal* curvature). WhiteboxTools' `PlanCurvature`, SAGA's *Plan
+Curvature* and Shary and Florinsky's *plan curvature* are the **contour
+curvature**, k_h / sin(slope): it diverges on gentle ground, so it differs
+from this preset most where the ground is nearly level. Compare with the
+tangential output of those tools. Sign and unit agree: positive convex, 1/m.
+
+**Window and mesh spacing.** The window's rays read the mesh, which is flat
+between vertices. Where they land on vertices (a regular grid with w a whole
+number of spacings), the result is the Evans-Young curvature of the vertices
+themselves, with no added bias. Where they land mid-facet, the facets' chords
+cut inside the curved surface and the curvature is overstated by up to
+(h/w)²/4, for mesh spacing h: measured +4.0% at w = 2.5 h on a sphere, a bowl
+and a paraboloid. On an irregular photogrammetry mesh the rays land anywhere,
+so expect up to that bias: 4% at w = 2.5 h, 1% at 5 h, 0.25% at 10 h. In
+practice set Window to at least five times the mesh spacing, and choose it
+for the scale of the landform you want, not the finest the mesh allows.
+
+**Heights far from 0 (float32).** Blender stores heights in float32, and the
+window divides small height differences by w², so the rounding of large
+heights shows in the curvature. On a sphere of R = 5 m (spacing 0.05 m):
+
+| Heights near | Window 0.05 m: max (RMS) error | Window 0.2 m: max error |
+|---|---|---|
+| 5 m | 0.09% (0.03%) | 0.10% |
+| 105 m | 1.3% (0.4%) | 0.17% |
+| 1,005 m | 9.5% (3.6%) | 0.6% |
+
+The relative error grows as about 3×10⁻⁸ |z| / (w² |k|) (z in m, w in m, k in
+1/m). Keep the scene's heights near 0, with the project's **Offset A**
+carrying the absolute height ([Projects](guide/projects.md#heights-a-and-the-height-offset)),
+or widen the window.
 
 | Input | Default | |
 |---|---|---|
@@ -338,11 +396,20 @@ sunflower pattern of even areal density, in point-symmetric pairs, so a plane
 gives exactly 0. Positive on rises and crests, negative in hollows. No data
 where no sample hit.
 
+Weiss's TPI, as other tools compute it, subtracts the mean over every cell of
+the neighbourhood; the preset samples it. The default 96 samples give that mean
+to about 2% RMS of the TPI on smooth terrain (measured against the exact disc
+and annulus mean: 1.7%; 24 samples gave 7.6%, 48 gave 3.3%). Fewer samples are
+proportionally faster and noisier. Use a radius of several mesh spacings: the
+mesh's linear interpolation adds about 2% at five spacings and is as large as
+the TPI itself below two. `gdaldem TPI` uses the eight neighbours of a 3 × 3
+window, which matches a disc of radius √3 cells (the same second moment).
+
 | Input | Default | |
 |---|---|---|
 | Inner Radius | 0 m | 0 for a disc. |
 | Outer Radius | 0.5 m | |
-| Samples | 24 | Rounded up to an even number. |
+| Samples | 96 | Rounded up to an even number. Was 24 up to GeoTools 0.3; a file that already holds that TPI group keeps its default of 24 for new layers. |
 | Search Height | 2 m | See 2.5D sampling. |
 
 ### Terrain Ruggedness Index (`tri`, CORNER, m)
@@ -383,9 +450,19 @@ level, exactly) and then bisects: Steps rays in all, resolving γ to
 `90° / 2^(Steps − 1)` (0.7° at the default 8), and the midpoint of the last
 interval is used. Raycast hits back faces too, so thin walls occlude.
 
+**Search region.** Max Distance is measured along each ray, so the search
+reaches a sphere around the ray's start: a horizon point at elevation γ counts
+if it is within Max Distance in a straight line, so at most Max Distance × cos γ
+away horizontally. RVT (the Relief Visualization Toolbox) measures its search
+radius horizontally and skips the nearest cell (its noise radius is at least
+one pixel). So with the same number GeoTools searches slightly less far on
+steep ground, but also looks at the closest surface, which RVT leaves out. On
+the validation terrain the two definitions differ by 0.004 in SVF and 0.3° in
+openness ([validation](validation/terrain.md#sky-view-factor-and-openness)).
+
 | Input | Default | |
 |---|---|---|
-| Max Distance | 2 m | Search radius. |
+| Max Distance | 2 m | Length of each ray, measured along it from the ray's start. |
 | Directions | 16 | Azimuths from +Y, evenly spaced. |
 | Steps | 8 | Rays per direction. |
 | Ray Offset | 0.002 m | Start of each ray from the surface, along the vertex normal. |
@@ -437,9 +514,13 @@ Common rules:
   the face normal (viewshed) or along the sight line (intervisibility), so the
   surface does not block itself. A surface closer than this to an occluder may
   see past it at the joint.
-- Earth curvature and refraction are not applied: over 1 km they lower a
-  distant point by about 7 cm (k = 0.13), which matters for landscape
-  viewsheds, not for a site.
+- Earth curvature and refraction are not applied. GDAL (by default) and
+  GRASS (with `-c -r`) lower a point at distance d by (1 − k) d² / 2R with
+  k = 1/7: 0.7 mm at 100 m, 6.7 cm at 1 km, 0.27 m at 2 km and 1.7 m at
+  5 km. That is below a site's survey error, but matters for landscape
+  viewsheds beyond about 2 km, where a target just below a ridge line of
+  sight can be hidden; use GDAL or GRASS through the geo formats for views
+  over kilometres ([validation](validation/visibility.md#earth-curvature-and-refraction)).
 
 ### Viewshed (`viewshed`, FACE, ratio)
 
@@ -542,6 +623,12 @@ edge the nearest point is on its boundary and the distance means little:
 Distance of the edge the values are still to the edge, so trim the meshes to
 their common footprint for a change map.
 
+The sign comes from one face at the nearest point. Where that point is on an
+edge whose two faces' normals differ by more than 90° (the top of a thin wall,
+a knife-edge ridge, a deep notch), a vertex in the wedge between the normals
+may get either sign; CloudCompare's C2M behaves the same way
+([validation](validation/visibility.md#sign-at-sharp-edges)).
+
 | Input | Default | |
 |---|---|---|
 | Reference | (filled) | The surface measured to (another selected mesh). |
@@ -596,18 +683,24 @@ into cut and fill is by face. Display diverging, automatic range.
 
 The volume of each closed part of the mesh (each Mesh Island), stored on every
 face of that part:
-`V = (1/3) Σ ((c_f − c̄) · n_f) A_f`, over the part's faces f with centre c_f,
-unit normal n_f and area A_f (the divergence theorem). Any point c̄ gives the
-same sum for a closed part; the mean of the part's face centres keeps float32
-exact far from the origin. It is exact for planar faces (p · n is constant
-over a planar face); a quad that is not planar uses Blender's face normal and
-area, so triangulate first. A part is **closed** when every one of its edges
+`V = (1/3) Σ (c_f − c̄) · S_f`, over the part's faces f with centre c_f and
+area vector S_f (area times unit normal; the divergence theorem). Any point c̄
+gives the same sum for a closed part. c̄ is the part's first vertex, and both
+c_f and S_f are taken from the vertices less c̄ (S_f = ½ Σ l_k × l_k+1 round
+the face, Newell's formula), so float32 keeps the precision of the part's
+size wherever it is: 10 km from the origin a 262,144-face hemisphere is
+within 10⁻⁴ of its binary64 volume
+([validation](validation/visibility.md#closed-volume)). Version 1 took c̄ as
+the float32 mean of the face centres and used Blender's Normal and Face Area
+fields, and was 0.27 % out there. It is exact for planar faces (p · n is
+constant over a planar face); for a quad that is not planar it depends on how
+the quad would be split, so triangulate first. A part is **closed** when every one of its edges
 has exactly two faces; open or non-manifold parts are no data (merge by
 distance first if the walls, top and bottom of a context volume are separate).
 A negative volume means the normals point inwards (Recalculate Outside).
 Overlapping parts are counted twice. Aggregation none (a part's volume is not
 an area mean). The modifier shows the total of the closed parts and how many
-parts are closed and open; Read Totals sums it in binary64.
+parts are closed and open; Read Totals sums it in binary64 from the vertices.
 
 Context volumes from the drape recipe ([drape-contexts.md](recipes/drape-contexts.md))
 are one closed part per extruded polygon.
@@ -737,7 +830,7 @@ meshes are triangles, so 1M faces is about 0.5M vertices.
 | rugosity (R = 0.1 m) | 0.2 s | 1.9 s | ~10 blur iterations |
 | profile, plan, mean curvature | 0.5–1 s | 13 s | 8 rays |
 | TRI | 0.5–1.3 s | ~13 s (est., as curvature) | 8 rays |
-| TPI | 2.6 s | 34 s | 24 rays |
+| TPI | 9 s | 76 s | 96 rays |
 | local relief model | 4.7 s | 67 s | 48 rays |
 | sky-view factor | 12.5 s | 163 s | 128 rays |
 | positive, negative openness | 15–19 s | ~210 s (est.) | 128 rays |
@@ -747,11 +840,18 @@ is rays per vertex times vertices. A modifier evaluates when it is added, when
 the mesh or an input changes and when the file is opened; otherwise its result
 is cached.
 
-**Not within the target at 10M.** Slope, aspect, rugosity, curvature, TRI
-and TPI evaluate within a minute at 10M triangles. The local relief model
-takes about a minute (67 s, or half that with 24 samples), and the horizon
-presets (sky-view factor and openness) take three to four minutes, past the
-M5 target of a minute per tool. Directions 8 and Steps 6 cut that to about
+The TPI row is the default of 96 samples, measured on 2026-11-14 on a
+20-thread desktop while it was shared (load average 17–30; a second 1M run
+took 16.6 s).
+In the same runs 24 samples took 1.8–2.0 s at 1M and 25 s at 10M, and 48
+samples 4 s at 1M: the time grows about in proportion to Samples.
+
+**Not within the target at 10M.** Slope, aspect, rugosity, curvature and TRI
+evaluate within a minute at 10M triangles. TPI takes about 76 s with its
+default 96 samples (25 s with 24), and the local relief model about a minute
+(67 s, or half that with 24 samples). The horizon presets (sky-view factor
+and openness) take three to four minutes, past the M5 target of a minute per
+tool. Directions 8 and Steps 6 cut that to about
 a third, with a coarser result. Their [fast path](#fast-bake-paths), the same
 search cast in a Cycles bake, takes 37 to 52 s at 10M triangles and is the
 way for large sites.

@@ -343,7 +343,11 @@ def _georeference(
                 "origin_lon_lat_height": frame.origin_lon_lat_height,
                 "origin_model": blender_to_gltf(frame.origin_local),
                 "heading_degrees": frame.heading_degrees,
-                "grid_scale": frame.scale if mode is PlacementMode.SOURCE_CRS else None,
+                "ground_metres_per_model_metre": (
+                    frame.ground_metres_per_model_metre
+                    if mode is PlacementMode.SOURCE_CRS
+                    else None
+                ),
                 "crs_operation": frame.operation,
                 "model_to_ecef": node,
             }

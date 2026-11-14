@@ -91,12 +91,18 @@ a day of keyframes takes about 2 ms.
   is given. A few seconds of error moves the sun by about 0.00005° today. For
   ancient dates ΔT is uncertain by minutes to hours. That moves the sun's hour
   angle directly, so archaeoastronomy must pass its own ΔT and state it.
-- Refraction uses the paper's formula, at standard pressure (1013.25 hPa) and
-  12 °C, and only when the sun is above the paper's switch near the horizon.
-  Real refraction at the horizon varies by a few tenths of a degree with the
-  weather. It is a toggle in the UI.
-- Height enters only through the parallax term (8.8″ at most), so
-  ellipsoidal height and height above sea level give the same result.
+- Refraction uses the paper's formula at 12 °C and the ICAO standard
+  atmosphere's pressure at the site's ellipsoidal height
+  (`sun.standard_pressure`: 1013.25 hPa at sea level, scaled by
+  (1 − 0.0065 h / 288.15)^5.2559, so 899 hPa at 1,000 m and 616 hPa at
+  4,000 m), and only when the sun is above the paper's switch near the
+  horizon. Sea-level results are unchanged from before 0.3.0, when every
+  site refracted at 1013.25 hPa. Real refraction at the horizon varies by a
+  few tenths of a degree with the weather. It is a toggle in the UI.
+- Height enters through the parallax term (8.8″ at most) and the pressure.
+  Ellipsoidal height stands for height above sea level there: the geoid's
+  separation (up to about 100 m) changes the pressure by about 1 % at most.
+  A Local project has no height, so it refracts at sea level.
 
 **Time zones.** Named zones use `zoneinfo` IANA names, so daylight saving is
 handled. Python on Windows has no system time zone database. Blender's bundled
@@ -140,7 +146,22 @@ true bearing  = grid bearing + convergence
 ```
 
 The sun's true azimuth from SPA becomes a scene azimuth (clockwise from +Y) by
-subtracting the convergence. The light is then turned so its −Z points away
+subtracting the convergence (`site.SunSite.scene_azimuth`). That holds for
+every direction only in a conformal grid. In a non-conformal one (Albers
+equal-area, Web Mercator) it holds along the meridian, and elsewhere is off
+by up to 1.8° in EPSG:3577 and 0.19° in EPSG:3857, worst 45° from the
+meridian. There `sun_site` also carries the grid-to-ellipsoid map at the
+site (the metric times the inverse of PROJ's Jacobian, as Measure uses), and
+`scene_azimuth` maps the true direction (sin A, cos A) through its inverse:
+exact to 10⁻⁶° against projected geodesic steps. Elevations are unchanged.
+Sun Hours' sun rays, its sky rays' horizon lookups (`true_azimuth`, the
+forward map), Shadow Study and the archaeoastronomy horizon rays and
+sightlines use the same map. Aspect (True North), a preset of stock nodes,
+takes one angle: `SunSite.rotation`, the rotation of the map's polar
+decomposition, which is the convergence in a conformal grid and, since
+Albers and Web Mercator meridians and parallels cross at right angles, the
+convergence there too (exact for aspects along and across the meridian; see
+analysis-presets.md for the limit). The light is then turned so its −Z points away
 from the sun: Euler XYZ = (90° − elevation, 0, 180° − scene azimuth). The Z
 angle is unwrapped across keyframes, so the light never spins the long way
 round. The panel shows the true azimuth, the elevation, the convergence
@@ -195,7 +216,15 @@ CSF = k × R / (R + h)
 ```
 
 - k is the grid scale factor from `get_factors`, averaged along the line with
-  Simpson's rule: (k_A + 4 k_mid + k_B) / 6.
+  Simpson's rule: (k_A + 4 k_mid + k_B) / 6. In a CRS that is not conformal on
+  its ellipsoid (Albers equal-area, and Web Mercator, which is conformal only
+  on a sphere) k depends on direction. There each point's grid-to-ellipsoid
+  map is the ellipsoid's metric diag(N cos φ, M) times the inverse of the
+  projection's Jacobian (PROJ's partial derivatives), and k is taken in the
+  line's direction; the true bearing is the direction of the mapped line at
+  its middle, and areas use the map's determinant. Whether a CRS is conformal
+  is tested once, at the centre of its area of use. Every conformal CRS
+  rusty-tiles accepts keeps PROJ's own k and convergence.
 - R is the Gaussian mean radius √(MN) of the CRS's ellipsoid at the middle
   latitude.
 - h is the mean ellipsoidal height of the ends.
@@ -513,8 +542,14 @@ default 1.6 m) casts a fan of rays in the vertical plane, from −10° to +60°
 every 0.1°. A ray stops at its first hit, which is a terrain point the eye
 can see; the skyline is the visible point that appears highest. A second pass
 casts 64 rays inside the 0.1° above each azimuth's best hit, so the skyline is
-found to about 0.002°. At 0.5° azimuth steps that is 504,720 rays and then
-46,080. A skyline above 60° (an observer under a roof) is marked closed; an
+found to about 0.002°: 0 to 0.0016° low (median 0.0007°), as it is the
+highest fine ray that hits. Adding half a fine step would centre the error but
+make a hard surface edge appear above itself, so the bias is kept and stated. With curvature on, a farther range hit by the coarse
+ray above a near crest can appear lower than the crest, so the second pass
+also fills the 0.1° above any other coarse hit that appears within 0.1° of the
+best (the ray just below the skyline always does; usually one or two brackets
+per azimuth). At 0.5° azimuth steps that is 504,720 rays and then 46,080 or a
+little more. A skyline above 60° (an observer under a roof) is marked closed; an
 azimuth no ray hits is open and takes **Open Horizon** (default 0°).
 
 **The engine is the sun hours one, turned around.** Sun hours bakes a few
@@ -574,8 +609,12 @@ horizon's apparent altitude h less the refraction there:
     h_true = h − R(h),   R = cot(h + 7.31 / (h + 4.4)) arc minutes
 
 (Bennett 1982, Meeus eq. 16.4, at 1010 hPa and 10 °C): 34.5′ at h = 0, 9.9′
-at 5°. Below −1° (an observer above the land around) the value at −1° is
-used. **Refraction** off sets R to 0 (and k to 0). Real refraction near the
+at 5°. The pressure is scaled to the observer's ellipsoidal height by the
+standard atmosphere (`sun.standard_pressure(height, 1010)`, ground point,
+the eye height left out), so R is 30.6′ at h = 0 at 1,000 m and 21.0′ at
+4,000 m; the temperature stays 10 °C. The events' summary records the height
+and pressure, and Check Alignment inverts at that pressure. Below −1° (an
+observer above the land around) the value at −1° is used. **Refraction** off sets R to 0 (and k to 0). Real refraction near the
 horizon varies by several arc minutes with temperature and pressure, and by
 much more in inversions; it, and the horizon itself, limit an archaeoastronomical
 azimuth more than any ephemeris here. **Limb** chooses the upper limb (first
@@ -617,8 +656,12 @@ The event geometry takes its declinations from the mean obliquity ε at the
 epoch: ±ε at the solstices, 0 at the equinoxes, ±(ε + i) at a major
 standstill and ±(ε − i) at a minor one, with i = 5.1454°. ε is Laskar's
 (1986) polynomial, as in SPA (`sun.mean_obliquity`), fitted for 10,000 years
-either side of J2000 and good to 0.01″ over 1,000 years and a few arc seconds
-at the ends; epochs beyond that are refused. A test evaluates it
+either side of J2000 and good to 0.01″ over 1,000 years; epochs beyond that
+are refused. Against the modern long-term series (Vondrák, Capitaine and
+Wallace 2011, which DE441's ecliptic follows to 1.1″) it is within 1″ from
+1000 BCE to 6000 CE, 5.5″ at 3000 BCE, 17.5″ at 5000 BCE and 42″ at
+8000 BCE (0.012°, about 0.02° in a June sunrise azimuth at 51° N), and 26″
+at 12000 CE (see docs/validation/archaeoastronomy.md). A test evaluates it
 independently and against the IAU 2006 polynomial (within 0.5″ from 1000 to
 3000 CE and 0.002° at 3000 BCE).
 
@@ -638,8 +681,10 @@ are astronomical (0 is 1 BCE, −2999 is 3000 BCE) and shown both ways.
 
 **How far back to trust it** (shown in the panel for the chosen epoch):
 
-- Declinations: ε to arc seconds within the 10,000 years; lunar extremes to
-  about 0.01°. Refraction outweighs both.
+- Declinations: ε within 1″ of Vondrák (2011) from 1000 BCE to 6000 CE, 5.5″
+  at 3000 BCE, 42″ at 8000 BCE (the panel gives the value for the epoch);
+  lunar extremes within a few arc seconds of DE441 back to 3000 BCE and
+  0.015° at 8000 BCE. Refraction outweighs both.
 - Standstill dates: to hours near the present, days beyond 2,000 years from
   2000 and weeks beyond 4,000, as the Moon's mean elements drift.
 - ΔT (Earth rotation, Espenak and Meeus 2006) is uncertain by minutes around
@@ -731,7 +776,8 @@ and compares it, and its back bearing, with the best azimuth of every event
 (on the profile when there is one), vectorised over lines and events. Each
 line gets its true azimuth both ways, the horizon altitude along each (from
 the profile, else 0), the declination each implies for a body's centre
-without parallax (the inversion above), and the three nearest events with
+without parallax (the inversion above; the sun's 8.8″ parallax is left out,
+as is customary, and the Moon's must be applied by the user), and the three nearest events with
 the signed difference. A mesh with an EDGE `fid` (an M8 import) reports it.
 Up to 2,000 lines are kept.
 
@@ -766,8 +812,8 @@ of it.
   at −2000, but the azimuth of a solstice or standstill depends only on its
   declination, which the obliquity sets. So epochs reach 10,000 years either
   side of 2000, and dated events stay with the Sun panel's calendar.
-- **Deferred:** a local ΔT, pressure and temperature for the refraction
-  (standard conditions now), stellar risings (they need precession and proper
+- **Deferred:** a local ΔT, and pressure and temperature settings for the
+  refraction (now the standard atmosphere at the site's height, 10 °C), stellar risings (they need precession and proper
   motion), the Moon's dated rises and sets on a chosen day, an animated
   sightline or horizon diagram, and grouping a polyline's edges into one
   feature axis in the alignment check (each edge is a line).
@@ -930,19 +976,30 @@ heights and unchanged. Levels are reported in RL (plus offset A).
   The volume is nearly exact because a face centre's height is the mean of
   its corners'; the area counts whole faces whose centre is under the water,
   so it overstates by about a rim's worth of faces.
+
 - **Inclined plane:** every face drains to a lower one and the water leaves
   only over the low edge; each column's mean accumulation is within 15 % of
   its upslope strip (single-direction routing makes parallel streaks).
+
 - **Two levels:** a step joined by a wall routes down the wall and on; an
   open roof sheet drops from its eaves onto the ground; a floating slab's
   underside drips onto the ground straight below; a wall sunk into the ground
   comes up through it; a closed box alone drains at its lowest point. In every
   case the accumulation leaving the model is the whole plan area, to 10⁻⁹.
+
 - **Two pits** on a slope: the shallow one spills downhill into the deep
   one's lake, which spills out over the low edge.
 
 **Limits.** Single flow direction (above). Heights are face centres, so a
-face is wet or dry as a whole. Faces are not welded across objects: two
+face is wet or dry as a whole, and a spill level reads about h/3 × slope low
+against a raster priority-flood (cells h wide; 3 % of an inverted cone's
+volume at 1 m cells). A V-shaped channel running along a line of mesh edges
+is a chain of shallow pits, (side slope − 2 × fall) × h/3 deep, since the two
+lowest faces of each cell meet only at a vertex; filled, they pass their water
+on, so accumulation is unaffected, but on coarse meshes they are listed as
+depressions (a Minimum Depth of about side slope × h/3 hides them; linking
+faces through shared vertices is in the backlog)
+([validation](../validation/hydrology.md#v-channels-along-mesh-edges)). Faces are not welded across objects: two
 objects that touch exchange water only by drops, so a building closed at its
 base and sunk into the terrain drips from its base, which is under the ground
 (join walls to the ground, or leave the base open). Drops are vertical; water
@@ -981,6 +1038,17 @@ point (plan distance along the section line from its first point) and
 A multi-level surface (an overhang, a bridge, a closed object) gives several
 pieces, all kept. Both objects are in `GeoTools Analysis`.
 
+**Chainage on export.** The Sections object's `geotools_measure` property
+names `chainage`, so Export Vectors writes it as each point's M: a GeoPackage
+LineString ZM (`gpkg_geometry_columns.m` = 1, ISO WKB type 3002), the GIS
+convention for linear referencing, which GDAL reads as a measured line
+string. GeoJSON positions hold no M (RFC 7946 advises against a fourth
+element), so a GeoJSON piece carries a `chainage` property with one value per
+position, shaped like the coordinates (GDAL reads it as a RealList). Any line
+object with a `geotools_measure` property naming a numeric POINT attribute
+exports the same way. The Vectors publish drops M before tiling: rusty-tiles
+0.4 refuses measured GeoPackage geometry. GeoTools' own readers drop M.
+
 **Why it is code.** Blender's Bisect cuts one plane at a time in Edit Mode
 and changes the mesh; Geometry Nodes has no plane-mesh intersection; a
 Boolean against slabs gives faces, not lines, and is slow at 10M faces; a
@@ -992,7 +1060,10 @@ real-world heights.
 distance is ≥ the plane's, so a triangle crossing it has exactly two
 crossing edges and gives one segment, and a vertex exactly on a level is no
 special case: the level of the lowest vertices of a flat-bottomed surface
-crosses nothing, and the highest is drawn along its edge. A crossing point is
+crosses nothing, and the highest is drawn along its edge. So the lowest level,
+and an isolated vertex (a peak or pit) exactly on a level, give no line where
+`gdal_contour` draws one along the bottom edge or a microscopic loop; no area
+is missed. A crossing point is
 named by its mesh edge (two vertex ids) and plane, or by the vertex when it
 falls exactly on one, so the two triangles of an edge share it; faces with
 more than three corners come in as Blender's loop triangles, whose diagonals
@@ -1172,7 +1243,8 @@ the observers).
   as a pinned wheel can be revisited if users ask for named zones on Windows.
 - **Below the horizon, the light is off.** A Blender Sun light below the
   horizon would light the scene from underneath, so its strength is 0 then
-  (keyframed when animating).
+  (keyframed when animating, with constant interpolation, so it switches at
+  the first key with the sun up or down rather than fading between keys).
 - **Readings are snapshots.** Results are stored with the placement they were
   made with. When the project changes, the panel says so and offers Read Again.
 - **The sun light is Blender's.** GeoTools creates or reuses one Sun light
@@ -1194,4 +1266,5 @@ the observers).
 - **Contours and sections share one cut**, in numpy, chained by pointer
   doubling. Deferred: smoothing or simplifying contour lines (Blender's or a
   GIS's tools do that), and drawing a 2D profile view of a section (the
-  `chainage` attribute and Z are there for a GIS or a Geometry Nodes setup).
+  `chainage` attribute, exported as M, and Z are there for a GIS or a
+  Geometry Nodes setup).

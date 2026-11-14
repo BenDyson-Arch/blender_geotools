@@ -281,7 +281,30 @@ def convergence(scene: bpy.types.Scene, obj: bpy.types.Object) -> tuple[float, s
         where = site.sun_site(placement, _centre(obj))
     except (site.SiteError, site.GeodesyUnavailable, ValueError) as exc:
         raise PresetError(f"Could not find the convergence at {obj.name}: {exc}") from None
-    return float(where.convergence), where.north
+    # One angle: the convergence in a conformal grid; in a non-conformal one the
+    # rotation nearest the grid-to-ground map (site.SunSite.rotation).
+    return float(where.rotation), where.north
+
+
+NON_CONFORMAL_ASPECT = (
+    "The project CRS is not conformal (Albers, Web Mercator): one rotation per object "
+    "makes aspects facing along and across the meridian true; others can be off by up "
+    "to a degree or two (1.8° in Tasmania in EPSG:3577, 0.2° at the equator in Web Mercator)"
+)
+
+
+def _conformal(scene: bpy.types.Scene) -> bool:
+    """Whether one rotation turns every direction to true north (not Albers, Web Mercator)."""
+    try:
+        placement = placement_from_props(scene.geotools)
+    except FieldError:
+        return True
+    if PlacementMode(placement.mode) is not PlacementMode.SOURCE_CRS or not site.available():
+        return True
+    try:
+        return site.sun_site(placement).conformal
+    except (site.SiteError, site.GeodesyUnavailable, ValueError):
+        return True
 
 
 # --- the operation ------------------------------------------------------------------------------
@@ -449,6 +472,10 @@ def add_preset(
     if true_north:
         for obj in objects:
             angles[obj.name], north_label = convergence(scene, obj)
+        if not _conformal(scene):
+            notes_north = [NON_CONFORMAL_ASPECT]
+        else:
+            notes_north = []
 
     group = ensure_group(preset, library)
     attribute = attribute_name(name)
@@ -496,6 +523,7 @@ def add_preset(
     if true_north:
         spread = ", ".join(f"{angles[o.name]:+.4f}°" for o in objects[:3])
         notes.append(f"Convergence {spread} ({north_label})")
+        notes.extend(notes_north)
     sources = {o.as_pointer() for o in source_objects(scene)}
     outside = [o.name for o in objects if o.as_pointer() not in sources]
     if outside:
@@ -574,6 +602,27 @@ def _face_frame(mesh: bpy.types.Mesh) -> tuple[np.ndarray, np.ndarray, np.ndarra
     return centres, normals, areas
 
 
+def _face_vectors(mesh: bpy.types.Mesh) -> tuple[np.ndarray, np.ndarray]:
+    """Face centres (from the vertices' mean) and area vectors (Newell), binary64.
+
+    Both are measured from the vertices' mean, which any closed part's volume ignores and
+    which keeps the sums exact far from the origin (Blender's float32 face centres are not).
+    """
+    co = _array(mesh.vertices, "co", 3).astype(np.float64)
+    co -= co.mean(axis=0)
+    loops = _array(mesh.loops, "vertex_index", 1, np.int32)
+    start = _array(mesh.polygons, "loop_start", 1, np.int32)
+    total = _array(mesh.polygons, "loop_total", 1, np.int32)
+    face = np.repeat(np.arange(len(start)), total)
+    after = np.arange(len(loops)) + 1
+    after[start + total - 1] = start  # each face's last corner turns to its first
+    here, there = co[loops], co[loops[after]]
+    centres = np.add.reduceat(here, start, axis=0) / total[:, None]
+    area_vectors = np.zeros((len(start), 3))
+    np.add.at(area_vectors, face, np.cross(here, there) / 2.0)
+    return centres, area_vectors
+
+
 def _cut_fill_totals(mesh: bpy.types.Mesh, attribute: str) -> str | None:
     depth = _attribute(mesh, attribute)
     if depth is None or len(depth) != len(mesh.polygons):
@@ -593,12 +642,11 @@ def _closed_volume_totals(mesh: bpy.types.Mesh, attribute: str) -> str | None:
     values = _attribute(mesh, attribute)
     if values is None or len(values) != len(mesh.polygons):
         return None
-    centres, normals, areas = _face_frame(mesh)
     closed = np.isfinite(values)
     if not closed.any():
         return "no closed parts"
-    origin = centres.mean(axis=0)  # any point works for closed parts; near is exact
-    volume = (np.einsum("ij,ij->i", centres - origin, normals) * areas)[closed].sum() / 3.0
+    centres, area_vectors = _face_vectors(mesh)
+    volume = np.einsum("ij,ij->i", centres, area_vectors)[closed].sum() / 3.0
     open_faces = int((~closed).sum())
     return f"volume {volume:,.3f} m³" + (
         f" ({open_faces:,} faces on open parts)" * bool(open_faces)

@@ -9,8 +9,8 @@ this module stores settings and results and drives Blender:
   temporary sample object (``ray_bake.build_sample_object``): its direction
   is the sample's face attribute, and a probe shader with one ``Raycast``
   node emits (hit, distance, 1). A coarse pass (every 0.1°) and a fine pass
-  (64 rays inside each azimuth's best 0.1°) find the skyline to about
-  0.002°. Everything that renders is terrain; the source objects are shown
+  (64 rays inside each 0.1° bracket that can hold the skyline,
+  ``horizon.fine_brackets``) find the skyline to about 0.002°. Everything that renders is terrain; the source objects are shown
   for the bake.
 * **Events** (``geotools.archaeo_events``): the epoch's solstice, equinox and
   lunar standstill rises and sets, and the Sun panel year's dated sunrises
@@ -371,7 +371,7 @@ def compute_horizon(context: bpy.types.Context) -> horizon.HorizonProfile:
         raise ArchaeoError("There are no meshes to be the terrain.")
     eye = np.array(point, dtype=np.float64) + np.array([0.0, 0.0, float(props.eye_height)])
     true_az = horizon.azimuths(props.azimuth_step)
-    scene_az = (true_az - where.convergence) % 360.0
+    scene_az = where.scene_azimuth(true_az)
     csf = _scale_factor(context, point)
     k = horizon.TERRESTRIAL_K if props.refraction else 0.0
     start = float(props.ignore_within)
@@ -388,29 +388,26 @@ def compute_horizon(context: bpy.types.Context) -> horizon.HorizonProfile:
     closed = hit[:, -1]
     first = time.perf_counter() - began
 
-    found = np.isfinite(hits.geometric)
-    if found.any():
-        fine = horizon.fine_elevations(np.where(found, hits.geometric, coarse[0]))[found]
+    # Every bracket that can hold the skyline (usually one or two per azimuth).
+    rows, base = horizon.fine_brackets(
+        coarse, hit, distance, scale_factor=csf, curvature=props.curvature, k=k
+    )
+    fine_rays = 0
+    if len(rows):
+        fine = horizon.fine_elevations(base)
         f_hit, f_distance = cast_rays(
-            context, eye, horizon.ray_directions(scene_az[found], fine).astype(np.float32), start
+            context, eye, horizon.ray_directions(scene_az[rows], fine).astype(np.float32), start
         )
-        fshape = fine.shape
         refined = horizon.best_hits(
             fine,
-            f_hit.reshape(fshape),
-            f_distance.reshape(fshape),
+            f_hit.reshape(fine.shape),
+            f_distance.reshape(fine.shape),
             scale_factor=csf,
             curvature=props.curvature,
             k=k,
-            previous=horizon.Hits(
-                hits.apparent[found], hits.geometric[found], hits.distance[found]
-            ),
         )
-        hits = horizon.Hits(
-            apparent=_put(hits.apparent, found, refined.apparent),
-            geometric=_put(hits.geometric, found, refined.geometric),
-            distance=_put(hits.distance, found, refined.distance),
-        )
+        hits = horizon.merge_rows(hits, rows, refined)
+        fine_rays = fine.size
     edge = _edge_flags(context, eye, scene_az, hits)
     seconds = time.perf_counter() - began
     reading = site.read_point(analysis._placement(context), point, geodetic=False)
@@ -434,7 +431,8 @@ def compute_horizon(context: bpy.types.Context) -> horizon.HorizonProfile:
         "earth_radius": horizon.EARTH_RADIUS,
         "ignore_within": start,
         "azimuth_step": float(360.0 / len(true_az)),
-        "rays": int(hit.size + (fine.size if found.any() else 0)),
+        "rays": int(hit.size + fine_rays),
+        "fine_brackets": len(rows),
         "seconds": seconds,
         "first_pass_seconds": first,
         "key": analysis.placement_key(context),
@@ -450,12 +448,6 @@ def compute_horizon(context: bpy.types.Context) -> horizon.HorizonProfile:
     props.profile = profile.to_json()
     props.profile_error = ""
     return profile
-
-
-def _put(base: np.ndarray, mask: np.ndarray, values: np.ndarray) -> np.ndarray:
-    out = base.copy()
-    out[mask] = values
-    return out
 
 
 def _edge_flags(context, eye: np.ndarray, scene_az: np.ndarray, hits: horizon.Hits) -> np.ndarray:
@@ -492,6 +484,8 @@ def compute_events(context: bpy.types.Context) -> tuple[list[core.Event], dict]:
     else:
         where = analysis.compute_site(context, sun_props)
         site_from = "Sun panel site"
+    # Bennett's 1010 hPa at sea level, scaled to the site's height (standard atmosphere).
+    pressure = sun.standard_pressure(where.height, horizon.REFRACTION_PRESSURE_HPA)
     events, summary = core.epoch_events(
         props.epoch_year,
         where.latitude,
@@ -500,6 +494,7 @@ def compute_events(context: bpy.types.Context) -> tuple[list[core.Event], dict]:
         limb=props.limb,
         lunar=props.lunar,
         moon_events=props.moon_events,
+        pressure_hpa=pressure,
     )
     if props.dated_events:
         tz, zone = analysis._time_zone(sun_props)
@@ -529,6 +524,7 @@ def compute_events(context: bpy.types.Context) -> tuple[list[core.Event], dict]:
             profile,
             refract=props.refraction,
             limb=props.limb,
+            pressure_hpa=pressure,
         )
         summary["zone"] = zone
         summary["dated_year"] = year
@@ -543,6 +539,8 @@ def compute_events(context: bpy.types.Context) -> tuple[list[core.Event], dict]:
             "limb": props.limb,
             "lunar": props.lunar,
             "refraction": bool(props.refraction),
+            "height": where.height,
+            "pressure_hpa": pressure,
             "convergence": where.convergence,
         }
     )
@@ -612,7 +610,7 @@ def make_sightlines(context: bpy.types.Context) -> bpy.types.Object:
     starts, ends, lengths, sources = [], [], [], []
     for e in rows:
         true_az = e.best_azimuth
-        scene_az = math.radians((true_az - where.convergence) % 360.0)
+        scene_az = math.radians(float(where.scene_azimuth(true_az)))
         use_profile = profile is not None and math.isfinite(e.horizon_azimuth)
         if use_profile:
             i = profile.nearest(true_az)
@@ -740,6 +738,8 @@ def check_alignment(context: bpy.types.Context, obj: bpy.types.Object) -> dict:
         load_profile(context),
         refract=props.refraction,
         indices=index[keep],
+        # The events' refraction: the pressure at their site's height.
+        pressure_hpa=float(summary.get("pressure_hpa", horizon.REFRACTION_PRESSURE_HPA)),
     )
     if len(rows) > MAX_ALIGNMENT_ROWS:
         notes.append(f"Only the first {MAX_ALIGNMENT_ROWS:,} of {len(rows):,} lines are kept.")
