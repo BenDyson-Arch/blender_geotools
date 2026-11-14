@@ -111,6 +111,13 @@ and the project follows semantic versioning where practical.
 
 ### Changed
 
+- The GLB metadata term `geotools:gridScale` is now
+  `geotools:groundMetresPerModelMetre`. It always held metres on the ground
+  per model metre along +X at the origin, about 1 / the combined scale factor
+  (1.0004 where the grid scale factor k is 0.9996), which surveyors would not
+  read as a grid scale factor. The value is unchanged (apart from the frame
+  fix under Fixed); there is no alias for the old name, which no release
+  wrote. The guide and the design note document it.
 - GeoTools now ships on rusty-tiles 0.4.1 from PyPI (it was pinned to 0.4.0,
   which GeoTools reports as not available). CI's `blender-wheel` job tests the
   pinned PyPI wheels in Blender and now gates.

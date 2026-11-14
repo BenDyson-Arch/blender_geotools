@@ -42,7 +42,12 @@ Both routes run the checks first and stop on an error.
   losslessly into PNGs.
 - **The georeference.** The CRS, the offsets, the height offset and the
   origin's longitude, latitude and height are recorded as XMP metadata
-  (`KHR_xmp_json_ld`).
+  (`KHR_xmp_json_ld`). With a source CRS it also records the heading of the
+  model's +X axis and `geotools:groundMetresPerModelMetre`: how many metres
+  on the ground one model metre along +X is, at the origin. That is about
+  1 / the combined scale factor (1.0004 where the grid scale factor is
+  0.9996), not the grid scale factor itself. Every term is listed in
+  [design/m4-glb-metadata.md](../design/m4-glb-metadata.md#5-placement-and-the-geotools-xmp-terms).
 
 ### Face layers
 

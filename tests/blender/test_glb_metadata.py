@@ -411,6 +411,11 @@ def test_metadata_glb_values() -> None:
                 assert packet["geotools:originLatitude"] == lat
                 assert packet["geotools:originHeight"] == height
                 assert abs(packet["geotools:heading"]) < 1.0  # grid convergence, near the CM
+                # Ground metres per model metre: 1 / (k x height factor), k = 0.9996 near
+                # the central meridian, so above 1; never the grid scale factor k itself.
+                per_metre = packet["geotools:groundMetresPerModelMetre"]
+                assert 1.0003 < per_metre < 1.0005, per_metre
+                assert "geotools:gridScale" not in packet
                 assert len(packet["geotools:modelToEcef"]["@list"]) == 16
             else:
                 assert "geotools:originLongitude" not in packet

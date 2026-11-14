@@ -240,7 +240,7 @@ so a northing keeps its millimetres); arrays are `{"@list": [...]}`.
 | `geotools:originLongitude`, `geotools:originLatitude`, `geotools:originHeight` | WGS84 degrees and ellipsoidal metres of the probe's origin |
 | `geotools:originModel` | that origin in model (glTF) coordinates |
 | `geotools:heading` | degrees counter-clockwise from true east to model +X at the origin (the anchor heading, or the grid convergence) |
-| `geotools:gridScale` | true metres per model metre along +X (source CRS: the grid scale factor and height) |
+| `geotools:groundMetresPerModelMetre` | source CRS only: metres on the ground (the ellipsoid at the origin's height) per model metre along +X, at the origin. About 1 / the combined scale factor (grid scale factor k x height factor), so 1.0004 where k = 0.9996; it is not k. Ground length ≈ model length x this, near the origin |
 | `geotools:crsOperation` | rusty-tiles' operation (`portable` or `native`) |
 | `geotools:modelToEcef` | the 16 numbers, column-major, of the Earth-placed node matrix |
 | `geotools:earthPlaced` | whether the root node carries that matrix |

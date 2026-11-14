@@ -76,9 +76,10 @@ class EcefFrame:
     """Where the origin is in Blender world coordinates."""
     heading_degrees: float
     """Counter-clockwise angle from true east to the local +X axis at the origin."""
-    scale: float
+    ground_metres_per_model_metre: float
     """Length on Earth, at the origin's height, of one local metre along +X: about
-    1 / the combined scale factor (grid scale factor x height factor), not k itself."""
+    1 / the combined scale factor (grid scale factor x height factor), not the grid
+    scale factor k itself. 1 for an anchor placement."""
     operation: str | None
     """rusty-tiles' CRS operation ("portable" or "native"), SOURCE_CRS only."""
 
@@ -156,7 +157,7 @@ def frame_from_probes(
         origin_lon_lat_height=(float(lon), float(lat), float(height)),
         origin_local=(float(origin_local[0]), float(origin_local[1]), float(origin_local[2])),
         heading_degrees=heading,
-        scale=float(np.linalg.norm(x_axis)),
+        ground_metres_per_model_metre=float(np.linalg.norm(x_axis)),
         operation=centre_probe.operation,
     )
 

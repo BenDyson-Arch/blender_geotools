@@ -252,7 +252,7 @@ def test_xmp_packet() -> None:
         origin_lon_lat_height=(153.01, -27.47, 12.4),
         origin_model=(1.0, 2.0, -3.0),
         heading_degrees=-0.93,
-        grid_scale=0.9996,
+        ground_metres_per_model_metre=0.9996,
         model_to_ecef=tuple(float(v) for v in range(16)),
         crs_operation="portable",
         source="site.blend",
@@ -269,6 +269,8 @@ def test_xmp_packet() -> None:
     assert packet["geotools:heightOffset"] == -0.1
     assert packet["geotools:originLatitude"] == -27.47
     assert packet["geotools:heading"] == -0.93
+    assert packet["geotools:groundMetresPerModelMetre"] == 0.9996
+    assert "geotools:gridScale" not in packet  # renamed before 0.3.0: it is not k
     assert packet["geotools:earthPlaced"] is False
     assert len(packet["geotools:modelToEcef"]["@list"]) == 16
     # binary64 survives JSON exactly.
@@ -546,7 +548,7 @@ def test_source_crs_frame_carries_convergence() -> None:
         (d, d),
     )
     assert frame.heading_degrees == pytest.approx(1.0, abs=1e-6)
-    assert frame.scale == pytest.approx(k, abs=1e-9)
+    assert frame.ground_metres_per_model_metre == pytest.approx(k, abs=1e-9)
     assert frame.origin_local == pytest.approx(centre, abs=1e-6)
     corner = frame.matrix @ np.array([100.0 + d, 200.0, 0.0, 1.0])
     np.testing.assert_allclose(corner[:3], root[:3, :3] @ east_enu + root[:3, 3], atol=1e-6)
@@ -626,7 +628,8 @@ def test_measure_frame_is_not_tilted_on_a_large_site(rusty_tiles) -> None:
         georef.ecef_from_lon_lat_height(*east.origin_lon_lat_height)
         - georef.ecef_from_lon_lat_height(*at_centre.origin_lon_lat_height)
     )
-    assert frame.scale == pytest.approx(one_metre, rel=1e-6)  # one-sided: 18 ppm high
+    # One-sided probes made it 18 ppm high.
+    assert frame.ground_metres_per_model_metre == pytest.approx(one_metre, rel=1e-6)
 
 
 # --- external validators (optional) ---------------------------------------------------------
