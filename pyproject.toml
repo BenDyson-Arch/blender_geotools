@@ -88,3 +88,29 @@ allowed-confusables = ["−", "–", "×", "′", "α", "γ"]
 "datetime.datetime.fromtimestamp".msg = "Use geotools.analysis.sun.utc_datetime(seconds) (aware UTC; fromtimestamp raises OSError before 1970 on Windows), then .astimezone(zone) for a local time."
 "datetime.datetime.utcfromtimestamp".msg = "Use geotools.analysis.sun.utc_datetime(seconds): aware UTC, and valid before 1970 on Windows."
 "zoneinfo.ZoneInfo".msg = "Use geotools.analysis.sun.zone(name): it raises TimeZoneUnavailable, which tells the user what to install when the OS has no time zone database (Windows)."
+
+# Import layering, checked in CI (IMPORT_LINTER_VERSION in .github/workflows/ci.yml):
+#   uvx --from import-linter==2.15 lint-imports
+[tool.importlinter]
+root_package = "geotools"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Only geotools.blender imports Blender (bpy, bmesh, mathutils); core, analysis, publish and bake take plain data"
+type = "forbidden"
+source_modules = ["geotools.core", "geotools.analysis", "geotools.publish", "geotools.bake"]
+forbidden_modules = ["geotools.blender", "bpy", "bmesh", "mathutils", "addon_utils"]
+
+[[tool.importlinter.contracts]]
+name = "Layers: blender > publish | analysis | bake > core; never import a higher layer or a sibling, pass values down"
+type = "layers"
+layers = [
+    "geotools.blender",
+    "geotools.publish | geotools.analysis | geotools.bake",
+    "geotools.core",
+]
+ignore_imports = [
+    # The build record's file names and staging folder are publish.staging's; Inspect
+    # reads that record (lazily, inside OutputRecord.load).
+    "geotools.core.inspect -> geotools.publish.staging",
+]

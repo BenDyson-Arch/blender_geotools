@@ -19,6 +19,9 @@ env:
   RUFF_VERSION: "0.17.4"
   PYTEST_VERSION: "9.2.0"
   NUMPY_VERSION: "2.5.4"
+  # import-linter checks the layering in [tool.importlinter] (pyproject.toml); uvx runs it.
+  IMPORT_LINTER_VERSION: "2.15"
+  UV_VERSION: "0.13.6"
   # Official Blender 5.2 LTS, latest patch release. To update, take the
   # linux-x64 .tar.xz, macos-arm64 .dmg and windows-x64 .zip lines from
   #   https://download.blender.org/release/Blender5.2/blender-<version>.sha256
@@ -43,11 +46,13 @@ jobs:
         run: |
           pyproj_pin=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["tool"]["geotools"]["wheels"]["pyproj"])')
           python -m pip install "pytest==${PYTEST_VERSION}" "ruff==${RUFF_VERSION}" \
-            "numpy==${NUMPY_VERSION}" "pyproj==${pyproj_pin}"
+            "numpy==${NUMPY_VERSION}" "pyproj==${pyproj_pin}" "uv==${UV_VERSION}"
       - name: ruff check
         run: ruff check --output-format=github geotools scripts tests
       - name: ruff format --check
         run: ruff format --check geotools scripts tests
+      - name: import-linter (layering)
+        run: uvx --from "import-linter==${IMPORT_LINTER_VERSION}" lint-imports
       - name: pytest (tests/core)
         run: python -m pytest
 
