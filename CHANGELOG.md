@@ -80,6 +80,12 @@ and the project follows semantic versioning where practical.
 
 ### Fixed
 
+- The archaeoastronomy **horizon profile** no longer misses a near crest by up
+  to 0.1° when, with Earth curvature on, a farther range is hit by the coarse
+  ray just above the crest but appears lower than it: the fine pass now
+  refines every 0.1° bracket that can hold the skyline (any coarse hit within
+  0.1° of the best), not only the best one, so the skyline is found to about
+  0.002° as documented. Profiles without such a geometry are unchanged.
 - Archaeoastronomy **Compute Events** no longer fails with "Laskar's obliquity
   is only valid within 10,000 years" for the epochs at either end of its range
   (8000 and 7999 BCE, 11994 to 11999 CE) when the lunar standstills are on: the

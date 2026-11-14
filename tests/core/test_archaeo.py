@@ -238,6 +238,58 @@ def test_best_hits_and_profile_round_trip() -> None:
     assert "open" in again.as_text()
 
 
+def _two_pass(walls: list[tuple[float, float]], eye: float = 1.6) -> tuple[float, float]:
+    """The skyline the coarse and fine passes find along one azimuth, and the true one.
+
+    ``walls`` are (distance, height) of thin flat-topped walls on a level plain;
+    the first hit of a ray is found in closed form, as Cycles would.
+    """
+
+    def cast(elevation: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        t = np.tan(np.radians(elevation))
+        reach = np.where(t < 0, -eye / np.where(t < 0, t, -1.0), np.inf)  # the plain
+        for d, height in walls:
+            reach = np.where((eye + d * t <= height) & (d < reach), d, reach)
+        hit = reach <= 60_000.0
+        return hit, np.where(hit, reach / np.cos(np.radians(elevation)), np.nan)
+
+    coarse = horizon.coarse_elevations()
+    hit, distance = cast(coarse)
+    hits = horizon.best_hits(coarse, hit[None], distance[None])
+    rows, base = horizon.fine_brackets(coarse, hit[None], distance[None])
+    fine = horizon.fine_elevations(base)
+    f_hit, f_distance = cast(fine)
+    hits = horizon.merge_rows(hits, rows, horizon.best_hits(fine, f_hit, f_distance))
+    drop = float(horizon.curvature_drop(1.0))
+    true = max(math.degrees(math.atan((height - eye) / d)) - drop * d for d, height in walls)
+    return float(hits.apparent[0]), true
+
+
+@pytest.mark.parametrize(
+    ("near", "far", "far_distance"),
+    [
+        (1.099, 1.101, 26_000.0),
+        (1.05, 1.102, 25_000.0),
+        (1.099, 1.105, 20_000.0),
+        (1.01, 1.3, 15_000.0),
+    ],
+)
+def test_fine_pass_finds_a_near_crest_below_a_farther_range(near, far, far_distance) -> None:
+    """A far range the coarse ray above a near crest hits, yet lower after curvature.
+
+    Refining only the best coarse hit's bracket gave the far range (up to 0.1° low);
+    every bracket within a coarse step of the best is refined, so the skyline is
+    found to the fine step (0.1° / 64).
+    """
+    eye = 1.6
+    walls = [
+        (1000.0, eye + 1000.0 * math.tan(math.radians(near))),
+        (far_distance, eye + far_distance * math.tan(math.radians(far))),
+    ]
+    got, true = _two_pass(walls, eye)
+    assert true - horizon.COARSE_STEP / horizon.FINE_RAYS <= got <= true + 1e-9, (got, true)
+
+
 # --- rise and set ------------------------------------------------------------------------------------
 
 

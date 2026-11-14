@@ -513,8 +513,12 @@ default 1.6 m) casts a fan of rays in the vertical plane, from −10° to +60°
 every 0.1°. A ray stops at its first hit, which is a terrain point the eye
 can see; the skyline is the visible point that appears highest. A second pass
 casts 64 rays inside the 0.1° above each azimuth's best hit, so the skyline is
-found to about 0.002°. At 0.5° azimuth steps that is 504,720 rays and then
-46,080. A skyline above 60° (an observer under a roof) is marked closed; an
+found to about 0.002°. With curvature on, a farther range hit by the coarse
+ray above a near crest can appear lower than the crest, so the second pass
+also fills the 0.1° above any other coarse hit that appears within 0.1° of the
+best (the ray just below the skyline always does; usually one or two brackets
+per azimuth). At 0.5° azimuth steps that is 504,720 rays and then 46,080 or a
+little more. A skyline above 60° (an observer under a roof) is marked closed; an
 azimuth no ray hits is open and takes **Open Horizon** (default 0°).
 
 **The engine is the sun hours one, turned around.** Sun hours bakes a few
