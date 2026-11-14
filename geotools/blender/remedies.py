@@ -31,8 +31,8 @@ _DESCRIPTIONS = {
     "panel). Lossy: small next to the fast, balanced and quality profiles' own compression, "
     "but it defeats the lossless profile. The image and its file are not changed",
     "DOWNSCALE": "Publish a copy scaled to the largest power of two expected to fit (4096 "
-    "if the size is unknown), as PNG, or as JPEG if the PNG is still over 32 MiB. The image "
-    "and its file are not changed",
+    "if the size is unknown), as PNG, or as JPEG if the PNG is still over rusty-tiles' 1 GiB "
+    "limit. The image and its file are not changed",
     "CONVERT_8BIT": "Publish an 8-bit PNG copy of this 16-bit image. The image and its "
     "file are not changed",
     "NONE": "Publish this image as it is again; checks refuse it if rusty-tiles would",

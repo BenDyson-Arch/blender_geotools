@@ -55,8 +55,8 @@ def png_noise(width: int, height: int, seed: int = 0) -> bytes:
     """An 8-bit RGB PNG of uniform noise, which deflate cannot shrink.
 
     3400 x 3400 is just over 32 MiB encoded (33 to 35 MiB, depending on the
-    zlib build) and takes well under a
-    second to write.
+    zlib build), rusty-tiles 0.4.0's limit, and takes well under a second to
+    write.
     """
     rng = np.random.default_rng(seed)
     px = rng.integers(0, 256, (height, width * 3), dtype=np.uint8)

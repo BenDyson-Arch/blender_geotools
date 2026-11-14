@@ -42,11 +42,16 @@ Run Checks also refreshes every layer's value range and status.
 
 ### Images rusty-tiles refuses
 
-rusty-tiles refuses source images over 16,384 pixels a side, over 32 MiB
+rusty-tiles refuses source images over 16,384 pixels a side, over 1 GiB
 encoded, or with 16 bits per channel. GeoTools reports them
 (`image-too-large`, `image-file-too-large`, `image-png-size`, `image-16-bit`)
 with fix buttons: **Re-encode as JPEG**, **Downscale** or **Convert to 8-bit**.
 **Clear Remedy** takes the fix off again.
+
+Below 1 GiB, an image of any encoded size is accepted as long as the build's
+memory budget can hold it while it is decoded. If it can't, the publish fails
+with a `ResourceLimitError` that names the bytes it needs: raise the build
+profile's **Memory GiB**, or choose **Downscale** for the image.
 
 A fix changes only the copy that is published. Your image, its file and its
 pixels stay as they are. The **Images** sub-panel of Checks lists every source

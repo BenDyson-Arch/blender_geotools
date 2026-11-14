@@ -84,7 +84,7 @@ operability and quality); new capabilities come in 0.5.
 | E. Blender 5.2 LTS in wheel acceptance | 0.4.1 | [#330](https://github.com/BenDyson-Arch/rusty-tiles/issues/330) | **0.3.0 release** |
 | CRS allow-list: GDAL-verified EPSG codes in the wheel | 0.4.1 (merged on develop) | [#337](https://github.com/BenDyson-Arch/rusty-tiles/issues/337) | M1 follow-up: EPSG picker replaces the PROJ-string presets (done; ships in 0.3.0, on the 0.4.1 wheel) |
 | CRS resolve without converting, and the supported EPSG list, from Python | 0.4.1 | [#367](https://github.com/BenDyson-Arch/rusty-tiles/issues/367) | The picker lists only codes that will publish; Check shows the datum operation and accuracy before a bake |
-| Encoded images admitted by memory budget, not a fixed 32 MiB | 0.4.1 | [#338](https://github.com/BenDyson-Arch/rusty-tiles/issues/338) | Publishing 8K PNG photogrammetry without re-encoding; GeoTools drops its 32 MiB check |
+| Encoded images admitted by memory budget, not a fixed 32 MiB | 0.4.1 | [#338](https://github.com/BenDyson-Arch/rusty-tiles/issues/338) | Publishing 8K PNG photogrammetry without re-encoding; GeoTools' encoded-size check moved to rusty-tiles' 1 GiB ceiling (done) |
 | C. Decoded tile export (`decode_tile` to plain GLB or arrays) | 0.4.1 | [#329](https://github.com/BenDyson-Arch/rusty-tiles/issues/329) | M7 (moved forward) |
 | Coarse smooth normals fixed on untextured surfaces | 0.4.1 | [#336](https://github.com/BenDyson-Arch/rusty-tiles/issues/336) | Untextured analysis publishes (M3 colour variants) shade correctly |
 | Mesh inspect: open edges, seams, predicted coarse omissions | 0.4.2 | [#348](https://github.com/BenDyson-Arch/rusty-tiles/issues/348) | M2 Check: run it before a bake once the wheel exposes it; GeoTools' own open-edge checks defer to it |
@@ -101,10 +101,10 @@ operability and quality); new capabilities come in 0.5.
 ## Milestones
 
 **Release scope, decided 2026-11-12.** 0.3.0 ships everything finished on
-`develop` while rusty-tiles 0.4.1 is awaited: M0 to M8. It still waits
-for rusty-tiles 0.4.1, which carries Blender 5.2 wheel acceptance (E), the
-CRS allow-list that the EPSG picker needs and the tile decoding M7 reads
-(C). M6 and M7 were first planned for 0.4.0 and moved into 0.3.0 on
+`develop` while rusty-tiles 0.4.1 was awaited: M0 to M8. rusty-tiles 0.4.1
+was released on 2026-11-14 with Blender 5.2 wheel acceptance (E), the CRS
+allow-list that the EPSG picker needs and the tile decoding M7 reads (C), and
+the pin moved to it the same day. M6 and M7 were first planned for 0.4.0 and moved into 0.3.0 on
 2026-11-13, once both were built and tested.
 
 **User guide.** [guide/](guide/README.md) is the user documentation for the
@@ -186,8 +186,8 @@ grouped and every control given a tooltip. New panels follow
   `core/crs_migration.py` is the migration-only preset table. Migration
   happens only when rusty-tiles resolves the code to the preset's very
   definition, and a test compares probe ECEF within 1 mm for all 15 presets.
-  `build.json` records `placement.crs_operation`. The pin moves from 0.4.0 to
-  0.4.1 when that release exists (the develop wheel still reports 0.4.0).
+  `build.json` records `placement.crs_operation`. The pin moved from 0.4.0 to
+  0.4.1 on 2026-11-14.
 
 ### M2 Publish (first release, 0.3.0)
 
@@ -409,8 +409,8 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
   placement, traces both ways through the face map, and has the distance,
   texel-density and level views. The exit test
   (`tests/blender/test_inspect.py`) publishes a synthetic site, opens a leaf
-  and the coarse root, and traces each to its source faces. It needs the
-  0.4.1 wheel, which the 0.3.0 release waits for.
+  and the coarse root, and traces each to its source faces. It runs on the
+  released 0.4.1 wheel.
 
 ### M8 Geo formats: vectors and rasters (can run in parallel after M2)
 

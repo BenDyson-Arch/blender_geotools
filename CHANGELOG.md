@@ -29,6 +29,17 @@ and the project follows semantic versioning where practical.
   as `geotools-demo-data-<version>.zip`, included in `SHA256SUMS`. Getting
   started now points to it instead of to the repository.
 
+### Changed
+
+- GeoTools now ships on rusty-tiles 0.4.1 from PyPI (it was pinned to 0.4.0,
+  which GeoTools reports as not available). CI's `blender-wheel` job tests the
+  pinned PyPI wheels in Blender and now gates.
+- Images up to 1 GiB encoded publish without a remedy: rusty-tiles 0.4.1 admits
+  them by memory budget instead of refusing anything over 32 MiB (#338), so
+  Checks reports `image-file-too-large` only over 1 GiB. An image the build's
+  memory budget cannot hold fails the publish with a `ResourceLimitError`
+  naming the bytes it needs; raise **Memory GiB** or choose **Downscale**.
+
 ### Fixed
 
 - Getting started step 8 (View the result) works as written: it uses Extract
