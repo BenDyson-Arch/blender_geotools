@@ -42,3 +42,16 @@ horizon could miss a near crest by up to 0.1° with curvature on. Open: the
 stated accuracy of Laskar's obliquity at the ends (42″ from Vondrák at
 8000 BCE), the sun's parallax in the alignment declination, the horizon's
 fine-step bias and fixed refraction conditions.
+
+## Hydrology, contours and sections
+
+[hydrology.md](hydrology.md): depression filling and depressions, flow routing,
+flats, accumulation, Channel From and the Flow Paths object, drops, Flow Path
+(Quick Look), contours, sections and their export, against closed forms, an
+independent priority-flood on the same face graph, WhiteboxTools 2.4.0,
+richdem 0.3.4, GDAL 3.12.0 and SciPy 1.18.1. All agree. One bug fixed
+(duplicate contour and section segments where a mesh edge lies on the plane);
+face-centre spill levels, three flow directions per face and flats routed
+towards their exit are documented convention differences. Five points are left
+for a decision, among them spurious shallow pits along V-channels that follow
+mesh edges.

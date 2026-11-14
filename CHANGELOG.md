@@ -70,6 +70,19 @@ and the project follows semantic versioning where practical.
   Vondrák 2011 at 8000 BCE). Reference scripts in
   `scripts/validation/archaeoastronomy/`, fixtures in
   `tests/data/validation/archaeoastronomy/`, tests in normal CI.
+- Validation of hydrology, contours and sections
+  ([docs/validation/hydrology.md](docs/validation/hydrology.md)): depression
+  filling, depressions, flow routing, flats, accumulation, Channel From and
+  the Flow Paths object, Flow Path (Quick Look), contours, sections and their
+  Export Vectors output, against closed forms, a heap priority-flood on the
+  same face graph (bit-identical), WhiteboxTools 2.4.0, richdem 0.3.4, GDAL
+  3.12.0 (gdal_contour, bilinear sampling) and SciPy 1.18.1 on synthetic
+  DEMs. All agree; face-centre spill levels (low by about a third of a face's
+  fall), three flow directions per face and flats routed towards their exit
+  are documented, and spurious shallow pits along V-channels that follow mesh
+  edges are a known limit. Reference script
+  `scripts/validation/hydrology/make_references.py`, fixtures in
+  `tests/data/validation/hydrology/`, tests in normal CI.
 
 ### Changed
 
@@ -136,6 +149,13 @@ and the project follows semantic versioning where practical.
   from PROJ's Jacobian and the ellipsoid's radii; results agree with
   GeographicLib geodesics to 0.002 ppm. Conformal CRSs (transverse Mercator,
   Lambert conformal conic, stereographic) give the same results as before.
+- Contours and sections no longer draw a segment twice where a mesh edge lies
+  exactly on the cutting plane with both its triangles on the same side: a
+  ridge exactly at a contour level (common with heights quantised to the
+  centimetre and whole-metre contours), or a closed object's edge on a
+  section plane. Each such edge was cut by both of its triangles, so the
+  Contours object held two identical lines (a two-point "ring" in a section),
+  which a GIS showed as duplicate features.
 - Getting started step 8 (View the result) works as written: it uses Extract
   for Web and a complete viewer page instead of a snippet with an undefined
   `viewer`, and gives the Windows `py` command for Python's web server. The
