@@ -1639,7 +1639,7 @@ def _props(struct) -> dict:
         key = prop.identifier
         if key in _SKIP_PROPS or key.startswith("bl_"):
             continue
-        if prop.type in {"COLLECTION"}:
+        if prop.type == "COLLECTION":
             continue
         if prop.type == "POINTER" and key != "node_tree":
             continue

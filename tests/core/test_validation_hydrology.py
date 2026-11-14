@@ -151,7 +151,7 @@ def test_flats_drain_by_the_shortest_way_to_their_exit() -> None:
     floor = np.flatnonzero(surface.centroids[:, 2] == 0.0)
     adj = neighbours(surface)
     exits = [f for f in floor if result.receiver[f] < 0]
-    dist = {f: 0 for f in exits}
+    dist = dict.fromkeys(exits, 0)
     queue = deque(exits)
     on_floor = set(floor.tolist())
     while queue:

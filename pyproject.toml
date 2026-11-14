@@ -40,6 +40,14 @@ extend-select = [
     "UP",  # pyupgrade, for the Python 3.13 that Blender 5.2 ships
     "BLE",  # blind except: a broad handler must log with exc_info or re-raise
     "S110",  # try/except/pass: say why with contextlib.suppress(SpecificError)
+    "C4",  # comprehensions
+    "FURB",  # refurb
+    "G",  # logging calls take %-arguments, not pre-formatted strings
+    "LOG",  # logging: module loggers, exc_info only in handlers
+    "PGH",  # pygrep-hooks: no blanket noqa or type: ignore
+    "PIE",  # unnecessary pass, duplicate class fields, needless spread
+    "PLE",  # pylint errors
+    "T10",  # no debugger calls
 ]
 ignore = [
     # Tuple/list concatenation to unpacking. It cannot tell sequences from numpy arrays
