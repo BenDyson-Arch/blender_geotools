@@ -394,5 +394,5 @@ def season_moments(year: int) -> dict[str, _dt.datetime]:
     moments: dict[str, _dt.datetime] = {}
     for name, target in zip(SEASONS, (360.0, 450.0, 540.0, 630.0), strict=True):
         seconds = float(np.interp(target, lam, times))
-        moments[name] = _dt.datetime.fromtimestamp(round(seconds), _dt.UTC)
+        moments[name] = sun.utc_datetime(round(seconds))
     return moments

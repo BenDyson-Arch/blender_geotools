@@ -613,7 +613,7 @@ def epoch_events(
 def _local_time(seconds: float, tz: _dt.tzinfo) -> str:
     if not math.isfinite(seconds):
         return ""
-    return _dt.datetime.fromtimestamp(seconds, _dt.UTC).astimezone(tz).strftime("%H:%M:%S")
+    return sun.utc_datetime(seconds).astimezone(tz).strftime("%H:%M:%S")
 
 
 def dated_sun_events(

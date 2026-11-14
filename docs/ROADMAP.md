@@ -293,7 +293,7 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
     animates Blender's sun; shadows are rendered or baked by Blender.
   - **Sun hours and insolation:** hours of direct sun, or kWh/m² with a
     clear-sky model, over a day, season or year, from real sun positions
-    (Cycles bakes over time steps). Solstice and equinox shadow studies.
+    (Cycles bakes over time steps). Solstice and equinox shadow studies. Validated ([validation/solar.md](validation/solar.md)).
   - **Archaeoastronomy:** sunrise and sunset azimuths for solstices and
     equinoxes and lunar standstills, and the horizon profile from a point
     with the terrain, which sets when the sun actually clears the skyline.
