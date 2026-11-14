@@ -52,6 +52,22 @@ def _unique_ids(*columns: np.ndarray) -> tuple[np.ndarray, int]:
     return ids, int(new.sum())
 
 
+def _distinct_segments(ends: np.ndarray) -> np.ndarray:
+    """``(s, 2)`` point ids with each undirected segment once, first occurrence kept.
+
+    A mesh edge lying exactly in a plane with both its triangles on the side
+    below it (a ridge at a contour level, a box corner on a section plane)
+    is cut by both triangles; it is one segment of the line.
+    """
+    if not len(ends):
+        return ends
+    lo = np.minimum(ends[:, 0], ends[:, 1])
+    hi = np.maximum(ends[:, 0], ends[:, 1])
+    ids, _count = _unique_ids(lo, hi)
+    _, first = np.unique(ids, return_index=True)
+    return ends[np.sort(first)]
+
+
 @dataclass(frozen=True, slots=True)
 class Cuts:
     """Segments where planes cross triangles.
@@ -252,6 +268,7 @@ def contours(
     point_level = np.empty(count, dtype=np.int64)
     point_level[ids.ravel()] = np.repeat(cuts.plane, 2)
     point_pos[:, 2] = levels[point_level] - datum
+    ids = _distinct_segments(ids)
     chains = polylines.chain(count, ids[:, 0], ids[:, 1])
     level_of_line = point_level[chains.nodes[chains.offsets[:-1]]]
     k = k0 + level_of_line
@@ -395,7 +412,7 @@ def sections(
     chainage[ids] = np.concatenate(all_chainage)
     line_of_point = np.empty(count, dtype=np.int64)
     line_of_point[ids] = np.concatenate(all_line)
-    seg_pairs = ids[np.concatenate(pairs)]
+    seg_pairs = _distinct_segments(ids[np.concatenate(pairs)])
     chains = polylines.chain(count, seg_pairs[:, 0], seg_pairs[:, 1])
     # Run each piece the way its section line goes.
     first = chainage[chains.nodes[chains.offsets[:-1]]]

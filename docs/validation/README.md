@@ -29,6 +29,33 @@ four points left for a decision (the GLB metadata frame's one-sided probes,
 the `geotools:gridScale` name, the sun in non-conformal CRSs, the GeoPackage
 `definition` text).
 
+## Archaeoastronomy
+
+[archaeoastronomy.md](archaeoastronomy.md): the horizon profile (curvature,
+terrestrial refraction, the Cycles ray search), Bennett refraction, Meeus'
+Moon and its parallax, the lunar standstills, the obliquity at ancient epochs,
+rise and set azimuths, dated sunrises and Check Alignment, against closed
+forms, Skyfield 1.53 with JPL DE440s and DE441, ERFA 2.0.1.5 (Vondrák 2011
+long-term precession), astropy 7.1.0 and GRASS GIS 8.5.0 r.horizon. All agree.
+Two bugs fixed: Compute Events failed at the ends of the epoch range, and the
+horizon could miss a near crest by up to 0.1° with curvature on. Open: the
+stated accuracy of Laskar's obliquity at the ends (42″ from Vondrák at
+8000 BCE), the sun's parallax in the alignment declination, the horizon's
+fine-step bias and fixed refraction conditions.
+
+## Hydrology, contours and sections
+
+[hydrology.md](hydrology.md): depression filling and depressions, flow routing,
+flats, accumulation, Channel From and the Flow Paths object, drops, Flow Path
+(Quick Look), contours, sections and their export, against closed forms, an
+independent priority-flood on the same face graph, WhiteboxTools 2.4.0,
+richdem 0.3.4, GDAL 3.12.0 and SciPy 1.18.1. All agree. One bug fixed
+(duplicate contour and section segments where a mesh edge lies on the plane);
+face-centre spill levels, three flow directions per face and flats routed
+towards their exit are documented convention differences. Five points are left
+for a decision, among them spurious shallow pits along V-channels that follow
+mesh edges.
+
 ## Visibility, change, volumes and paths
 
 [visibility.md](visibility.md): viewshed, cumulative viewshed (live and fast),

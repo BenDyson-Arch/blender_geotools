@@ -69,6 +69,31 @@ and the project follows semantic versioning where practical.
   (see Fixed) and four points left for a decision. Reference scripts in
   `scripts/validation/geodesy/`, fixtures in `tests/data/validation/geodesy/`,
   tests in normal CI.
+- Validation of archaeoastronomy
+  ([docs/validation/archaeoastronomy.md](docs/validation/archaeoastronomy.md)):
+  the horizon profile against an exact TIN march, a cone, the dip of a plain
+  and GRASS GIS 8.5.0 r.horizon; Meeus' Moon, the standstills and the
+  obliquity against JPL DE440s and DE441 (Skyfield 1.53, ERFA 2.0.1.5 with
+  Vondrák's long-term precession); rise, set and dated sunrise azimuths
+  against closed forms, Skyfield and astropy 7.1.0; and Check Alignment's
+  azimuths and declinations. All agree; two bugs fixed (see Fixed), and the
+  obliquity's accuracy at the ends of the epoch range is documented (42″ from
+  Vondrák 2011 at 8000 BCE). Reference scripts in
+  `scripts/validation/archaeoastronomy/`, fixtures in
+  `tests/data/validation/archaeoastronomy/`, tests in normal CI.
+- Validation of hydrology, contours and sections
+  ([docs/validation/hydrology.md](docs/validation/hydrology.md)): depression
+  filling, depressions, flow routing, flats, accumulation, Channel From and
+  the Flow Paths object, Flow Path (Quick Look), contours, sections and their
+  Export Vectors output, against closed forms, a heap priority-flood on the
+  same face graph (bit-identical), WhiteboxTools 2.4.0, richdem 0.3.4, GDAL
+  3.12.0 (gdal_contour, bilinear sampling) and SciPy 1.18.1 on synthetic
+  DEMs. All agree; face-centre spill levels (low by about a third of a face's
+  fall), three flow directions per face and flats routed towards their exit
+  are documented, and spurious shallow pits along V-channels that follow mesh
+  edges are a known limit. Reference script
+  `scripts/validation/hydrology/make_references.py`, fixtures in
+  `tests/data/validation/hydrology/`, tests in normal CI.
 
 ### Changed
 
@@ -102,6 +127,17 @@ and the project follows semantic versioning where practical.
 
 ### Fixed
 
+- The archaeoastronomy **horizon profile** no longer misses a near crest by up
+  to 0.1° when, with Earth curvature on, a farther range is hit by the coarse
+  ray just above the crest but appears lower than it: the fine pass now
+  refines every 0.1° bracket that can hold the skyline (any coarse hit within
+  0.1° of the best), not only the best one, so the skyline is found to about
+  0.002° as documented. Profiles without such a geometry are unchanged.
+- Archaeoastronomy **Compute Events** no longer fails with "Laskar's obliquity
+  is only valid within 10,000 years" for the epochs at either end of its range
+  (8000 and 7999 BCE, 11994 to 11999 CE) when the lunar standstills are on: the
+  standstill nearest such an epoch can fall a few years beyond the obliquity's
+  range, where the polynomial is still smooth.
 - Closed Volume (preset version 2) keeps its precision far from the origin.
   Version 1 took its reference point as the float32 mean of each part's face
   centres and used Blender's Normal and Face Area fields, which lose precision
@@ -134,6 +170,13 @@ and the project follows semantic versioning where practical.
   from PROJ's Jacobian and the ellipsoid's radii; results agree with
   GeographicLib geodesics to 0.002 ppm. Conformal CRSs (transverse Mercator,
   Lambert conformal conic, stereographic) give the same results as before.
+- Contours and sections no longer draw a segment twice where a mesh edge lies
+  exactly on the cutting plane with both its triangles on the same side: a
+  ridge exactly at a contour level (common with heights quantised to the
+  centimetre and whole-metre contours), or a closed object's edge on a
+  section plane. Each such edge was cut by both of its triangles, so the
+  Contours object held two identical lines (a two-point "ring" in a section),
+  which a GIS showed as duplicate features.
 - Getting started step 8 (View the result) works as written: it uses Extract
   for Web and a complete viewer page instead of a snippet with an undefined
   `viewer`, and gives the Windows `py` command for Python's web server. The
