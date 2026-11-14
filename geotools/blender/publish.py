@@ -162,7 +162,7 @@ def resolve_output(path_text: str, suffix: str = ".3tz") -> Path:
             "or use an absolute path"
         )
     resolved = blend_paths.abspath(text)
-    if not os.path.isabs(resolved):
+    if not Path(resolved).is_absolute():
         raise OutputPathError(
             f"The output path {text!r} is relative; use an absolute path or // for the .blend's folder"
         )

@@ -61,7 +61,7 @@ class GeoJsonError(ValueError):
 def load(path: str | os.PathLike[str]) -> dict:
     """Parse a GeoJSON file into a dict, checking its top-level type."""
     try:
-        with open(path, encoding="utf-8-sig") as fh:
+        with Path(path).open(encoding="utf-8-sig") as fh:
             data = json.load(fh)
     except json.JSONDecodeError as ex:
         raise GeoJsonError(f"not valid JSON: {ex}") from None
@@ -408,8 +408,8 @@ def _write_json(path: Path, data: dict, indent: int | None) -> None:
             fh.write("\n")
         # mkstemp makes the file 0600; keep the mode of the file being replaced.
         mode = path.stat().st_mode & 0o777 if path.exists() else 0o666 & ~_umask()
-        os.chmod(tmp, mode)
-        os.replace(tmp, path)
+        Path(tmp).chmod(mode)
+        Path(tmp).replace(path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise

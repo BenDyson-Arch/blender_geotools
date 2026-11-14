@@ -63,7 +63,7 @@ def versions(work: Path) -> dict[str, str]:
 def read_aaigrid(path: Path) -> np.ndarray:
     """An ESRI ASCII grid's values (rows north first), no data as NaN."""
     header: dict[str, str] = {}
-    with open(path) as f:
+    with path.open() as f:
         while True:
             pos = f.tell()
             line = f.readline()

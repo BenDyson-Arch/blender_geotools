@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 
@@ -98,9 +99,9 @@ def grid(fn, x0: float, y0: float, x1: float, y1: float, h: float, name: str = "
     return Grid(x0, y0, h, np.asarray(fn(X, Y), np.float64) + 0.0 * X, name, dict(meta))
 
 
-def write_aaigrid(path, g: Grid) -> None:
+def write_aaigrid(path: Path, g: Grid) -> None:
     """An ESRI ASCII grid (GDAL's AAIGrid driver) whose cell centres are the grid's nodes."""
-    with open(path, "w") as f:
+    with Path(path).open("w") as f:
         f.write(f"ncols {g.nx + 1}\nnrows {g.ny + 1}\n")
         f.write(f"xllcorner {g.x0 - g.h / 2!r}\nyllcorner {g.y0 - g.h / 2!r}\n")
         f.write(f"cellsize {g.h!r}\nNODATA_value -9999\n")

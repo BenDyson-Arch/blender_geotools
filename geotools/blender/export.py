@@ -156,7 +156,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
@@ -656,8 +655,8 @@ class _ImageTable:
         packed = image.packed_file is not None
         if clean and not packed and image.file_format in ("PNG", "JPEG"):
             path = _file_path(image)
-            if path and os.path.isfile(path):
-                with open(path, "rb") as f:
+            if path and Path(path).is_file():
+                with Path(path).open("rb") as f:
                     mime = _magic_mime(f.read(8))
                 if mime is not None and path.lower().endswith(_SUFFIXES[mime]):
                     return ImageData(name=image.name, path=Path(path).resolve(), mime_type=mime)

@@ -18,7 +18,6 @@ auto-refresh treat GeoTIFFs like vectors. The georeference is parsed by ``core.g
 from __future__ import annotations
 
 import json
-import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -428,7 +427,7 @@ _INFO_CACHE: dict[str, tuple[int, GeoTiffInfo | str]] = {}
 def _cached_info(path: str) -> GeoTiffInfo | str | None:
     """The header of the file selected in the file browser, or the error, cached by mtime."""
     try:
-        mtime = os.stat(path).st_mtime_ns
+        mtime = Path(path).stat().st_mtime_ns
     except OSError:
         return None
     hit = _INFO_CACHE.get(path)
@@ -513,7 +512,7 @@ plane. Linked to the file, so it can be refreshed"""
             self.report({"ERROR"}, "No file selected")
             return {"CANCELLED"}
         path = blend_paths.abspath(self.filepath)
-        if not os.path.isfile(path):
+        if not Path(path).is_file():
             self.report({"ERROR"}, f"File not found: {path}")
             return {"CANCELLED"}
         try:

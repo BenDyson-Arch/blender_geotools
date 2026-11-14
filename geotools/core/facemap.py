@@ -195,8 +195,8 @@ def save_face_map(face_map: FaceMap, path: Path) -> None:
             np.savez_compressed(f, **arrays)
             f.flush()
             os.fsync(f.fileno())
-        os.chmod(tmp, 0o644)  # mkstemp makes it owner-only
-        os.replace(tmp, path)
+        tmp.chmod(0o644)  # mkstemp makes it owner-only
+        tmp.replace(path)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise

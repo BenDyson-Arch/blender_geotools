@@ -24,6 +24,7 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 from typing import BinaryIO
 
 JPEG_QUALITY_DEFAULT = 95
@@ -189,7 +190,7 @@ def encoded_bit_depth(path: str) -> int | None:
     and non-8-bit JPEGs decode to something rusty-tiles refuses.
     """
     try:
-        with open(path, "rb") as f:
+        with Path(path).open("rb") as f:
             head = f.read(33)
             if head.startswith(_PNG_SIGNATURE):
                 depth = png_bit_depth(head)

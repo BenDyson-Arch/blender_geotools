@@ -35,11 +35,15 @@ extend-select = [
     "PLW",  # pylint warnings: no global statements, no reassigned loop variables
     "RUF",  # ruff's own: escaped pytest.raises patterns, explicit and/or precedence
     "DTZ",  # naive datetimes: times are aware UTC (sun.utc_datetime) or sun.wall_clock
+    "PTH",  # pathlib for file access; stored paths are text, see the ignores below
 ]
 ignore = [
     # Tuple/list concatenation to unpacking. It cannot tell sequences from numpy arrays
     # and mathutils vectors, where `array + (dx, dy, dz)` is vector addition, not concatenation.
     "RUF005",
+    # os.path.abspath() to Path.resolve(). resolve() follows symlinks; GeoTools resolves
+    # only to compare (core/paths.py same_file, real) and keeps the path the user gave.
+    "PTH100",
 ]
 # Typography that UI strings and docstrings use on purpose (minus sign, en dash,
 # multiplication sign, prime, Greek letters for angles and gamma).
@@ -50,5 +54,14 @@ allowed-confusables = ["−", "–", "×", "′", "α", "γ"]
 "geotools/blender/**" = ["RUF012"]
 # wall_clock() makes the one naive datetime, the wall-clock input of to_utc().
 "geotools/analysis/sun.py" = ["DTZ001"]
+# Stored paths are text in the OS's spelling (or ntpath/posixpath under test), with
+# Blender's // prefix; pathlib would re-spell them.
+"geotools/core/paths.py" = ["PTH"]
+"geotools/blender/blend_paths.py" = ["PTH"]
+"tests/core/test_paths.py" = ["PTH"]
+# The file browser's start folder needs a trailing separator, which Path cannot spell.
+"geotools/blender/source.py" = ["PTH118"]
+# splitext() splits image datablock names, which are not paths.
+"geotools/blender/texture_state.py" = ["PTH122"]
 # The MkDocs build hook is site tooling, outside the add-on and the checks here.
-"docs/hooks/**" = ["PLW2901"]
+"docs/hooks/**" = ["PLW2901", "PTH"]

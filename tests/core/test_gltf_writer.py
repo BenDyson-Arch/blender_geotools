@@ -520,7 +520,7 @@ def test_image_validation(tmp_path: Path) -> None:
     jpg = write_jpeg(tmp_path / "ok.jpg", np.array([[100]]))
     wide = write_png(tmp_path / "png16.png", np.zeros((8, 8, 4), np.uint16), bit_depth=16)
     huge = tmp_path / "huge.png"
-    with open(huge, "wb") as f:  # sparse; the size is refused before reading
+    with huge.open("wb") as f:  # sparse; the size is refused before reading
         f.write(png.read_bytes())
         f.truncate((1 << 30) + 1)
     truncated = tmp_path / "truncated.jpg"

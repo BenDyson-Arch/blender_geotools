@@ -21,6 +21,7 @@ import os
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 
 _CHUNK = 1 << 22
 
@@ -164,7 +165,7 @@ def sha256_file(path: str | os.PathLike[str]) -> str | None:
     """Hex SHA-256 of a file, or None if it cannot be read."""
     digest = hashlib.sha256()
     try:
-        with open(path, "rb") as f:
+        with Path(path).open("rb") as f:
             while chunk := f.read(_CHUNK):
                 digest.update(chunk)
     except OSError:

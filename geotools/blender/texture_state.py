@@ -144,7 +144,7 @@ def _new_file(image: bpy.types.Image) -> str:
         name = image.name
     stem = f"{TEXTURE_DIR}/{_safe_name(name)}"
     rel, n = f"{stem}.png", 1
-    while os.path.exists(blend_paths.abspath(rel)):
+    while Path(blend_paths.abspath(rel)).exists():
         rel = f"{stem}_{n}.png"
         n += 1
     return rel
@@ -167,11 +167,11 @@ def save_target(image: bpy.types.Image) -> str | None:
         return "the .blend (packed)"
     path = _file_path(image)
     if path and owns_file(image):
-        return f"its file {os.path.basename(path)}"
+        return f"its file {Path(path).name}"
     if path:
         if not bpy.data.is_saved:
             return f"{TEXTURE_DIR}/ once the .blend is saved"
-        return f"{_new_file(image)} (a copy; {os.path.basename(path)} is left as it is)"
+        return f"{_new_file(image)} (a copy; {Path(path).name} is left as it is)"
     if bpy.data.is_saved:
         return _new_file(image)
     return "the .blend (packed)"
@@ -185,7 +185,7 @@ def save_blocker(image: bpy.types.Image) -> str | None:
     if not path or bpy.data.is_saved or owns_file(image):
         return None
     return (
-        f"GeoTools never saves over its file {os.path.basename(path)}. Save the .blend "
+        f"GeoTools never saves over its file {Path(path).name}. Save the .blend "
         f"first, so Publish can save the edits to a copy in {TEXTURE_DIR}/"
     )
 
@@ -259,7 +259,7 @@ def _save_one(image: bpy.types.Image) -> tuple[str, bool]:
         raise
     setattr(image, OWNED_KEY, blend_paths.portable(blend_paths.abspath(rel)))
     if path:
-        return f"{rel} (a copy; {os.path.basename(path)} is left as it is)", True
+        return f"{rel} (a copy; {Path(path).name} is left as it is)", True
     return rel, True
 
 
@@ -291,7 +291,7 @@ def image_state(image: bpy.types.Image, old: ImageState | None = None) -> ImageS
     path = _file_path(image)
     if path:
         try:
-            stat = os.stat(path)
+            stat = Path(path).stat()
         except OSError:
             return ImageState(name, Origin.FILE, None, path=path, width=width, height=height)
         state = ImageState(
@@ -332,14 +332,14 @@ def read_record_images(record_path: str) -> list[ImageState] | None:
     if not record_path:
         return None
     try:
-        mtime = os.stat(record_path).st_mtime_ns
+        mtime = Path(record_path).stat().st_mtime_ns
     except OSError:
         return None
     cached = _records.get(record_path)
     if cached is not None and cached[0] == mtime:
         return cached[1]
     try:
-        with open(record_path, encoding="utf-8") as f:
+        with Path(record_path).open(encoding="utf-8") as f:
             images = recorded_images(json.load(f))
     except (OSError, ValueError):
         images = None

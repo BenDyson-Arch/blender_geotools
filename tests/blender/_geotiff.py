@@ -292,7 +292,7 @@ def write_geotiff(
         header = magic + struct.pack(o + "HHHQ", 43, 8, 0, ifd_offset)
     else:
         header = magic + struct.pack(o + "HI", 42, ifd_offset)
-    with open(path, "wb") as fh:
+    with path.open("wb") as fh:
         fh.write(header)
         for chunk in chunks:
             fh.write(chunk + (b"\x00" if len(chunk) & 1 else b""))

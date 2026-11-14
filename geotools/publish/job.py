@@ -346,7 +346,7 @@ def write_json(path: Path, data: object) -> None:
     tmp = path.with_name(path.name + ".tmp")
     text = json.dumps(_jsonable(data), indent=2, sort_keys=True, allow_nan=False)
     tmp.write_text(text + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    tmp.replace(path)
 
 
 def _rmtree(path: Path) -> None:
@@ -695,7 +695,7 @@ class BuildJob:
         for name in st.PROMOTED_FILES:
             src = work / name
             if src.exists():
-                os.replace(src, staging / name)
+                src.replace(staging / name)
             else:
                 (staging / name).unlink(missing_ok=True)
         write_json(record_path, record)
@@ -750,7 +750,7 @@ class BuildJob:
             raise OutputExistsError(
                 f"{output} already exists; turn on Overwrite (force) to replace it"
             )
-        os.replace(work / output.name, output)
+        (work / output.name).replace(output)
         self._published = True
 
         staging = self._staging
@@ -795,7 +795,7 @@ class BuildJob:
             "warnings": {"count": 0, "first": []},
         }
         record_path.unlink(missing_ok=True)
-        os.replace(work / st.FACEMAP_NAME, staging / st.FACEMAP_NAME)
+        (work / st.FACEMAP_NAME).replace(staging / st.FACEMAP_NAME)
         write_json(record_path, record)
         result = BuildResult(
             output=output,
@@ -940,7 +940,7 @@ class BuildJob:
         for name in st.PROMOTED_FILES:
             src = work / name
             if src.exists():
-                os.replace(src, staging / name)
+                src.replace(staging / name)
             else:
                 (staging / name).unlink(missing_ok=True)
         write_json(record_path, record)
@@ -1025,7 +1025,7 @@ def _sha256_file(path: Path) -> str | None:
     """Hex SHA-256 of a file, or None if it cannot be read."""
     digest = hashlib.sha256()
     try:
-        with open(path, "rb") as f:
+        with path.open("rb") as f:
             while chunk := f.read(1 << 20):
                 digest.update(chunk)
     except OSError:

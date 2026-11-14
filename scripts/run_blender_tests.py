@@ -236,7 +236,7 @@ def run_suite(
 
 
 def _remove_readonly(func, path, _exc) -> None:
-    os.chmod(path, stat.S_IWRITE)
+    Path(path).chmod(stat.S_IWRITE)
     func(path)
 
 

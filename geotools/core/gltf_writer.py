@@ -293,8 +293,8 @@ def write_glb(
                 raise ExportError("Internal error: the GLB length does not match its header.")
             f.flush()
             os.fsync(f.fileno())
-        os.chmod(tmp, 0o644)  # mkstemp makes it owner-only
-        os.replace(tmp, path)
+        tmp.chmod(0o644)  # mkstemp makes it owner-only
+        tmp.replace(path)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
@@ -581,7 +581,7 @@ def _emit_uv(array: np.ndarray):
 def _emit_file(index: int, path: Path, length: int):
     def emit(sink: _Sink) -> None:
         written = 0
-        with open(path, "rb") as f:
+        with path.open("rb") as f:
             while piece := f.read(min(_IMAGE_READ, length - written + 1)):
                 written += len(piece)
                 if written > length:
@@ -900,7 +900,7 @@ def _validate_image(i: int, image: ImageData) -> int:
                 f"{MAX_IMAGE_BYTES} bytes ({size_limit_text(MAX_IMAGE_BYTES)}). Re-encode or "
                 "split it."
             )
-        with open(path, "rb") as f:
+        with path.open("rb") as f:
             if image.mime_type == "image/png":
                 width, height = _png_header(where, f)
             else:
