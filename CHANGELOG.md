@@ -111,6 +111,12 @@ and the project follows semantic versioning where practical.
 
 ### Changed
 
+- **Sections export their chainage**: Export Vectors writes each section piece
+  to a GeoPackage as a LineString ZM with the chainage as M, the GIS
+  convention for linear referencing that QGIS and GDAL read, and to GeoJSON
+  (which has no M) with a `chainage` property holding one value per point.
+  Before, only `chainage_from` and `chainage_to` per piece left Blender. A
+  Vectors publish leaves M out, as rusty-tiles 0.4 refuses measured geometry.
 - GeoPackage exports write the CRS as WKT in `gpkg_spatial_ref_sys.definition`,
   as the GeoPackage standard asks: pyproj's WKT1, which GDAL and QGIS read, or,
   for a CRS WKT1 cannot express (a 3D geographic CRS), `undefined` there and

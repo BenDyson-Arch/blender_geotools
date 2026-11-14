@@ -1000,6 +1000,17 @@ point (plan distance along the section line from its first point) and
 A multi-level surface (an overhang, a bridge, a closed object) gives several
 pieces, all kept. Both objects are in `GeoTools Analysis`.
 
+**Chainage on export.** The Sections object's `geotools_measure` property
+names `chainage`, so Export Vectors writes it as each point's M: a GeoPackage
+LineString ZM (`gpkg_geometry_columns.m` = 1, ISO WKB type 3002), the GIS
+convention for linear referencing, which GDAL reads as a measured line
+string. GeoJSON positions hold no M (RFC 7946 advises against a fourth
+element), so a GeoJSON piece carries a `chainage` property with one value per
+position, shaped like the coordinates (GDAL reads it as a RealList). Any line
+object with a `geotools_measure` property naming a numeric POINT attribute
+exports the same way. The Vectors publish drops M before tiling: rusty-tiles
+0.4 refuses measured GeoPackage geometry. GeoTools' own readers drop M.
+
 **Why it is code.** Blender's Bisect cuts one plane at a time in Edit Mode
 and changes the mesh; Geometry Nodes has no plane-mesh intersection; a
 Boolean against slabs gives faces, not lines, and is slow at 10M faces; a
@@ -1214,4 +1225,5 @@ the observers).
 - **Contours and sections share one cut**, in numpy, chained by pointer
   doubling. Deferred: smoothing or simplifying contour lines (Blender's or a
   GIS's tools do that), and drawing a 2D profile view of a section (the
-  `chainage` attribute and Z are there for a GIS or a Geometry Nodes setup).
+  `chainage` attribute, exported as M, and Z are there for a GIS or a
+  Geometry Nodes setup).

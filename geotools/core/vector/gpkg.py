@@ -565,12 +565,14 @@ def write_layer(
     """Write the ``kind`` features of ``data`` to a new feature table; return the count.
 
     Coordinates are written as XYZ (0 for a missing Z) when the geometries have
-    any Z. Fids are the data's fids when they are distinct and positive,
+    any Z, and with M (XYM, XYZM) when they carry measures (a section's
+    chainage). Fids are the data's fids when they are distinct and positive,
     otherwise 1, 2, 3 ... Raises :class:`GpkgError` if the table exists and
     ``overwrite`` is false.
     """
     geoms = data.geometries[kind]
     has_z = geoms.has_z
+    has_m = geoms.has_m
     multi = bool((np.diff(geoms.feature_offsets) > 1).any())
     srs = _srs_row(crs)
     fids = data.fids[geoms.rows]
@@ -584,7 +586,7 @@ def write_layer(
     z_range = geoms.feature_range(2) if has_z else None
     records = []
     for i in range(len(fids)):
-        wkb = _wkb.encode_feature(geoms, i, multi, has_z)
+        wkb = _wkb.encode_feature(geoms, i, multi, has_z, has_m)
         b = bounds[i]
         if np.isnan(b).any():
             blob = _wkb.gpkg_blob(wkb, srs.srs_id, None)
@@ -622,8 +624,15 @@ def write_layer(
         )
         con.execute(
             "INSERT INTO gpkg_geometry_columns (table_name, column_name, geometry_type_name, "
-            "srs_id, z, m) VALUES (?, ?, ?, ?, ?, 0)",
-            (table, geometry_column, geometry_type, srs.srs_id, 1 if has_z else 0),
+            "srs_id, z, m) VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                table,
+                geometry_column,
+                geometry_type,
+                srs.srs_id,
+                1 if has_z else 0,
+                1 if has_m else 0,
+            ),
         )
         placeholders = ", ".join("?" for _ in range(2 + len(columns)))
         names = ", ".join(["fid", quote(geometry_column)] + [quote(n) for n in columns])

@@ -452,10 +452,16 @@ parser, and json.
   attributes). Volumes are the core's divided by the combined scale factor
   squared (a factor between 1 and 1.002 here).
 
-**Gap.** A section's per-point `chainage` stays in Blender: simple-feature
-lines carry no per-vertex values, so the export has `chainage_from` and
-`chainage_to` per piece only. See
-[recommendation 3](#discrepancies-left-for-a-decision).
+**Chainage (resolved).** A section's per-point `chainage` is exported: as
+each point's M in the GeoPackage (LineString ZM, `m` = 1 in
+`gpkg_geometry_columns`) and as a per-point `chainage` property in GeoJSON.
+The test checks every piece's M against the object's chainage at its
+vertices, that it runs from `chainage_from` to `chainage_to` without going
+back, and that the GeoJSON property equals it; the other objects have no M.
+GDAL 3.12.0 reads the GeoPackage pieces as measured 3D line strings with
+those M values and the GeoJSON property as a RealList, and `validate_gpkg`
+accepts the file. Before, the export had `chainage_from` and `chainage_to`
+per piece only. See [decision 3](#decisions-resolved).
 
 **Verdict.** Agrees.
 

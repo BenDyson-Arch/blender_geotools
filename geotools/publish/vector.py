@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -141,10 +141,21 @@ def table_names(names: list[tuple[str, Kind]]) -> list[str]:
     return out
 
 
+def _without_measures(data: VectorData) -> VectorData:
+    """``data`` with no M: rusty-tiles 0.4 refuses measured GeoPackage geometry."""
+    if not any(g.measures is not None for g in data.geometries.values()):
+        return data
+    geometries = {k: replace(g, measures=None, measure_name="") for k, g in data.geometries.items()}
+    return replace(data, geometries=geometries)
+
+
 def write_source(source: VectorSource, path: Path) -> list[dict[str, object]]:
     """Write every layer of ``source`` into a new GeoPackage at ``path``.
 
     Returns one record per table (table, object, kind, features) for build.json.
+    Measures (a section's chainage as M) are left out: rusty-tiles 0.4 refuses
+    measured geometry, and 3D Tiles features have no per-vertex values anyway;
+    the per-piece ``chainage_from`` and ``chainage_to`` columns are kept.
     """
     if not source.layers:
         raise ValueError("there are no vector features to publish")
@@ -152,7 +163,8 @@ def write_source(source: VectorSource, path: Path) -> list[dict[str, object]]:
     path.unlink(missing_ok=True)
     records: list[dict[str, object]] = []
     for layer in source.layers:
-        count = gpkg.write_layer(path, layer.table, layer.data, layer.kind, source.crs)
+        data = _without_measures(layer.data)
+        count = gpkg.write_layer(path, layer.table, data, layer.kind, source.crs)
         records.append(
             {
                 "table": layer.table,

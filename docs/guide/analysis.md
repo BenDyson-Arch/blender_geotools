@@ -298,7 +298,13 @@ and `closed` attributes.
 3. Press **Create Sections**.
 
 The result is a line object (`Sections`) with `chainage` per point. Every
-piece of a multi-level surface is kept.
+piece of a multi-level surface is kept. Exported to a GeoPackage, each piece is
+a LineString ZM whose M is the chainage, the GIS convention for linear
+referencing (QGIS and GDAL read it). GeoJSON has no M, so a GeoJSON piece
+carries a `chainage` property instead: one value per point, in the order of
+its coordinates. Both also have `chainage_from` and `chainage_to` per piece.
+A Vectors publish leaves M out (rusty-tiles 0.4 refuses measured geometry)
+and keeps `chainage_from` and `chainage_to`.
 
 Both go in the **GeoTools Analysis** collection. Export them with **File >
 Export > GeoPackage (.gpkg)**, with absolute heights, or publish them with a

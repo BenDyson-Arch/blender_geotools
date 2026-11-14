@@ -261,6 +261,26 @@ def _geometry(geoms: Geometries, feature: int, has_z: bool) -> dict:
     return {"type": "MultiPolygon", "coordinates": polygons}
 
 
+def _measures(geoms: Geometries, feature: int) -> list:
+    """A feature's M values, shaped like its coordinates: one list per line string
+    (a list of them for a MultiLineString), one value per point."""
+    m = np.asarray(geoms.measures, dtype=np.float64)
+    rings, parts = geoms.ring_offsets, geoms.part_offsets
+    p0, p1 = int(geoms.feature_offsets[feature]), int(geoms.feature_offsets[feature + 1])
+
+    def ring(r: int) -> list:
+        return [_json_value(v) for v in m[rings[r] : rings[r + 1]].tolist()]
+
+    if geoms.kind is Kind.POINTS:
+        points = [ring(int(parts[p]))[0] for p in range(p0, p1)]
+        return points[0] if len(points) == 1 else points
+    if geoms.kind is Kind.LINES:
+        lines = [ring(int(parts[p])) for p in range(p0, p1)]
+        return lines[0] if len(lines) == 1 else lines
+    polygons = [[ring(r) for r in range(int(parts[p]), int(parts[p + 1]))] for p in range(p0, p1)]
+    return polygons[0] if len(polygons) == 1 else polygons
+
+
 def _json_value(value: object) -> object:
     if isinstance(value, float) and not math.isfinite(value):
         return None
@@ -268,15 +288,25 @@ def _json_value(value: object) -> object:
 
 
 def to_dict(data: VectorData, crs: DataCrs | None) -> dict:
-    """A FeatureCollection of every row of ``data``, in row order."""
+    """A FeatureCollection of every row of ``data``, in row order.
+
+    GeoJSON positions hold no measure (RFC 7946 advises against a fourth
+    element), so geometries with M (a section's chainage) carry it in the
+    property named by ``measure_name``: one value per position, shaped like
+    the coordinates. An attribute column of that name takes precedence.
+    """
     geometry_of: list[list[dict]] = [[] for _ in range(data.n_rows)]
+    measures_of: dict[int, tuple[str, list]] = {}
     for kind in KIND_ORDER:
         geoms = data.geometries.get(kind)
         if geoms is None:
             continue
         has_z = geoms.has_z
+        has_m = geoms.has_m and bool(geoms.measure_name)
         for i, row in enumerate(geoms.rows.tolist()):
             geometry_of[row].append(_geometry(geoms, i, has_z))
+            if has_m:
+                measures_of[row] = (geoms.measure_name, _measures(geoms, i))
     columns = list(data.columns.values())
     features = []
     for row in range(data.n_rows):
@@ -287,12 +317,15 @@ def to_dict(data: VectorData, crs: DataCrs | None) -> dict:
             geometry = geometries[0]
         else:
             geometry = {"type": "GeometryCollection", "geometries": geometries}
+        properties = {c.name: _json_value(c.python_value(row)) for c in columns}
+        if row in measures_of:
+            properties.setdefault(*measures_of[row])
         features.append(
             {
                 "type": "Feature",
                 "id": int(data.fids[row]),
                 "geometry": geometry,
-                "properties": {c.name: _json_value(c.python_value(row)) for c in columns},
+                "properties": properties,
             }
         )
     out: dict = {"type": "FeatureCollection", "name": data.name}
