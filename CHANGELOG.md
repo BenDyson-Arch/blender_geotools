@@ -91,6 +91,16 @@ and the project follows semantic versioning where practical.
 
 ### Fixed
 
+- Closed Volume (preset version 2) keeps its precision far from the origin.
+  Version 1 took its reference point as the float32 mean of each part's face
+  centres and used Blender's Normal and Face Area fields, which lose precision
+  there: a 262,144-face hemisphere 10 km from the origin came out 0.27 % too
+  large. The preset now measures every vertex from the part's first vertex and
+  builds each face's centre and area vector (Newell) from those, so it is
+  within 10⁻⁴ there, the float32 sum over the faces; the per-face values of
+  small parts are within 10⁻⁵. Read Totals now sums centres and area vectors
+  computed from the vertices in binary64, and is exact. Files that already
+  hold version 1 keep it on their modifiers; Add Analysis appends version 2.
 - Import Source Mesh no longer silently re-origins a georeferenced scene. An
   offset file found beside the mesh sets the project origin only when the
   project has none yet, or already has exactly that E, N and A (so a chunk

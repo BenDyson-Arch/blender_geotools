@@ -649,18 +649,24 @@ into cut and fill is by face. Display diverging, automatic range.
 
 The volume of each closed part of the mesh (each Mesh Island), stored on every
 face of that part:
-`V = (1/3) Σ ((c_f − c̄) · n_f) A_f`, over the part's faces f with centre c_f,
-unit normal n_f and area A_f (the divergence theorem). Any point c̄ gives the
-same sum for a closed part; the mean of the part's face centres keeps float32
-exact far from the origin. It is exact for planar faces (p · n is constant
-over a planar face); a quad that is not planar uses Blender's face normal and
-area, so triangulate first. A part is **closed** when every one of its edges
+`V = (1/3) Σ (c_f − c̄) · S_f`, over the part's faces f with centre c_f and
+area vector S_f (area times unit normal; the divergence theorem). Any point c̄
+gives the same sum for a closed part. c̄ is the part's first vertex, and both
+c_f and S_f are taken from the vertices less c̄ (S_f = ½ Σ l_k × l_k+1 round
+the face, Newell's formula), so float32 keeps the precision of the part's
+size wherever it is: 10 km from the origin a 262,144-face hemisphere is
+within 10⁻⁴ of its binary64 volume
+([validation](validation/visibility.md#closed-volume)). Version 1 took c̄ as
+the float32 mean of the face centres and used Blender's Normal and Face Area
+fields, and was 0.27 % out there. It is exact for planar faces (p · n is
+constant over a planar face); for a quad that is not planar it depends on how
+the quad would be split, so triangulate first. A part is **closed** when every one of its edges
 has exactly two faces; open or non-manifold parts are no data (merge by
 distance first if the walls, top and bottom of a context volume are separate).
 A negative volume means the normals point inwards (Recalculate Outside).
 Overlapping parts are counted twice. Aggregation none (a part's volume is not
 an area mean). The modifier shows the total of the closed parts and how many
-parts are closed and open; Read Totals sums it in binary64.
+parts are closed and open; Read Totals sums it in binary64 from the vertices.
 
 Context volumes from the drape recipe ([drape-contexts.md](recipes/drape-contexts.md))
 are one closed part per extruded polygon.

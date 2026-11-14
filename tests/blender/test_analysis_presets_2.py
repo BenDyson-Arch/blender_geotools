@@ -514,3 +514,62 @@ def test_object_inputs_and_readding() -> None:
     calls = h.draw(bpy.types.GEOTOOLS_MT_analysis_presets)
     assert "Paths and Flow" in h.label_text(calls) and "Visibility" in h.label_text(calls)
     _clear_trees()
+
+
+def _hemisphere(radius: float, rings: int, segments: int, centre) -> tuple[np.ndarray, np.ndarray]:
+    """A closed hemisphere (dome and base disc) of outward triangles."""
+    theta = np.linspace(0, math.pi / 2, rings + 1)[1:]
+    phi = np.linspace(0, 2 * math.pi, segments, endpoint=False)
+    t, p = np.meshgrid(theta, phi, indexing="ij")
+    co = np.stack([np.sin(t) * np.cos(p), np.sin(t) * np.sin(p), np.cos(t)], -1).reshape(-1, 3)
+    co = np.vstack([[0, 0, 1], co, [0, 0, 0]]) * radius + np.asarray(centre, np.float64)
+    r, s = np.meshgrid(np.arange(rings - 1), np.arange(segments), indexing="ij")
+    a, b = 1 + r * segments + s, 1 + r * segments + (s + 1) % segments
+    c, d = b + segments, a + segments
+    s = np.arange(segments)
+    first, last = 1 + s, 1 + (s + 1) % segments
+    rim = 1 + (rings - 1) * segments
+    tris = np.concatenate(
+        [
+            np.stack([np.zeros(segments, int), first, last], 1),
+            np.stack([a.ravel(), d.ravel(), c.ravel()], 1),
+            np.stack([a.ravel(), c.ravel(), b.ravel()], 1),
+            np.stack([np.full(segments, len(co) - 1), rim + (s + 1) % segments, rim + s], 1),
+        ]
+    )
+    return co, tris
+
+
+def test_closed_volume_far_from_the_origin() -> None:
+    # 262,144 faces 10 km from the origin, where float32 keeps 2 mm. Version 1 of the preset
+    # (a float32 mean of the face centres, and Blender's Normal and Face Area fields) was
+    # 0.27 % out here; version 2 is within the float32 sum over the faces, Read Totals exact.
+    _reset()
+    co, tris = _hemisphere(2.0, 256, 512, (10000.0, 20000.0, 100.0))
+    mesh = bpy.data.meshes.new("Dome")
+    mesh.vertices.add(len(co))
+    mesh.vertices.foreach_set("co", co.astype(np.float32).ravel())
+    mesh.loops.add(tris.size)
+    mesh.loops.foreach_set("vertex_index", tris.astype(np.int32).ravel())
+    mesh.polygons.add(len(tris))
+    mesh.polygons.foreach_set("loop_start", np.arange(0, tris.size, 3, dtype=np.int32))
+    mesh.update()
+    obj = bpy.data.objects.new("Dome", mesh)
+    h.project().source_collection.objects.link(obj)
+    _select(obj)
+    assert _add("closed_volume") == {"FINISHED"}
+    # Signed tetrahedra about the vertices' mean, binary64, on the float32 vertices.
+    p = co.astype(np.float32).astype(np.float64)
+    p = p[tris] - p.mean(axis=0)
+    exact = np.einsum("ij,ij->i", p[:, 0], np.cross(p[:, 1], p[:, 2])).sum() / 6.0
+    assert abs(exact - 2 / 3 * math.pi * 8) < 2e-3 * exact  # a hemisphere of radius 2
+    values, _ = _values(obj, "closed_volume")
+    assert abs(values[0] - exact) < 2e-4 * exact, (values[0], exact)
+    (shown,) = _warnings(obj)
+    assert abs(float(shown.split()[1]) - exact) < 2e-4 * exact, shown
+    centres, area_vectors = _ap()._face_vectors(_evaluated(obj))
+    total = np.einsum("ij,ij->i", centres, area_vectors).sum() / 3.0
+    assert abs(total - exact) < 1e-12 * exact, (total, exact)
+    (line,) = _ap().totals(bpy.context, obj)
+    assert line == f"Closed Volume: volume {exact:,.3f} m³", line
+    _clear_trees()
