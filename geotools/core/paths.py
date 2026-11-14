@@ -5,7 +5,7 @@ and Windows and still find its files. Blender reads its own ``//`` relative
 paths with either separator on every OS, but ``bpy.path.abspath`` does not
 convert backslashes, so GeoTools resolves the paths it stores itself here.
 
-The rule (also in CONTRIBUTING.md, "File paths"):
+The rule (``tests/core/test_code_rules.py`` checks that ``geotools/`` follows it):
 
 - Writing (:func:`portable`): a path under the ``.blend``'s folder is stored
   Blender-relative, ``//sub/dir/file``, always with forward slashes. Anything

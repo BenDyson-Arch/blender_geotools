@@ -26,7 +26,7 @@ It writes, into ``--out``:
   vector tiles.
 
 Everything is synthetic: the site is invented, in open country, at round
-numbers. Never put real site data in this example (see CONTRIBUTING.md).
+numbers. Never put real site data in this example (see AGENTS.md).
 
 The node groups are ordinary user node groups in the example file, built here
 from stock nodes; GeoTools ships no node groups (it does not redo what Blender
@@ -459,7 +459,7 @@ def build_blend(out: Path) -> Path:
 
     blend = out / "drape-contexts.blend"
     # Saving stores the link relative to the .blend (//contexts.geojson, see
-    # CONTRIBUTING.md "File paths"), so the example works wherever it is checked out.
+    # geotools/core/paths.py), so the example works wherever it is checked out.
     bpy.ops.wm.save_as_mainfile(filepath=str(blend), compress=True, relative_remap=True)
     link = contexts.geotools_link.filepath
     assert link == "//contexts.geojson", f"the link was stored as {link!r}"
