@@ -794,7 +794,7 @@ def _fake_rusty_tiles() -> Iterator[None]:
         assert Path(input).is_file()
         Path(output).write_bytes(b"fake archive")
         report = {"triangles": 8, "tiles": 1, "leaves": 1}
-        return SimpleNamespace(report=report, diagnostics={}, output=output)
+        return SimpleNamespace(report=report, diagnostics={}, output=output, cleanup_diagnostics=[])
 
     deps._cache["rusty-tiles"] = deps.DependencyStatus(True, version="fake")
     job_mod._rusty_tiles = lambda: SimpleNamespace(

@@ -655,7 +655,7 @@ class BuildJob:
             "seconds": seconds,
             "phase_seconds": phase_seconds,
             "rusty_tiles_phase_seconds": diagnostics.get("phase_seconds", {}),
-            "rusty_tiles_version": _rusty_tiles_version(rt),
+            "rusty_tiles_version": _rusty_tiles_version(),
             "geotools": dict(request.extra_record),
             "settings": {
                 "profile": request.profile,
@@ -689,7 +689,7 @@ class BuildJob:
             "report_summary": summary,
             "validation": validation,
             "warnings": {"count": self._warning_count, "first": list(self._warnings)},
-            "cleanup_diagnostics": list(getattr(tiled, "cleanup_diagnostics", ()) or ()),
+            "cleanup_diagnostics": list(tiled.cleanup_diagnostics),
         }
         record_path.unlink(missing_ok=True)  # no record is better than a stale one
         for name in st.PROMOTED_FILES:
@@ -906,7 +906,7 @@ class BuildJob:
             "seconds": seconds,
             "phase_seconds": phase_seconds,
             "rusty_tiles_phase_seconds": {},
-            "rusty_tiles_version": _rusty_tiles_version(rt),
+            "rusty_tiles_version": _rusty_tiles_version(),
             "geotools": dict(request.extra_record),
             "settings": {
                 "force": request.force,
@@ -934,7 +934,7 @@ class BuildJob:
             "report_summary": summary,
             "validation": validation,
             "warnings": {"count": self._warning_count, "first": list(self._warnings)},
-            "cleanup_diagnostics": list(getattr(tiled, "cleanup_diagnostics", ()) or ()),
+            "cleanup_diagnostics": list(tiled.cleanup_diagnostics),
         }
         record_path.unlink(missing_ok=True)
         for name in st.PROMOTED_FILES:
@@ -1041,9 +1041,6 @@ def _size(path: Path) -> int | None:
         return None
 
 
-def _rusty_tiles_version(rt: ModuleType) -> str | None:
+def _rusty_tiles_version() -> str | None:
     status = deps.probe_rusty_tiles()
-    if status.available and status.version:
-        return status.version
-    version = getattr(rt, "__version__", None)
-    return version if isinstance(version, str) else None
+    return status.version if status.available else None
