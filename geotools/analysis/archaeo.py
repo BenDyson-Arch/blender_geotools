@@ -421,7 +421,9 @@ def standstill(epoch_julian_day: float, kind: str) -> Standstill:
     dt_days = jde - float(epoch_julian_day)
     last, nxt = last - dt_days, nxt - dt_days  # back to UT, near enough for a date
     nearest = last if abs(float(epoch_julian_day) - last) <= abs(nxt - epoch_julian_day) else nxt
-    eps = float(sun.mean_obliquity(_jde(nearest))[0])
+    # At the ends of the epoch range the standstill can fall up to half a node cycle
+    # (9.3 years) beyond Laskar's 10,000 years; the polynomial is smooth there.
+    eps = float(sun._mean_obliquity_jce(np.array([(_jde(nearest) - sun.J2000) / 36525.0]))[0])
     i = moon.INCLINATION
     mean = eps + i if kind == "major" else eps - i
     hours = np.arange(-366 * 24, 366 * 24 + 1, dtype=np.float64)

@@ -139,6 +139,9 @@ nav:
           - validation/README.md
           - Terrain shape and archaeological visualisation: validation/terrain.md
           - Geodesy and measurement: validation/geodesy.md
+          - Archaeoastronomy: validation/archaeoastronomy.md
+          - Hydrology, contours and sections: validation/hydrology.md
+          - Visibility, change, volumes and paths: validation/visibility.md
           - Sun, sun hours, insolation and shadow studies: validation/solar.md
   - Developer:
       - Contributing: contributing.md

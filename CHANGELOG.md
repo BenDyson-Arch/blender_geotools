@@ -47,6 +47,17 @@ and the project follows semantic versioning where practical.
   documented convention differences, now settled (see Changed). Reference script
   `scripts/validation/terrain/make_references.py`, fixtures in
   `tests/data/validation/terrain/`, tests in normal CI.
+- Validation of the visibility, distance, volume and least-cost path presets
+  ([docs/validation/visibility.md](docs/validation/visibility.md)): viewshed,
+  cumulative viewshed (live and fast), intervisibility, line of sight,
+  distance to surface and to a feature, cut and fill, closed volume and
+  least-cost path, against an exact line of sight over the same mesh, GDAL
+  3.13.3, GRASS 8.5.0 (`r.viewshed`, `r.walk`), trimesh 5.2.1, shapely 2.2.0
+  and networkx 3.7 on synthetic ridges, domes, hills and solids. All agree;
+  Earth curvature, the cut/fill split by face and least-cost routing on the
+  mean of both directions are documented differences; one bug fixed (see
+  Fixed). Reference scripts in `scripts/validation/visibility/`, fixtures in
+  `tests/data/validation/visibility/`, tests in normal CI.
 - Validation of geodesy and measurement
   ([docs/validation/geodesy.md](docs/validation/geodesy.md)): Measure's point
   readout, scale factor and convergence, ground distances, bearings and areas,
@@ -58,6 +69,31 @@ and the project follows semantic versioning where practical.
   (see Fixed) and four points left for a decision. Reference scripts in
   `scripts/validation/geodesy/`, fixtures in `tests/data/validation/geodesy/`,
   tests in normal CI.
+- Validation of archaeoastronomy
+  ([docs/validation/archaeoastronomy.md](docs/validation/archaeoastronomy.md)):
+  the horizon profile against an exact TIN march, a cone, the dip of a plain
+  and GRASS GIS 8.5.0 r.horizon; Meeus' Moon, the standstills and the
+  obliquity against JPL DE440s and DE441 (Skyfield 1.53, ERFA 2.0.1.5 with
+  Vondrák's long-term precession); rise, set and dated sunrise azimuths
+  against closed forms, Skyfield and astropy 7.1.0; and Check Alignment's
+  azimuths and declinations. All agree; two bugs fixed (see Fixed), and the
+  obliquity's accuracy at the ends of the epoch range is documented (42″ from
+  Vondrák 2011 at 8000 BCE). Reference scripts in
+  `scripts/validation/archaeoastronomy/`, fixtures in
+  `tests/data/validation/archaeoastronomy/`, tests in normal CI.
+- Validation of hydrology, contours and sections
+  ([docs/validation/hydrology.md](docs/validation/hydrology.md)): depression
+  filling, depressions, flow routing, flats, accumulation, Channel From and
+  the Flow Paths object, Flow Path (Quick Look), contours, sections and their
+  Export Vectors output, against closed forms, a heap priority-flood on the
+  same face graph (bit-identical), WhiteboxTools 2.4.0, richdem 0.3.4, GDAL
+  3.12.0 (gdal_contour, bilinear sampling) and SciPy 1.18.1 on synthetic
+  DEMs. All agree; face-centre spill levels (low by about a third of a face's
+  fall), three flow directions per face and flats routed towards their exit
+  are documented, and spurious shallow pits along V-channels that follow mesh
+  edges are a known limit. Reference script
+  `scripts/validation/hydrology/make_references.py`, fixtures in
+  `tests/data/validation/hydrology/`, tests in normal CI.
 - Validation of the solar tools ([docs/validation/solar.md](docs/validation/solar.md)):
   sun position (NREL SPA), ΔT, time zones, grid convergence, Place Sun and
   Over a Day, Sun Hours (open ground, slopes, walls, overhangs, horizon
@@ -105,6 +141,27 @@ and the project follows semantic versioning where practical.
 
 ### Fixed
 
+- The archaeoastronomy **horizon profile** no longer misses a near crest by up
+  to 0.1° when, with Earth curvature on, a farther range is hit by the coarse
+  ray just above the crest but appears lower than it: the fine pass now
+  refines every 0.1° bracket that can hold the skyline (any coarse hit within
+  0.1° of the best), not only the best one, so the skyline is found to about
+  0.002° as documented. Profiles without such a geometry are unchanged.
+- Archaeoastronomy **Compute Events** no longer fails with "Laskar's obliquity
+  is only valid within 10,000 years" for the epochs at either end of its range
+  (8000 and 7999 BCE, 11994 to 11999 CE) when the lunar standstills are on: the
+  standstill nearest such an epoch can fall a few years beyond the obliquity's
+  range, where the polynomial is still smooth.
+- Closed Volume (preset version 2) keeps its precision far from the origin.
+  Version 1 took its reference point as the float32 mean of each part's face
+  centres and used Blender's Normal and Face Area fields, which lose precision
+  there: a 262,144-face hemisphere 10 km from the origin came out 0.27 % too
+  large. The preset now measures every vertex from the part's first vertex and
+  builds each face's centre and area vector (Newell) from those, so it is
+  within 10⁻⁴ there, the float32 sum over the faces; the per-face values of
+  small parts are within 10⁻⁵. Read Totals now sums centres and area vectors
+  computed from the vertices in binary64, and is exact. Files that already
+  hold version 1 keep it on their modifiers; Add Analysis appends version 2.
 - Import Source Mesh no longer silently re-origins a georeferenced scene. An
   offset file found beside the mesh sets the project origin only when the
   project has none yet, or already has exactly that E, N and A (so a chunk
@@ -127,6 +184,13 @@ and the project follows semantic versioning where practical.
   from PROJ's Jacobian and the ellipsoid's radii; results agree with
   GeographicLib geodesics to 0.002 ppm. Conformal CRSs (transverse Mercator,
   Lambert conformal conic, stereographic) give the same results as before.
+- Contours and sections no longer draw a segment twice where a mesh edge lies
+  exactly on the cutting plane with both its triangles on the same side: a
+  ridge exactly at a contour level (common with heights quantised to the
+  centimetre and whole-metre contours), or a closed object's edge on a
+  section plane. Each such edge was cut by both of its triangles, so the
+  Contours object held two identical lines (a two-point "ring" in a section),
+  which a GIS showed as duplicate features.
 - Getting started step 8 (View the result) works as written: it uses Extract
   for Web and a complete viewer page instead of a snippet with an undefined
   `viewer`, and gives the Windows `py` command for Python's web server. The

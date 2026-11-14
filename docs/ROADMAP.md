@@ -301,7 +301,7 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
     - *Status:* built ([m5-analysis.md](design/m5-analysis.md#archaeoastronomy)):
       the horizon by a Cycles bake, event geometry for epochs within 10,000
       years of 2000, Meeus' Moon with standstill dates, sightlines as vector
-      lines and the alignment check.
+      lines and the alignment check. Validated ([validation/archaeoastronomy.md](validation/archaeoastronomy.md)).
   - **3D surface hydrology:** flow paths, flow accumulation and ponding
     (depressions, spill level, volume) on the mesh's connectivity, so walls,
     overhangs and multi-level surfaces work, which a 2.5D DEM cannot do.
@@ -339,6 +339,8 @@ layers (M3), so they display, publish as variants and export as metadata (M4).
     `ray_bake.py`) and stored once as a layer, chosen in Add Analysis
     ([analysis-presets.md](analysis-presets.md#fast-bake-paths)).
     Terrain and archaeological presets validated ([validation/terrain.md](validation/terrain.md)).
+    Hydrology, contours and sections validated ([validation/hydrology.md](validation/hydrology.md)).
+    Visibility, distance, volume and path presets validated ([validation/visibility.md](validation/visibility.md)).
   - Terrain shape: slope, aspect, curvature (plan and profile), roughness and
     rugosity, TPI and TRI.
   - Archaeological visualisation: local relief model, sky-view factor,

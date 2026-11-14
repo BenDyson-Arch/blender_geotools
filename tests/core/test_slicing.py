@@ -141,6 +141,26 @@ def test_contours_with_a_base_and_vertices_on_a_level() -> None:
         assert np.ptp(p[:, 0]) == 0
 
 
+def test_a_ridge_exactly_on_a_level_is_drawn_once() -> None:
+    # z = 1 - |x| on a grid with x = 0 a vertex column: the ridge's edges lie on the
+    # level 1 with both their triangles below it. Each is one segment of one line, not
+    # two (both triangles cut it): no duplicate lines along ridges at a level, as with
+    # quantised heights.
+    pts, tris = grid(4, -2, 2, lambda x, y: 1.0 - np.abs(x))
+    lines = slicing.contours(pts, tris, 1.0)
+    top = np.flatnonzero(lines.line_values["elevation"] == 1.0)
+    assert len(top) == 1
+    p = line_points(lines, int(top[0]))
+    assert np.allclose(p[:, 0], 0.0) and np.allclose(np.sort(p[:, 1]), np.linspace(-2, 2, 5))
+    # The monkey saddle z = x³ - 3xy²: its zero level runs along the vertex column x = 0,
+    # a ridge on part of it. No segment is drawn twice.
+    pts, tris = grid(40, -1, 1, lambda x, y: x**3 - 3 * x * y**2)
+    lines = slicing.contours(pts, tris, 0.25)
+    ends = np.sort(lines.edges, axis=1)
+    key = np.round(np.concatenate([lines.positions[ends[:, 0]], lines.positions[ends[:, 1]]], 1), 9)
+    assert len(np.unique(key, axis=0)) == len(key)
+
+
 def test_contour_level_guards() -> None:
     with pytest.raises(slicing.SliceError):
         slicing.contour_levels(0, 10, 0.0)
@@ -204,6 +224,22 @@ def test_section_along_a_bent_line_over_a_plane() -> None:
     assert lines.line_values["chainage_from"][0] == pytest.approx(0.0)
     assert lines.line_values["chainage_to"][0] == pytest.approx(18.0)
     assert lines.length[0] > 18.0
+
+
+def test_section_through_a_box_edge_on_its_plane_is_one_segment() -> None:
+    # The vertical plane through a closed box's corner edge with both walls on the side
+    # below it: both walls' triangles cut the edge, which is one vertical segment.
+    pts = np.array(
+        [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]],
+        dtype=float,
+    )
+    quads = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)]
+    tris = np.array([t for q in quads for t in ((q[0], q[1], q[2]), (q[0], q[2], q[3]))])
+    path = np.array([[3.0, 2.0, 0.0], [-1.0, -2.0, 0.0]])
+    lines = slicing.sections(pts, tris, path, np.array([0, 2]))
+    assert lines.count == 1 and not lines.closed[0] and len(lines.edges) == 1
+    p = line_points(lines, 0)
+    assert np.allclose(p[:, :2], [1.0, 0.0]) and sorted(p[:, 2]) == [0.0, 1.0]
 
 
 def test_section_misses_and_degenerate_lines() -> None:
