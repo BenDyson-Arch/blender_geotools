@@ -278,7 +278,7 @@ def plan(context: bpy.types.Context) -> Plan:
         where.latitude,
         where.longitude,
         where.height,
-        where.convergence,
+        where,
         refraction=sun_props.refraction,
         horizon=horizon,
     )
@@ -289,7 +289,7 @@ def plan(context: bpy.types.Context) -> Plan:
         linke_turbidity=props.linke_turbidity,
         altitude_m=where.height,
         diffuse_rays=props.diffuse_rays if props.insolation and props.diffuse else 0,
-        convergence=where.convergence,
+        convergence=where,
         horizon=horizon,
     )
     parameters: dict[str, object] = {
@@ -768,7 +768,7 @@ def shadow_study(context: bpy.types.Context) -> dict:
         pressure_hpa=sun.standard_pressure(where.height),
         refraction=sun_props.refraction,
     )
-    scene_azimuth = (position.azimuth - where.convergence) % 360.0
+    scene_azimuth = where.scene_azimuth(position.azimuth)
     euler = sun.light_euler(scene_azimuth, position.elevation)
     energy = np.where(position.elevation > 0.0, sun_props.strength, 0.0)
     first = sun_props.frame_start

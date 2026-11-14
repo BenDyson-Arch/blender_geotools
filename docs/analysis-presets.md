@@ -277,6 +277,30 @@ taken as true north). The layer's provenance records `"north": "true"` and
 the value used. Aggregation is **none**: aspect is circular, and an area mean
 of 350° and 10° is not 0°.
 
+**Non-conformal CRSs.** Convergence is one rotation, which is exact in a
+conformal grid (transverse Mercator, Lambert conformal conic, stereographic)
+for every direction. Albers equal-area and Web Mercator (EPSG:3857) are not
+conformal: the turn from grid to true north depends on the direction. There
+Aspect (True North) takes the rotation nearest the grid-to-ground map at the
+object's centre (`site.SunSite.rotation`, the rotation of its polar
+decomposition), which in both is the meridian convergence, as their
+meridians and parallels cross at right angles. Aspects facing along and
+across the meridian are then exact, and others are off by up to the values
+below, worst at 45° from the meridian. Add Analysis says so. For exact true
+aspects in those CRSs, work in a conformal CRS (the local MGA or UTM zone).
+
+| CRS | Site | Largest aspect error |
+|---|---|---|
+| EPSG:3577 Australian Albers | 115° E, 32° S (Perth) | 0.51° |
+| | 133° E, 25° S (centre) | 0.66° |
+| | 150° E, 12° S | 1.12° |
+| | 142° E, 11° S (Cape York) | 1.35° |
+| | 147° E, 43° S (Tasmania) | 1.81° |
+| EPSG:3857 Web Mercator | equator, 30°, 47°, 60° latitude | 0.19°, 0.14°, 0.09°, 0.05° |
+
+The Sun, Sun Hours and Shadow Study have no such limit: they turn each
+direction through the map itself.
+
 ### Curvature: profile, plan (tangential) and mean (`curvature_profile`, `curvature_plan`, `curvature_mean`, CORNER, 1/m)
 
 From a 3 × 3 window of heights at spacing w around each vertex (eight vertical

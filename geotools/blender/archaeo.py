@@ -371,7 +371,7 @@ def compute_horizon(context: bpy.types.Context) -> horizon.HorizonProfile:
         raise ArchaeoError("There are no meshes to be the terrain.")
     eye = np.array(point, dtype=np.float64) + np.array([0.0, 0.0, float(props.eye_height)])
     true_az = horizon.azimuths(props.azimuth_step)
-    scene_az = (true_az - where.convergence) % 360.0
+    scene_az = where.scene_azimuth(true_az)
     csf = _scale_factor(context, point)
     k = horizon.TERRESTRIAL_K if props.refraction else 0.0
     start = float(props.ignore_within)
@@ -610,7 +610,7 @@ def make_sightlines(context: bpy.types.Context) -> bpy.types.Object:
     starts, ends, lengths, sources = [], [], [], []
     for e in rows:
         true_az = e.best_azimuth
-        scene_az = math.radians((true_az - where.convergence) % 360.0)
+        scene_az = math.radians(float(where.scene_azimuth(true_az)))
         use_profile = profile is not None and math.isfinite(e.horizon_azimuth)
         if use_profile:
             i = profile.nearest(true_az)

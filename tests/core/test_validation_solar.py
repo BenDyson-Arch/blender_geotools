@@ -177,15 +177,16 @@ def test_delta_t_matches_pvlib() -> None:
 
 
 def test_convergence_matches_geodesics() -> None:
-    """Grid convergence from site.sun_site against a geodesic step due north, projected.
+    """Grid convergence and sun directions from site.sun_site against geodesic steps, projected.
 
     The reference does not use PROJ's get_factors. For conformal projections
     the grid bearing of any true azimuth is that azimuth minus the convergence,
     to 1e-6 degrees (observed 1e-7). Two allowed CRSs are not conformal, so one
     rotation cannot map every azimuth: Web Mercator (EPSG:3857, spherical
     formulas on ellipsoidal coordinates) and Australian Albers (EPSG:3577,
-    equal-area). Their residuals are the documented limit (0.09 and 0.24
-    degrees at these points).
+    equal-area). There the convergence alone is 0.09 and 0.24 degrees out at
+    these points (the turn before 0.3.0); ``scene_azimuth`` maps every
+    direction through the grid-to-ground map and is within 1e-6 everywhere.
     """
     pytest.importorskip("pyproj")
     from geotools.analysis import site
@@ -203,11 +204,21 @@ def test_convergence_matches_geodesics() -> None:
         assert where.convergence == pytest.approx(point["convergence"], abs=1e-6), what
         assert where.latitude == pytest.approx(point["latitude"], abs=1e-9), what
         assert where.longitude == pytest.approx(point["longitude"], abs=1e-9), what
-        grid = (np.array(point["azimuths"]) - where.convergence) % 360.0
-        residual = np.abs(wrap(grid - np.array(point["grid_bearings"]))).max()
-        assert residual < non_conformal.get(point["crs"], 1e-6), (what, residual)
+        azimuths = np.array(point["azimuths"])
+        bearings = np.array(point["grid_bearings"])
+        mapped = np.abs(wrap(where.scene_azimuth(azimuths) - bearings)).max()
+        assert mapped < 1e-6, (what, mapped)
+        back = np.abs(wrap(where.true_azimuth(bearings) - azimuths)).max()
+        assert back < 1e-6, (what, back)
+        turned = np.abs(wrap((azimuths - where.convergence) % 360.0 - bearings)).max()
+        assert where.conformal == (point["crs"] not in non_conformal), what
         if point["crs"] in non_conformal:
-            assert residual > 0.01, what  # the limit is real; update the doc if this changes
+            # The convergence alone: the documented limit before 0.3.0, still the
+            # one rotation Aspect (True North) can take (site.SunSite.rotation).
+            assert 0.01 < turned < non_conformal[point["crs"]], (what, turned)
+            assert where.rotation == pytest.approx(where.convergence, abs=1e-6), what
+        else:
+            assert turned < 1e-6 and where.rotation == where.convergence, (what, turned)
 
 
 # --- shadow study: equinoxes and solstices -------------------------------------------------------

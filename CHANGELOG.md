@@ -163,6 +163,21 @@ and the project follows semantic versioning where practical.
 
 ### Fixed
 
+- **True north in non-conformal CRSs.** The sun (Place Sun, Over a Day, Sun
+  Hours and its sky rays, Shadow Study) and the archaeoastronomy horizon and
+  sightlines turned true azimuths into scene ones by the one meridian
+  convergence, which is exact only in conformal grids. In Australian Albers
+  (EPSG:3577) directions between the meridian and the parallel were off by up
+  to 1.1° at 150° E, 12° S and 1.8° in Tasmania, in Web Mercator by up to
+  0.19°. They now go through the grid-to-ground map at the site that Measure
+  uses: within 10⁻⁶° of projected geodesic steps, and the Sun panel says
+  when the CRS is not conformal. Conformal CRSs (UTM, MGA, Lambert conformal,
+  stereographic), Anchor and Local projects give identical results.
+  Aspect (True North) is a preset of stock nodes with one Convergence input,
+  so there it stays one rotation (the nearest to the map, which is the
+  convergence in both): aspects along and across the meridian are exact,
+  others up to the same 1.8° and 0.19° off, as analysis-presets.md now
+  states and Add Analysis says.
 - **Refraction at the site's height.** The sun's position (Place Sun, Over a
   Day, Sun Hours, insolation, Shadow Study) and the archaeoastronomy rises and
   sets refracted at sea-level pressure (1013.25 hPa for SPA, Bennett's 1010

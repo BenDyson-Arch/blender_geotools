@@ -159,6 +159,43 @@ def test_light_points_at_the_geodesic_sun() -> None:
     assert abs(bearing - ref["azimuth"]) > 1.4
 
 
+def test_light_in_a_non_conformal_crs() -> None:
+    """Place Sun in Australian Albers (EPSG:3577) at 150 E, 12 S, a June morning.
+
+    The light's azimuth from +Y is the grid bearing of a 1 m geodesic step along
+    the sun's true azimuth, projected (no get_factors), to 1e-6 degrees; turning
+    by the convergence alone put it 1.1 degrees out there. The panel says why.
+    """
+    _reset()
+    if not _has_pyproj():
+        return
+    import pyproj
+
+    lon, lat = 150.0, -12.0
+    east, north = pyproj.Transformer.from_crs("EPSG:4283", "EPSG:3577", always_xy=True).transform(
+        lon, lat
+    )
+    _crs_project("EPSG:3577", east, north)
+    sun_props = bpy.context.scene.geotools_analysis.sun
+    _sun_date("2026-06-21", 10.0)
+    sun_props.hour, sun_props.minute, sun_props.second = 8, 30, 0
+    result, error = h.call_op(bpy.ops.geotools.sun_place)
+    assert result == {"FINISHED"}, error
+    stored = json.loads(sun_props.result)
+    towards = _towards_sun(bpy.data.objects["GeoTools Sun"])
+    bearing = math.degrees(math.atan2(towards[0], towards[1])) % 360.0
+    geod = pyproj.Geod(ellps="GRS80")
+    forward = pyproj.Transformer.from_crs("EPSG:4283", "EPSG:3577", always_xy=True)
+    ends = [geod.fwd(lon, lat, stored["azimuth"], d)[:2] for d in (1.0, -1.0)]
+    (e1, n1), (e0, n0) = (forward.transform(*end) for end in ends)
+    grid = math.degrees(math.atan2(e1 - e0, n1 - n0)) % 360.0
+    assert abs(bearing - grid) < 1e-4, (bearing, grid)  # float32 light rotation
+    assert abs(stored["scene_azimuth"] - grid) < 1e-6, (stored["scene_azimuth"], grid)
+    turned = (stored["azimuth"] - stored["convergence"]) % 360.0
+    assert abs(turned - grid) > 0.5, (turned, grid)
+    assert any("not conformal" in note for note in stored["notes"]), stored["notes"]
+
+
 def test_day_keys_switch_off_at_skyfield_sunrise_and_sunset() -> None:
     """Over a Day at 1-minute keys: the light is on exactly between Skyfield's rise and set.
 

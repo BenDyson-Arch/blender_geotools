@@ -320,6 +320,69 @@ def test_non_conformal_grid_follows_the_line_direction(crs: str, lon: float, lat
     assert site.face_areas(placement, square).ground_plan == pytest.approx(abs(area), rel=1e-7)
 
 
+@pytest.mark.parametrize(
+    ("crs", "lon", "lat", "before"),
+    [
+        ("EPSG:3577", 150.0, -12.0, 1.12),  # Australian Albers, far from its standard parallels
+        ("EPSG:3577", 147.0, -43.0, 1.81),  # Tasmania
+        ("EPSG:3857", 10.0, 0.5, 0.19),  # Web Mercator near the equator
+    ],
+)
+def test_sun_directions_in_a_non_conformal_grid(
+    crs: str, lon: float, lat: float, before: float
+) -> None:
+    """The sun's true azimuths map to the grid bearing of a geodesic step in that direction.
+
+    Regression: subtracting one convergence turned directions between the meridian
+    and the parallel by up to ``before`` degrees here. The reference is a 1 m
+    geodesic step (pyproj.Geod), projected: no get_factors.
+    """
+    geodetic = pyproj.CRS(crs).geodetic_crs
+    forward = pyproj.Transformer.from_crs(geodetic, crs, always_xy=True)
+    east, north = forward.transform(lon, lat)
+    placement = Placement(PlacementMode.SOURCE_CRS, source_crs=crs, source_offset=(east, north, 0))
+    where = site.sun_site(placement)
+    assert not where.conformal
+    geod = pyproj.Geod(ellps="GRS80" if "GDA" in geodetic.name else "WGS84")
+    true = np.arange(0.0, 360.0, 7.5)
+    lon2, lat2, _ = geod.fwd(
+        np.full_like(true, lon), np.full_like(true, lat), true, np.ones_like(true)
+    )
+    lon0, lat0, _ = geod.fwd(
+        np.full_like(true, lon), np.full_like(true, lat), true, -np.ones_like(true)
+    )
+    e2, n2 = forward.transform(lon2, lat2)
+    e0, n0 = forward.transform(lon0, lat0)
+    grid = np.degrees(np.arctan2(np.asarray(e2) - e0, np.asarray(n2) - n0)) % 360.0
+    error = np.abs((where.scene_azimuth(true) - grid + 180.0) % 360.0 - 180.0)
+    assert error.max() < 1e-6, error.max()
+    old = np.abs(((true - where.convergence) % 360.0 - grid + 180.0) % 360.0 - 180.0)
+    assert old.max() == pytest.approx(before, abs=0.01)
+    back = np.abs((where.true_azimuth(grid) - true + 180.0) % 360.0 - 180.0)
+    assert back.max() < 1e-6
+    # Along the meridian the convergence was right, and still is.
+    assert where.scene_azimuth(0.0) == pytest.approx((-where.convergence) % 360.0, abs=1e-9)
+    # One rotation (Aspect (True North)): the convergence, as meridians and parallels
+    # cross at right angles in both projections.
+    assert where.rotation == pytest.approx(where.convergence, abs=1e-6)
+
+
+def test_conformal_sun_directions_are_unchanged() -> None:
+    """Conformal grids, anchor and local scenes keep scene = true - convergence, bit for bit."""
+    true = np.linspace(0.0, 359.9, 997)
+    for placement in (
+        _crs_placement(EDGE_LON, EDGE_LAT),
+        Placement(PlacementMode.ANCHOR, anchor=(153.0, -27.5, 10.0), heading_degrees=30.0),
+    ):
+        where = site.sun_site(placement)
+        assert where.conformal and where.to_ellipsoid is None
+        assert np.array_equal(where.scene_azimuth(true), (true - where.convergence) % 360.0)
+        assert np.array_equal(where.true_azimuth(true), (true + where.convergence) % 360.0)
+        assert where.rotation == where.convergence
+    local = site.sun_site(Placement(), local_lon_lat=(0.0, 51.0))
+    assert np.array_equal(local.scene_azimuth(true), true % 360.0)
+
+
 def test_conformal_grids_keep_proj_scale_and_convergence() -> None:
     """Every conformal grid keeps PROJ's own point scale factor and convergence."""
     for crs in ("EPSG:7856", "EPSG:32633", "EPSG:2154", "EPSG:3031", "EPSG:5041", "EPSG:2172"):

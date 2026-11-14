@@ -50,6 +50,10 @@ The result shows the time in UTC, the sun's **Azimuth** from true north, its
 **Elevation**, the grid **Convergence**, and the azimuth in the scene (**Scene
 Az.**, from +Y). In a CRS project the sun is turned from true north to grid
 north by the convergence, up to about 1.5° at the edge of a UTM or MGA zone.
+In a CRS that is not conformal (Albers equal-area, Web Mercator) the turn
+depends on the direction, so GeoTools turns the sun through the grid's own
+map at the site (the one Measure uses), and the panel says so; the
+**Convergence** shown is then the turn along the meridian only.
 **Refraction** (on) lifts the sun near the horizon as the atmosphere does,
 at the standard atmosphere's pressure for the site's height (1013.25 hPa at
 sea level, 899 hPa at 1,000 m) and 12 °C: on high ground the sun rises a
@@ -233,7 +237,12 @@ The menu groups the presets:
 
 Entries with a clock icon are heavy on large meshes.
 
-Aspect has a **(True North)** entry beside the grid-north one. Sky-view factor,
+Aspect has a **(True North)** entry beside the grid-north one. It turns each
+object by one angle, the convergence at its centre, which is exact in UTM,
+MGA and other conformal grids. In Albers or Web Mercator aspects facing
+between the meridian and the parallel stay up to a degree or two out (see
+[analysis-presets.md](../analysis-presets.md#aspect-aspect-face-deg)); use a
+conformal CRS for exact true aspects there. Sky-view factor,
 openness and the cumulative viewshed have a **(Fast Bake)** entry: the same
 rays cast once by a Cycles bake, much faster on large meshes, stored as a
 layer instead of a live modifier.

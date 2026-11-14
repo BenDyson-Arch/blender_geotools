@@ -72,6 +72,36 @@ def test_sun_steps_refract_at_the_site_height() -> None:
     assert shorter == pytest.approx(4.0, abs=0.25)  # was 0: sea-level pressure everywhere
 
 
+def test_sun_steps_turn_through_the_site_map() -> None:
+    """A SunSite turns the sun's azimuths (and the sky rays' horizon lookups) through its
+    map; a number is a convergence, as before."""
+    pyproj = pytest.importorskip("pyproj")
+    from geotools.analysis import site
+    from geotools.core.placement import Placement, PlacementMode
+
+    east, north = pyproj.Transformer.from_crs("EPSG:4283", "EPSG:3577", always_xy=True).transform(
+        150.0, -12.0
+    )
+    where = site.sun_site(
+        Placement(PlacementMode.SOURCE_CRS, source_crs="EPSG:3577", source_offset=(east, north, 0))
+    )
+    steps = sh.period_steps(dt.date(2026, 6, 21), dt.date(2026, 6, 21), dt.UTC, 10.0)
+    mapped = sh.sun_steps(steps, where.latitude, where.longitude, 0.0, where)
+    turned = sh.sun_steps(steps, where.latitude, where.longitude, 0.0, where.convergence)
+    scene = np.degrees(np.arctan2(mapped.directions[:, 0], mapped.directions[:, 1])) % 360.0
+    np.testing.assert_allclose(scene, where.scene_azimuth(mapped.azimuth), atol=1e-9)
+    old = np.degrees(np.arctan2(turned.directions[:, 0], turned.directions[:, 1])) % 360.0
+    np.testing.assert_allclose(old, (turned.azimuth - where.convergence) % 360.0, atol=1e-9)
+    assert np.abs((scene - old + 180.0) % 360.0 - 180.0).max() > 0.5  # was up to 1.1 deg off
+    np.testing.assert_array_equal(mapped.directions[:, 2], turned.directions[:, 2])
+    # The sky rays: the horizon is looked up at each ray's true azimuth.
+    wall = (np.array([0.0, 90.0, 180.0, 270.0]), np.array([0.0, 30.0, 0.0, 0.0]))
+    rays = sh.build_rays(mapped, diffuse_rays=256, convergence=where, horizon=wall)
+    sky = rays.directions[rays.sun_rays :]
+    az = where.true_azimuth(np.degrees(np.arctan2(sky[:, 0], sky[:, 1])))
+    assert np.all(np.degrees(np.arcsin(sky[:, 2])) > sh.horizon_elevation(az, wall))
+
+
 def test_standard_pressure() -> None:
     assert clearsky.altitude_pressure(0.0) == pytest.approx(101325.0, rel=1e-4)
     assert clearsky.altitude_pressure(1000.0) == pytest.approx(89874.75046856777, rel=1e-12)

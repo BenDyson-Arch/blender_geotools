@@ -27,7 +27,11 @@ positive in the northern hemisphere and negative in the southern. Hence::
     grid bearing = true bearing - convergence
     true bearing = grid bearing + convergence
 
-For an ANCHOR scene it is minus the heading.
+For an ANCHOR scene it is minus the heading. Those two identities hold for
+every direction only in a conformal grid. In a non-conformal one (Albers,
+Web Mercator) they hold along the meridian; other directions turn through the
+grid-to-ellipsoid map below (``_Located.true_bearing``, and for the sun and
+other true directions ``SunSite.scene_azimuth``).
 
 Distances: grid distance = scale factor x ellipsoid distance, and ellipsoid
 distance = ground distance x R / (R + h), with R the Gaussian mean radius of
@@ -754,17 +758,72 @@ def face_areas(placement: Placement, triangles: np.ndarray) -> AreaReading:
 
 @dataclass(frozen=True, slots=True)
 class SunSite:
-    """Where the sun is seen from, and how the scene's +Y relates to true north."""
+    """Where the sun is seen from, and how the scene's +Y relates to true north.
+
+    Directions turn between true and scene azimuths with :meth:`scene_azimuth`
+    and :meth:`true_azimuth`. In a conformal grid (and in ANCHOR and LOCAL
+    scenes) that is the convergence: scene = true - convergence. In a
+    non-conformal one (Albers, Web Mercator) the turn depends on the
+    direction, so the grid-to-ellipsoid map at the site turns them; there
+    ``convergence`` is exact only along the meridian. Elevations are unchanged.
+    """
 
     longitude: float
     latitude: float
     height: float
-    """Ellipsoidal metres (only the SPA's tiny parallax term uses it)."""
+    """Ellipsoidal metres: the SPA's parallax term and the refraction's pressure."""
     convergence: float
-    """Degrees from true north to the scene's +Y, clockwise: subtract from true azimuths."""
+    """Degrees from true north to the scene's +Y, clockwise (the meridian's grid bearing,
+    negated): subtract from true azimuths in a conformal grid."""
     north: str
     """What the scene's +Y is: "grid north", "anchor heading" or "true north"."""
     geodetic_crs: str | None
+    to_ellipsoid: tuple[tuple[float, float], tuple[float, float]] | None = None
+    """A non-conformal grid's map at the site from a grid step (dE, dN) to the step on
+    the ellipsoid (true east, north metres); None where the convergence is exact."""
+
+    @property
+    def conformal(self) -> bool:
+        """True where one rotation (the convergence) turns every direction exactly."""
+        return self.to_ellipsoid is None
+
+    def scene_azimuth(self, true_azimuth: np.ndarray | float) -> np.ndarray:
+        """Scene azimuths (degrees clockwise from +Y, [0, 360)) of true azimuths."""
+        true = np.asarray(true_azimuth, dtype=np.float64)
+        if self.to_ellipsoid is None:
+            return (true - self.convergence) % 360.0
+        a = np.radians(true)
+        inverse = np.linalg.inv(np.array(self.to_ellipsoid, dtype=np.float64))
+        east = inverse[0, 0] * np.sin(a) + inverse[0, 1] * np.cos(a)
+        north = inverse[1, 0] * np.sin(a) + inverse[1, 1] * np.cos(a)
+        return np.degrees(np.arctan2(east, north)) % 360.0
+
+    def true_azimuth(self, scene_azimuth: np.ndarray | float) -> np.ndarray:
+        """True azimuths (degrees, [0, 360)) of scene azimuths (clockwise from +Y)."""
+        scene = np.asarray(scene_azimuth, dtype=np.float64)
+        if self.to_ellipsoid is None:
+            return (scene + self.convergence) % 360.0
+        a = np.radians(scene)
+        g = self.to_ellipsoid
+        east = g[0][0] * np.sin(a) + g[0][1] * np.cos(a)
+        north = g[1][0] * np.sin(a) + g[1][1] * np.cos(a)
+        return np.degrees(np.arctan2(east, north)) % 360.0
+
+    @property
+    def rotation(self) -> float:
+        """The one rotation (degrees, clockwise, true north to +Y) nearest the map.
+
+        The convergence in a conformal grid. Otherwise the rotation of the map's
+        polar decomposition (nearest in the least-squares sense), which turns
+        vectors (the sun) and gradients (an aspect) alike; in Albers and Web
+        Mercator, where meridians and parallels cross at right angles, it is the
+        convergence too, and exact for the four directions along and across the
+        meridian. For presets that take one angle (Aspect (True North)).
+        """
+        if self.to_ellipsoid is None:
+            return self.convergence
+        (a, b), (c, d) = self.to_ellipsoid
+        return math.degrees(math.atan2(b - c, a + d))
 
 
 def sun_site(
@@ -776,7 +835,8 @@ def sun_site(
     """The sun's site for a project, at the Blender world position ``local``.
 
     SOURCE_CRS: the point's latitude and longitude and the grid convergence
-    there (needs pyproj). ANCHOR: the anchor's latitude and longitude, and the
+    there (needs pyproj), and in a non-conformal grid the grid-to-ellipsoid map
+    there, which turns directions exactly. ANCHOR: the anchor's latitude and longitude, and the
     heading (no pyproj needed: the frame is the anchor's tangent plane). LOCAL:
     ``local_lon_lat`` (longitude, latitude), with +Y taken as true north.
     """
@@ -796,6 +856,10 @@ def sun_site(
     located = _locate(placement, np.asarray(local, dtype=np.float32).astype(np.float64)[None, :])
     lon, lat = float(located.lon[0]), float(located.lat[0])  # type: ignore[index]
     _check_lon_lat(lon, lat)
+    to_ellipsoid = None
+    if located.to_ellipsoid is not None and not _grid(crs_input(placement.source_crs)).conformal:
+        g = located.to_ellipsoid[0]
+        to_ellipsoid = ((float(g[0, 0]), float(g[0, 1])), (float(g[1, 0]), float(g[1, 1])))
     return SunSite(
         lon,
         lat,
@@ -803,6 +867,7 @@ def sun_site(
         float(located.convergence[0]),
         "grid north" if located.radius is not None else "true north",
         located.geodetic_name,
+        to_ellipsoid,
     )
 
 

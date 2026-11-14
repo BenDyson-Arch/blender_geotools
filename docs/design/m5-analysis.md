@@ -146,7 +146,22 @@ true bearing  = grid bearing + convergence
 ```
 
 The sun's true azimuth from SPA becomes a scene azimuth (clockwise from +Y) by
-subtracting the convergence. The light is then turned so its −Z points away
+subtracting the convergence (`site.SunSite.scene_azimuth`). That holds for
+every direction only in a conformal grid. In a non-conformal one (Albers
+equal-area, Web Mercator) it holds along the meridian, and elsewhere is off
+by up to 1.8° in EPSG:3577 and 0.19° in EPSG:3857, worst 45° from the
+meridian. There `sun_site` also carries the grid-to-ellipsoid map at the
+site (the metric times the inverse of PROJ's Jacobian, as Measure uses), and
+`scene_azimuth` maps the true direction (sin A, cos A) through its inverse:
+exact to 10⁻⁶° against projected geodesic steps. Elevations are unchanged.
+Sun Hours' sun rays, its sky rays' horizon lookups (`true_azimuth`, the
+forward map), Shadow Study and the archaeoastronomy horizon rays and
+sightlines use the same map. Aspect (True North), a preset of stock nodes,
+takes one angle: `SunSite.rotation`, the rotation of the map's polar
+decomposition, which is the convergence in a conformal grid and, since
+Albers and Web Mercator meridians and parallels cross at right angles, the
+convergence there too (exact for aspects along and across the meridian; see
+analysis-presets.md for the limit). The light is then turned so its −Z points away
 from the sun: Euler XYZ = (90° − elevation, 0, 180° − scene azimuth). The Z
 angle is unwrapped across keyframes, so the light never spins the long way
 round. The panel shows the true azimuth, the elevation, the convergence
