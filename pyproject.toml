@@ -37,6 +37,9 @@ extend-select = [
     "DTZ",  # naive datetimes: times are aware UTC (sun.utc_datetime) or sun.wall_clock
     "PTH",  # pathlib for file access; stored paths are text, see the ignores below
     "TID",  # banned APIs, each naming GeoTools' own helper (below)
+    "UP",  # pyupgrade, for the Python 3.13 that Blender 5.2 ships
+    "BLE",  # blind except: a broad handler must log with exc_info or re-raise
+    "S110",  # try/except/pass: say why with contextlib.suppress(SpecificError)
 ]
 ignore = [
     # Tuple/list concatenation to unpacking. It cannot tell sequences from numpy arrays
