@@ -1661,12 +1661,12 @@ def compose_main(argv: list[str]) -> int:
         with sync_playwright() as pw:
             try:
                 browser = pw.chromium.launch(args=CHROMIUM_ARGS)
-            except PlaywrightError:
+            except PlaywrightError as ex:
                 code = subprocess.run(
                     [sys.executable, "-m", "playwright", "install", "chromium"], check=False
                 ).returncode
                 if code != 0:
-                    raise MakeError("playwright install chromium failed")
+                    raise MakeError("playwright install chromium failed") from ex
                 browser = pw.chromium.launch(args=CHROMIUM_ARGS)
 
             def page_for(width: int, height: int):
@@ -1689,7 +1689,7 @@ def compose_main(argv: list[str]) -> int:
                     page.evaluate("window.render.final()")
                     page.wait_for_function(ready, timeout=300_000, polling=500)
                 except PlaywrightError as ex:
-                    raise MakeError(f"Cesium did not finish loading: {ex}")
+                    raise MakeError(f"Cesium did not finish loading: {ex}") from ex
                 state = page.evaluate(
                     "({errors: window.render.errors, visible: window.render.visible,"
                     " outside: window.render.outside()})"

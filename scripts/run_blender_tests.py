@@ -89,7 +89,7 @@ def zip_manifest(path: Path) -> dict:
                 raise RunError(f"{path} has no blender_manifest.toml")
             return tomllib.loads(zf.read(names[0]).decode("utf-8"))
     except (zipfile.BadZipFile, tomllib.TOMLDecodeError, OSError) as ex:
-        raise RunError(f"cannot read the manifest in {path}: {ex}")
+        raise RunError(f"cannot read the manifest in {path}: {ex}") from ex
 
 
 def blender_python(blender: str, env: dict[str, str]) -> tuple[int, int]:
@@ -106,8 +106,8 @@ def blender_python(blender: str, env: dict[str, str]) -> tuple[int, int]:
         result = subprocess.run(
             cmd, env=env, check=False, capture_output=True, text=True, timeout=BLENDER_TIMEOUT
         )
-    except subprocess.TimeoutExpired:
-        raise RunError(f"Blender did not finish within {BLENDER_TIMEOUT}s")
+    except subprocess.TimeoutExpired as ex:
+        raise RunError(f"Blender did not finish within {BLENDER_TIMEOUT}s") from ex
     for line in result.stdout.splitlines():
         if line.startswith(marker):
             major, _, minor = line[len(marker) :].strip().partition(".")
@@ -155,8 +155,8 @@ def run_blender(cmd: list[str], env: dict[str, str]) -> int:
     print("$ " + " ".join(cmd), flush=True)
     try:
         return subprocess.run(cmd, env=env, check=False, timeout=BLENDER_TIMEOUT).returncode
-    except subprocess.TimeoutExpired:
-        raise RunError(f"Blender did not finish within {BLENDER_TIMEOUT}s")
+    except subprocess.TimeoutExpired as ex:
+        raise RunError(f"Blender did not finish within {BLENDER_TIMEOUT}s") from ex
 
 
 def install(blender: str, zip_path: Path, ext_id: str, env: dict[str, str], root: Path) -> None:
@@ -227,7 +227,7 @@ def run_suite(
     try:
         report = json.loads(results.read_text(encoding="utf-8"))
     except (OSError, ValueError) as ex:
-        raise RunError(f"the in-Blender suite wrote no report (exit code {code}): {ex}")
+        raise RunError(f"the in-Blender suite wrote no report (exit code {code}): {ex}") from ex
     if code != 0 or report.get("failed") != 0 or not report.get("passed"):
         failed = [t["name"] for t in report.get("tests", []) if t.get("outcome") != "pass"]
         detail = f"; failed: {', '.join(failed)}" if failed else ""

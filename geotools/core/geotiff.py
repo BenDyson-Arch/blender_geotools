@@ -663,7 +663,7 @@ def read_band(info: GeoTiffInfo, band: int = 0, *, threads: int | None = None) -
             try:
                 raw = zlib.decompress(raw)
             except zlib.error as ex:
-                raise GeoTiffError(f"{info.name}: corrupt deflate data in chunk {k}: {ex}")
+                raise GeoTiffError(f"{info.name}: corrupt deflate data in chunk {k}: {ex}") from ex
         if not raw:  # a sparse (missing) chunk
             fill = info.nodata if info.nodata is not None else 0
             return np.full((rows, cols), fill, dtype=dtype.newbyteorder("="))

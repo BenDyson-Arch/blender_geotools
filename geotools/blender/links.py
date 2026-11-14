@@ -370,7 +370,10 @@ class GEOTOOLS_UL_links(bpy.types.UIList):
         flags = [self.bitflag_filter_item if is_linked(obj) else 0 for obj in objects]
         if self.filter_name:
             needle = self.filter_name.lower()
-            flags = [f if needle in obj.name.lower() else 0 for f, obj in zip(flags, objects)]
+            flags = [
+                f if needle in obj.name.lower() else 0
+                for f, obj in zip(flags, objects, strict=True)
+            ]
         return flags, []
 
 

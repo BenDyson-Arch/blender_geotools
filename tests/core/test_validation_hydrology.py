@@ -80,7 +80,9 @@ def priority_flood(surface: hy.Surface, drops: hy.Drops) -> np.ndarray:
     neighbour to at least the popped level."""
     z = surface.centroids[:, 2]
     adj = neighbours(surface)
-    heap = [(z[f], f) for f, t in zip(drops.face.tolist(), drops.target.tolist()) if t < 0]
+    heap = [
+        (z[f], f) for f, t in zip(drops.face.tolist(), drops.target.tolist(), strict=True) if t < 0
+    ]
     heapq.heapify(heap)
     filled = np.full(surface.n, np.nan)
     while heap:
