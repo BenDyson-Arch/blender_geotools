@@ -91,6 +91,7 @@ source faces with
 
 ## Install
 
+<!-- install-start: docs/index.md includes this block -->
 You need Blender 5.2 LTS on Linux x64, Windows x64 or macOS arm64 (macOS 15 or
 later). rusty-tiles and pyproj are bundled, so there is nothing else to
 install.
@@ -102,6 +103,7 @@ install.
 2. In Blender, open **Edit > Preferences > Get Extensions** and choose
    **Install from Disk** (or drag the zip into the Blender window).
 3. In the 3D Viewport, press **N** and select the **GeoTools** tab.
+<!-- install-end -->
 
 To build the zip yourself, see
 [CONTRIBUTING.md](CONTRIBUTING.md#building).
@@ -125,8 +127,8 @@ the scene is, and it does not need BlenderGIS:
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and the plan in
-[docs/ROADMAP.md](docs/ROADMAP.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Open work is in the
+[issues](https://github.com/BenDyson-Arch/blender_geotools/issues).
 
 ## Licence
 

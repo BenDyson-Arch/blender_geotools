@@ -975,12 +975,6 @@ PRESETS: tuple[Preset, ...] = (
 )
 
 
-PLANNED: tuple[tuple[str, str], ...] = (
-    ("Surface reading", "ambient occlusion and curvature bakes for worn surfaces"),
-)
-"""The next batch of presets (docs only)."""
-
-
 _BY_ID = {p.id: p for p in PRESETS}
 
 

@@ -1,12 +1,11 @@
 # Validation: archaeoastronomy
 
-Status: validated on `val/archaeoastronomy` (2026-11-14), against GeoTools
-0.3.0-dev (develop at 38fd2e3) in Blender 5.2.4 with rusty-tiles 0.4.1. Two
-bugs were found and fixed; four points were left for a decision, and all
-four are now [resolved](#decisions-resolved).
+Checked on 2026-11-14 in Blender 5.2.4 with rusty-tiles 0.4.1. Two bugs were
+found and fixed; four points were left for a decision, and all four are
+[resolved](#decisions-resolved).
 
-This covers the Archaeoastronomy sub-panel
-([m5-analysis.md](../design/m5-analysis.md#archaeoastronomy)): the horizon
+This covers the [Archaeoastronomy](../guide/analysis.md#archaeoastronomy)
+sub-panel: the horizon
 profile (`geotools/analysis/horizon.py`, the Cycles bake in
 `geotools/blender/archaeo.py`), the Moon (`moon.py`, `_moon_tables.py`), and
 the events, standstills, sightlines and alignment check (`archaeo.py`). For
@@ -318,7 +317,7 @@ and 3.5°, `rise_set_azimuths` agrees to **2×10⁻⁴°**, including the cases
 where the body never rises or never sets (both NaN). The equinox sunrise is
 north of east by `asin(tan φ tan 0.84°)` (0.84° at 45°, 1.45° at 60°), and the
 airless solstice amplitude is `asin(sin ε / cos φ)` to 10⁻⁴° from 66° S to
-66° N. The epoch table in m5-analysis.md (June sunrise at 51.18° N: 49.25° in
+66° N. The epoch table in the code's documentation (June sunrise at 51.18° N: 49.25° in
 2026 to 47.70° in 8000 BCE) is reproduced exactly.
 
 **Dated sunrises against Skyfield.** Six sites (64° N, 51° N, 35° N, the
@@ -375,30 +374,30 @@ within 0.002°. **Verdict:** agrees, with the documented convention.
 
 ## Decisions (resolved)
 
-The validation left four points for a decision. The user's decisions
-(2026-11-14) are implemented on `fix/validation-decisions`.
+The validation left four points for a decision. What was decided
+(2026-11-14):
 
 1. **The obliquity at the ends of the epoch range.** Laskar's (1986)
    polynomial is 42″ from Vondrák et al. (2011) at 8000 BCE and 26″ at
-   12000 CE (5.5″ at 3000 BCE), while `sun.mean_obliquity`, m5-analysis.md
+   12000 CE (5.5″ at 3000 BCE), while `sun.mean_obliquity`, the code's documentation
    and the panel's trust note claimed "a few arc seconds at the ends" and
    lunar extremes "to about 0.01°" (0.015° at 8000 BCE). The effect on an
    azimuth is about 0.02° at 8000 BCE. **Done (documented):** the docstrings
-   of `sun.mean_obliquity` and `moon`, m5-analysis.md and the guide state the
+   of `sun.mean_obliquity` and `moon`, the code's documentation and the guide state the
    accuracy against Vondrák (2011): within 1″ from 1000 BCE to 6000 CE, 5.5″
    at 3000 BCE, 17.5″ at 5000 BCE, 42″ at 8000 BCE (0.012°, about 0.02° in a
    sunrise azimuth), 26″ at 12000 CE; lunar extremes 0.015° at 8000 BCE. The
    panel's trust note gives the gap for the chosen epoch
    (`archaeo.obliquity_gap`, from the table above). Switching to Vondrák's
-   ε_A is in the backlog ([ANA-4](../BACKLOG.md#ana-4-vondrák-2011-obliquity-for-ancient-epochs)).
+   ε_A is issue [#108](https://github.com/BenDyson-Arch/blender_geotools/issues/108).
 2. **The sun's parallax in Check Alignment's declination** (8.8″, 0.0024°)
    is left out, as is customary. **Done (documented):** the guide's Check
-   Alignment and m5-analysis.md say so, and that the Moon's parallax (about
+   Alignment and the code's documentation say so, and that the Moon's parallax (about
    0.95°) must be applied by the user, or azimuths compared with the events,
    which include it.
 3. **The horizon's fine-step bias.** The skyline is the highest fine ray that
    hits, so it is 0 to 0.0016° low (median 0.0007°), inside the documented
-   0.002°. **Done (documented):** kept, and the guide and m5-analysis.md now
+   0.002°. **Done (documented):** kept, and the guide and the code's documentation now
    state the bias and why it is not centred (half a fine step would make a
    hard surface edge appear above itself).
 4. **Fixed refraction conditions.** Astronomical refraction was Bennett's at

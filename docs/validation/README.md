@@ -3,9 +3,8 @@
 Independent evidence that each analysis tool is correct and follows the GIS
 definition it claims, or a statement of where and why it differs. One page per
 area: the definitions, reference tools and versions, cases, tolerances,
-results and a verdict per tool. Every point the validation left for a
-decision has been decided (2026-11-14); each page's Decisions section says
-what was done. `scripts/validation/exports/` checks GeoTools' GeoPackage and
+results and a verdict per tool. Each page's Decisions section says what was
+done about the points its checks raised. `scripts/validation/exports/` checks GeoTools' GeoPackage and
 GeoJSON exports with GDAL.
 
 ## Terrain shape and archaeological visualisation
@@ -45,7 +44,7 @@ long-term precession), astropy 7.1.0 and GRASS GIS 8.5.0 r.horizon. All agree.
 Two bugs fixed: Compute Events failed at the ends of the epoch range, and the
 horizon could miss a near crest by up to 0.1° with curvature on. Resolved:
 the stated accuracy of Laskar's obliquity (42″ from Vondrák at 8000 BCE, now
-in the docs and the panel; Vondrák's series is in the backlog), the sun's
+in the docs and the panel; Vondrák's series is issue [#108](https://github.com/BenDyson-Arch/blender_geotools/issues/108)), the sun's
 parallax left out of the alignment declination and the horizon's fine-step
 bias (both documented), and refraction at the site's height (the
 standard-atmosphere pressure).
@@ -62,8 +61,8 @@ face-centre spill levels, three flow directions per face and flats routed
 towards their exit are documented convention differences. Resolved: sections
 export chainage as M (LineString ZM; a per-point property in GeoJSON); the
 V-channel pits, face-centre spill levels and the contour convention are in
-the guide; linking faces through vertices and stream order are in the
-backlog.
+the guide; linking faces through vertices and stream order are issues
+[#106](https://github.com/BenDyson-Arch/blender_geotools/issues/106) and [#107](https://github.com/BenDyson-Arch/blender_geotools/issues/107).
 
 ## Visibility, change, volumes and paths
 
@@ -78,7 +77,7 @@ routing on the mean of both directions are documented convention
 differences. One bug fixed (Closed Volume lost float32 precision far from the
 origin). Resolved: the sign of distance to surface within the wedge of
 edges sharper than 90° (kept, as CloudCompare, documented) and Earth
-curvature (documented with its size; an optional input is in the backlog).
+curvature (documented with its size; an optional input is issue [#105](https://github.com/BenDyson-Arch/blender_geotools/issues/105)).
 
 ## Sun, sun hours, clear-sky insolation and shadow studies
 

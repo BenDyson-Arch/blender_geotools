@@ -1,17 +1,15 @@
 # Validation: hydrology, contours and sections
 
-Status: validated on `val/hydrology` (2026-11-14), against GeoTools 0.4.0-dev
-(develop at 3a90e20) in Blender 5.2.4. One bug was found and fixed (duplicate
+Checked on 2026-11-14 in Blender 5.2.4. One bug was found and fixed (duplicate
 contour and section segments). Five discrepancies were left for a decision;
-all five are now [resolved](#decisions-resolved).
+all five are [resolved](#decisions-resolved).
 
 This covers 3D surface hydrology (`geotools/analysis/hydrology.py`,
 `geotools/blender/hydrology.py`), the Flow Path (Quick Look) preset, contours
 and sections (`geotools/analysis/slicing.py`, `polylines.py`,
 `geotools/blender/contours.py`), and Export Vectors for the lines and points
 they make. For each tool it gives the definition followed, the reference tools,
-the cases, the tolerances, the results and a verdict. The design is in
-[m5-analysis.md](../design/m5-analysis.md).
+the cases, the tolerances, the results and a verdict.
 
 ## Verdicts
 
@@ -215,7 +213,7 @@ depends on each method's flow width.) Single-direction routing drifts water
 off the fall line toward the mesh's (or grid's) directions, and GeoTools'
 drift matches D8's: within 0.064 in the first band, 0.021 in the others.
 D-infinity, which splits flow between two cells, holds a steady ratio. GeoTools does not offer multiple-flow
-routing (D-infinity, MFD); see m5-analysis.md for why (accumulation stays a
+routing (D-infinity, MFD); see the code's documentation for why (accumulation stays a
 tree, vectorised).
 
 **Cone.** Every step goes outward; a step is a median 28° off radial (at most
@@ -425,7 +423,7 @@ are the same surface.
 line with two bends over a plane): one piece round both bends; every point
 on the plane to 10⁻¹² m, on the section line, with its chainage equal to the
 plan distance along the line to 10⁻¹² m; `chainage_to` is the line's length.
-The sphere sections of m5-analysis.md (41, 11 and 2.6 mm at 32, 64 and 128
+The sphere sections of the code's documentation (41, 11 and 2.6 mm at 32, 64 and 128
 segments) are the facets' departure from the sphere.
 
 **Verdict.** Agrees after the fix (a box edge lying on the section plane gave
@@ -467,8 +465,8 @@ per piece only. See [decision 3](#decisions-resolved).
 
 ## Decisions (resolved)
 
-The validation left five points for a decision. The user's decisions
-(2026-11-14) are implemented on `fix/validation-decisions`.
+The validation left five points for a decision. What was decided
+(2026-11-14):
 
 1. **Pits along V-channels that follow mesh edges** ([above](#v-channels-along-mesh-edges)).
    Faces linked only through shared edges make each cell of such a channel a
@@ -477,13 +475,12 @@ The validation left five points for a decision. The user's decisions
    unaffected. **Done (documented):** the guide's hydrology Limits explain
    the pits, how deep and why, that accumulation is unaffected, and suggest a
    Minimum Depth of about a third of a face's fall across the channel
-   (side slope × h/3) on coarse meshes; m5-analysis.md says the same. Linking
-   faces that share a vertex is in the backlog
-   ([ANA-2](../BACKLOG.md#ana-2-link-hydrology-faces-through-shared-vertices)).
+   (side slope × h/3) on coarse meshes; the code's documentation says the same. Linking
+   faces that share a vertex is issue [#106](https://github.com/BenDyson-Arch/blender_geotools/issues/106).
 2. **Spill levels at face centres.** Levels are low by about h/3 × slope
    against a raster priority-flood (3 % of the inverted cone's volume at 1 m
    cells). **Done (documented):** kept; the guide states it next to Minimum
-   Depth, and m5-analysis.md in its Limits.
+   Depth, and the code's documentation in its Limits.
 3. **Section chainage on export.** **Done:** sections export as LineString
    ZM with chainage as M in a GeoPackage (`m` = 1, ISO WKB 3002), and, since
    GeoJSON positions hold no M, with a `chainage` property holding one value
@@ -499,9 +496,9 @@ The validation left five points for a decision. The user's decisions
 4. **Contours at the lowest level and at isolated vertex peaks** give no line
    in GeoTools, where gdal_contour draws a line along the bottom edge or a
    microscopic loop. **Done (documented):** kept (no area is missed); the
-   guide's Contours section now says so, as m5-analysis.md does.
-5. **No stream order and no flat convergence.** **Done:** in the backlog
-   ([ANA-3](../BACKLOG.md#ana-3-stream-order-and-convergent-flow-on-flats)):
+   guide's Contours section now says so, as the code's documentation does.
+5. **No stream order and no flat convergence.** **Done:** issue
+   [#107](https://github.com/BenDyson-Arch/blender_geotools/issues/107):
    Strahler or Shreve order over the channel tree, and the "away from higher
    terrain" gradient on flats.
 

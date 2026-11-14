@@ -11,9 +11,9 @@ What a layer does today:
   `site.slope.3tz`;
 - it is written as glTF metadata in the [GLB with metadata](glb-metadata.md).
 
-rusty-tiles 0.4 cannot carry metadata into tiles, so a variant is the way to
-see a layer in a 3D Tiles viewer. Queryable layers in the tiles themselves come
-with rusty-tiles 0.5 (see the [roadmap](../ROADMAP.md)).
+Tiles carry no layer metadata, so a variant is the way to see a layer in a 3D
+Tiles viewer. The [GLB with metadata](glb-metadata.md) carries the values
+themselves.
 
 ## Add a layer
 
@@ -143,15 +143,13 @@ The **Details** sub-panel holds the fields you rarely change:
 - **Origin**: **Geometry Nodes**, **Analysis** or **Manual**;
 - **Aggregation**: how coarse levels of detail will combine values (**Default**
   is the area-weighted mean for numbers and the most common value for booleans
-  and categories). It is stored now for rusty-tiles 0.5, which will use it;
+  and categories). It is recorded with the layer in `build.json` and the GLB;
 - **Description**;
 - which tool made the layer, from its provenance.
 
 ## Limits
 
-- Layer values reach 3D Tiles only as colours (variants) until rusty-tiles 0.5.
-  The [GLB with metadata](glb-metadata.md) carries the values themselves.
+- Layer values reach 3D Tiles only as colours, in variants. The
+  [GLB with metadata](glb-metadata.md) carries the values themselves.
 - A texture layer needs UVs, and its images live next to the saved `.blend`.
 - A float layer without a no-data value has no explicit "no value". Set one.
-
-Design details: [design/m3-layers.md](../design/m3-layers.md).

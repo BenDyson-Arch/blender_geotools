@@ -138,25 +138,15 @@ the **GeoTools** tab of the 3D Viewport sidebar.
 
 ## Install
 
-You need Blender 5.2 LTS on Linux x64, Windows x64 or macOS arm64 (macOS 15 or
-later). rusty-tiles and pyproj are bundled, so there is nothing else to
-install.
-
-1. Download the zip for your platform from the
-   [releases](https://github.com/BenDyson-Arch/blender_geotools/releases):
-   `geotools-<version>-linux_x64.zip`, `-windows_x64.zip` or
-   `-macos_arm64.zip`.
-2. In Blender, open **Edit > Preferences > Get Extensions** and choose
-   **Install from Disk** (or drag the zip into the Blender window).
-3. In the 3D Viewport, press **N** and select the **GeoTools** tab.
+{% include-markdown "../README.md" start="<!-- install-start: docs/index.md includes this block -->" end="<!-- install-end -->" %}
 
 Then follow [Getting started](guide/getting-started.md): it takes a synthetic
 demo site from an empty Blender to a published tileset in about ten minutes.
 
 ## Project
 
-- [Contributing](../CONTRIBUTING.md), the [changelog](../CHANGELOG.md) and the
-  [roadmap](ROADMAP.md).
+- The [changelog](../CHANGELOG.md) and the
+  [open issues](https://github.com/BenDyson-Arch/blender_geotools/issues).
 - GeoTools is licensed under GPL-3.0-or-later ([licence](../LICENSE)).
 - The old 0.2 add-on lives on the
   [`legacy-0.2`](https://github.com/BenDyson-Arch/blender_geotools/tree/legacy-0.2)

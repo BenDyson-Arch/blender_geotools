@@ -69,6 +69,3 @@ and tracing is refused. Publish again.
   `build.json` beside it, its tiles are placed with the scene's current
   placement, and the panel says so.
 - Opening many tiles makes many objects. Raise **Limit** with care.
-
-Design details:
-[design/m7-output-inspection.md](../design/m7-output-inspection.md).

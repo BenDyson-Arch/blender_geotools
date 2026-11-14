@@ -2,12 +2,11 @@
 
 The Markdown under docs/ is written to read well on GitHub, so some relative
 links leave docs/ (``../../examples/drape-contexts/``,
-``../../CONTRIBUTING.md#building``) or point at a folder (``../design/``).
+``../../CONTRIBUTING.md#building``) or point at a folder (``../../examples/``).
 On GitHub those work; MkDocs cannot resolve them. Before each page is
 rendered, this hook rewrites such links, and only those:
 
-- a root file the site includes as a page (CONTRIBUTING.md, CHANGELOG.md,
-  LICENSE) becomes a link to that page, keeping the anchor;
+- a root file the site includes as a page (CHANGELOG.md, LICENSE) becomes a link to that page, keeping the anchor;
 - any other file or folder outside docs/, or a folder inside docs/ with no
   index page, becomes a link to it on GitHub (``SOURCE_BRANCH``).
 
@@ -33,7 +32,6 @@ EDIT_BRANCH = "develop"
 
 # Repository root file -> the docs page that includes it.
 ROOT_PAGES = {
-    "CONTRIBUTING.md": "contributing.md",
     "CHANGELOG.md": "changelog.md",
     "LICENSE": "license.md",
 }

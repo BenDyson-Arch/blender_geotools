@@ -1,8 +1,8 @@
 # Validation: visibility, change, volumes and paths
 
-Status: validated on `val/visibility` (2026-11-14), against GeoTools 0.4.0-dev
-(develop at 3a90e20) in Blender 5.2.4. Two points were left open; both are
-now [resolved](#decisions-resolved) (documented, one in the backlog).
+Checked on 2026-11-14 in Blender 5.2.4. Two points were left open; both are
+[resolved](#decisions-resolved) (documented, and one is issue
+[#105](https://github.com/BenDyson-Arch/blender_geotools/issues/105)).
 
 This covers the Geometry Nodes presets of
 [analysis-presets.md](../analysis-presets.md) under *Visibility*, *Change and
@@ -180,8 +180,9 @@ viewsheds beyond about 2 km, where a target 0.3 m below a ridge line of sight
 can be hidden. analysis-presets.md states this, now with the drops above
 (0.7 mm at 100 m, 6.7 cm at 1 km, 1.7 m at 5 km). **Decided**
 ([decision 2](#decisions-resolved)): an optional Curvature input for
-landscape work (lowering each target by the drop above) is in the backlog;
-until then, use GDAL or GRASS through M8 for views over kilometres.
+landscape work (lowering each target by the drop above) is issue
+[#105](https://github.com/BenDyson-Arch/blender_geotools/issues/105);
+for views over kilometres, use GDAL or GRASS.
 
 ### Ray Offset
 
@@ -404,7 +405,7 @@ Photogrammetry meshes have edges in every direction and are far less biased.
 
 ## Decisions (resolved)
 
-The validation left two open points. The user's decisions (2026-11-14):
+The validation left two open points. What was decided (2026-11-14):
 
 1. **Sign of Distance to Surface at edges sharper than 90°.** Kept: the sign
    is the nearest face's, as in CloudCompare's C2M, and can be wrong within
@@ -415,8 +416,7 @@ The validation left two open points. The user's decisions (2026-11-14):
    (documented):** analysis-presets.md gives the drop GDAL and GRASS apply,
    (1 − k) d² / 2R with k = 1/7: 0.7 mm at 100 m, 6.7 cm at 1 km, 0.27 m at
    2 km and 1.7 m at 5 km, and when it matters. An optional Curvature input
-   is in the backlog
-   ([ANA-1](../BACKLOG.md#ana-1-earth-curvature-for-landscape-viewsheds)).
+   is issue [#105](https://github.com/BenDyson-Arch/blender_geotools/issues/105).
 
 ## References
 

@@ -1,14 +1,13 @@
 # Analysis presets
 
-Status: the M5 preset library (see
-[ROADMAP.md](ROADMAP.md#m5-analysis-library)). First batch: terrain shape and
-archaeological visualisation. Second batch: visibility, change and distance,
-volumes, and paths and flow. Sky-view factor, openness and the cumulative
-viewshed also have a [fast (bake) path](#fast-bake-paths) for large meshes.
+The presets cover terrain shape, archaeological visualisation, visibility,
+change and distance, volumes, and paths and flow. Sky-view factor, openness
+and the cumulative viewshed also have a [fast (bake) path](#fast-bake-paths)
+for large meshes.
 
 A preset is an ordinary Geometry Nodes group built from stock nodes. **Add
 Analysis** (Analysis panel ▸ Presets) appends it to the file, adds it as a
-modifier on the selected meshes and creates the [layer](design/m3-layers.md)
+modifier on the selected meshes and creates the [layer](guide/layers.md)
 its Store Named Attribute writes. Nothing is computed by GeoTools code: the
 modifier computes the values, the layer reads them from the evaluated mesh,
 and publishing applies the modifier. Change a preset's inputs on the modifier,
@@ -76,7 +75,7 @@ and EDGE attributes, listed with each preset. The object's
 records (JSON), plus the attributes and their units. Choose the collection in
 a Vectors build profile to publish the lines with their attributes: loose
 edges become lines and loose vertices points, and EDGE and POINT attributes
-become columns ([m8-geo-formats.md](design/m8-geo-formats.md)).
+become columns ([Geo formats](guide/geo-formats.md#publish-vectors)).
 
 ### Totals
 
@@ -94,7 +93,7 @@ Sky-view factor, positive and negative openness and the cumulative viewshed
 cast many rays per element, and in Geometry Nodes take minutes on a
 10M-triangle mesh. Each also has a **fast path**: the same rays, inputs and
 formulas, cast by Cycles `Raycast` shader nodes in one EMIT bake (the sun-hours
-engine, [m5-analysis.md](design/m5-analysis.md#fast-bake-paths-for-presets)),
+engine),
 and stored as a layer.
 
 **Using it.** Add Analysis ▸ *Sky-View Factor (Fast Bake)* (and likewise for
@@ -216,7 +215,7 @@ attributes named `.gt_tmp_*`, removed before the group ends.
 ## Conventions
 
 - Scene units are metres, +Z is up, and +Y is north (grid north for a CRS
-  project; see [m5-analysis.md](design/m5-analysis.md#north-and-convergence)).
+  project).
 - Every layer is FLOAT. No data is NaN, which the ramps show in the no-data
   colour.
 - **FACE** presets work from face normals and areas, on any mesh, including
@@ -432,8 +431,8 @@ from the heights along them, and subtracts that; contour extraction and
 scattered-data interpolation have no clean stock-node form, so that step is
 **not** done. Use a radius larger than the features of interest, and expect a
 slight halo of the opposite sign around large features, which the purge step
-would remove. A GeoTools-code path (numpy on a height raster from M8) or
-RVT/QGIS through M8 can give the full LRM.
+would remove. RVT or QGIS, on a height raster exported from the mesh, give
+the full LRM.
 
 ### Sky-View Factor (`sky_view_factor`, CORNER, ratio)
 
@@ -488,10 +487,9 @@ Same inputs and defaults; display range 60–120°. Both have a
 **Geometry Nodes Raycast, not a bake.** Every visibility preset casts one ray
 per element per observer, from the element to the eye. For one observer that
 is one ray per face: 1M rays on a 1M-triangle mesh, which Geometry Nodes casts,
-BVH build included, in 0.7 s (7.7 s at 10M). The roadmap's other
+BVH build included, in 0.7 s (7.7 s at 10M). The other
 candidate, a point light at the observer and a shadow bake, pays a Cycles
-bake's fixed cost before casting a ray: measured on this machine for sun hours
-([m5-analysis.md](design/m5-analysis.md#visibility-cycles-raycast-nodes-in-a-bake)),
+bake's fixed cost before casting a ray: measured on this machine for sun hours,
 about 1.3 s per bake at 1M triangles and 15–20 s at 10M, plus about 1 s (1M)
 and 7.7 s (10M) to build the sample object that carries face values, and the
 values must then be written back as a layer by GeoTools code. So a bake is
@@ -617,7 +615,7 @@ nearest distance, not along a fixed direction, so on steep ground it is
 shorter than the vertical difference cut and fill measures. It is not M3C2
 (Lague et al. 2013):
 there is no normal-scale averaging and no confidence interval; for that,
-compare in CloudCompare and import the result (M8). Beyond the reference's
+compare in CloudCompare and import the result. Beyond the reference's
 edge the nearest point is on its boundary and the distance means little:
 **Max Distance** (default 1 m) makes anything farther no data, but within Max
 Distance of the edge the values are still to the edge, so trim the meshes to
@@ -638,7 +636,7 @@ may get either sign; CloudCompare's C2M behaves the same way
 
 The distance from each vertex to the nearest face, edge or vertex of the
 **Feature** object: polygons, lines and points (curves become edges, point
-clouds vertices), such as vector features imported with M8. With
+clouds vertices), such as imported vector features. With
 **Horizontal** (default) both are flattened to z = 0 first: the plan distance
 a GIS buffer uses, 0 inside a polygon, whatever the features' heights (2D
 imports sit at height 0). Off, it is the 3D distance.
@@ -735,7 +733,7 @@ between the directions of the grid's edges is up to √2 longer than straight
 on a triangulated grid (1.08 with both diagonals). Irregular photogrammetry
 meshes have edges in every direction and are far less biased. The zig-zag
 shows as extra length and time, not hidden. Landscape-scale cost surfaces
-belong in a GIS (QGIS r.walk, imported through M8).
+belong in a GIS (QGIS r.walk), imported as geodata.
 
 | Input | Default | |
 |---|---|---|
@@ -763,7 +761,7 @@ stops).
 There is no flow accumulation, no depression filling, no spreading on flats,
 and it is 2.5D (the topmost surface). For real 3D surface hydrology on the
 mesh's connectivity (flow paths, accumulation and ponding, with walls and
-overhangs), use GeoTools' hydrology tool (M5, a separate GeoTools tool).
+overhangs), use GeoTools' [hydrology tool](guide/analysis.md#hydrology).
 
 | Input | Default | |
 |---|---|---|
@@ -850,7 +848,7 @@ samples 4 s at 1M: the time grows about in proportion to Samples.
 evaluate within a minute at 10M triangles. TPI takes about 76 s with its
 default 96 samples (25 s with 24), and the local relief model about a minute
 (67 s, or half that with 24 samples). The horizon presets (sky-view factor
-and openness) take three to four minutes, past the M5 target of a minute per
+and openness) take three to four minutes, past the target of a minute per
 tool. Directions 8 and Steps 6 cut that to about
 a third, with a coarser result. Their [fast path](#fast-bake-paths), the same
 search cast in a Cycles bake, takes 37 to 52 s at 10M triangles and is the
@@ -884,7 +882,7 @@ bounds.
 
 At 10M triangles, about 2.8 s of every preset that reads the surface through
 an object input is Blender building its BVH (intervisibility, line of sight
-and flow paths cost little more). Every preset is within the M5 target of a
+and flow paths cost little more). Every preset is within the target of a
 minute at 10M except **the cumulative viewshed beyond about 25 observers**:
 about 2.2 s per observer at 10M faces, so 100 observers take four minutes.
 Its [fast path](#fast-bake-paths) casts the same sight lines in a Cycles bake,
@@ -897,10 +895,10 @@ this shared machine (about 16 s of it fixed cost), 3.6 s at 1M.
   edge, used both ways, so Tobler's asymmetry (downhill faster than uphill)
   cannot steer the route; the route uses the mean of the two directions and
   the time reported is the directional time along it. A directed graph search
-  (numpy, in GeoTools code) or QGIS r.walk through M8 would give the true
-  one-way route. A cost-distance layer (the time from every vertex to End) is
+  (numpy, in GeoTools code) or QGIS r.walk would give the true one-way
+  route. A cost-distance layer (the time from every vertex to End) is
   possible in stock nodes: Shortest Edge Paths' Total Cost is exactly that
-  (with the same symmetric cost), and could be a later preset.
+  (with the same symmetric cost).
 - **Paths not tied to edges.** Graph paths on a mesh follow its edges (see
   Least-Cost Path); routing across faces needs a fast-marching solver, which
   has no stock-node form.
@@ -915,14 +913,7 @@ this shared machine (about 16 s of it fixed cost), 3.6 s at 1M.
   mesh (Subdivide on a copy) gives finer edges.
 - **Change detection with uncertainty (M3C2).** Averaging along local normals
   at a chosen scale, with confidence intervals, is possible in principle with
-  Repeat zones but slow and fragile; CloudCompare through M8 is the better
-  route.
-
-## Planned presets (next batch)
-
-- **Surface reading:** ambient occlusion and curvature bakes for worn
-  surfaces, rock art and inscriptions.
-- A cost-distance layer (see above).
+  Repeat zones but slow and fragile; CloudCompare is the better route.
 
 ## References
 

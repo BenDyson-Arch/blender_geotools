@@ -256,7 +256,7 @@ reads neither extension; open published tiles in Blender with
 ## Limits
 
 - Every publish is a full retile. Changing one layer or one texture rebuilds
-  the whole archive. Faster updates need later rusty-tiles releases.
+  the whole archive.
 - rusty-tiles takes positions, normals, tangents, two UV maps, one colour
   attribute and core PBR materials. Other material nodes, more UV maps or more
   colour attributes are reported by the checks.
