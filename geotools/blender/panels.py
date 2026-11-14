@@ -8,7 +8,8 @@ rules.
 
 - Project: where the source sits on Earth, and Verify Placement.
   - CRS Details: the CRS's area of use, definition and datum operation.
-- Source: the source collection, Import Source Mesh and the summary.
+- Source: the source collection, Import Source Mesh (with an offset file it did
+  not apply, and its buttons) and the summary.
 - Linked Data: GeoJSON, GeoPackage and GeoTIFF files linked to objects
   (``links_ui``).
 - Analysis (``analysis_ui``): Measure, Presets, Hydrology, Contours and
@@ -64,6 +65,7 @@ from . import (
     presentation,
     publish,
     scene_georef,
+    source,
     texture_state,
     texture_ui,
     vector_publish,
@@ -302,6 +304,7 @@ class GEOTOOLS_PT_source(_GeoToolsPanel, bpy.types.Panel):
         layout.operator("geotools.ingest_source", text="Import Source Mesh...", icon="IMPORT")
         if props.source_filepath:
             layout.label(text=f"From {paths.name(props.source_filepath)}", icon="FILE")
+        source.draw_offset_offer(layout, context)
 
         if props.source_collection is None:
             return

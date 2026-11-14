@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import math
 
 import pytest
 
@@ -12,12 +13,16 @@ from geotools.core.data_origin import (
     LOCAL_RADIUS_M,
     DataOrigin,
     NeedsProjectOrigin,
+    OffsetAction,
     check_local_project,
+    check_offset_file,
     farthest,
+    float32_step,
     is_local,
     offer_project_crs,
     suggest_origin,
 )
+from geotools.core.geoscene import read as read_keys
 from geotools.core.placement import PlacementMode
 
 needs_pyproj = pytest.mark.skipif(
@@ -109,3 +114,85 @@ def test_offer_project_crs_offers_nothing_for_unknown_or_geographic_data(
     assert offer_project_crs(None, SITE, zero, "a") is None
     assert offer_project_crs(DataCrs(None, None, "x"), SITE, zero, "a") is None
     assert offer_project_crs(DataCrs("EPSG:4326", None, "rfc7946"), SITE, zero, "a") is None
+
+
+# --- an offset file beside an imported source mesh ---------------------------------------------
+
+FILE = (512_345.987654321, 6_961_000.123456, 12.5)
+NO_KEYS = read_keys({})
+
+
+def _action(mode: str, project, keys: dict | None = None, offset=FILE) -> OffsetAction:
+    return check_offset_file(mode, read_keys(keys or {}), project, offset).action
+
+
+def test_offset_file_sets_the_origin_of_a_project_that_has_none() -> None:
+    assert _action("LOCAL", (0.0, 0.0, 0.0)) is OffsetAction.APPLY
+    assert _action(PlacementMode.LOCAL, (0.0, 0.0, 0.0)) is OffsetAction.APPLY
+    # A CRS project whose CRS was chosen first, offsets left at 0 (getting started).
+    keys = {"SRID": "EPSG:7856", "crs x": 0.0, "crs y": 0.0}
+    assert _action("SOURCE_CRS", (0.0, 0.0, 0.0), keys) is OffsetAction.APPLY
+    assert _action("SOURCE_CRS", (None, None, 0.0), {"SRID": "EPSG:7856"}) is OffsetAction.APPLY
+
+
+def test_a_matching_offset_file_is_silent() -> None:
+    """A chunk imported again, or several chunks sharing one offset file."""
+    check = check_offset_file("SOURCE_CRS", NO_KEYS, FILE, FILE)
+    assert check.action is OffsetAction.MATCH and check.reason == ""
+    keys = {"SRID": "EPSG:7856", "crs x": FILE[0], "crs y": FILE[1]}
+    assert _action("SOURCE_CRS", FILE, keys) is OffsetAction.MATCH
+    # Exact in float64, A included: one ulp or another A is another origin.
+    e = math.nextafter(FILE[0], math.inf)
+    assert _action("SOURCE_CRS", (e, FILE[1], FILE[2])) is OffsetAction.OFFER
+    assert _action("SOURCE_CRS", (FILE[0], FILE[1], 0.0)) is OffsetAction.OFFER
+    # A Local project whose keys are the file's: the file only adds A.
+    assert _action("LOCAL", (0.0, 0.0, 0.0), keys) is OffsetAction.APPLY
+
+
+def test_a_different_offset_in_a_crs_project_is_offered_with_the_shift() -> None:
+    project = (512_000.0, 6_961_000.0, 10.0)
+    check = check_offset_file("SOURCE_CRS", NO_KEYS, project, FILE)
+    assert check.action is OffsetAction.OFFER
+    assert check.shift == (FILE[0] - 512_000.0, FILE[1] - 6_961_000.0, 2.5)
+    text = check.message("chunk2_offset.txt")
+    assert "chunk2_offset.txt holds E 512345.987654321, N 6961000.123456, A 12.5" in text, text
+    assert "the project's origin is E 512000, N 6961000, A 10" in text, text
+    assert "imported unshifted" in text and "place the imported objects" in text
+
+
+def test_complete_blendergis_keys_that_differ_are_offered() -> None:
+    keys = {"SRID": "EPSG:7856", "crs x": 502_000.0, "crs y": 6_961_000.0}
+    check = check_offset_file("LOCAL", read_keys(keys), (0.0, 0.0, 0.0), FILE)
+    assert check.action is OffsetAction.OFFER and check.shift is None
+    assert "BlenderGIS (GeoScene) georeference (EPSG:7856, origin E 502000" in check.reason
+    # The same keys in a CRS project: case (b), with the shift.
+    check = check_offset_file("SOURCE_CRS", read_keys(keys), (502_000.0, 6_961_000.0, 0.0), FILE)
+    assert check.action is OffsetAction.OFFER and check.shift is not None
+
+
+def test_an_anchor_project_is_offered_not_switched() -> None:
+    check = check_offset_file("ANCHOR", NO_KEYS, (0.0, 0.0, 0.0), FILE)
+    assert check.action is OffsetAction.OFFER and "Anchor project" in check.reason
+    assert check.shift is None
+
+
+def test_a_local_project_with_keys_or_an_old_origin_is_offered() -> None:
+    lat_lon = {"latitude": -27.47, "longitude": 153.02}
+    assert _action("LOCAL", (0.0, 0.0, 0.0), lat_lon) is OffsetAction.OFFER
+    assert _action("LOCAL", (500.0, 0.0, 0.0)) is OffsetAction.OFFER
+    assert _action("LOCAL", (0.0, 0.0, 3.0)) is OffsetAction.OFFER
+    assert _action("LOCAL", FILE) is OffsetAction.APPLY  # the same origin from before
+
+
+def test_a_geographic_origin_in_a_crs_project_is_offered() -> None:
+    keys = {"SRID": "EPSG:7856", "latitude": -27.47, "longitude": 153.02}
+    check = check_offset_file("SOURCE_CRS", read_keys(keys), (None, None, 0.0), FILE)
+    assert check.action is OffsetAction.OFFER and "latitude -27.4700000" in check.reason
+    assert check.shift is None
+
+
+def test_float32_step() -> None:
+    assert float32_step(0.0) == 0.0
+    assert float32_step(1.0) == 2.0**-23
+    assert float32_step(16383.0) < 0.001 < float32_step(16384.0)
+    assert float32_step(-10_000.0) == float32_step(10_000.0) == 2.0**-10
