@@ -66,7 +66,8 @@ and the project follows semantic versioning where practical.
   GeoPackage and GeoTIFF CRS handling, against Krüger's series, GeographicLib
   2.1, the ICSM worked example and GDAL 3.12.0 at twelve synthetic sites. All
   agree to nanometres or float32, published vertices to 0.3 mm; one bug fixed
-  (see Fixed) and four points left for a decision. Reference scripts in
+  (see Fixed); the four points it left for a decision are resolved (see
+  Changed and Fixed). Reference scripts in
   `scripts/validation/geodesy/`, fixtures in `tests/data/validation/geodesy/`,
   tests in normal CI.
 - Validation of archaeoastronomy
@@ -102,15 +103,51 @@ and the project follows semantic versioning where practical.
   geodesics and GRASS GIS 8.4.1 r.sun. All agree with what they claim (SPA to
   pvlib within 10⁻⁹°, to DE440 within 0.00017°; sun hours within half a step
   per edge). Insolation is Ineichen–Perez as in pvlib, not ESRA: it differs
-  from r.sun by the models' known differences. Three points are left for a
-  decision: sun directions in non-conformal CRSs (Albers, Web Mercator, up to
-  0.24°), refraction at standard pressure at any altitude, and the Over a Day
-  strength fading between keys. Reference scripts in
+  from r.sun by the models' known differences. The three points it left for a
+  decision (sun directions in non-conformal CRSs, refraction at standard
+  pressure at any altitude, the Over a Day strength fading between keys) are
+  fixed (see Fixed). Reference scripts in
   `scripts/validation/solar/`, fixtures in `tests/data/validation/solar/`,
   tests in normal CI.
 
 ### Changed
 
+- The analysis docs state what the 0.3.0 validation measured and the user
+  decided to keep: Laskar's obliquity is 42″ from Vondrák et al. (2011) at
+  8000 BCE, not "a few arc seconds", and the lunar extremes 0.015°, not
+  0.01° (docstrings, design note, guide, and the Archaeoastronomy panel's
+  trust note, which now gives the gap for the chosen epoch); Check
+  Alignment's declination leaves out the sun's 8.8″ parallax; the horizon
+  reads up to 0.0016° low; hydrology's false pits in V-channels along mesh
+  edges (accumulation unaffected; raise Minimum Depth on coarse meshes) and
+  face-centre spill levels; no contour at the lowest level or round a vertex
+  exactly on a level; Distance to Surface's sign near edges sharper than 90°
+  (as CloudCompare); and the viewshed's missing Earth curvature (0.7 mm at
+  100 m, 6.7 cm at 1 km, 1.7 m at 5 km). docs/BACKLOG.md has the deferred
+  work (ANA-1 to ANA-4, and Import Source Mesh's case (c)), and every
+  validation page marks its decisions resolved.
+- **Sections export their chainage**: Export Vectors writes each section piece
+  to a GeoPackage as a LineString ZM with the chainage as M, the GIS
+  convention for linear referencing that QGIS and GDAL read, and to GeoJSON
+  (which has no M) with a `chainage` property holding one value per point.
+  Before, only `chainage_from` and `chainage_to` per piece left Blender. A
+  Vectors publish leaves M out, as rusty-tiles 0.4 refuses measured geometry.
+- GeoPackage exports write the CRS as WKT in `gpkg_spatial_ref_sys.definition`,
+  as the GeoPackage standard asks: pyproj's WKT1, which GDAL and QGIS read, or,
+  for a CRS WKT1 cannot express (a 3D geographic CRS), `undefined` there and
+  the WKT2 in the standard's CRS WKT extension (`definition_12_063`). They
+  wrote the project's CRS text (`EPSG:7856`), which readers that go by the
+  EPSG code accepted but which lost a CRS without a code: GDAL read no CRS
+  from a custom transverse Mercator export, and reads it exactly now. Without
+  pyproj the definition is the CRS text, as before. GDAL 3.12's
+  `validate_gpkg` accepts every form.
+- The GLB metadata term `geotools:gridScale` is now
+  `geotools:groundMetresPerModelMetre`. It always held metres on the ground
+  per model metre along +X at the origin, about 1 / the combined scale factor
+  (1.0004 where the grid scale factor k is 0.9996), which surveyors would not
+  read as a grid scale factor. The value is unchanged (apart from the frame
+  fix under Fixed); there is no alias for the old name, which no release
+  wrote. The guide and the design note document it.
 - GeoTools now ships on rusty-tiles 0.4.1 from PyPI (it was pinned to 0.4.0,
   which GeoTools reports as not available). CI's `blender-wheel` job tests the
   pinned PyPI wheels in Blender and now gates.
@@ -141,6 +178,47 @@ and the project follows semantic versioning where practical.
 
 ### Fixed
 
+- **True north in non-conformal CRSs.** The sun (Place Sun, Over a Day, Sun
+  Hours and its sky rays, Shadow Study) and the archaeoastronomy horizon and
+  sightlines turned true azimuths into scene ones by the one meridian
+  convergence, which is exact only in conformal grids. In Australian Albers
+  (EPSG:3577) directions between the meridian and the parallel were off by up
+  to 1.1° at 150° E, 12° S and 1.8° in Tasmania, in Web Mercator by up to
+  0.19°. They now go through the grid-to-ground map at the site that Measure
+  uses: within 10⁻⁶° of projected geodesic steps, and the Sun panel says
+  when the CRS is not conformal. Conformal CRSs (UTM, MGA, Lambert conformal,
+  stereographic), Anchor and Local projects give identical results.
+  Aspect (True North) is a preset of stock nodes with one Convergence input,
+  so there it stays one rotation (the nearest to the map, which is the
+  convergence in both): aspects along and across the meridian are exact,
+  others up to the same 1.8° and 0.19° off, as analysis-presets.md now
+  states and Add Analysis says.
+- **Refraction at the site's height.** The sun's position (Place Sun, Over a
+  Day, Sun Hours, insolation, Shadow Study) and the archaeoastronomy rises and
+  sets refracted at sea-level pressure (1013.25 hPa for SPA, Bennett's 1010
+  hPa) at any height. They now use the standard atmosphere's pressure at the
+  site's ellipsoidal height (616 hPa at 4,000 m), with the temperature as
+  before (12 °C and 10 °C). At 4,000 m a June day at 51° N is 4.0 minutes
+  shorter than GeoTools counted, and the solstice sunrise 0.37° further from
+  north (0.11° at 1,000 m); clear-sky insolation at a 1,500 m site changes by
+  0.07 %. Check Alignment uses the events' pressure. Results at sea level do
+  not change.
+- The **GLB metadata frame** (`geotools:modelToEcef` and the Earth-Placed node
+  matrix) is no longer tilted on large sites. The grid axes were measured
+  with one-sided probes (the centre and the centre moved half the extent),
+  which are secants: on a 10 km site at the MGA zone 56 edge both axes dipped
+  3.9×10⁻⁴ rad below the tangent plane, the scale was 18 ppm high, and the
+  corners landed 0.18 m to 7.84 m from where rusty-tiles puts them. Two more
+  probes (west and south) give central differences, the tangents at the
+  centre: the tilt is below 10⁻⁷ rad and every corner of that site is 3.93 m
+  off, the Earth's curvature over 7 km, which one matrix cannot follow. On a
+  200 m site a corner moves by at most 3 mm.
+- **Over a Day** switches the light off at sunset and on at sunrise, as the
+  guide says. Its strength was keyed linearly, so with a Frame Step above 1
+  the frames between the last key with the sun up and the first with it down
+  faded the light (to a quarter, a half and three quarters of the strength
+  with a Frame Step of 4). The strength is now keyed constant, as Shadow
+  Study keys it; the light's direction still moves smoothly between keys.
 - Shadow Study, Compute Events and Over a Day no longer fail on Windows for
   dates before 1970: Python's `datetime.fromtimestamp` refuses negative
   timestamps there.

@@ -2,8 +2,8 @@
 
 Status: validated on `val/solar` (2026-11-14), against GeoTools 0.4.0-dev
 (develop at 38fd2e3) in Blender 5.2.4 with rusty-tiles 0.4.1 and pyproj 3.8.0.
-Three discrepancies are [left for a decision](#discrepancies-for-a-decision);
-none is a bug in what the tools claim.
+Three discrepancies were left for a decision; none was a bug in what the
+tools claim, and all three are now [resolved](#decisions-resolved).
 
 This covers the Sun sub-panel (Place Sun, Over a Day), Sun Hours (with its
 clear-sky insolation), and Shadow Study, as described in the
@@ -21,8 +21,8 @@ references, the cases, the tolerances and why, the results and a verdict.
 | Sun position | NREL SPA (Reda and Andreas 2003, rev. 2008), azimuth clockwise from true north, topocentric, SPA refraction | **agrees**: pvlib's SPA to 1×10⁻⁹°, JPL DE440 (Skyfield) to 0.00017° |
 | ΔT | Espenak and Meeus (2006) polynomials | **agrees** (pvlib's coding to 10⁻⁷ s); the 2005–2050 branch now runs 6 s ahead of IERS, a 0.00007° effect |
 | Time zones | IANA zones through `zoneinfo`; fixed offsets; a skipped or repeated time read with the offset before the change | **agrees** (23, 24.5 and 25 h days, UTC+05:45, UTC+14 and UTC−11 checked) |
-| Grid north (convergence) | true azimuth − PROJ `meridian_convergence` | **agrees** in conformal CRSs (geodesics to 10⁻⁸°); **convention difference** in non-conformal CRSs (Albers EPSG:3577, Web Mercator EPSG:3857): up to 0.24° (decision 1) |
-| Place Sun / Over a Day | light +Z towards the sun, Euler (90° − e, 0, 180° − scene azimuth); light off while the refracted centre is below 0° | **agrees** (geodesic grid bearing to 0.001°; keys off exactly at Skyfield's sunrise and sunset) |
+| Grid north (convergence) | true azimuth − PROJ `meridian_convergence` (conformal CRSs); the grid-to-ground map at the site (non-conformal) | **agrees** (geodesics to 10⁻⁸° in conformal CRSs; to 10⁻⁶° in Albers EPSG:3577 and Web Mercator EPSG:3857 since [decision 1](#decisions-resolved), up to 0.24° here before) |
+| Place Sun / Over a Day | light +Z towards the sun, Euler (90° − e, 0, 180° − scene azimuth); light off while the refracted centre is below 0°, keyed constant | **agrees** (geodesic grid bearing to 0.001°; keys off exactly at Skyfield's sunrise and sunset; switching between keys since [decision 3](#decisions-resolved)) |
 | Sun Hours | time with the sun's refracted centre above the horizon (or far horizon), in front of the surface and unblocked; midpoint rule over local days | **agrees** (within half a step per edge; Cycles wall shadow at a zone edge placed to 0.15 m) |
 | Clear-sky insolation | Ineichen–Perez (2002) as pvlib implements it, beam × cos i, isotropic sky diffuse, no ground reflection, kWh/m² | **agrees** with pvlib to 10⁻⁵; 64 sky rays integrate the isotropic sky to 2.4 %. **Not** ESRA/r.sun: differs from GRASS r.sun by the models' known differences |
 | Shadow Study | the moments the Sun's apparent geocentric longitude crosses 0°, 90°, 180°, 270°, taken as local dates | **agrees** (DE440 to 26 s in TT; within a minute in UT1 to 2067, 3.3 min by 2149) |
@@ -79,7 +79,7 @@ pytest tests/core/test_validation_solar.py       # 44 tests, about 7 s
 python3 scripts/run_blender_tests.py --expect available -k test_validation_solar
 ```
 
-The Blender tests (`tests/blender/test_validation_solar.py`, 5 tests) take
+The Blender tests (`tests/blender/test_validation_solar.py`, 6 tests) take
 about 20 s, most of it five Cycles bakes of a year's worth of minutes on one
 quad.
 
@@ -104,7 +104,9 @@ quad.
 NREL/TP-560-34302, 2003, revised 2008), step by step. Azimuth is clockwise
 (eastward) from true north in [0, 360); elevation is topocentric, with the
 paper's refraction (eq. 42) when the sun is above −(0.26667° + 0.5667°), at the
-given pressure and temperature (the Sun panel uses 1013.25 hPa and 12 °C).
+given pressure and temperature (the Sun panel uses 12 °C and the standard
+atmosphere's pressure at the site's height, 1013.25 hPa at sea level, since
+[decision 2](#decisions-resolved)).
 Latitudes and longitudes are geodetic, east and north positive. These are the
 NREL conventions, which pvlib also follows.
 
@@ -189,10 +191,13 @@ geodesic grid bearing to 0.001°, and a 20 m wall's shadow edge lands where the
 geodesic bearing puts it (see Sun Hours).
 
 **Verdict: agrees** for conformal projections (every transverse Mercator,
-Lambert conformal and stereographic grid). **Convention difference** for
-non-conformal ones: one rotation cannot map every direction when the
-projection shears angles. EPSG:3577 and EPSG:3857 are both on rusty-tiles
-0.4.1's allow-list ([decision 1](#discrepancies-for-a-decision)).
+Lambert conformal and stereographic grid). For non-conformal ones one
+rotation cannot map every direction when the projection shears angles
+(the table's 0.089° and 0.24°); EPSG:3577 and EPSG:3857 are both on
+rusty-tiles 0.4.1's allow-list. **Resolved**
+([decision 1](#decisions-resolved)): there the sun is now turned through the
+grid-to-ground map at the site, and `test_convergence_matches_geodesics`
+holds every point of the table, both non-conformal rows included, to 10⁻⁶°.
 
 Two smaller effects are not modelled and are documented here only. The grid
 scale factor (up to 1.0007 at a UTM zone edge) stretches horizontal scene
@@ -216,10 +221,10 @@ convergence is applied). (2) 51.18° N on the June solstice, Europe/London,
 Skyfield's sunrise and sunset of the refracted centre (none within 2 s of an
 event), 990 keys, 16.5 h.
 
-**Verdict: agrees.** One presentational point: the strength is keyed
-linearly, so with a Frame Step above 1 the frames between the last key with
-the sun up and the first with it down fade the light rather than switching it
-off ([decision 3](#discrepancies-for-a-decision)).
+**Verdict: agrees.** One presentational point was resolved
+([decision 3](#decisions-resolved)): the strength was keyed linearly, so with
+a Frame Step above 1 the frames between the last key with the sun up and the
+first with it down faded the light rather than switching it off.
 
 ## Sun Hours
 
@@ -446,10 +451,10 @@ and polar stereographic grids with convergence of 34° and 62°.
   ahead of IERS today and runs further ahead of IERS-based predictions (about
   1 min by 2075, 2 min by 2100). Positions change by under 0.002°; season
   moments by that much time.
-- Refraction is always at 1013.25 hPa and 12 °C. At 4,000 m (616 hPa) the
-  June day at 51° N is 4 minutes shorter than GeoTools counts (decision 2).
-- In a non-conformal CRS (Albers, Web Mercator) sun directions off the
-  meridian are off by up to a few tenths of a degree (decision 1).
+- Refraction is at 12 °C and the standard atmosphere's pressure at the
+  site's ellipsoidal height (616 hPa at 4,000 m), not the day's weather; a
+  Local project has no height and refracts at sea level
+  ([decision 2](#decisions-resolved)).
 - Sun hours over a year at coarse steps are biased low at low latitudes
   (−0.16 % at 15 minutes, −0.65 % at 60, at the equator). Use 5 minutes or
   less for a year at low latitudes when the totals matter.
@@ -459,31 +464,45 @@ and polar stereographic grids with convergence of 34° and 62°.
 - Insolation is a clear-sky upper bound (Ineichen–Perez); r.sun's ESRA gives
   4–13 % more on open ground with the same turbidity.
 
-## Discrepancies for a decision
+## Decisions (resolved)
+
+The validation left three points for a decision. The user's decisions
+(2026-11-14) are implemented on `fix/validation-decisions`, each with
+regression tests.
 
 1. **Non-conformal CRSs.** `scene azimuth = true azimuth − convergence` is
-   exact only where the projection preserves angles. In Australian Albers
-   (EPSG:3577) it is up to 0.24° off for directions other than north–south,
-   in Web Mercator (EPSG:3857) 0.09° at 47° N; both are on rusty-tiles'
-   allow-list. The geodesy validation reached the same point independently
-   ([geodesy.md, decision 3](geodesy.md#3-sun-and-aspect-true-north-in-non-conformal-crss)),
-   and fixed Measure by giving each point a grid-to-ground map built from
-   PROJ's Jacobian. *Recommendation:* turn sun directions (and the sky rays)
-   through the inverse of that map at the sun's site, which is exact for any
-   projection and leaves conformal CRSs unchanged; or say in the Sun panel
-   that a non-conformal project CRS turns the sun by the meridian's
-   convergence only. It changes results in those CRSs, so it was not done
-   here.
-2. **Refraction at altitude.** The Sun panel always refracts at standard
-   pressure, though sun hours already knows the site height (for the air
-   mass). *Recommendation:* refract at `clearsky.altitude_pressure(height)`
-   for the site; a few minutes a day at high sites, nothing at sea level. It
-   changes results and the documented default, so it was not done.
-3. **Over a Day strength between keys.** The strength is keyed LINEAR, so
-   with Frame Step > 1 the in-between frames fade the light around sunrise
-   and sunset instead of the documented "switched off while the sun is below
-   the horizon". *Recommendation:* key the strength CONSTANT (as Shadow Study
-   does), or leave it and say "fades over one step". Presentational only.
+   exact only where the projection preserves angles: in EPSG:3577 it was up
+   to 0.24° off at this page's point (1.12° at 150° E, 12° S, 1.81° in
+   Tasmania), in EPSG:3857 0.09° at 47° N (0.19° at the equator). The
+   geodesy validation reached the same point independently
+   ([geodesy.md, decision 3](geodesy.md#decisions-resolved)). **Done:** sun
+   directions (Place Sun, Over a Day, Sun Hours, the sky rays' horizon
+   lookups, Shadow Study) go through the grid-to-ground map at the sun's site
+   that Measure uses (`site.SunSite.scene_azimuth`), exact for any projection
+   and the old arithmetic, bit for bit, in conformal CRSs. Against projected
+   geodesic steps: 10⁻⁶° at every point of the North and convergence table
+   and at three more non-conformal sites. In Blender, Place Sun in EPSG:3577
+   at 150° E, 12° S points the light at the geodesic grid bearing to 10⁻⁴°
+   (float32 rotation), where the convergence alone is more than 0.5° off at
+   that moment. The
+   Sun panel notes a non-conformal CRS. Elevations are unchanged.
+2. **Refraction at altitude.** The Sun panel refracted at 1013.25 hPa at any
+   height. **Done:** SPA refracts at the ICAO standard atmosphere's pressure
+   for the site's ellipsoidal height (`sun.standard_pressure`, exactly
+   1013.25 hPa at 0 m, so sea-level results are unchanged; 898.8 hPa at
+   1,000 m, 616.4 at 4,000 m), with the temperature at 12 °C as before, in
+   Place Sun, Over a Day, Sun Hours, insolation and Shadow Study. At 4,000 m
+   the June day at 51° N is 4.0 minutes shorter than GeoTools counted. The
+   clear-sky fixture now gives pvlib the site's pressure (only its 1,500 m
+   site changes: DNI 8.8177 → 8.8119 kWh/m², which GeoTools matches to
+   10⁻⁸). The archaeoastronomy events do the same
+   ([archaeoastronomy.md, decision 4](archaeoastronomy.md#decisions-resolved)).
+3. **Over a Day strength between keys.** The strength was keyed LINEAR, so
+   with a Frame Step of 4 the three frames between the last key with the sun
+   up and the first with it down had 0.75, 1.5 and 2.25 of a strength of 3.
+   **Done:** the strength is keyed CONSTANT, as Shadow Study keys it; the
+   light switches at the first key with the sun up (or down), and its
+   direction still moves smoothly. `tests/blender/test_analysis.py::test_day_strength_switches_between_keys`.
 
 Also worth a look, not a discrepancy: the ΔT polynomial for 2005–2050 is
 6 s high today. An updated table (IERS to date, then a current long-term

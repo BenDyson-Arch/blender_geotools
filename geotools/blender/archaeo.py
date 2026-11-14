@@ -371,7 +371,7 @@ def compute_horizon(context: bpy.types.Context) -> horizon.HorizonProfile:
         raise ArchaeoError("There are no meshes to be the terrain.")
     eye = np.array(point, dtype=np.float64) + np.array([0.0, 0.0, float(props.eye_height)])
     true_az = horizon.azimuths(props.azimuth_step)
-    scene_az = (true_az - where.convergence) % 360.0
+    scene_az = where.scene_azimuth(true_az)
     csf = _scale_factor(context, point)
     k = horizon.TERRESTRIAL_K if props.refraction else 0.0
     start = float(props.ignore_within)
@@ -484,6 +484,8 @@ def compute_events(context: bpy.types.Context) -> tuple[list[core.Event], dict]:
     else:
         where = analysis.compute_site(context, sun_props)
         site_from = "Sun panel site"
+    # Bennett's 1010 hPa at sea level, scaled to the site's height (standard atmosphere).
+    pressure = sun.standard_pressure(where.height, horizon.REFRACTION_PRESSURE_HPA)
     events, summary = core.epoch_events(
         props.epoch_year,
         where.latitude,
@@ -492,6 +494,7 @@ def compute_events(context: bpy.types.Context) -> tuple[list[core.Event], dict]:
         limb=props.limb,
         lunar=props.lunar,
         moon_events=props.moon_events,
+        pressure_hpa=pressure,
     )
     if props.dated_events:
         tz, zone = analysis._time_zone(sun_props)
@@ -521,6 +524,7 @@ def compute_events(context: bpy.types.Context) -> tuple[list[core.Event], dict]:
             profile,
             refract=props.refraction,
             limb=props.limb,
+            pressure_hpa=pressure,
         )
         summary["zone"] = zone
         summary["dated_year"] = year
@@ -535,6 +539,8 @@ def compute_events(context: bpy.types.Context) -> tuple[list[core.Event], dict]:
             "limb": props.limb,
             "lunar": props.lunar,
             "refraction": bool(props.refraction),
+            "height": where.height,
+            "pressure_hpa": pressure,
             "convergence": where.convergence,
         }
     )
@@ -604,7 +610,7 @@ def make_sightlines(context: bpy.types.Context) -> bpy.types.Object:
     starts, ends, lengths, sources = [], [], [], []
     for e in rows:
         true_az = e.best_azimuth
-        scene_az = math.radians((true_az - where.convergence) % 360.0)
+        scene_az = math.radians(float(where.scene_azimuth(true_az)))
         use_profile = profile is not None and math.isfinite(e.horizon_azimuth)
         if use_profile:
             i = profile.nearest(true_az)
@@ -732,6 +738,8 @@ def check_alignment(context: bpy.types.Context, obj: bpy.types.Object) -> dict:
         load_profile(context),
         refract=props.refraction,
         indices=index[keep],
+        # The events' refraction: the pressure at their site's height.
+        pressure_hpa=float(summary.get("pressure_hpa", horizon.REFRACTION_PRESSURE_HPA)),
     )
     if len(rows) > MAX_ALIGNMENT_ROWS:
         notes.append(f"Only the first {MAX_ALIGNMENT_ROWS:,} of {len(rows):,} lines are kept.")

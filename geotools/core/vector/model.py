@@ -14,7 +14,9 @@ Geometries use three levels of offsets, like Arrow's nested lists:
 
 A point is a part with one ring of one coordinate, a line string a part with
 one ring, and a polygon a part with its exterior ring and then its holes.
-Coordinates are binary64, ``(n, 3)``, with NaN for a missing Z.
+Coordinates are binary64, ``(n, 3)``, with NaN for a missing Z. Written
+geometries can also carry a measure (M) per coordinate, such as a section's
+chainage; readers drop M.
 """
 
 from __future__ import annotations
@@ -99,6 +101,10 @@ class Geometries:
     part_offsets: np.ndarray = field(default_factory=_empty_offsets)
     feature_offsets: np.ndarray = field(default_factory=_empty_offsets)
     rows: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.int64))
+    measures: np.ndarray | None = None
+    """``(n,)`` binary64 M of each coordinate (NaN for none), or None: no M."""
+    measure_name: str = ""
+    """What M is (``chainage``): the property GeoJSON holds it in."""
 
     @property
     def n_features(self) -> int:
@@ -115,6 +121,10 @@ class Geometries:
     @property
     def has_z(self) -> bool:
         return bool(len(self.coords)) and bool(np.isfinite(self.coords[:, 2]).any())
+
+    @property
+    def has_m(self) -> bool:
+        return self.measures is not None and bool(np.isfinite(self.measures).any())
 
     def ring_lengths(self) -> np.ndarray:
         return np.diff(self.ring_offsets)
@@ -171,6 +181,8 @@ class Geometries:
             part_offsets=_offsets(p1 - p0),
             feature_offsets=_offsets(f1 - f0),
             rows=self.rows[keep],
+            measures=None if self.measures is None else self.measures[coords],
+            measure_name=self.measure_name,
         )
 
 
@@ -229,6 +241,11 @@ def concat_geometries(parts: list[tuple[Geometries, int]]) -> Geometries:
     """Geometries of one kind one after another; each with its row offset."""
     kind = parts[0][0].kind
     coords, rings, part_rings, feature_parts, rows = [], [], [], [], []
+    with_m = any(geoms.measures is not None for geoms, _offset in parts)
+    measures = [
+        geoms.measures if geoms.measures is not None else np.full(len(geoms.coords), np.nan)
+        for geoms, _offset in parts
+    ]
     for geoms, row_offset in parts:
         coords.append(geoms.coords)
         rings.append(np.diff(geoms.ring_offsets))
@@ -242,6 +259,8 @@ def concat_geometries(parts: list[tuple[Geometries, int]]) -> Geometries:
         part_offsets=_offsets(np.concatenate(part_rings)),
         feature_offsets=_offsets(np.concatenate(feature_parts)),
         rows=np.concatenate(rows),
+        measures=np.concatenate(measures) if with_m else None,
+        measure_name=next((g.measure_name for g, _o in parts if g.measure_name), ""),
     )
 
 

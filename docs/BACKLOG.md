@@ -37,6 +37,11 @@ them is written here.
 Each item gives its tier, effort (S, M, L) and the two reviewers' scores,
 then what and why, the reviewers' caveats, and the key evidence.
 
+The [Analysis](#analysis) items were added on 2026-11-14 from the 0.3.0
+analysis validation ([docs/validation/](validation/README.md)): points the
+validation left for a decision that the user chose to defer past 0.3.0. They
+had no review, so they have no scores; their caveats are the validation's.
+
 ## Index
 
 | Id | Item | Tier | Effort |
@@ -84,6 +89,10 @@ then what and why, the reviewers' caveats, and the key evidence.
 | [TEST-7](#test-7-upgrade-removal-and-unregister-hygiene) | Upgrade, removal and unregister hygiene | Later | M |
 | [TEST-8](#test-8-paths-with-spaces-and-non-ascii-characters) | Paths with spaces and non-ASCII characters | Later | S |
 | [TEST-9](#test-9-real-blendergis-acceptance-test-in-ci) | Real-BlenderGIS acceptance test in CI | Later | S |
+| [ANA-1](#ana-1-earth-curvature-for-landscape-viewsheds) | Earth curvature for landscape viewsheds | Later | S-M |
+| [ANA-2](#ana-2-link-hydrology-faces-through-shared-vertices) | Link hydrology faces through shared vertices | Later | M-L |
+| [ANA-3](#ana-3-stream-order-and-convergent-flow-on-flats) | Stream order and convergent flow on flats | Later | M |
+| [ANA-4](#ana-4-vondrák-2011-obliquity-for-ancient-epochs) | Vondrák 2011 obliquity for ancient epochs | Later | S |
 
 Two worth-doing items are cheapest before a tag:
 [FMT-1](#fmt-1-a-stable-glb-metadata-namespace-uri) (the namespace URI is
@@ -995,6 +1004,96 @@ from `main`.
 `tests/blender/test_georef_interop.py:191`; `geotools/core/geoscene.py:60-65`;
 `ci.yml` never sets `GEOTOOLS_BLENDERGIS_ZIP`.
 
+## Analysis
+
+### ANA-1 Earth curvature for landscape viewsheds
+
+`viewshed-curvature` · Later · Effort S-M · From the visibility validation
+
+**What and why.** The viewshed, cumulative viewshed, intervisibility and line
+of sight presets apply no Earth curvature or refraction. GDAL's
+`gdal_viewshed` applies them by default and GRASS's `r.viewshed` with
+`-c -r`: a target at distance d is lowered by (1 − k) d² / 2R, k = 1/7, which
+is 0.7 mm at 100 m, 6.7 cm at 1 km, 0.27 m at 2 km and 1.7 m at 5 km. On a
+site that is below the survey's own error, but in a landscape viewshed beyond
+about 2 km a target just under a ridge line of sight can be hidden. Add an
+optional Curvature input (off by default, with a refraction coefficient) that
+lowers each target by that drop before the ray is cast.
+
+**Caveats.** The presets are stock Geometry Nodes, so the input means a new
+preset version and regenerating `analysis_presets.blend`; existing modifiers
+keep the old version. Scene distance is grid distance: divide by the combined
+scale factor, or accept the ppm error. GDAL and GRASS disagree on their
+defaults, so state which one a setting matches.
+
+**Evidence.** `docs/validation/visibility.md` ("Earth curvature and
+refraction", 12.19 km horizon test); `docs/analysis-presets.md` (Viewshed
+limits); `geotools/analysis/presets.py` (`viewshed`).
+
+### ANA-2 Link hydrology faces through shared vertices
+
+`hydrology-vertex-links` · Later · Effort M-L · From the hydrology validation
+
+**What and why.** Hydrology links faces that share an edge. Where a V-shaped
+channel runs along a line of mesh edges, the channel's two lowest faces in a
+cell meet only at a vertex, so every cell is a false pit (side slope − 2 ×
+fall) × h/3 deep: 79 depressions up to 67 mm deep on a 1 m DEM-derived valley
+that a raster tool sees as one channel. Accumulation is unaffected, but
+ponded depth, the depression layer and the Depressions object show them, and
+the guide now tells users to raise Minimum Depth. Linking faces that share a
+vertex (about 12 neighbours) removes these pits and narrows the
+three-directions-per-face bias.
+
+**Caveats.** About four times the links, so memory and time at 10M triangles
+need measuring (m5-analysis.md already weighs it). Vertex links across a
+non-manifold vertex or a wall need a rule. Every hydrology fixture and the
+validation tables change.
+
+**Evidence.** `docs/validation/hydrology.md` ("V-channels along mesh edges",
+`test_valley_thalweg_carries_everything_but_breaks_into_shallow_pits`);
+`geotools/analysis/hydrology.py` (`Surface.pairs`, faces sharing a mesh edge).
+
+### ANA-3 Stream order and convergent flow on flats
+
+`hydrology-stream-order` · Later · Effort M · From the hydrology validation
+
+**What and why.** The Flow Paths object has accumulation and network but no
+stream order. Strahler (1957) or Shreve (1966) order is a vectorised pass over
+the channel tree, by depth, like the accumulation. Separately, flats route
+only towards their exit (Garbrecht and Martz's first gradient); adding the
+"away from higher terrain" gradient (Barnes et al. 2014b) would make paths
+across lakes and flats converge, as raster tools draw them.
+
+**Caveats.** The away-from-higher gradient changes no accumulation leaving a
+flat, only the paths inside it, so it is presentational. Order needs a stated
+rule for the drops between objects.
+
+**Evidence.** `docs/validation/hydrology.md` (decision 5, "Flow routing,
+flats and accumulation"); `geotools/analysis/hydrology.py`.
+
+### ANA-4 Vondrák 2011 obliquity for ancient epochs
+
+`vondrak-obliquity` · Later · Effort S · From the archaeoastronomy validation
+
+**What and why.** The epoch geometry takes ε from Laskar's (1986) polynomial,
+which is within 1″ of the modern long-term series (Vondrák, Capitaine and
+Wallace 2011) from 1000 BCE to 6000 CE but 5.5″ off at 3000 BCE, 42″ at
+8000 BCE and 26″ at 12000 CE. At 8000 BCE that is 0.012° in declination and
+about 0.02° in a solstice sunrise azimuth at 51° N; the lunar extremes are
+0.015° off DE441 there, almost all of it the obliquity. Vondrák's ε_A is a
+closed-form series (no new dependency) and DE441's ecliptic follows it to
+1.1″.
+
+**Caveats.** It changes results users may have (up to 0.012° in declination
+at the far epochs), well under refraction's uncertainty, so it is worth doing
+only if the far epochs matter to users. SPA must keep Laskar for dated sun
+positions (its validation is against the paper). The panel's trust note
+(`archaeo.epoch_trust`) and its table of gaps would go.
+
+**Evidence.** `docs/validation/archaeoastronomy.md` ("Lunar standstills and
+the obliquity", decision 1); `geotools/analysis/sun.py` (`mean_obliquity`);
+`geotools/analysis/archaeo.py` (`_OBLIQUITY_GAP`).
+
 ## Deferred parts of 0.3.0 items
 
 These are pieces of do-now items that the review put off rather than
@@ -1014,9 +1113,17 @@ rejected. Check the merged 0.3.0 work first: some may have shipped.
   because object location is float32. The review allowed it to be deferred if
   it pushed the item to L. Relates to
   [ROB-6](#rob-6-large-coordinate-objply-imports).
-- **Case (c) of the re-origin guard** (from `import-no-silent-reorigin`):
-  don't apply an offset file when the source collection already held objects
-  before the import. The review allowed it to be deferred on its own.
+- **Case (c) of the re-origin guard** (from `import-no-silent-reorigin`,
+  deferred from PR #55). Import Source Mesh still applies an offset file
+  silently when the source collection already holds objects, if the file
+  matches the project origin or the origin is zero
+  (`core.data_origin.check_offset_file`: Match and Apply look only at the
+  origin, not at what is in the collection). Matching is harmless; applying a
+  file to a zero origin under objects that were placed without one re-origins
+  them. Case (c): when the source collection held objects before the import
+  and the origin is zero, offer instead of applying, as the other offers do
+  (and decide whether Match needs a note). Effort S. Re-check the
+  getting-started flow, which imports into an empty collection.
 
 ## Considered and rejected
 

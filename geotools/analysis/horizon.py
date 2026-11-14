@@ -39,7 +39,9 @@ Refraction of the sky. A celestial body appears higher than it is by the
 astronomical refraction. The horizon's altitude h here is apparent (what an
 observer would measure), so a body is on the horizon when its true altitude
 is h - R(h), with R from Bennett's formula (:func:`refraction`), about 34'
-at h = 0 at 1010 hPa and 10 °C. Real refraction near the horizon varies by
+at h = 0 at 1010 hPa and 10 °C at sea level; the pressure is scaled to the
+site's height by the standard atmosphere (``sun.standard_pressure``), so 30'
+at 1,000 m and 21' at 4,000 m. Real refraction near the horizon varies by
 several arc minutes with the weather, more in inversions; that, not the
 ephemerides, is the limit of an archaeoastronomical azimuth.
 """
@@ -56,6 +58,8 @@ __all__ = [
     "COARSE_STEP",
     "EARTH_RADIUS",
     "FINE_RAYS",
+    "REFRACTION_PRESSURE_HPA",
+    "REFRACTION_TEMPERATURE_C",
     "TERRESTRIAL_K",
     "Hits",
     "HorizonProfile",
@@ -87,11 +91,17 @@ BENNETT_LOWEST = -1.0
 """Bennett's formula is used down to this apparent altitude and held there below it."""
 
 
+REFRACTION_PRESSURE_HPA = 1010.0
+"""Bennett's sea-level pressure; GeoTools scales it to the site's height
+(``sun.standard_pressure(height, REFRACTION_PRESSURE_HPA)``)."""
+REFRACTION_TEMPERATURE_C = 10.0
+
+
 def refraction(
     apparent_deg: np.ndarray | float,
     *,
-    pressure_hpa: float = 1010.0,
-    temperature_c: float = 10.0,
+    pressure_hpa: float = REFRACTION_PRESSURE_HPA,
+    temperature_c: float = REFRACTION_TEMPERATURE_C,
 ) -> np.ndarray:
     """Astronomical refraction (degrees) at apparent altitudes ``apparent_deg``: Bennett (1982).
 
@@ -106,10 +116,17 @@ def refraction(
     return minutes * scale / 60.0
 
 
-def true_altitude(apparent_deg: np.ndarray | float, refract: bool = True) -> np.ndarray:
-    """The true (airless) altitude of a body seen at ``apparent_deg``: h - R(h)."""
+def true_altitude(
+    apparent_deg: np.ndarray | float,
+    refract: bool = True,
+    pressure_hpa: float = REFRACTION_PRESSURE_HPA,
+) -> np.ndarray:
+    """The true (airless) altitude of a body seen at ``apparent_deg``: h - R(h).
+
+    R at ``pressure_hpa`` (the site's, see :func:`.sun.standard_pressure`) and 10 °C.
+    """
     h = np.asarray(apparent_deg, dtype=np.float64)
-    return h - refraction(h) if refract else h.copy()
+    return h - refraction(h, pressure_hpa=pressure_hpa) if refract else h.copy()
 
 
 def curvature_drop(

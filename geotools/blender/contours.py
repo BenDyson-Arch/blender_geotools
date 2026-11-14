@@ -16,7 +16,10 @@ reads the surface, writes the lines as a mesh object of loose edges in the
   several pieces, all kept.
 
 Export Vectors writes either object as GeoPackage or GeoJSON lines with
-absolute Z in the project CRS, and a Vectors build profile publishes them.
+absolute Z in the project CRS, and a Vectors build profile publishes them. A
+section's chainage is each point's M (LineString ZM in a GeoPackage; a
+``chainage`` property with one value per point in GeoJSON), named by the
+object's ``geotools_measure`` property.
 See docs/design/m5-analysis.md.
 """
 
@@ -34,6 +37,7 @@ from ..analysis import polylines, slicing
 from .common import redraw_ui
 from .properties import FieldError
 from .surface import SURFACE_ITEMS, SurfaceError, datum, read_surface, surface_objects, write_lines
+from .vectors import MEASURE_PROP
 
 CONTOUR_TOOL = "contours"
 SECTION_TOOL = "sections"
@@ -232,6 +236,7 @@ def make_sections(context: bpy.types.Context) -> dict:
         },
         {"chainage": lines.point_values["chainage"]},
     )
+    obj[MEASURE_PROP] = "chainage"  # Export Vectors writes it as each point's M
     a_datum, height_name = datum(context.scene)
     z = lines.positions[:, 2] + a_datum
     result = {

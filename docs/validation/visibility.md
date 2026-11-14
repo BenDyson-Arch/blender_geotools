@@ -1,7 +1,8 @@
 # Validation: visibility, change, volumes and paths
 
 Status: validated on `val/visibility` (2026-11-14), against GeoTools 0.4.0-dev
-(develop at 3a90e20) in Blender 5.2.4.
+(develop at 3a90e20) in Blender 5.2.4. Two points were left open; both are
+now [resolved](#decisions-resolved) (documented, one in the backlog).
 
 This covers the Geometry Nodes presets of
 [analysis-presets.md](../analysis-presets.md) under *Visibility*, *Change and
@@ -18,7 +19,7 @@ verdict.
 | Cumulative Viewshed (live and fast) | the viewshed's test per observer, counted | **agrees**; the fast path equals the live preset on every face |
 | Intervisibility | segment test eye to eye, Ray Offset from each end | **agrees** |
 | Line of Sight | first hit of the sight line; profile seen or hidden | **agrees** (obstruction to 10⁻⁷ m) |
-| Distance to Surface | CloudCompare's cloud-to-mesh distance (nearest point), signed by the normal of the nearest face | **agrees** on the distance; **open point** on the sign within a few cm of edges sharper than 90° ([below](#sign-at-sharp-edges)) |
+| Distance to Surface | CloudCompare's cloud-to-mesh distance (nearest point), signed by the normal of the nearest face | **agrees** on the distance; **documented convention** for the sign within a few cm of edges sharper than 90°, as in CloudCompare ([below](#sign-at-sharp-edges), [decision 1](#decisions-resolved)) |
 | Distance to Feature | plan (2D) distance as a GIS buffer, 0 inside polygons; or 3D | **agrees** (GEOS via shapely, 5×10⁻⁷ m) |
 | Cut and Fill | vertical depth at face centres × plan area, by face | **agrees**; the net is exact, cut and fill are split by face (documented) |
 | Closed Volume | divergence theorem over each closed part | **bug fixed** ([commit](#bugs-fixed)): float32 lost 0.27 % 10 km from the origin; now within 10⁻⁵ of trimesh (4,096 faces) and 10⁻⁴ (262,144 faces); Read Totals exact |
@@ -176,11 +177,11 @@ On the long case (level ground, eye 10 m up) the horizon is at
 `-c` do. For a site (hundreds of metres) the drop is millimetres to
 centimetres, below the photogrammetry's own error; it matters for landscape
 viewsheds beyond about 2 km, where a target 0.3 m below a ridge line of sight
-can be hidden. analysis-presets.md states this ("over 1 km they lower a
-distant point by about 7 cm"), and it is right. **Recommendation** (not done):
-for landscape work a Curvature input (lowering each target by the drop above)
-would match GDAL and GRASS; until then, use them through M8 for views over
-kilometres.
+can be hidden. analysis-presets.md states this, now with the drops above
+(0.7 mm at 100 m, 6.7 cm at 1 km, 1.7 m at 5 km). **Decided**
+([decision 2](#decisions-resolved)): an optional Curvature input for
+landscape work (lowering each target by the drop above) is in the backlog;
+until then, use GDAL or GRASS through M8 for views over kilometres.
 
 ### Ray Offset
 
@@ -220,11 +221,11 @@ and only for points nearer that edge than any face; on terrain and on most
 change maps it never arises. CloudCompare's C2M signs by the nearest
 triangle's normal too, so GeoTools matches the definition it cites.
 
-**Decision needed**: keep it (documented, matches CloudCompare) or sign by a
-smooth normal at the nearest point (Sample Nearest Surface of the vertex
-normals, barycentric), which is right at edges and is a small change to the
-preset. Recommendation: keep the definition and add one sentence to
-analysis-presets.md; change it only if users report sign flips on walls.
+**Decided** ([decision 1](#decisions-resolved)): keep the definition, which
+matches CloudCompare, and document it; analysis-presets.md says so. Signing
+by a smooth normal at the nearest point (Sample Nearest Surface of the vertex
+normals, barycentric) would be right at edges and is a small change to the
+preset, if users report sign flips on walls.
 
 ### Distance to Feature
 
@@ -401,12 +402,21 @@ Photogrammetry meshes have edges in every direction and are far less biased.
   `test_closed_volume_of_solids_near_and_far` and
   `test_closed_volume_totals_float32_and_binary64`.
 
-## Open points
+## Decisions (resolved)
 
-| Point | Recommendation |
-|---|---|
-| Sign of Distance to Surface at edges sharper than 90° | keep (matches CloudCompare); document. Alternative: sign by the interpolated vertex normal |
-| Earth curvature in visibility | keep off for sites; consider an optional Curvature input for landscape work |
+The validation left two open points. The user's decisions (2026-11-14):
+
+1. **Sign of Distance to Surface at edges sharper than 90°.** Kept: the sign
+   is the nearest face's, as in CloudCompare's C2M, and can be wrong within
+   the wedge of an edge sharper than 90° (11 and 6 of 161 points over the
+   test's gable and notch). **Done (documented):** analysis-presets.md
+   (Distance to Surface) says so.
+2. **Earth curvature in visibility.** Kept off for sites. **Done
+   (documented):** analysis-presets.md gives the drop GDAL and GRASS apply,
+   (1 − k) d² / 2R with k = 1/7: 0.7 mm at 100 m, 6.7 cm at 1 km, 0.27 m at
+   2 km and 1.7 m at 5 km, and when it matters. An optional Curvature input
+   is in the backlog
+   ([ANA-1](../BACKLOG.md#ana-1-earth-curvature-for-landscape-viewsheds)).
 
 ## References
 

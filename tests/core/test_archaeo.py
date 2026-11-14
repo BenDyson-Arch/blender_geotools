@@ -155,6 +155,12 @@ def test_epoch_limits() -> None:
     assert archaeo.format_year(2026) == "2026 CE"
     notes = " ".join(archaeo.epoch_trust(-2999))
     assert "weeks" in notes and "ΔT" in notes
+    # The obliquity's stated accuracy is Vondrák et al. (2011)'s: 42″ at 8000 BCE.
+    assert "about 6″" in notes
+    far = archaeo.epoch_trust(-7999)[0]
+    assert "about 42″ (0.012°)" in far and "0.015°" in far and "0.02°" in far
+    assert "within 1″" in archaeo.epoch_trust(2026)[0]
+    assert archaeo.obliquity_gap(-7999) == 42.1 and archaeo.obliquity_gap(11999) == 26.0
 
 
 # --- calendar ------------------------------------------------------------------------------------------
@@ -430,6 +436,36 @@ def test_rise_set_on_the_astronomical_horizon() -> None:
     assert math.isnan(never.rise_azimuth) and math.isnan(never.set_azimuth)
     circumpolar = archaeo.rise_set_azimuths(50.0, 60.0)[0]
     assert math.isnan(circumpolar.rise_azimuth)
+
+
+def test_events_refract_at_the_site_pressure() -> None:
+    """Bennett's 1010 hPa scaled to the site's height: sea level is unchanged, and less
+    refraction at height moves the June sunrise at 51.18 N from 49.243 to 49.614 degrees
+    at 4,000 m."""
+    sea_level = sun.standard_pressure(0.0, horizon.REFRACTION_PRESSURE_HPA)
+    assert sea_level == horizon.REFRACTION_PRESSURE_HPA
+    default, _ = archaeo.epoch_events(2000, 51.18, moon_events=False)
+    same, _ = archaeo.epoch_events(2000, 51.18, moon_events=False, pressure_hpa=sea_level)
+    assert [e.azimuth for e in same] == [e.azimuth for e in default]
+    p = sun.standard_pressure(4000.0, horizon.REFRACTION_PRESSURE_HPA)
+    high, summary = archaeo.epoch_events(2000, 51.18, moon_events=False, pressure_hpa=p)
+    assert default[0].azimuth == pytest.approx(49.243, abs=0.001)
+    assert high[0].azimuth == pytest.approx(49.614, abs=0.001)
+    # The inversion at the same pressure gives the upper limb's declination back.
+    back = archaeo.declination(
+        high[0].azimuth, 0.0, 51.18, limb=archaeo.SUN_SEMI_DIAMETER, pressure_hpa=p
+    )
+    assert float(back) == pytest.approx(summary["obliquity"], abs=0.002)
+    # Check Alignment inverts at the events' pressure (the centre, no limb).
+    rows = archaeo.alignments(np.array([high[0].azimuth]), 51.18, high, pressure_hpa=p)
+    at_site = float(archaeo.declination(high[0].azimuth, 0.0, 51.18, pressure_hpa=p))
+    at_sea = float(archaeo.declination(high[0].azimuth, 0.0, 51.18))
+    assert rows[0].declination == at_site and at_site - at_sea > 0.1
+    # A dated sunrise 4,000 m up is about two minutes later.
+    day = [("June", dt.date(2026, 6, 21))]
+    flat = archaeo.dated_sun_events(day, dt.UTC, 51.18, -1.83, 4000.0)
+    up = archaeo.dated_sun_events(day, dt.UTC, 51.18, -1.83, 4000.0, pressure_hpa=p)
+    assert (flat[0].time, up[0].time) == ("03:51:41", "03:53:35")
 
 
 def test_epoch_events_and_alignments() -> None:

@@ -13,12 +13,17 @@ GLB's positions are in before the axis change) to WGS84 ECEF:
 * SOURCE_CRS placement: rusty-tiles reprojects every vertex into an
   east-north-up frame at the centre of the source bounds and puts that frame in
   the root transform. One matrix cannot reproject, so the local axes are
-  measured instead: two more probes, at the centre moved east and north by half
-  the source extent, give where grid east and grid north land in that frame.
-  That carries the grid convergence (about 0.9 degrees 200 km from a UTM
-  central meridian at 27 S, so 1.6 m over 100 m) and the scale factor, which
-  copying the root transform would drop. Exact at the centre, to first order
-  elsewhere.
+  measured instead: four more probes, at the centre moved east, west, north
+  and south by half the source extent, give where grid east and grid north
+  land in that frame, as central differences ((P+ - P-) / 2d). That carries
+  the grid convergence (about 0.9 degrees 200 km from a UTM central meridian
+  at 27 S, so 1.6 m over 100 m) and the scale factor, which copying the root
+  transform would drop. Exact at the centre, to first order elsewhere: the
+  axes are the tangents at the centre, so what is left at a corner is the
+  Earth's curvature and the change of scale, symmetric about the centre (about
+  3.9 m 7 km out). One-sided probes (P+ - P0) / d were secants: they dipped
+  below the tangent plane by d / 2R (4e-4 rad for a 10 km site) and carried
+  half the change of scale over the step.
 * LOCAL placement has no Earth frame.
 
 :func:`gltf_node_matrix` turns it into a glTF node matrix for Y-up content:
@@ -71,9 +76,10 @@ class EcefFrame:
     """Where the origin is in Blender world coordinates."""
     heading_degrees: float
     """Counter-clockwise angle from true east to the local +X axis at the origin."""
-    scale: float
+    ground_metres_per_model_metre: float
     """Length on Earth, at the origin's height, of one local metre along +X: about
-    1 / the combined scale factor (grid scale factor x height factor), not k itself."""
+    1 / the combined scale factor (grid scale factor x height factor), not the grid
+    scale factor k itself. 1 for an anchor placement."""
     operation: str | None
     """rusty-tiles' CRS operation ("portable" or "native"), SOURCE_CRS only."""
 
@@ -106,26 +112,30 @@ def frame_from_probes(
     mode: PlacementMode,
     centre: Vec3,
     centre_probe: PlacementProbe,
-    east_probe: PlacementProbe | None = None,
-    north_probe: PlacementProbe | None = None,
+    east: tuple[PlacementProbe, PlacementProbe] | None = None,
+    north: tuple[PlacementProbe, PlacementProbe] | None = None,
     step: tuple[float, float] = (1.0, 1.0),
 ) -> EcefFrame:
     """The frame from probe results (see the module docstring); ``centre`` is the
-    bounds centre and ``step`` how far the east and north probes moved it."""
+    bounds centre, ``east`` the probes at the centre moved +``step[0]`` and
+    -``step[0]`` along X, and ``north`` those moved +``step[1]`` and -``step[1]``
+    along Y."""
     mode = PlacementMode(mode)
     root = _root(centre_probe)
     if mode is PlacementMode.ANCHOR:
         matrix = root
     elif mode is PlacementMode.SOURCE_CRS:
-        if east_probe is None or north_probe is None:
-            raise GeorefError("a SOURCE_CRS frame needs the east and north probes")
+        if east is None or north is None:
+            raise GeorefError("a SOURCE_CRS frame needs the east, west, north and south probes")
         rotation = root[:3, :3]
-        origin = root[:3, 3]
         axes = []
-        for result, d in ((east_probe, step[0]), (north_probe, step[1])):
-            _root(result)
-            point = ecef_from_lon_lat_height(*result.origin_lon_lat_height)
-            axes.append(rotation.T @ (point - origin) / d)  # in the ENU frame at the centre
+        for (plus, minus), d in ((east, step[0]), (north, step[1])):
+            ends = []
+            for result in (plus, minus):
+                _root(result)
+                ends.append(ecef_from_lon_lat_height(*result.origin_lon_lat_height))
+            # Central difference, in the ENU frame at the centre.
+            axes.append(rotation.T @ (ends[0] - ends[1]) / (2.0 * d))
         jacobian = np.column_stack([axes[0], axes[1], (0.0, 0.0, 1.0)])
         local = np.eye(4)
         local[:3, :3] = jacobian
@@ -147,7 +157,7 @@ def frame_from_probes(
         origin_lon_lat_height=(float(lon), float(lat), float(height)),
         origin_local=(float(origin_local[0]), float(origin_local[1]), float(origin_local[2])),
         heading_degrees=heading,
-        scale=float(np.linalg.norm(x_axis)),
+        ground_metres_per_model_metre=float(np.linalg.norm(x_axis)),
         operation=centre_probe.operation,
     )
 
@@ -157,7 +167,7 @@ def measure_frame(placement: Placement, bounds_min: Vec3, bounds_max: Vec3) -> E
 
     Raises :class:`GeorefError` if rusty-tiles is missing or refuses the
     placement, or the placement is LOCAL. Each probe is one triangle through
-    ``mesh_to_tileset`` (about 10 ms)."""
+    ``mesh_to_tileset`` (about 10 ms): one for an anchor, five for a source CRS."""
     mode = PlacementMode(placement.mode)
     if mode is PlacementMode.LOCAL:
         raise GeorefError("a local placement has no Earth frame")
@@ -176,8 +186,8 @@ def measure_frame(placement: Placement, bounds_min: Vec3, bounds_max: Vec3) -> E
     if mode is PlacementMode.ANCHOR:
         return frame_from_probes(mode, tuple(centre), centre_probe)
     step = (max(float(half[0]), 1.0), max(float(half[1]), 1.0))
-    east = at(centre + (step[0], 0.0, 0.0))
-    north = at(centre + (0.0, step[1], 0.0))
+    east = (at(centre + (step[0], 0.0, 0.0)), at(centre - (step[0], 0.0, 0.0)))
+    north = (at(centre + (0.0, step[1], 0.0)), at(centre - (0.0, step[1], 0.0)))
     return frame_from_probes(mode, tuple(centre), centre_probe, east, north, step)
 
 

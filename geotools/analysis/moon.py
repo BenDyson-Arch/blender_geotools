@@ -9,8 +9,9 @@ sidereal time are the SPA's (:mod:`.sun`), as in Meeus. The topocentric place
 
 Far from J2000 the theory's mean elements (polynomials in time) drift: the
 declination extremes that set standstill azimuths depend on the obliquity
-(Laskar, :func:`.sun.mean_obliquity`) and the orbit's inclination, and stay
-good to about 0.01 degree over several millennia, but the timing of a given
+(Laskar, :func:`.sun.mean_obliquity`) and the orbit's inclination: within a few
+arc seconds of JPL's DE441 back to 3000 BCE and 0.015 degree at 8000 BCE (mostly
+Laskar's obliquity, 42" from Vondrák 2011 there), but the timing of a given
 lunation, and so the date of an extreme, becomes uncertain by days, and
 ΔT (TT - UT) by hours, more than 2,000 years from now.
 

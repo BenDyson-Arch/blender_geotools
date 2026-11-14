@@ -359,6 +359,9 @@ class MeshInput:
     face_attrs: dict[str, tuple[ColumnType, np.ndarray | list]] = field(default_factory=dict)
     edge_attrs: dict[str, tuple[ColumnType, np.ndarray | list]] = field(default_factory=dict)
     point_attrs: dict[str, tuple[ColumnType, np.ndarray | list]] = field(default_factory=dict)
+    measure: str | None = None
+    """A POINT attribute (float or int) that lines carry as their M values, such as a
+    section's ``chainage``; None for no M."""
 
 
 FID = "fid"
@@ -686,6 +689,13 @@ def lines_from_edges(mesh: MeshInput) -> tuple[Geometries, np.ndarray, dict[str,
         feature_offsets=offsets_from_lengths(feature_parts),
         rows=np.arange(len(feature_group), dtype=np.int64),
     )
+    measure = mesh.point_attrs.get(mesh.measure or "")
+    if measure is not None and measure[0] in (ColumnType.FLOAT, ColumnType.INT):
+        values = np.asarray(measure[1])[vertices[coord_index]]
+        if measure[0] is ColumnType.FLOAT:
+            values = shortest_float64(values)
+        geoms.measures = values.astype(np.float64)
+        geoms.measure_name = str(mesh.measure)
     first_edge = part_start[porder][feature_new]
     columns = _first_values(attrs, first_edge, {FID})
     out_fids = fids[feature_group] if fids is not None else feature_group + 1

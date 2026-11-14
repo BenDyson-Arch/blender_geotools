@@ -2,8 +2,8 @@
 
 Status: validated on `val/archaeoastronomy` (2026-11-14), against GeoTools
 0.3.0-dev (develop at 38fd2e3) in Blender 5.2.4 with rusty-tiles 0.4.1. Two
-bugs were found and fixed; four points are left for a decision
-([below](#discrepancies-left-for-a-decision)).
+bugs were found and fixed; four points were left for a decision, and all
+four are now [resolved](#decisions-resolved).
 
 This covers the Archaeoastronomy sub-panel
 ([m5-analysis.md](../design/m5-analysis.md#archaeoastronomy)): the horizon
@@ -39,12 +39,12 @@ tolerances, the results and a verdict.
 | Horizon profile: curvature and terrestrial refraction | `e = atan(Δz/d) − (1 − k) d / 2R`, k = 0.13, R = 6,371 km (the standard small-angle form; GRASS r.horizon uses the same with k = 0) | **agrees**: 0.0015° from exact spherical geometry for skylines to 5°, 1.3×10⁻⁶° from r.horizon's formula |
 | Horizon profile: the ray search (Cycles bake) | the highest-appearing visible terrain point per azimuth | **bug, fixed** ([e9bc479](#bugs-fixed)): could miss a near crest by up to 0.1° with curvature on. Now within 0.0015° of the exact TIN skyline at 360 azimuths; median −0.0007° (biased low by the fine step) |
 | Horizon flags: open, closed, edge, Ignore Within | as documented | **agrees** (existing tests; dip test here) |
-| Astronomical refraction | Bennett (1982), Meeus eq. 16.4, 1010 hPa, 10 °C | **agrees**: 34.48′ at 0°, Saemundsson's inverse to 3.7″, Skyfield's Bennett to 2″ |
+| Astronomical refraction | Bennett (1982), Meeus eq. 16.4, 1010 hPa at sea level (scaled to the site's height since [decision 4](#decisions-resolved)), 10 °C | **agrees**: 34.48′ at 0°, Saemundsson's inverse to 3.7″, Skyfield's Bennett to 2″ |
 | Moon position | Meeus ch. 47 (truncated ELP-2000/82) + SPA nutation and sidereal time | **agrees**: 1.3″ RMS (4.1″ max) in declination against DE440 |
 | Topocentric parallax | Meeus ch. 40 (ρ sin φ′, ρ cos φ′) | **agrees**: altitude 1.6–2.1″ RMS against DE440 topocentric |
 | Standstills, Node Cycle | `±(ε + i)` major, `±(ε − i)` minor, i = 5.145396°, mean node (Meeus 47.7) | **agrees** (the textbook geometry; the real extremes differ by the 173-day wobble, ±0.15°, as documented) |
-| Standstills, Ephemeris | most (major) / least (minor) extreme monthly limit within a year of the node crossing | **agrees**: 2″ now, 7″ at 3000 BCE, 52″ at 8000 BCE against DE441, almost all of it the obliquity series ([decision 1](#discrepancies-left-for-a-decision)) |
-| Obliquity (epochs) | Laskar (1986) polynomial | **agrees with a documented difference**: within 1″ of Vondrák et al. (2011) from 1000 BCE to 6000 CE, 5.5″ at 3000 BCE, 42″ at 8000 BCE; the docs claim "a few arc seconds at the ends" |
+| Standstills, Ephemeris | most (major) / least (minor) extreme monthly limit within a year of the node crossing | **agrees**: 2″ now, 7″ at 3000 BCE, 52″ at 8000 BCE against DE441, almost all of it the obliquity series ([decision 1](#decisions-resolved)) |
+| Obliquity (epochs) | Laskar (1986) polynomial | **agrees with a documented difference**: within 1″ of Vondrák et al. (2011) from 1000 BCE to 6000 CE, 5.5″ at 3000 BCE, 42″ at 8000 BCE, as the docs and the panel now state ([decision 1](#decisions-resolved)) |
 | Epoch range | ±10,000 years of 2000 | **bug, fixed** ([943e320](#bugs-fixed)): Compute Events failed for 8000/7999 BCE and 11994–11999 CE |
 | Rise/set azimuths (epoch geometry) | trace of the diurnal circle, limb, refraction, parallax, any horizon | **agrees**: 2×10⁻⁴° from the closed form (180 cases) |
 | Dated sunrises and sunsets | SPA every 20 s, upper limb vs `h − R(h)`, first rise / last set | **agrees**: 0.0032° and 1 s from Skyfield + DE440 (216 events, three horizons, 64° N–60° S) |
@@ -215,8 +215,10 @@ same refraction to 3.7″ from 0° to 30°; Skyfield's implementation of Bennett
 Below −1° GeoTools holds R at its −1° value (an observer above the land
 around); Saemundsson's form is not valid there either. Real refraction at the
 horizon varies by several arc minutes with the weather (more in inversions),
-far more than any ephemeris error here; GeoTools does not take pressure or
-temperature. **Verdict:** agrees.
+far more than any ephemeris error here. GeoTools takes no pressure or
+temperature setting; since [decision 4](#decisions-resolved) it scales the
+1010 hPa to the site's height by the standard atmosphere (30.6′ at 0° at
+1,000 m, 21.0′ at 4,000 m). **Verdict:** agrees.
 
 ## The Moon
 
@@ -298,9 +300,10 @@ Laskar (1986) and Vondrák (2011) agree within 1″ from 1000 BCE to 6000 CE;
 IAU 2006 is a short-term polynomial and leaves both after about 1000 years.
 At 8000 BCE the 42″ (0.012°) moves a June sunrise at 51° N by about 0.02°.
 **Verdict:** the standstills agree; the obliquity agrees with a documented
-difference: GeoTools' docs say Laskar's polynomial is good to "a few arc
-seconds at the ends" and the lunar extremes to "about 0.01°"; against the
-modern long-term series it is 42″ at 8000 BCE and the extremes 0.015°.
+difference: against the modern long-term series it is 42″ at 8000 BCE and
+the lunar extremes 0.015°. GeoTools' docs said "a few arc seconds at the
+ends" and "about 0.01°"; they now give these numbers
+([decision 1](#decisions-resolved)).
 
 ## Rise and set
 
@@ -370,32 +373,47 @@ within 0.002°. **Verdict:** agrees, with the documented convention.
 | 943e320 | Compute Events raised "Laskar's obliquity is only valid within 10,000 years" for the epochs 8000 BCE, 7999 BCE and 11994–11999 CE with the standstills on: the standstill nearest such an epoch lies up to 9.3 years beyond the obliquity's range. The standstill's ε now uses the polynomial unchecked (the epoch itself is still checked). | `tests/core/test_archaeo.py::test_events_at_the_ends_of_the_epoch_range` |
 | e9bc479 | The horizon's fine pass could miss a near crest by up to 0.1° when, with curvature on, a farther range is hit by the next coarse ray up but appears lower than the crest. Every bracket within a coarse step of the best is now refined. | `tests/core/test_archaeo.py::test_fine_pass_finds_a_near_crest_below_a_farther_range`, `tests/blender/test_validation_archaeoastronomy.py::test_near_crest_below_a_farther_range` |
 
-## Discrepancies left for a decision
+## Decisions (resolved)
+
+The validation left four points for a decision. The user's decisions
+(2026-11-14) are implemented on `fix/validation-decisions`.
 
 1. **The obliquity at the ends of the epoch range.** Laskar's (1986)
    polynomial is 42″ from Vondrák et al. (2011) at 8000 BCE and 26″ at
-   12000 CE (5.5″ at 3000 BCE), while `sun.mean_obliquity`, m5-analysis.md and
-   the panel's trust note claim "a few arc seconds at the ends" and lunar
-   extremes "to about 0.01°" (0.015° at 8000 BCE). The effect on an azimuth is
-   about 0.02° at 8000 BCE, well under refraction's uncertainty.
-   *Recommendation:* correct the stated accuracy now (e.g. "to 1″ from 1000 BCE
-   to 6000 CE, 5″ at 3000 BCE and about 40″ at 8000 BCE against Vondrák et
-   al. 2011"). Switching the epoch geometry to Vondrák's long-term ε_A (a
-   closed-form series, no new dependency) would remove the gap but changes
-   results users may have (≤ 0.012° in declination); worth doing before
-   0.3.0 only if the far epochs matter to users.
-2. **The sun's parallax in Check Alignment's declination** (8.8″, 0.0024°) is
-   left out, as is customary. *Recommendation:* keep, and say so in the
-   alignment notes; nothing in archaeoastronomy resolves 0.002°.
+   12000 CE (5.5″ at 3000 BCE), while `sun.mean_obliquity`, m5-analysis.md
+   and the panel's trust note claimed "a few arc seconds at the ends" and
+   lunar extremes "to about 0.01°" (0.015° at 8000 BCE). The effect on an
+   azimuth is about 0.02° at 8000 BCE. **Done (documented):** the docstrings
+   of `sun.mean_obliquity` and `moon`, m5-analysis.md and the guide state the
+   accuracy against Vondrák (2011): within 1″ from 1000 BCE to 6000 CE, 5.5″
+   at 3000 BCE, 17.5″ at 5000 BCE, 42″ at 8000 BCE (0.012°, about 0.02° in a
+   sunrise azimuth), 26″ at 12000 CE; lunar extremes 0.015° at 8000 BCE. The
+   panel's trust note gives the gap for the chosen epoch
+   (`archaeo.obliquity_gap`, from the table above). Switching to Vondrák's
+   ε_A is in the backlog ([ANA-4](../BACKLOG.md#ana-4-vondrák-2011-obliquity-for-ancient-epochs)).
+2. **The sun's parallax in Check Alignment's declination** (8.8″, 0.0024°)
+   is left out, as is customary. **Done (documented):** the guide's Check
+   Alignment and m5-analysis.md say so, and that the Moon's parallax (about
+   0.95°) must be applied by the user, or azimuths compared with the events,
+   which include it.
 3. **The horizon's fine-step bias.** The skyline is the highest fine ray that
-   hits, so it is 0 to 0.0016° low (median 0.0007°). *Recommendation:* leave
-   it (it is inside the documented 0.002°); adding half a fine step would
-   centre the error but makes a hard surface edge appear above itself.
-4. **Fixed refraction conditions.** Astronomical refraction is Bennett's at
-   1010 hPa and 10 °C, with no setting for pressure or temperature (the scale
-   is (P/1010)(283/(273+T))). *Recommendation:* leave as is for 0.3.0; the
-   panel already says that weather moves horizon refraction by arc minutes. A
-   Pressure/Temperature pair would let a user bracket it.
+   hits, so it is 0 to 0.0016° low (median 0.0007°), inside the documented
+   0.002°. **Done (documented):** kept, and the guide and m5-analysis.md now
+   state the bias and why it is not centred (half a fine step would make a
+   hard surface edge appear above itself).
+4. **Fixed refraction conditions.** Astronomical refraction was Bennett's at
+   1010 hPa and 10 °C at any height. **Done:** the pressure is the standard
+   atmosphere's at the site's ellipsoidal height
+   (`sun.standard_pressure(height, 1010)`: the observer's ground point, or the
+   Sun panel's site; the eye height is left out), the temperature stays 10 °C,
+   and sea level is unchanged. At 51.18° N the June solstice sunrise moves
+   from 49.243° to 49.350° at 1,000 m and 49.614° at 4,000 m; a dated sunrise
+   4,000 m up is 1 min 54 s later. The events' summary records the height and
+   pressure, and Check Alignment inverts at that pressure. Regression tests:
+   `tests/core/test_archaeo.py::test_events_refract_at_the_site_pressure`,
+   `tests/blender/test_archaeo.py::test_events_refract_at_the_site_height`.
+   A Pressure/Temperature setting to bracket the weather is still not there;
+   the panel says the weather moves refraction by arc minutes.
 
 ## Limits users should know
 
@@ -413,7 +431,8 @@ within 0.002°. **Verdict:** agrees, with the documented convention.
   degree between it and GeoTools' mesh. r.horizon has no eye height and
   reports negative horizons as 0.
 - **Epoch declinations** use Laskar's obliquity (42″ from the modern series at
-  8000 BCE, see decision 1); the Node Cycle standstills are the textbook
+  8000 BCE, see [decision 1](#decisions-resolved); the panel gives the gap
+  for the chosen epoch); the Node Cycle standstills are the textbook
   `±(ε ± i)`, up to 0.15° from what the Moon actually reaches (use
   Ephemeris for that).
 - **Times** of dated events and standstill dates carry ΔT: seconds now, about

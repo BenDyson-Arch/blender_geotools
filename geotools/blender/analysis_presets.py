@@ -281,7 +281,30 @@ def convergence(scene: bpy.types.Scene, obj: bpy.types.Object) -> tuple[float, s
         where = site.sun_site(placement, _centre(obj))
     except (site.SiteError, site.GeodesyUnavailable, ValueError) as exc:
         raise PresetError(f"Could not find the convergence at {obj.name}: {exc}") from None
-    return float(where.convergence), where.north
+    # One angle: the convergence in a conformal grid; in a non-conformal one the
+    # rotation nearest the grid-to-ground map (site.SunSite.rotation).
+    return float(where.rotation), where.north
+
+
+NON_CONFORMAL_ASPECT = (
+    "The project CRS is not conformal (Albers, Web Mercator): one rotation per object "
+    "makes aspects facing along and across the meridian true; others can be off by up "
+    "to a degree or two (1.8° in Tasmania in EPSG:3577, 0.2° at the equator in Web Mercator)"
+)
+
+
+def _conformal(scene: bpy.types.Scene) -> bool:
+    """Whether one rotation turns every direction to true north (not Albers, Web Mercator)."""
+    try:
+        placement = placement_from_props(scene.geotools)
+    except FieldError:
+        return True
+    if PlacementMode(placement.mode) is not PlacementMode.SOURCE_CRS or not site.available():
+        return True
+    try:
+        return site.sun_site(placement).conformal
+    except (site.SiteError, site.GeodesyUnavailable, ValueError):
+        return True
 
 
 # --- the operation ------------------------------------------------------------------------------
@@ -449,6 +472,10 @@ def add_preset(
     if true_north:
         for obj in objects:
             angles[obj.name], north_label = convergence(scene, obj)
+        if not _conformal(scene):
+            notes_north = [NON_CONFORMAL_ASPECT]
+        else:
+            notes_north = []
 
     group = ensure_group(preset, library)
     attribute = attribute_name(name)
@@ -496,6 +523,7 @@ def add_preset(
     if true_north:
         spread = ", ".join(f"{angles[o.name]:+.4f}°" for o in objects[:3])
         notes.append(f"Convergence {spread} ({north_label})")
+        notes.extend(notes_north)
     sources = {o.as_pointer() for o in source_objects(scene)}
     outside = [o.name for o in objects if o.as_pointer() not in sources]
     if outside:

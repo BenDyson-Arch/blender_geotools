@@ -13,7 +13,8 @@ over a local day at 1-minute steps (step midpoints, as GeoTools sums them) of
   (the Liu-Jordan isotropic sky; GeoTools omits ground-reflected light).
 
 The sun is pvlib's own NREL SPA (``get_solarposition(method="nrel_numpy")``,
-standard pressure and 12 C, pvlib's Delta T). The surface azimuth is the
+12 C, pvlib's Delta T), refracted at the ICAO standard atmosphere's pressure
+at the site's altitude (1013.25 hPa at sea level), as GeoTools refracts it. The surface azimuth is the
 true azimuth the surface faces. A ``sky_view`` table gives the exact
 isotropic sky view (1 + cos tilt) / 2 for comparing GeoTools' Fibonacci sky
 rays.
@@ -64,8 +65,16 @@ def day_totals(lat, lon, day, zone, turbidity, altitude) -> dict:
     end = (pd.Timestamp(day) + pd.Timedelta(days=1)).tz_localize(zone)
     minutes = round((end - start).total_seconds() / 60.0)
     times = start.tz_convert("UTC") + pd.to_timedelta(np.arange(minutes) + 0.5, unit="min")
+    # The ICAO standard atmosphere's barometric formula (troposphere), in Pa.
+    pressure = 101325.0 * (1.0 - 0.0065 * altitude / 288.15) ** 5.255877
     position = pvlib.solarposition.get_solarposition(
-        times, lat, lon, altitude=altitude, pressure=101325.0, temperature=12.0, method="nrel_numpy"
+        times,
+        lat,
+        lon,
+        altitude=altitude,
+        pressure=pressure,
+        temperature=12.0,
+        method="nrel_numpy",
     )
     zenith = position["apparent_zenith"].to_numpy()
     relative = pvlib.atmosphere.get_relative_airmass(zenith, model="kastenyoung1989")

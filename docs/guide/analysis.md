@@ -50,11 +50,23 @@ The result shows the time in UTC, the sun's **Azimuth** from true north, its
 **Elevation**, the grid **Convergence**, and the azimuth in the scene (**Scene
 Az.**, from +Y). In a CRS project the sun is turned from true north to grid
 north by the convergence, up to about 1.5° at the edge of a UTM or MGA zone.
-**Refraction** (on) lifts the sun near the horizon as the atmosphere does.
+In a CRS that is not conformal (Albers equal-area, Web Mercator) the turn
+depends on the direction, so GeoTools turns the sun through the grid's own
+map at the site (the one Measure uses), and the panel says so; the
+**Convergence** shown is then the turn along the meridian only.
+**Refraction** (on) lifts the sun near the horizon as the atmosphere does,
+at the standard atmosphere's pressure for the site's height (1013.25 hPa at
+sea level, 899 hPa at 1,000 m) and 12 °C: on high ground the sun rises a
+little later and sets a little earlier (4 minutes off a June day at 51° N at
+4,000 m). The height is the site's ellipsoidal height; a Local project has
+none, so it refracts at sea level.
 
 **Over a Day** keyframes the light: set the **Hours** (from and to), the **Step
 (min)**, the **First Frame** and the **Frame Step**, then press **Animate
-Day**. The light is switched off while the sun is below the horizon.
+Day**. The light is switched off while the sun is below the horizon: its
+strength switches at the first key with the sun up (or down), and the frames
+between two keys keep the earlier key's strength, as in a Shadow Study. Its
+direction moves smoothly between keys.
 
 The sun's position is NREL's Solar Position Algorithm, within 0.00001° of the
 paper's own example.
@@ -124,7 +136,8 @@ within 10,000 years of 2000, and checks alignments against them.
 3. Press **Compute Horizon**.
 
 GeoTools casts rays over the scene's meshes and finds the apparent altitude of
-the skyline in each direction, to about 0.002°. **Earth Curvature** and
+the skyline in each direction, to about 0.002°: it reads 0 to 0.0016° low,
+since the skyline is the highest of the fine rays that hit. **Earth Curvature** and
 **Refraction** (terrestrial, k = 0.13) are on by default. **Ignore Within**
 leaves out terrain near the eye. **Open Horizon** is the altitude used where no
 terrain is hit; such open azimuths, and skylines at the edge of the terrain,
@@ -148,6 +161,13 @@ The table gives each event's azimuth on the astronomical horizon and on the
 real one (when a horizon profile exists). Copy it with the copy button. The
 panel says how far back the results can be trusted.
 
+Rises and sets include astronomical refraction (Bennett's formula, 34′ at the
+horizon at sea level and 10 °C), at the standard atmosphere's pressure for
+the site's ellipsoidal height: 30′ at 1,000 m, 21′ at 4,000 m. A June
+sunrise at 51° N is 0.11° further from north at 1,000 m than at sea level,
+0.37° at 4,000 m. Check Alignment uses the same pressure as the events. The
+weather moves refraction at the horizon by several arc minutes either way.
+
 ### Sightlines and alignments
 
 - **Create Sightlines** makes a mesh of lines, `GeoTools Sightlines`, from the
@@ -156,7 +176,10 @@ panel says how far back the results can be trusted.
   Vectors, or publish it as vectors.
 - **Check Alignment** takes each selected edge of a mesh, such as a wall or a
   line of stones you drew, and gives its true azimuth both ways, the nearest
-  events and the declination it implies.
+  events and the declination it implies. That declination is for the centre
+  of the sun or a star with no parallax: the sun's 8.8″ is left out, as is
+  usual in archaeoastronomy. For the Moon, add its parallax (about 0.95°)
+  yourself, or compare azimuths with the events, which include it.
 
 **Limits.** The horizon is only as good as the terrain in the scene. Beyond
 it, set **Open Horizon** or import a wider terrain. Results for old epochs
@@ -218,7 +241,12 @@ The menu groups the presets:
 
 Entries with a clock icon are heavy on large meshes.
 
-Aspect has a **(True North)** entry beside the grid-north one. Sky-view factor,
+Aspect has a **(True North)** entry beside the grid-north one. It turns each
+object by one angle, the convergence at its centre, which is exact in UTM,
+MGA and other conformal grids. In Albers or Web Mercator aspects facing
+between the meridian and the parallel stay up to a degree or two out (see
+[analysis-presets.md](../analysis-presets.md#aspect-aspect-face-deg)); use a
+conformal CRS for exact true aspects there. Sky-view factor,
 openness and the cumulative viewshed have a **(Fast Bake)** entry: the same
 rays cast once by a Cycles bake, much faster on large meshes, stored as a
 layer instead of a live modifier.
@@ -272,6 +300,23 @@ open edges and overhangs onto whatever lies below, across objects. The result
 lists the largest catchment, the depressions and the ponded volume. It takes
 about 20 seconds on 10 million triangles.
 
+**Limits.**
+
+- **False pits in V-channels.** Faces link only across shared edges. Where a
+  V-shaped channel runs exactly along a line of mesh edges (common on a DEM
+  converted to a mesh), the channel's two lowest faces in each cell meet only
+  at a vertex, so each cell is a shallow pit, (side slope − 2 × fall) × h/3
+  deep for cells h wide: 67 mm for 0.3 side slopes and a 5 % fall on 1 m
+  cells. Water fills them and passes on, so flow accumulation is unaffected,
+  but `ponded_depth` and `depression` show them and coarse meshes list them.
+  Set **Minimum Depth** to about a third of a face's fall across the channel
+  (side slope × h/3) to hide them; on photogrammetry meshes, with faces of a
+  few centimetres, they are millimetres deep and the default hides them.
+- **Spill levels at face centres.** Heights are taken at face centres, so a
+  depression's spill level reads about a third of a cell times the slope
+  lower than a raster tool's (h/3 × slope): millimetres on photogrammetry
+  meshes, 3 % of the volume of a cone-shaped pit at 1 m cells.
+
 ## Contours and Sections
 
 Cuts contour lines and cross-sections from the meshes, with heights in the
@@ -285,7 +330,10 @@ project's height system (RL: Blender Z plus offset A).
 3. Press **Create Contours**.
 
 The result is a line object (`Contours`) with `elevation`, `index`, `major`
-and `closed` attributes.
+and `closed` attributes. A level that only touches the surface gives no line:
+the lowest level of a flat-bottomed surface, or an isolated vertex (a peak
+or pit) exactly on a level. GDAL's `gdal_contour` draws a line along the
+bottom edge or a tiny loop there; no area is missed either way.
 
 **Sections:**
 
@@ -295,7 +343,13 @@ and `closed` attributes.
 3. Press **Create Sections**.
 
 The result is a line object (`Sections`) with `chainage` per point. Every
-piece of a multi-level surface is kept.
+piece of a multi-level surface is kept. Exported to a GeoPackage, each piece is
+a LineString ZM whose M is the chainage, the GIS convention for linear
+referencing (QGIS and GDAL read it). GeoJSON has no M, so a GeoJSON piece
+carries a `chainage` property instead: one value per point, in the order of
+its coordinates. Both also have `chainage_from` and `chainage_to` per piece.
+A Vectors publish leaves M out (rusty-tiles 0.4 refuses measured geometry)
+and keeps `chainage_from` and `chainage_to`.
 
 Both go in the **GeoTools Analysis** collection. Export them with **File >
 Export > GeoPackage (.gpkg)**, with absolute heights, or publish them with a

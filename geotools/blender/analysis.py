@@ -64,6 +64,10 @@ TZ_NO_DATABASE_NOTE = (
     "other than UTC cannot be used. Use a UTC offset; it has no daylight saving."
 )
 
+NON_CONFORMAL_NOTE = (
+    "The project CRS is not conformal (Albers, Web Mercator): the sun is turned by the "
+    "grid-to-ground map at the site; the convergence shown holds along the meridian."
+)
 NEEDS_PYPROJ = (
     "Needs pyproj, which is not available (see About): a CRS project cannot be related "
     "to the Earth without it."
@@ -491,6 +495,8 @@ def _sun_result(
     **extra,
 ) -> str:
     azimuth = float(position.azimuth[index])
+    if not where.conformal:
+        notes = (*notes, NON_CONFORMAL_NOTE)
     return json.dumps(
         {
             "utc": utc.isoformat(),
@@ -498,7 +504,7 @@ def _sun_result(
             "azimuth": azimuth,
             "elevation": float(position.elevation[index]),
             "convergence": where.convergence,
-            "scene_azimuth": (azimuth - where.convergence) % 360.0,
+            "scene_azimuth": float(where.scene_azimuth(azimuth)),
             "north": where.north,
             "longitude": where.longitude,
             "latitude": where.latitude,
@@ -523,9 +529,14 @@ def place_sun(context: bpy.types.Context) -> dict:
     props, where, tz, label = _prepare(context)
     utc, notes = sun.to_utc(_local_moment(props), tz)
     position = sun.solar_position(
-        utc.timestamp(), where.latitude, where.longitude, where.height, refraction=props.refraction
+        utc.timestamp(),
+        where.latitude,
+        where.longitude,
+        where.height,
+        pressure_hpa=sun.standard_pressure(where.height),
+        refraction=props.refraction,
     )
-    scene_azimuth = (position.azimuth - where.convergence) % 360.0
+    scene_azimuth = where.scene_azimuth(position.azimuth)
     euler = sun.light_euler(scene_azimuth, position.elevation)[0]
     obj = ensure_sun_light(context, props)
     _clear_sun_animation(obj)
@@ -556,9 +567,14 @@ def animate_sun(context: bpy.types.Context) -> dict:
         raise ValueError(f"{count} keyframes is too many; use a longer step.")
     times = sun.local_times(start_utc, count, step)
     position = sun.solar_position(
-        times, where.latitude, where.longitude, where.height, refraction=props.refraction
+        times,
+        where.latitude,
+        where.longitude,
+        where.height,
+        pressure_hpa=sun.standard_pressure(where.height),
+        refraction=props.refraction,
     )
-    scene_azimuth = (position.azimuth - where.convergence) % 360.0
+    scene_azimuth = where.scene_azimuth(position.azimuth)
     euler = sun.light_euler(scene_azimuth, position.elevation)
     energy = np.where(position.elevation > 0.0, props.strength, 0.0)
     frames = props.frame_start + props.frames_per_step * np.arange(count, dtype=np.float64)
@@ -567,7 +583,16 @@ def animate_sun(context: bpy.types.Context) -> dict:
     _clear_sun_animation(obj)
     obj.rotation_mode = "XYZ"
     _keyframe(obj, "rotation_euler", frames, euler.T, f"{SUN_ACTION_PREFIX} Rotation")
-    _keyframe(obj.data, "energy", frames, energy[None, :], f"{SUN_ACTION_PREFIX} Strength")
+    # Constant: the light switches at the first key with the sun up (or down), rather
+    # than fading over the frames between two keys (as Shadow Study does).
+    _keyframe(
+        obj.data,
+        "energy",
+        frames,
+        energy[None, :],
+        f"{SUN_ACTION_PREFIX} Strength",
+        CONSTANT,
+    )
     context.scene.frame_set(context.scene.frame_current)
 
     current = _frame_index(

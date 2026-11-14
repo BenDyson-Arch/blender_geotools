@@ -267,7 +267,8 @@ def test_flow_path_quick_look_follows_steepest_descent() -> None:
 
 
 def _wkb_coords(blob: bytes) -> list[np.ndarray]:
-    """Line strings (or one point) of a GeoPackage geometry blob, parsed by hand."""
+    """Line strings (or one point) of a GeoPackage geometry blob, parsed by hand: XY(Z),
+    with M as a last column when the geometry has it."""
     assert blob[:2] == b"GP"
     flags = blob[3]
     order = "<" if flags & 1 else ">"
@@ -277,9 +278,10 @@ def _wkb_coords(blob: bytes) -> list[np.ndarray]:
     def geom(at: int) -> tuple[list[np.ndarray], int]:
         bo = "<" if wkb[at] == 1 else ">"
         (kind,) = struct.unpack_from(bo + "I", wkb, at + 1)
-        has_z = kind > 1000 or bool(kind & 0x80000000)
-        base = (kind & 0x0FFFFFFF) % 1000
-        dims = 3 if has_z else 2
+        thousands, base = divmod(kind & 0x0FFFFFFF, 1000)
+        has_z = thousands in (1, 3) or bool(kind & 0x80000000)
+        has_m = thousands in (2, 3) or bool(kind & 0x40000000)
+        dims = 2 + has_z + has_m
         at += 5
         if base == 1:
             point = np.array(struct.unpack_from(bo + "d" * dims, wkb, at))
@@ -308,19 +310,22 @@ def _read_gpkg(path: Path, table: str) -> dict:
             "JOIN gpkg_spatial_ref_sys s ON s.srs_id = c.srs_id WHERE c.table_name = ?",
             (table,),
         ).fetchone()
-        geom_col, z = db.execute(
-            "SELECT column_name, z FROM gpkg_geometry_columns WHERE table_name = ?", (table,)
+        geom_col, z, m = db.execute(
+            "SELECT column_name, z, m FROM gpkg_geometry_columns WHERE table_name = ?", (table,)
         ).fetchone()
         cursor = db.execute(f'SELECT * FROM "{table}"')
         names = [d[0] for d in cursor.description]
         rows = cursor.fetchall()
     g = names.index(geom_col)
+    parsed = [_wkb_coords(r[g]) for r in rows]
     return {
         "srs": srs,
         "z": z,
+        "m": m,
         "columns": [n for n in names if n != geom_col],
         "rows": [dict(zip(names, r, strict=True)) for r in rows],
-        "geoms": [_wkb_coords(r[g]) for r in rows],
+        "geoms": [[p[:, :3] for p in parts] for parts in parsed],
+        "measures": [[p[:, 3] for p in parts] for parts in parsed] if m else None,
     }
 
 
@@ -438,9 +443,29 @@ def test_export_vectors_round_trips_hydrology_contours_and_sections() -> None:
         data, _coords = found[("Sections", fmt)]
         for row in data["rows"]:
             assert 0.0 <= row["chainage_from"] < row["chainage_to"] <= 4.7
-    # The per-point chainage stays in Blender: simple-feature lines carry no per-vertex
-    # values (see the doc's recommendation to write it as M).
-    assert "chainage" in bpy.data.objects["Sections"].data.attributes
-    data, _coords = found[("Sections", "GPKG")]
-    assert "chainage" not in data["columns"]
+    # The per-point chainage is each point's M in the GeoPackage (LineString ZM) and a
+    # per-point "chainage" property in GeoJSON; nothing else gets M.
+    sections = bpy.data.objects["Sections"]
+    assert sections.get("geotools_measure") == "chainage"
+    local = _co(sections)
+    chainage = np.empty(len(sections.data.vertices), dtype=np.float32)
+    sections.data.attributes["chainage"].data.foreach_get("value", chainage)
+    gpkg_data, _coords = found[("Sections", "GPKG")]
+    json_data, _coords = found[("Sections", "GEOJSON")]
+    assert gpkg_data["m"] == 1 and "chainage" not in gpkg_data["columns"]
+    for row, geom, measures, props in zip(
+        gpkg_data["rows"], gpkg_data["geoms"], gpkg_data["measures"], json_data["rows"], strict=True
+    ):
+        ((part,), (m,)) = geom, measures
+        nearest = np.argmin(
+            np.linalg.norm((part - offset)[:, None, :] - local[None, :, :], axis=2), axis=1
+        )
+        np.testing.assert_allclose(m, chainage[nearest], rtol=0, atol=1e-6)
+        assert abs(m[0] - row["chainage_from"]) < 1e-6, (m[0], row)
+        assert abs(m[-1] - row["chainage_to"]) < 1e-6, (m[-1], row)
+        assert np.all(np.diff(m) >= 0), np.diff(m).min()  # chainage never runs back
+        np.testing.assert_array_equal(props["chainage"], m)
+    for name in ("Depressions", "Flow Paths", "Contours"):
+        assert found[(name, "GPKG")][0]["m"] == 0, name
+        assert "chainage" not in found[(name, "GEOJSON")][0]["rows"][0], name
     _report("export_round_trip", {f"{n} {f}": len(d[0]["rows"]) for (n, f), d in found.items()})

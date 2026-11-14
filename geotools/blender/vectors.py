@@ -735,6 +735,12 @@ def write_back(obj: bpy.types.Object, names: list[str]) -> WriteBack:
 # --- export ----------------------------------------------------------------------------
 
 
+MEASURE_PROP = "geotools_measure"
+"""Object property naming a POINT attribute that exported lines carry as M (LineString
+ZM in a GeoPackage, a per-point property in GeoJSON). Create Sections sets it to
+``chainage``."""
+
+
 def export_attributes(mesh: bpy.types.Mesh, domain: str) -> dict:
     out = {}
     for attr in mesh.attributes:
@@ -795,6 +801,7 @@ def mesh_input(
             face_attrs=face,
             edge_attrs=edge,
             point_attrs=point,
+            measure=str(obj.get(MEASURE_PROP) or "") or None,
         )
         return vmesh.vectors_from_mesh(result, obj.name, None)
     finally:
