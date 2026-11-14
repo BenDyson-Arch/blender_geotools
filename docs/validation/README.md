@@ -28,3 +28,16 @@ sites. One bug fixed (Measure in non-conformal CRSs: Albers, Web Mercator);
 four points left for a decision (the GLB metadata frame's one-sided probes,
 the `geotools:gridScale` name, the sun in non-conformal CRSs, the GeoPackage
 `definition` text).
+
+## Hydrology, contours and sections
+
+[hydrology.md](hydrology.md): depression filling and depressions, flow routing,
+flats, accumulation, Channel From and the Flow Paths object, drops, Flow Path
+(Quick Look), contours, sections and their export, against closed forms, an
+independent priority-flood on the same face graph, WhiteboxTools 2.4.0,
+richdem 0.3.4, GDAL 3.12.0 and SciPy 1.18.1. All agree. One bug fixed
+(duplicate contour and section segments where a mesh edge lies on the plane);
+face-centre spill levels, three flow directions per face and flats routed
+towards their exit are documented convention differences. Five points are left
+for a decision, among them spurious shallow pits along V-channels that follow
+mesh edges.

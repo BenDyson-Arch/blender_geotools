@@ -58,6 +58,19 @@ and the project follows semantic versioning where practical.
   (see Fixed) and four points left for a decision. Reference scripts in
   `scripts/validation/geodesy/`, fixtures in `tests/data/validation/geodesy/`,
   tests in normal CI.
+- Validation of hydrology, contours and sections
+  ([docs/validation/hydrology.md](docs/validation/hydrology.md)): depression
+  filling, depressions, flow routing, flats, accumulation, Channel From and
+  the Flow Paths object, Flow Path (Quick Look), contours, sections and their
+  Export Vectors output, against closed forms, a heap priority-flood on the
+  same face graph (bit-identical), WhiteboxTools 2.4.0, richdem 0.3.4, GDAL
+  3.12.0 (gdal_contour, bilinear sampling) and SciPy 1.18.1 on synthetic
+  DEMs. All agree; face-centre spill levels (low by about a third of a face's
+  fall), three flow directions per face and flats routed towards their exit
+  are documented, and spurious shallow pits along V-channels that follow mesh
+  edges are a known limit. Reference script
+  `scripts/validation/hydrology/make_references.py`, fixtures in
+  `tests/data/validation/hydrology/`, tests in normal CI.
 
 ### Changed
 

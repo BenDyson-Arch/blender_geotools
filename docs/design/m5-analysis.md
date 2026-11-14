@@ -953,7 +953,11 @@ heights and unchanged. Levels are reported in RL (plus offset A).
   one's lake, which spills out over the low edge.
 
 **Limits.** Single flow direction (above). Heights are face centres, so a
-face is wet or dry as a whole. Faces are not welded across objects: two
+face is wet or dry as a whole. A V-shaped channel running along a line of mesh edges
+is a chain of shallow pits, (side slope − 2 × fall) × h/3 deep, since the two
+lowest faces of each cell meet only at a vertex; filled, they pass their water
+on, but on coarse meshes they are listed as depressions
+([validation](../validation/hydrology.md#v-channels-along-mesh-edges)). Faces are not welded across objects: two
 objects that touch exchange water only by drops, so a building closed at its
 base and sunk into the terrain drips from its base, which is under the ground
 (join walls to the ground, or leave the base open). Drops are vertical; water
