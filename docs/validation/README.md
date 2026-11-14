@@ -28,3 +28,17 @@ sites. One bug fixed (Measure in non-conformal CRSs: Albers, Web Mercator);
 four points left for a decision (the GLB metadata frame's one-sided probes,
 the `geotools:gridScale` name, the sun in non-conformal CRSs, the GeoPackage
 `definition` text).
+
+## Visibility, change, volumes and paths
+
+[visibility.md](visibility.md): viewshed, cumulative viewshed (live and fast),
+intervisibility, line of sight, distance to surface and to a feature, cut and
+fill, closed volume and least-cost path, against an exact line of sight over
+the same mesh, GDAL 3.13.3 `gdal_viewshed`, GRASS 8.5.0 `r.viewshed` and
+`r.walk`, trimesh 5.2.1, shapely 2.2.0 and networkx 3.7 on synthetic ridges,
+domes, hills and solids. All agree; Earth curvature (GDAL applies it by
+default, GeoTools does not), the cut/fill split by face and least-cost
+routing on the mean of both directions are documented convention
+differences. One bug fixed (Closed Volume lost float32 precision far from the
+origin). Open: the sign of distance to surface within the wedge of edges
+sharper than 90°.

@@ -47,6 +47,17 @@ and the project follows semantic versioning where practical.
   documented convention differences, now settled (see Changed). Reference script
   `scripts/validation/terrain/make_references.py`, fixtures in
   `tests/data/validation/terrain/`, tests in normal CI.
+- Validation of the visibility, distance, volume and least-cost path presets
+  ([docs/validation/visibility.md](docs/validation/visibility.md)): viewshed,
+  cumulative viewshed (live and fast), intervisibility, line of sight,
+  distance to surface and to a feature, cut and fill, closed volume and
+  least-cost path, against an exact line of sight over the same mesh, GDAL
+  3.13.3, GRASS 8.5.0 (`r.viewshed`, `r.walk`), trimesh 5.2.1, shapely 2.2.0
+  and networkx 3.7 on synthetic ridges, domes, hills and solids. All agree;
+  Earth curvature, the cut/fill split by face and least-cost routing on the
+  mean of both directions are documented differences; one bug fixed (see
+  Fixed). Reference scripts in `scripts/validation/visibility/`, fixtures in
+  `tests/data/validation/visibility/`, tests in normal CI.
 - Validation of geodesy and measurement
   ([docs/validation/geodesy.md](docs/validation/geodesy.md)): Measure's point
   readout, scale factor and convergence, ground distances, bearings and areas,

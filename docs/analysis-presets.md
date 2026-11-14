@@ -595,6 +595,12 @@ edge the nearest point is on its boundary and the distance means little:
 Distance of the edge the values are still to the edge, so trim the meshes to
 their common footprint for a change map.
 
+The sign comes from one face at the nearest point. Where that point is on an
+edge whose two faces' normals differ by more than 90° (the top of a thin wall,
+a knife-edge ridge, a deep notch), a vertex in the wedge between the normals
+may get either sign; CloudCompare's C2M behaves the same way
+([validation](validation/visibility.md#sign-at-sharp-edges)).
+
 | Input | Default | |
 |---|---|---|
 | Reference | (filled) | The surface measured to (another selected mesh). |
