@@ -12,7 +12,6 @@ from __future__ import annotations
 import datetime as dt
 import json
 import math
-import zoneinfo
 from functools import cache
 from pathlib import Path
 
@@ -60,12 +59,18 @@ def _crs_project(crs: str, east: float, north: float) -> None:
     props.source_offset_a = "0.0"
 
 
-def _sun_date(day: str, zone: str) -> None:
+def _sun_date(day: str, offset: float) -> None:
+    """The Sun panel's date, at a fixed UTC offset.
+
+    Fixed offsets, not the references' IANA zones: Blender on Windows has no
+    time zone database. None of the days used here has a daylight-saving
+    change, so the offset gives the same local day as the zone.
+    """
     sun_props = bpy.context.scene.geotools_analysis.sun
     date = dt.date.fromisoformat(day)
     sun_props.year, sun_props.month, sun_props.day = date.year, date.month, date.day
-    sun_props.tz_mode = "ZONE"
-    sun_props.tz_name = zone
+    sun_props.tz_mode = "OFFSET"
+    sun_props.utc_offset = offset
 
 
 def _source(name: str, verts, faces) -> bpy.types.Object:
@@ -140,7 +145,7 @@ def test_light_points_at_the_geodesic_sun() -> None:
     _crs_project(ref["crs"], ref["east"], ref["north"])
     instant = dt.datetime.fromisoformat(ref["instant"])
     sun_props = bpy.context.scene.geotools_analysis.sun
-    _sun_date(instant.date().isoformat(), "UTC")
+    _sun_date(instant.date().isoformat(), 0.0)
     sun_props.hour, sun_props.minute, sun_props.second = instant.hour, instant.minute, 0
     sun_props.refraction = False
     result, error = h.call_op(bpy.ops.geotools.sun_place)
@@ -157,7 +162,7 @@ def test_light_points_at_the_geodesic_sun() -> None:
 def test_day_keys_switch_off_at_skyfield_sunrise_and_sunset() -> None:
     """Over a Day at 1-minute keys: the light is on exactly between Skyfield's rise and set.
 
-    51.18 N on the June solstice, Europe/London, refraction on (the centre's
+    51.18 N on the June solstice, Europe/London (UTC+01:00 that day), refraction on (the centre's
     SPA-refracted elevation above 0, as GeoTools defines "up"). A key may
     disagree only within 2 s of an event (SPA against DE440 near the horizon,
     and UT1 - UTC).
@@ -165,7 +170,8 @@ def test_day_keys_switch_off_at_skyfield_sunrise_and_sunset() -> None:
     _reset()
     ref = next(c for c in _load("sun_hours.json")["open"] if c["name"] == "51 N June solstice")
     _local_project(ref["longitude"], ref["latitude"])
-    _sun_date(ref["first"], ref["zone"])
+    assert ref["zone"] == "Europe/London"
+    _sun_date(ref["first"], 1.0)
     sun_props = bpy.context.scene.geotools_analysis.sun
     sun_props.start_hour, sun_props.end_hour, sun_props.step_minutes = 0.0, 24.0, 1
     sun_props.frame_start, sun_props.frames_per_step = 1, 1
@@ -173,7 +179,7 @@ def test_day_keys_switch_off_at_skyfield_sunrise_and_sunset() -> None:
     assert result == {"FINISHED"}, error
     stored = json.loads(sun_props.result)
     assert stored["steps"] == 1441
-    start = dt.datetime(2026, 6, 21, tzinfo=zoneinfo.ZoneInfo(ref["zone"])).timestamp()
+    start = dt.datetime(2026, 6, 21, tzinfo=dt.timezone(dt.timedelta(hours=1))).timestamp()
     rise = next(t for t, kind in ref["events"] if kind == 1)
     sets = next(t for t, kind in ref["events"] if kind == -1)
     light = bpy.data.objects["GeoTools Sun"]
@@ -197,7 +203,11 @@ def test_day_keys_switch_off_at_skyfield_sunrise_and_sunset() -> None:
 
 
 def test_shadow_study_days_in_far_time_zones() -> None:
-    """The equinox and solstice days, taken in UTC+14 and UTC-11, against Skyfield's moments."""
+    """The equinox and solstice days, taken in UTC+14 and UTC-11, against Skyfield's moments.
+
+    Kiritimati (UTC+14) and Pago Pago (UTC-11) as fixed offsets: neither has
+    daylight saving, and Blender on Windows has no time zone database.
+    """
     _reset()
     seasons = _load("seasons.json")
     names = seasons["seasons"]
@@ -214,15 +224,16 @@ def test_shadow_study_days_in_far_time_zones() -> None:
     study.start_hour, study.end_hour, study.step_hours = 12.0, 12.0, 1.0
     sun_props = bpy.context.scene.geotools_analysis.sun
     sun_props.year = 2026
-    for zone in ("Pacific/Kiritimati", "Pacific/Pago_Pago", "UTC"):
-        sun_props.tz_mode = "ZONE"
-        sun_props.tz_name = zone
+    for offset in (14.0, -11.0, 0.0):
+        sun_props.tz_mode = "OFFSET"
+        sun_props.utc_offset = offset
+        zone = dt.timezone(dt.timedelta(hours=offset))
         result, error = h.call_op(bpy.ops.geotools.sun_shadow_study)
         assert result == {"FINISHED"}, error
         rows = json.loads(study.result)["moments"]
         assert [row["season"] for row in rows] == names
         for row in rows:
-            moment = dt.datetime.fromtimestamp(moments[row["season"]], zoneinfo.ZoneInfo(zone))
+            moment = dt.datetime.fromtimestamp(moments[row["season"]], zone)
             assert row["local"] == f"{moment.date().isoformat()}T12:00:00", (zone, row, moment)
 
 
@@ -237,18 +248,18 @@ def test_tilted_planes_match_skyfield() -> None:
     each of up to four edges (sunrise, sunset, the surface's own plane twice).
     """
     rows = _load("sun_hours.json")["surfaces"]
-    cases = [
-        ("51 N December", "east 45"),
-        ("51 N March", "north 60"),
-        ("51 N June", "vertical north"),
-        ("27.5 S June", "north 30"),
-        ("80 N June", "overhang (faces down, 120)"),
+    cases = [  # with the reference zone's UTC offset on that day
+        ("51 N December", "east 45", 0.0),
+        ("51 N March", "north 60", 0.0),
+        ("51 N June", "vertical north", 1.0),
+        ("27.5 S June", "north 30", 10.0),
+        ("80 N June", "overhang (faces down, 120)", 0.0),
     ]
-    for site, surface in cases:
+    for site, surface, offset in cases:
         ref = next(r for r in rows if r["site"] == site and r["surface"] == surface)
         _reset()
         _local_project(ref["longitude"], ref["latitude"])
-        _sun_date(ref["day"], ref["zone"])
+        _sun_date(ref["day"], offset)
         quad = _source("Quad", [(-1, -1, 0), (1, -1, 0), (1, 1, 0), (-1, 1, 0)], [(0, 1, 2, 3)])
         # Tilt about X (the normal leans towards -Y, south), then turn it to face the aspect.
         quad.rotation_mode = "XYZ"

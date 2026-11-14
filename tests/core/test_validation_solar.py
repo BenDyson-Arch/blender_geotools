@@ -41,6 +41,14 @@ def wrap(angle) -> np.ndarray:
     return (np.asarray(angle) + 180.0) % 360.0 - 180.0
 
 
+NO_TZDB = not sun.time_zone_database_available()  # Python on Windows without tzdata
+
+
+def needs_database(row: dict) -> bool:
+    """True for a named zone this Python cannot load (those rows are skipped)."""
+    return NO_TZDB and not row["zone"].startswith("UTC")
+
+
 def time_zone(name: str):
     if name.startswith("UTC") and len(name) > 3:  # "UTC+05:45"
         hours, minutes = name[4:].split(":")
@@ -255,6 +263,8 @@ def test_day_length_on_open_ground(case: dict) -> None:
     so a day is within one step (plus 0.1 min for the two ephemerides and UT1).
     The local day's length (23, 24, 24.5 or 25 h) must be exact.
     """
+    if needs_database(case):
+        pytest.skip("no time zone database")
     for step in (1, 5, 15):
         hours, period = sun_hours(case, step, horizon=case["horizon"] or None)
         assert period == pytest.approx(case["period_hours"], abs=1e-9)
@@ -271,6 +281,8 @@ def test_seasons_and_years_on_open_ground(case: dict) -> None:
 
     The per-day errors partly cancel: within 1e-4 of the total (observed 5e-5).
     """
+    if needs_database(case):
+        pytest.skip("no time zone database")
     hours, period = sun_hours(case, 1)
     assert period == pytest.approx(case["period_hours"], abs=1e-9)
     assert abs(hours / case["hours"] - 1.0) < 1e-4
@@ -284,6 +296,8 @@ def test_slopes_and_walls() -> None:
     step, plus 0.1 min.
     """
     for row in load("sun_hours.json")["surfaces"]:
+        if needs_database(row):
+            continue
         surface = normal(row["tilt"], row["aspect"])
         for step in (1, 15):
             hours, _ = sun_hours(row, step, surface=surface)
@@ -295,6 +309,8 @@ def test_horizon_profile_by_azimuth() -> None:
     data = load("sun_hours.json")["profile"]
     profile = (np.array(data["azimuths"]), np.array(data["elevations"]))
     for row in data["cases"]:
+        if needs_database(row):
+            continue
         surface = normal(row["tilt"], row["aspect"])
         for step in (1, 15):
             hours, _ = sun_hours(row, step, surface=surface, horizon=profile)
@@ -303,7 +319,7 @@ def test_horizon_profile_by_azimuth() -> None:
 
 def test_merging_never_changes_open_ground() -> None:
     """Merge Within keeps every hour on open horizontal ground (all merged rays stay up)."""
-    case = next(c for c in _open_cases() if c["name"] == "51 N year")
+    case = next(c for c in _open_cases() if c["name"] == "78 N year (Svalbard)")
     exact, _ = sun_hours(case, 30)
     merged, _ = sun_hours(case, 30, tolerance=2.0)
     assert merged == pytest.approx(exact, rel=1e-12)
@@ -356,6 +372,8 @@ def test_insolation_matches_pvlib_chain() -> None:
     0.15 % with 1024 rays).
     """
     for row in load("clearsky.json")["days"]:
+        if needs_database(row):
+            continue
         direct, total = _insolation(row, 64)
         stats = direct.stats
         assert stats["direct_normal_kwh_m2"] == pytest.approx(row["dni"], rel=1e-5, abs=1e-3)
@@ -397,6 +415,8 @@ def test_insolation_against_grass_rsun_is_a_model_difference() -> None:
     days = {row["site"]: row for row in load("clearsky.json")["days"]}
     for row in rows:
         day = {**days[row["site"]], "day": row["day"]}
+        if needs_database(day):
+            continue
         direct, _ = _insolation(day, 0)
         n = normal(row["tilt"], row["aspect"])[None, :]
         hours, beam = sh.accumulate(np.ones((1, len(direct)), bool), n, direct)
