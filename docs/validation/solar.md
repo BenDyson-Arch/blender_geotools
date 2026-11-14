@@ -465,12 +465,15 @@ and polar stereographic grids with convergence of 34° and 62°.
    exact only where the projection preserves angles. In Australian Albers
    (EPSG:3577) it is up to 0.24° off for directions other than north–south,
    in Web Mercator (EPSG:3857) 0.09° at 47° N; both are on rusty-tiles'
-   allow-list. *Recommendation:* map directions through PROJ's local
-   Jacobian (`get_factors` already returns `dx_dlam`, `dx_dphi`, `dy_dlam`,
-   `dy_dphi`), which is exact for any projection and identical for conformal
-   ones; or, more simply, say in the Sun panel that a non-conformal project
-   CRS turns the sun by the meridian's convergence only. It changes results in
-   those CRSs, so it was not done here.
+   allow-list. The geodesy validation reached the same point independently
+   ([geodesy.md, decision 3](geodesy.md#3-sun-and-aspect-true-north-in-non-conformal-crss)),
+   and fixed Measure by giving each point a grid-to-ground map built from
+   PROJ's Jacobian. *Recommendation:* turn sun directions (and the sky rays)
+   through the inverse of that map at the sun's site, which is exact for any
+   projection and leaves conformal CRSs unchanged; or say in the Sun panel
+   that a non-conformal project CRS turns the sun by the meridian's
+   convergence only. It changes results in those CRSs, so it was not done
+   here.
 2. **Refraction at altitude.** The Sun panel always refracts at standard
    pressure, though sun hours already knows the site height (for the air
    mass). *Recommendation:* refract at `clearsky.altitude_pressure(height)`

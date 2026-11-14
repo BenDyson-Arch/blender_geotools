@@ -16,6 +16,18 @@ search region are documented convention differences. No bugs found. Resolved:
 the plan curvature preset is labelled Plan (Tangential) Curvature and the TPI
 default is 96 samples.
 
+## Geodesy and measurement
+
+[geodesy.md](geodesy.md): Measure's point readout (E/N/RL, latitude and
+longitude, scale factor, convergence, float32 resolution), distances, bearings
+and areas, the Gaussian radius, the LOCAL/ANCHOR/SOURCE_CRS frames, the
+GeoScene frame and lat/lon sync, where publishing puts vertices (ECEF), and the
+CRS handling of GeoJSON, GeoPackage and GeoTIFF, against Krüger's series,
+GeographicLib 2.1, the ICSM worked example and GDAL 3.12.0 at twelve synthetic
+sites. One bug fixed (Measure in non-conformal CRSs: Albers, Web Mercator);
+four points left for a decision (the GLB metadata frame's one-sided probes,
+the `geotools:gridScale` name, the sun in non-conformal CRSs, the GeoPackage
+`definition` text).
 ## Sun, sun hours, clear-sky insolation and shadow studies
 
 [solar.md](solar.md): sun position (NREL SPA), ΔT, time zones, grid

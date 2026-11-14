@@ -138,6 +138,7 @@ nav:
       - Validation:
           - validation/README.md
           - Terrain shape and archaeological visualisation: validation/terrain.md
+          - Geodesy and measurement: validation/geodesy.md
           - Sun, sun hours, insolation and shadow studies: validation/solar.md
   - Developer:
       - Contributing: contributing.md
