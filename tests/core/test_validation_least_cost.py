@@ -204,7 +204,9 @@ def test_matches_networkx_on_the_same_graph(model, k, costs, refs, summary) -> N
     tag = f"{model.lower()}_k{k}{'_cost' if costs else ''}"
     graph, s, e = _hills_graph(model, k, costs, refs)
     nodes = refs[f"{tag}__nodes"]
-    np.testing.assert_array_equal(graph.nodes[nodes], refs[f"{tag}__xyz"])
+    # Stored on x86-64; other CPUs may round the Steiner interpolation's last bit
+    # differently (fused multiply-add on arm64), so compare to a few ULP.
+    np.testing.assert_allclose(graph.nodes[nodes], refs[f"{tag}__xyz"], rtol=1e-12, atol=1e-12)
     start = lc.snap(graph, graph.nodes[s])
     assert start.distance == 0.0
     found = lc.search(graph, start)
