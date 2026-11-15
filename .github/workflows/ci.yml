@@ -200,7 +200,8 @@ jobs:
     name: UI screenshots (clipped text)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    # GUI Blender on Xvfb (Mesa's software OpenGL). Pull requests that touch the
+    # GUI Blender on Xvfb, on Mesa's software Vulkan (lavapipe; with its software
+    # OpenGL, Blender's screenshots are black). Pull requests that touch the
     # sidebar's code get its screenshots as an artifact, and fail on clipped text
     # (scripts/ui_screenshots.py). Other pull requests skip the steps.
     steps:
@@ -228,17 +229,20 @@ jobs:
         with:
           version: ${{ env.BLENDER_VERSION }}
           sha256: ${{ env.BLENDER_SHA256 }}
-      - name: Install Xvfb and Mesa
+      - name: Install Xvfb and Mesa's Vulkan driver
         if: steps.changes.outputs.ui == 'true'
-        run: sudo apt-get install -y -q --no-install-recommends xvfb xauth libgl1-mesa-dri
+        run: |
+          sudo apt-get install -y -q --no-install-recommends \
+            xvfb xauth mesa-vulkan-drivers libvulkan1
       - name: Fetch the pinned wheels (so the demo publishes and Last Build shows)
         if: steps.changes.outputs.ui == 'true'
         run: python scripts/fetch_wheels.py --platform linux-x64
       - name: Screenshot the sidebar and check for clipped text
         if: steps.changes.outputs.ui == 'true'
         run: |
-          xvfb-run -a -s "-screen 0 1920x1440x24" \
-            python scripts/ui_screenshots.py --blender "$BLENDER" --out ui-screenshots
+          xvfb-run -a -s "-screen 0 1920x1440x24 -dpi 96" \
+            python scripts/ui_screenshots.py --blender "$BLENDER" --out ui-screenshots \
+            --gpu-backend vulkan
       - name: Upload the screenshots
         if: always() && steps.changes.outputs.ui == 'true'
         uses: actions/upload-artifact@v7

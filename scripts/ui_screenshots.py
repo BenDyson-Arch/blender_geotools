@@ -36,7 +36,8 @@ with the marks boxed in red.
 Usage:
     python3 scripts/ui_screenshots.py --out /tmp/shots
     python3 scripts/ui_screenshots.py --out /tmp/shots --states montage
-    xvfb-run -a -s "-screen 0 1920x1440x24" python3 scripts/ui_screenshots.py --out shots
+    xvfb-run -a -s "-screen 0 1920x1440x24 -dpi 96" \
+        python3 scripts/ui_screenshots.py --out shots --gpu-backend vulkan
 
 Clipped text:
 * Blender clips text that does not fit its button with an ellipsis, in the
@@ -261,6 +262,12 @@ def host_main(argv: list[str] | None = None) -> int:
         default=NARROW,
         help=f"the narrow sidebar width the clip check also uses, unscaled px (default {NARROW})",
     )
+    parser.add_argument(
+        "--gpu-backend",
+        choices=("opengl", "vulkan"),
+        help="Blender's GPU backend (default: Blender's). On Xvfb use vulkan (Mesa's "
+        "lavapipe): with OpenGL (llvmpipe) Blender's screenshots come back black",
+    )
     parser.add_argument("--keep", action="store_true", help="keep the temporary profile")
     args = parser.parse_args(argv)
     states = [s.strip() for s in args.states.split(",") if s.strip()]
@@ -311,6 +318,7 @@ def host_main(argv: list[str] | None = None) -> int:
             env["WAYLAND_DISPLAY"] = ""
         cmd = [
             blender,
+            *(["--gpu-backend", args.gpu_backend] if args.gpu_backend else []),
             "--enable-event-simulate",  # the clip check drags the sidebar edge
             "--window-geometry",
             "0",
