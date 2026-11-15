@@ -99,12 +99,12 @@ Xvfb on pull requests that touch `geotools/blender/` and uploads the
 `ui-screenshots` artifact.
 
 CI (`.github/workflows/ci.yml`) runs on pull requests and on pushes to
-`main`, `develop` and `release/**`. The `core (pytest, ruff)` and
-`blender (official 5.2 LTS, no wheels)` jobs are required. The wheel job and
-the macOS and Windows jobs must pass before a release too, because every
-platform zip ships. The `blender-range` jobs run both suites on the oldest
-Blender the manifest allows and on the newest release; they are not required
-yet. When Blender ships a release, add it there with its checksum.
+`main`, `develop` and `release/**`. Required checks: `core (pytest, ruff)`
+and the Blender suites, with and without the wheels, on 5.2 LTS and on the
+newest Blender in the `blender-range` jobs (5.3.0). The 5.2.0 range jobs, the
+macOS and Windows jobs and the UI screenshot job are not required, but must
+pass before a release, because every platform zip ships. When Blender ships a
+release, add it to `blender-range` with its checksum and to the rulesets.
 
 ## Docs site
 
