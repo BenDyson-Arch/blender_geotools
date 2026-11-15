@@ -119,9 +119,16 @@ written changes:
   keeps the base colour factor and COLOR_0 (BASE_COLOR) or the whole material
   (EMISSIVE, factor 1).
 
-``gt_present``, the colour attribute the Write Colours button paints for a
-viewport preview, is never published: COLOR_0 skips it even when it is the
-render or active colour attribute, and a COLOR_0 presentation does not read it.
+The live layer view
+-------------------
+``blender.live_view`` shows a layer in the viewport through a viewport-only
+Geometry Nodes modifier and points the mesh's active colour attribute at
+``gt_view``. The export uses the viewport depsgraph, so :func:`extract_scene`
+evaluates the source inside :func:`view_hidden`, which turns those modifiers
+off and puts the active colour attributes back: a publish with the view on is
+byte-identical to one with it off. A modifier is a view modifier when its
+node group's name starts with :data:`VIEW_NAME`. COLOR_0 never reads
+``gt_view``, nor ``gt_present``, which GeoTools 0.3's Write Colours painted.
 
 Metadata (the M4 metadata GLB)
 ------------------------------
@@ -157,7 +164,8 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Self
@@ -179,7 +187,7 @@ from ..core.gltf_writer import (
 from ..core.images import ImageRemedy, RemedyKind, scaled_size
 from ..core.layers import Domain, LayerSpec, fill_value
 from ..core.metadata_schema import attribute_semantic
-from ..core.presentation import PRESENT_ATTRIBUTE, Blend, Target
+from ..core.presentation import PRESENT_ATTRIBUTE, VIEW_ATTRIBUTE, Blend, Target
 from ..core.ramps import srgb_bytes_to_linear
 from . import blend_paths, nodes
 from .properties import image_remedy
@@ -194,6 +202,46 @@ _CHUNK = 1 << 20  # rows per float64 transform step, bounds temporary memory
 _PNG = b"\x89PNG\r\n\x1a\n"
 _JPEG = b"\xff\xd8\xff"
 _SUFFIXES = {"image/png": (".png",), "image/jpeg": (".jpg", ".jpeg")}
+_NOT_COLOR_0 = (PRESENT_ATTRIBUTE, VIEW_ATTRIBUTE)
+
+VIEW_NAME = "GeoTools View"
+"""The live layer view's modifier and material name, and the prefix of its node
+groups' names (``blender.live_view``)."""
+VIEW_ACTIVE_KEY = "geotools_view_active"
+"""Mesh ID property: the active colour attribute the live view took over."""
+
+
+def is_view_modifier(modifier: bpy.types.Modifier) -> bool:
+    """True for a live layer view modifier: Geometry Nodes, group named ``GeoTools View...``."""
+    group = getattr(modifier, "node_group", None)
+    return modifier.type == "NODES" and group is not None and group.name.startswith(VIEW_NAME)
+
+
+@contextmanager
+def view_hidden(objects: Sequence[bpy.types.Object]) -> Iterator[None]:
+    """Take the live layer view off ``objects`` while the body runs: their view
+    modifiers are turned off in the viewport and their meshes' active colour
+    attributes put back, so the depsgraph evaluates them as without the view."""
+    modifiers = [m for o in objects for m in o.modifiers if is_view_modifier(m) and m.show_viewport]
+    meshes = {
+        o.data.as_pointer(): o.data
+        for o in objects
+        if o.type == "MESH"
+        and o.data.library is None
+        and VIEW_ACTIVE_KEY in o.data
+        and o.data.color_attributes.active_color_name == VIEW_ATTRIBUTE
+    }
+    for modifier in modifiers:
+        modifier.show_viewport = False
+    for mesh in meshes.values():
+        mesh.color_attributes.active_color_name = str(mesh[VIEW_ACTIVE_KEY])
+    try:
+        yield
+    finally:
+        for modifier in modifiers:
+            modifier.show_viewport = True
+        for mesh in meshes.values():
+            mesh.color_attributes.active_color_name = VIEW_ATTRIBUTE
 
 
 # --- public entry point ---------------------------------------------------------------
@@ -281,16 +329,16 @@ def extract_scene(
     metadata GLB are added (see "Metadata")."""
     objects = sorted((o for o in collection.all_objects if o.type == "MESH"), key=lambda o: o.name)
     _sync_edit_mode(context, objects)
-    depsgraph = context.evaluated_depsgraph_get()
-
     materials = _MaterialTable(Path(image_dir), presentation)
     groups: dict[tuple[int | None, _Layout], list[_Chunk]] = {}
     topology: dict[str, str] = {}
     meta = _MetaState(metadata) if metadata is not None else None
-    for index, obj in enumerate(objects):
-        topology[obj.name] = _extract_object(
-            obj, index, depsgraph, materials, groups, presentation, apply_modifiers, meta
-        )
+    with view_hidden(objects):
+        depsgraph = context.evaluated_depsgraph_get()
+        for index, obj in enumerate(objects):
+            topology[obj.name] = _extract_object(
+                obj, index, depsgraph, materials, groups, presentation, apply_modifiers, meta
+            )
     if meta is not None:
         metadata.stats.update(meta.stats())
 
@@ -1184,15 +1232,15 @@ class _ObjectData:
 
     def _render_color(self) -> tuple[np.ndarray, str] | None:
         """The render colour attribute, else the active one, else the first; never
-        ``gt_present``, which only a presentation publishes."""
+        ``gt_view`` or ``gt_present`` (see "The live layer view")."""
         attrs = self.mesh.color_attributes
         attr = None
         for name in (attrs.default_color_name, attrs.active_color_name):
-            if name and name != PRESENT_ATTRIBUTE and attrs.get(name) is not None:
+            if name and name not in _NOT_COLOR_0 and attrs.get(name) is not None:
                 attr = attrs.get(name)
                 break
         if attr is None:
-            attr = next((a for a in attrs if a.name != PRESENT_ATTRIBUTE), None)
+            attr = next((a for a in attrs if a.name not in _NOT_COLOR_0), None)
         if attr is None or attr.domain not in ("POINT", "CORNER"):
             return None
         return self._color_data(attr)

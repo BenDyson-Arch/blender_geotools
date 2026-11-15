@@ -984,7 +984,7 @@ def inner_main(argv: list[str]) -> None:
         props.layers_index = 0
         for entry in props.layers:
             layers.refresh_layer(scene, entry)
-        run_op(bpy.ops.geotools.layer_write_presentation)
+        props.layers[0].presentation.show_in_viewport = True  # the live view
 
         bpy.ops.geotools.build_profile_add()
         profile = props.build_profiles[0]
@@ -1001,8 +1001,6 @@ def inner_main(argv: list[str]) -> None:
         run_op(bpy.ops.geotools.run_checks)
         linked_dem()
         linked_contexts()
-        if "gt_present" in mesh.color_attributes:
-            mesh.color_attributes.active_color = mesh.color_attributes["gt_present"]
         bpy.ops.object.select_all(action="DESELECT")
         bpy.context.view_layer.objects.active = None
 

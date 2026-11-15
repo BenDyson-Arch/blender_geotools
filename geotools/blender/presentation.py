@@ -17,14 +17,8 @@ TEXTURE layers. :func:`build_presentation` turns the values into colours:
   the object's float layer image, listed in ``presentation.images``. They are
   not saved: every publish of the variant writes them again.
 
-:func:`write_preview` (the Write Colours button) also paints the COLOR_0
-colours into ``gt_present``, a byte colour attribute (CORNER domain) on the
-original meshes, to look at them in the viewport. It can only do so for an
-object whose modifiers keep its topology (or with Apply Modifiers off): other
-objects have no original corner for each exported one, and are skipped. The
-mesh's active and render colour attributes are put back as they were, and
-the exporter never publishes ``gt_present``, so the preview changes neither
-what the user sees by default nor any tileset.
+Display > Show in Viewport shows the same colours live in the viewport, with
+stock nodes (``blender.live_view``); publishing ignores it.
 
 The user's materials are never touched; ``export.extract_scene`` publishes the
 presentation in place of them (see ``export.Presentation``). Everything goes
@@ -69,11 +63,9 @@ from ..core.presentation import (
 )
 from ..core.ramps import apply_categories, apply_ramp, auto_range, default_category_colours
 from .common import redraw_ui
-from .export import Presentation, same_topology
+from .export import Presentation
 from .layers import (
-    apply_modifiers,
     attribute_problem,
-    evaluated_depsgraph,
     find_layer,
     layer_meshes,
     other_layer_names,
@@ -82,7 +74,7 @@ from .layers import (
     spec_from_props,
 )
 from .properties import PRESENT_TARGET_ITEMS
-from .ui import split_column
+from .ui import split_column, wrapped
 
 log = logging.getLogger(__name__)
 
@@ -361,37 +353,6 @@ def _colours(
     )
 
 
-def write_present_attribute(mesh: bpy.types.Mesh, rgba: np.ndarray) -> None:
-    """Store ``(corners, 4) uint8`` sRGB colours in the mesh's ``gt_present``.
-
-    The attribute is created (BYTE_COLOR, CORNER) or replaced if it has another
-    type or domain. The active and render colour attributes are restored, since
-    adding a colour attribute can make it both.
-    """
-    if mesh.is_editmode:
-        raise RuntimeError(f"Mesh {mesh.name!r} is in Edit Mode; switch to Object Mode first")
-    if mesh.library is not None:
-        raise RuntimeError(f"Mesh {mesh.name!r} is linked from a library; make it local first")
-    if rgba.shape != (len(mesh.loops), 4):
-        raise ValueError(f"mesh {mesh.name!r} needs {len(mesh.loops)} colours, got {rgba.shape}")
-    colours = mesh.color_attributes
-    active, render = colours.active_color_name, colours.default_color_name
-    attr = mesh.attributes.get(PRESENT_ATTRIBUTE)
-    if attr is not None and (attr.domain != "CORNER" or attr.data_type != "BYTE_COLOR"):
-        mesh.attributes.remove(attr)
-        attr = None
-    if attr is None:
-        attr = mesh.attributes.new(PRESENT_ATTRIBUTE, "BYTE_COLOR", "CORNER")
-    floats = rgba.astype(np.float32)
-    floats *= np.float32(1.0 / 255.0)
-    attr.data.foreach_set("color_srgb", floats.ravel())
-    if colours.active_color_name != active:
-        colours.active_color_name = active
-    if colours.default_color_name != render:
-        colours.default_color_name = render
-    mesh.update_tag()
-
-
 @dataclass(frozen=True, slots=True)
 class _ObjectColours:
     """One source object's COLOR_0 presentation colours."""
@@ -608,51 +569,6 @@ def build_presentation(
     return presentation, record
 
 
-def write_preview(scene: bpy.types.Scene, layer_name: str) -> tuple[dict[str, object], list[str]]:
-    """Paint layer ``layer_name``'s presentation into the source, to look at it.
-
-    A COLOR_0 presentation goes into ``gt_present`` on each original mesh, with
-    the same colours :func:`build_presentation` gives the exporter. An object
-    whose modifiers change its topology is skipped (no original corner matches
-    each exported one); its name is returned. A texture presentation writes its
-    8-bit images, as :func:`build_presentation` does. Returns the variant
-    record and the skipped objects. Raises :class:`PresentationError`, or
-    ``RuntimeError`` for a linked mesh.
-    """
-    item = find_layer(scene, layer_name)
-    if item is None:
-        raise PresentationError(f"There is no layer {layer_name!r}.")
-    spec = spec_from_props(item)
-    settings = _settings_or_raise(item, spec)
-    if Domain(spec.domain) is Domain.TEXTURE:
-        _images, record = _write_images(scene, spec, settings, item)
-        return record, []
-    depsgraph = evaluated_depsgraph(scene) if apply_modifiers(scene) else None
-    objects, record = _object_colours(scene, spec, settings, item, depsgraph)
-    skipped: list[str] = []
-    written: set[int] = set()
-    pending: list[tuple[bpy.types.Mesh, np.ndarray]] = []
-    for entry in objects:
-        original = entry.obj.data
-        if original.as_pointer() in written:
-            continue
-        if not same_topology(original, entry.mesh):
-            skipped.append(entry.obj.name)
-            continue
-        written.add(original.as_pointer())
-        if entry.rgba is None:
-            rgba = np.empty((len(original.loops), 4), dtype=np.uint8)
-            rgba[:] = settings.nodata_rgba
-        else:
-            rgba = _corner_colours(original, spec, entry.rgba)
-        pending.append((original, rgba))
-    # Write after reading: writing an attribute re-evaluates the depsgraph,
-    # which frees the evaluated meshes read above.
-    for mesh, rgba in pending:
-        write_present_attribute(mesh, rgba)
-    return record, skipped
-
-
 # --- operators -------------------------------------------------------------------------------
 
 
@@ -663,59 +579,6 @@ def _active_layer(context: bpy.types.Context):
     if 0 <= props.layers_index < len(props.layers):
         return props.layers[props.layers_index]
     return None
-
-
-def _describe(record: dict[str, object]) -> str:
-    value_range = record.get("range")
-    if isinstance(value_range, dict):
-        return f"{record['palette']} from {value_range['min']:g} to {value_range['max']:g}"
-    return f"{len(record.get('categories') or ())} category colours"
-
-
-class GEOTOOLS_OT_layer_write_presentation(bpy.types.Operator):
-    """Write the selected layer's presentation colours now, to look at them before publishing
-    a variant: the gt_present colour attribute (on objects whose modifiers keep their
-    topology), or 8-bit images for a texture layer. Publishing works them out again"""
-
-    bl_idname = "geotools.layer_write_presentation"
-    bl_label = "Write Colours"
-    bl_options = {"REGISTER", "UNDO"}
-
-    @classmethod
-    def poll(cls, context: bpy.types.Context) -> bool:
-        if _active_layer(context) is None:
-            cls.poll_message_set("No layer selected")
-            return False
-        if context.mode != "OBJECT":
-            cls.poll_message_set("Switch to Object Mode first")
-            return False
-        if context.scene.geotools.source_collection is None:
-            cls.poll_message_set("Set or import a source collection first")
-            return False
-        return True
-
-    def execute(self, context: bpy.types.Context) -> set[str]:
-        scene = context.scene
-        name = _active_layer(context).name
-        errors = [i for i in variant_issues(scene, name) if i.severity is Severity.ERROR]
-        if errors:
-            self.report({"ERROR"}, f"Cannot present {name}: {errors[0].message}")
-            return {"CANCELLED"}
-        try:
-            record, skipped = write_preview(scene, name)
-        except (PresentationError, RuntimeError, KeyError, ValueError) as ex:
-            self.report({"ERROR"}, f"Cannot present {name}: {ex}")
-            return {"CANCELLED"}
-        if skipped:
-            self.report(
-                {"WARNING"},
-                f"Presented {name}: {_describe(record)}. No preview on {', '.join(skipped)}: "
-                "its modifiers change the topology (the variant still shows it)",
-            )
-        else:
-            self.report({"INFO"}, f"Presented {name}: {_describe(record)}")
-        redraw_ui(context)
-        return {"FINISHED"}
 
 
 class GEOTOOLS_OT_layer_presentation_reset_colors(bpy.types.Operator):
@@ -802,6 +665,10 @@ def draw_display(
     p = item.presentation
     spec = spec_from_props(item)
     codes = display_issue_codes(item)
+    shown = p.show_in_viewport
+    layout.prop(p, "show_in_viewport", toggle=True, icon="HIDE_OFF" if shown else "HIDE_ON")
+    if shown and spec.domain is Domain.TEXTURE:
+        wrapped(layout, context, "Texture layers show in Material Preview.", "INFO")
     col = split_column(layout)
     target_bad = "variant-target-invalid" in codes
     if Domain(spec.domain) is Domain.TEXTURE or target_bad:
@@ -841,7 +708,6 @@ def draw_display(
         values.prop(p, "range_max", text="Maximum", placeholder=_auto_text(item, "max"))
         col.prop(p, "nodata_color")
 
-    layout.operator("geotools.layer_write_presentation", icon="BRUSH_DATA")
     props = context.scene.geotools
     profile = None
     if 0 <= props.build_profile_index < len(props.build_profiles):
@@ -853,9 +719,6 @@ def draw_display(
         layout.label(text="Publish: choose it as Variant", icon="INFO")
 
 
-classes = (
-    GEOTOOLS_OT_layer_write_presentation,
-    GEOTOOLS_OT_layer_presentation_reset_colors,
-)
+classes = (GEOTOOLS_OT_layer_presentation_reset_colors,)
 
 register, unregister = bpy.utils.register_classes_factory(classes)

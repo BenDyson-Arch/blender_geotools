@@ -118,9 +118,10 @@ ATTRIBUTE_PREFIX = "gt_"
 NAME_MAX_LENGTH = 48
 _NAME_RE = re.compile(rf"[a-z][a-z0-9_]{{0,{NAME_MAX_LENGTH - 1}}}")
 
-RESERVED_NAMES: frozenset[str] = frozenset({"present"})
-"""Names whose ``gt_<name>`` attribute GeoTools uses itself (``gt_present`` is
-the presentation colour attribute)."""
+RESERVED_NAMES: frozenset[str] = frozenset({"present", "view"})
+"""Names whose ``gt_<name>`` attribute GeoTools uses itself: ``gt_view`` is the
+live layer view's colour attribute, and ``gt_present`` the one earlier versions
+painted, which files from then may still hold."""
 
 VALID_AGGREGATIONS: dict[DataType, frozenset[Aggregation]] = {
     DataType.FLOAT: frozenset(

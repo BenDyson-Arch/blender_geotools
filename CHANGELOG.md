@@ -21,8 +21,18 @@ and the project follows semantic versioning where practical.
   `always_xy=True` to pyproj, and writes no Scene custom property but the
   five GeoScene keys.
 
+- **Show in Viewport** in Layers > Display shows a layer in its variant
+  colours in the viewport and keeps them up to date as you change the palette,
+  range or no-data colour, or the Geometry Nodes that make the layer, also
+  when they change the topology. It adds a viewport-only `GeoTools View`
+  modifier and material built from stock nodes, switches Solid mode to the
+  Attribute colour, and takes it all away again when turned off. Texture
+  layers show in Material Preview. Publishing ignores it.
+
 ### Changed
 
+- **Write Colours** is gone: Show in Viewport replaces it. Publishing still
+  never writes the `gt_present` attribute it left on meshes.
 - GLBs with metadata name their `geotools:` XMP terms with a permanent
   namespace IRI, the docs site's
   [GLB format reference](docs/reference/glb-format.md)

@@ -788,20 +788,13 @@ def inner_main(argv: list[str]) -> None:
         tree.links.new(node.outputs["Color"], bsdf.inputs["Base Color"])
         return image
 
-    def display_material(name: str, attribute: str, alpha: float = 1.0) -> bpy.types.Material:
-        """A viewing material for Material Preview: the colour attribute GeoTools wrote."""
-        material = bpy.data.materials.new(name)
-        tree = material.node_tree
-        bsdf = next(n for n in tree.nodes if n.type == "BSDF_PRINCIPLED")
-        bsdf.inputs["Roughness"].default_value = 0.85
-        node = tree.nodes.new("ShaderNodeVertexColor")
-        node.layer_name = attribute
-        node.location = (bsdf.location.x - 300, bsdf.location.y)
-        tree.links.new(node.outputs["Color"], bsdf.inputs["Base Color"])
-        if alpha < 1.0:
-            bsdf.inputs["Alpha"].default_value = alpha
-            material.surface_render_method = "BLENDED"
-        return material
+    def show_layer(name: str | None) -> None:
+        """Display > Show in Viewport for layer ``name`` (one at a time), or none."""
+        for item in props.layers:
+            item.presentation.show_in_viewport = item.name == name
+        hills = state["hills"]
+        if name is not None and not any(m.name == "GeoTools View" for m in hills.modifiers):
+            fail(f"Show in Viewport put no GeoTools View modifier on the hills for {name}")
 
     def ghost_material(photo: bpy.types.Material) -> bpy.types.Material:
         """The photo material, see-through, to show what lies under the ground."""
@@ -986,7 +979,6 @@ def inner_main(argv: list[str]) -> None:
         meta["hills_dz"] = round(demo.A0 + state["hills_z"][0] - 0.05, 3)
         meta["notes"].append(f"hills: {len(co)} vertices, {len(quads)} quads")
         hills.data.materials.append(hills_material())
-        state["ground_material"] = hills.data.materials[0]
         key_sun()
         yield 0.3
 
@@ -999,10 +991,6 @@ def inner_main(argv: list[str]) -> None:
         slope = props.layers["slope"]
         slope.presentation.range_min = "0"
         slope.presentation.range_max = "35"
-        run_op(bpy.ops.geotools.layer_write_presentation)
-        if "gt_present" not in hills.data.color_attributes:
-            fail("Write Colours left no gt_present attribute on the hills")
-        state["slope_material"] = display_material("View Slope", "gt_present")
         yield 0.2
         run_op(bpy.ops.geotools.run_checks)
 
@@ -1292,7 +1280,7 @@ def inner_main(argv: list[str]) -> None:
 
     def shot_hero():
         hills = state["hills"]
-        hills.data.materials[0] = state["slope_material"]
+        show_layer("slope")
         set_visible({hills.name, state["contours"].name})
         select()
         show_panels(
@@ -1340,7 +1328,7 @@ def inner_main(argv: list[str]) -> None:
 
     def shot_layers():
         hills = state["hills"]
-        hills.data.materials[0] = state["slope_material"]
+        show_layer("slope")
         set_visible({hills.name})
         select()
         show_panels(
@@ -1357,7 +1345,7 @@ def inner_main(argv: list[str]) -> None:
 
     def shot_water():
         hills = state["hills"]
-        hills.data.materials[0] = state["ground_material"]
+        show_layer(None)
         set_visible({hills.name, state["contours"].name, state["flow"].name})
         select()
         show_panels(
@@ -1383,7 +1371,7 @@ def inner_main(argv: list[str]) -> None:
     def shot_sky():
         """Solstice, equinox and lunar standstill sightlines from the top of the mound."""
         hills = state["hills"]
-        hills.data.materials[0] = state["ground_material"]
+        show_layer(None)
         archaeo = mod("blender.analysis").settings(bpy.context).archaeo
         scene.cursor.location = hill_point(*HILLTOP)  # inside the enclosure
         run_op(bpy.ops.geotools.archaeo_observer_cursor)
@@ -1418,8 +1406,7 @@ def inner_main(argv: list[str]) -> None:
     def shot_terrain():
         """A viewshed from the knoll on the north ridge: it sees across the east valley to
         the hill, and the hill hides the ground behind it. (From inside the enclosure its
-        own bank hides nearly everything.) Last, as Write Colours replaces the slope
-        colours in gt_present."""
+        own bank hides nearly everything.)"""
         hills = state["hills"]
         scene.cursor.location = hill_point(*KNOLL)
         select(hills)
@@ -1444,8 +1431,7 @@ def inner_main(argv: list[str]) -> None:
         bpy.context.view_layer.update()
         props.layers_index = list(props.layers.keys()).index("viewshed")
         props.layers["viewshed"].presentation.palette = "viridis"
-        run_op(bpy.ops.geotools.layer_write_presentation)
-        hills.data.materials[0] = state["slope_material"]  # it shows gt_present
+        show_layer("viewshed")
         set_visible({hills.name})
         select(hills)  # Presets lists the active object's analyses
         show_panels(

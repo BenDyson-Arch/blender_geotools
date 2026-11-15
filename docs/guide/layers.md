@@ -98,6 +98,28 @@ baked then wins.
 The **Display** sub-panel sets how a layer looks in its variant tileset. It
 never changes your materials, images or colour attributes.
 
+**Show in Viewport** shows the layer in those colours in the viewport, and
+keeps them up to date as you change the settings below or the Geometry Nodes
+that make the layer. One layer is shown at a time.
+
+- Face and corner layers show in Solid mode, which switches to the Attribute
+  colour, and in Material Preview.
+- Texture layers show in Material Preview.
+- Each source object gets a `GeoTools View` Geometry Nodes modifier, pinned
+  last and shown in the viewport only, with a `GeoTools View` material in its
+  output. Your materials and material slots stay as they are. Open the node
+  group to see how the colours are worked out, but don't edit it: GeoTools
+  rebuilds it when a setting changes.
+- While it is on, each mesh's active colour attribute (the one Solid mode
+  shows) is the view's. The render one, which publishing reads, stays yours.
+- The view shows the colours alone, as **Replace** does.
+- Publishing ignores the view, so a tileset is the same with it on or off.
+- Turning it off removes the modifiers, the node groups and the materials, and
+  puts your viewport colour setting back.
+
+An automatic **Minimum** or **Maximum** is worked out again when you turn the
+view on, run the checks or publish. In Cycles a NaN texel shows as 0.
+
 For numbers:
 
 - **Palette**: Viridis, Magma, Cividis, Turbo, Diverging Red-Blue or Greys;
@@ -116,10 +138,6 @@ Where the colours go:
   colours become an 8-bit texture in that slot.
 - **Blend**: **Replace** shows the colours alone. **Multiply** keeps the
   material and tints it.
-
-**Write Colours** previews the result in Blender, in a `gt_present` colour
-attribute or 8-bit images. Publishing works the colours out again, so this is
-only a preview.
 
 ## Publish a layer as a variant
 

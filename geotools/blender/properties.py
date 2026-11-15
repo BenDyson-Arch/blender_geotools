@@ -545,6 +545,34 @@ LAYER_AGGREGATION_ITEMS = (
 )
 
 
+# The live layer view (blender.live_view) imports this module, so its property
+# updates import it when called.
+
+
+def _view_shown(self, context: bpy.types.Context) -> None:
+    from . import live_view
+
+    live_view.show_changed(self, context)
+
+
+def _view_changed(self, context: bpy.types.Context) -> None:
+    from . import live_view
+
+    live_view.display_changed(self, context)
+
+
+def _view_scale_changed(self, context: bpy.types.Context) -> None:
+    from . import live_view
+
+    live_view.scale_changed(self, context)
+
+
+def _view_source_changed(self, context: bpy.types.Context) -> None:
+    from . import live_view
+
+    live_view.source_changed(self, context)
+
+
 class GeoToolsLayerImage(bpy.types.PropertyGroup):
     """The image that holds a TEXTURE layer on one object."""
 
@@ -556,7 +584,7 @@ PRESENT_TARGET_ITEMS = (
     (
         Target.COLOR_0.value,
         "Vertex Colour",
-        "Face and corner layers: the ramp goes into COLOR_0 (the gt_present attribute)",
+        "Face and corner layers: the ramp goes into the vertex colours (COLOR_0)",
     ),
     (
         Target.BASE_COLOR.value,
@@ -602,7 +630,14 @@ class GeoToolsCategoryColor(bpy.types.PropertyGroup):
     """The presentation colour of one category value (item i is value i)."""
 
     color: FloatVectorProperty(
-        name="Colour", subtype="COLOR_GAMMA", size=3, min=0.0, max=1.0, default=(0.5, 0.5, 0.5)
+        name="Colour",
+        description="Colour of this category's faces, corners or texels",
+        subtype="COLOR_GAMMA",
+        size=3,
+        min=0.0,
+        max=1.0,
+        default=(0.5, 0.5, 0.5),
+        update=_view_changed,
     )
 
 
@@ -618,6 +653,7 @@ class GeoToolsLayerPresentation(bpy.types.PropertyGroup):
         description="Where the variant tileset's colours are written",
         items=PRESENT_TARGET_ITEMS,
         default=Target.COLOR_0.value,
+        update=_view_changed,
     )
     blend: EnumProperty(
         name="Blend",
@@ -630,6 +666,7 @@ class GeoToolsLayerPresentation(bpy.types.PropertyGroup):
         description="Colour ramp the values are mapped onto",
         items=PALETTE_ITEMS,
         default=DEFAULT_PALETTE,
+        update=_view_changed,
     )
     scale: EnumProperty(
         name="Scale",
@@ -646,18 +683,21 @@ class GeoToolsLayerPresentation(bpy.types.PropertyGroup):
             ),
         ),
         default="LINEAR",
+        update=_view_scale_changed,
     )
     range_min: StringProperty(
         name="Ramp Minimum",
         description="Value at the low end of the ramp, stored as text so the full double "
         "precision is kept. Empty for automatic (2nd percentile of the values)",
         default="",
+        update=_view_changed,
     )
     range_max: StringProperty(
         name="Ramp Maximum",
         description="Value at the high end of the ramp, stored as text so the full double "
         "precision is kept. Empty for automatic (98th percentile of the values)",
         default="",
+        update=_view_changed,
     )
     nodata_color: FloatVectorProperty(
         name="No-Data Colour",
@@ -667,8 +707,18 @@ class GeoToolsLayerPresentation(bpy.types.PropertyGroup):
         min=0.0,
         max=1.0,
         default=(0.5, 0.5, 0.5),
+        update=_view_changed,
     )
     category_colors: CollectionProperty(type=GeoToolsCategoryColor)
+    show_in_viewport: BoolProperty(
+        name="Show in Viewport",
+        description="Show the layer in the viewport in these colours, kept up to date: a "
+        "GeoTools View modifier (viewport only) and material on each source object. "
+        "Solid mode shows face and corner layers, Material Preview every layer. Publishing "
+        "ignores it. One layer at a time",
+        default=False,
+        update=_view_shown,
+    )
     # The 8-bit images of a texture presentation, one per object, written by
     # blender.presentation.build_presentation (regenerated on every publish).
     images: CollectionProperty(type=GeoToolsLayerImage)
@@ -692,12 +742,14 @@ class GeoToolsLayer(bpy.types.PropertyGroup):
         description="What the layer has one value for: a face, a face corner or a texel",
         items=LAYER_DOMAIN_ITEMS,
         default=Domain.FACE.value,
+        update=_view_changed,
     )
     data_type: EnumProperty(
         name="Type",
         description="The kind of value the layer holds",
         items=LAYER_DATA_TYPE_ITEMS,
         default=DataType.FLOAT.value,
+        update=_view_changed,
     )
     units: StringProperty(name="Units", description='Units of the values, e.g. "deg", "m", "h"')
     nodata: StringProperty(
@@ -705,6 +757,7 @@ class GeoToolsLayer(bpy.types.PropertyGroup):
         description="Value that means no data, stored as text so the full double precision "
         "is kept. Empty for none (float layers then use NaN)",
         default="",
+        update=_view_changed,
     )
     origin: EnumProperty(
         name="Origin",
@@ -725,6 +778,7 @@ class GeoToolsLayer(bpy.types.PropertyGroup):
         name="Categories",
         description="Category labels, one per line: line i is the label of value i",
         default="",
+        update=_view_changed,
     )
     # The range of the values present (binary64 text, empty if not known), set by
     # whoever writes the values or by blender.layers.update_value_range.
@@ -748,12 +802,14 @@ class GeoToolsLayer(bpy.types.PropertyGroup):
         description="2nd percentile of the values present: the ramp minimum when none is "
         "set. Binary64 text, empty if not known",
         default="",
+        update=_view_changed,
     )
     auto_max: StringProperty(
         name="Automatic Maximum",
         description="98th percentile of the values present: the ramp maximum when none is "
         "set. Binary64 text, empty if not known",
         default="",
+        update=_view_changed,
     )
     provenance: StringProperty(
         name="Provenance",
@@ -767,6 +823,7 @@ class GeoToolsLayer(bpy.types.PropertyGroup):
         "e.g. the name a Geometry Nodes Store Named Attribute node writes. Empty for "
         "gt_<name>",
         default="",
+        update=_view_changed,
     )
 
     # The data checks of blender.layers.layer_status, cached so panels never read
@@ -779,7 +836,9 @@ class GeoToolsLayer(bpy.types.PropertyGroup):
     # TEXTURE layers ------------------------------------------------------------
     images: CollectionProperty(type=GeoToolsLayerImage)
     uv_map: StringProperty(
-        name="UV Map", description="UV map of the images; empty for the active render UV map"
+        name="UV Map",
+        description="UV map of the images; empty for the active render UV map",
+        update=_view_changed,
     )
     resolution: IntProperty(
         name="Resolution",
@@ -888,6 +947,7 @@ class GeoToolsProject(bpy.types.PropertyGroup):
         name="Source",
         type=bpy.types.Collection,
         description="Collection holding the full-detail source mesh",
+        update=_view_source_changed,
     )
     source_filepath: StringProperty(
         name="Source File",
