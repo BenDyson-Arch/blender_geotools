@@ -333,8 +333,12 @@ def _version(text: str) -> tuple[int, ...]:
     return tuple(int(part) for part in re.findall(r"\d+", text)[:3])
 
 
+CI_WORKFLOW = ".github/workflows/ci.yml"
+
+
 @cache
 def shipped_versions() -> dict[str, tuple[int, ...]]:
+    """What ships: the pins, the manifest version, and the newest Blender CI tests."""
     pyproject = tomllib.loads(read("pyproject.toml"))
     wheels = pyproject["tool"]["geotools"]["wheels"]
     manifest = tomllib.loads(read("geotools/blender_manifest.toml"))
@@ -342,7 +346,17 @@ def shipped_versions() -> dict[str, tuple[int, ...]]:
         "rusty-tiles": _version(wheels["rusty-tiles"]),
         "pyproj": _version(wheels["pyproj"]),
         "GeoTools": _version(manifest["version"]),
-        "Blender": _version(manifest["blender_version_min"]),
+        "Blender": max(
+            _version(manifest["blender_version_min"]),
+            *(
+                _version(v)
+                for v in re.findall(
+                    r'^\s+(?:- )?(?:BLENDER_)?version: "(\d+\.\d+\.\d+)"$',
+                    read(CI_WORKFLOW),
+                    re.MULTILINE | re.IGNORECASE,
+                )
+            ),
+        ),
     }
 
 
