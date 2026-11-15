@@ -10,18 +10,15 @@ id across a rename and a save/reopen, the face table option and its size cost,
 a ``.glb`` build profile end to end with its build.json, the File > Export
 entry, and Blender's own glTF importer opening the file.
 
-The external validators run on the exported GLB when their environment
-variables are set (see tests/core/test_metadata_glb.py).
+The external validators (``tests/extvalidate.py``) run on the exported GLBs
+(plain, Earth-placed, with the face table, and a build profile's) when their commands are set.
 """
 
 from __future__ import annotations
 
 import json
 import math
-import os
-import shlex
 import shutil
-import subprocess
 import sys
 import tempfile
 from collections.abc import Iterator
@@ -33,6 +30,7 @@ import bpy
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # tests/: glbcheck
+import extvalidate
 import glbcheck
 
 JOIN_SECONDS = 120.0
@@ -426,30 +424,10 @@ def test_metadata_glb_values() -> None:
 
 
 def _external_validators(path: Path) -> None:
-    tiles = os.environ.get("GEOTOOLS_TEST_3D_TILES_VALIDATOR", "")
-    if tiles:
-        report = path.with_suffix(".report.json")
-        subprocess.run(
-            [*shlex.split(tiles), "--tileContentFile", str(path), "--reportFile", str(report)],
-            check=False,
-            capture_output=True,
-            timeout=300,
-        )
-        result = json.loads(report.read_text())
-        assert result["numErrors"] == 0 and result["numWarnings"] == 0, json.dumps(result)
-        print("    3d-tiles-validator: 0 errors, 0 warnings")
-    gltf = os.environ.get("GEOTOOLS_TEST_GLTF_VALIDATOR", "")
-    if gltf:
-        done = subprocess.run(
-            [*shlex.split(gltf), "-o", str(path)],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        issues = json.loads(done.stdout)["issues"]
-        assert issues["numErrors"] == 0 and issues["numWarnings"] == 0, done.stdout
-        print("    glTF-Validator: 0 errors, 0 warnings")
+    gltf = extvalidate.check_gltf(path)
+    print(f"    glTF-Validator on {path.name}: {extvalidate.summary(gltf)}")
+    tiles = extvalidate.check_3d_tiles(path, content=True)
+    print(f"    3d-tiles-validator on {path.name}: {extvalidate.summary(tiles)}")
 
 
 def test_earth_placed_matrix_is_the_root_transform() -> None:
@@ -493,6 +471,7 @@ def test_earth_placed_matrix_is_the_root_transform() -> None:
             packet["geotools:heading"], 30.0, abs_tol=1e-9
         )
         assert packet["geotools:modelToEcef"]["@list"] == nodes[0]["matrix"]
+        _external_validators(tmp / "earth.glb")
         # Local placement cannot be Earth-placed.
         props.placement_mode = "LOCAL"
         codes = [
@@ -568,6 +547,7 @@ def test_face_table_option_and_its_cost() -> None:
             plain = _export(tmp / "plain.glb")
             table = _export(tmp / "table.glb", face_table=True)
             glb = glbcheck.check(tmp / "table.glb")
+            _external_validators(tmp / "table.glb")
             sizes = ((tmp / "plain.glb").stat().st_size, (tmp / "table.glb").stat().st_size)
             cost = table.record["face_table_cost"]
             print(
@@ -690,6 +670,7 @@ def test_glb_build_profile_end_to_end() -> None:
             output = tmp / "site.glb"
             assert job.output == output and output.is_file()
             glbcheck.check(output)
+            _external_validators(output)
             staging = tmp / "site.glb.geotools"
             record = json.loads((staging / "build.json").read_text())
             assert record["schema"] == 2 and record["output_type"] == "glb"

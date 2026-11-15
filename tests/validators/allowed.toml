@@ -1,0 +1,42 @@
+# Warnings the external validators may report on GeoTools output (tests/extvalidate.py).
+# Errors always fail; an unlisted warning fails too. GeoTools' own warnings are fixed, not
+# listed here. Each entry:
+#
+#   [[warning]]
+#   validator = "3d-tiles-validator"    # or "gltf-validator"
+#   code = "THE_CODE"                   # the 3d-tiles-validator type, or glTF-Validator's code
+#   message = "..."                     # optional: the exact message; required for content wrappers
+#   reason = "why the output is still correct"
+#   known_issue = "https://github.com/<rusty-tiles or validator>/issues/N"
+
+# rusty-tiles' mesh tiles carry KTX2 textures under KHR_texture_basisu, which allows
+# image/ktx2. glTF-Validator (inside 3d-tiles-validator) does not support that extension
+# and checks the image against core glTF's PNG/JPEG list.
+[[warning]]
+validator = "3d-tiles-validator"
+code = "CONTENT_VALIDATION_WARNING"
+message = "Invalid value 'image/ktx2'. Valid values are ('image/jpeg', 'image/png')."
+reason = "KHR_texture_basisu allows image/ktx2; glTF-Validator does not support the extension yet"
+known_issue = "https://github.com/KhronosGroup/glTF-Validator/issues/177"
+
+# The same textures: glTF-Validator decodes PNG, JPEG and WebP only, so it cannot read the
+# KTX2 bytes. glTF-Validator itself still checks GeoTools' own GLBs (IMAGE_UNRECOGNIZED_FORMAT
+# is not allowed there).
+[[warning]]
+validator = "3d-tiles-validator"
+code = "CONTENT_VALIDATION_WARNING"
+message = "Image format not recognized."
+reason = "the image is KTX2 under KHR_texture_basisu, which glTF-Validator cannot decode yet"
+known_issue = "https://github.com/KhronosGroup/glTF-Validator/issues/177"
+
+# rusty-tiles' vector tilesets declare 3DTILES_content_gltf_vector, CesiumJS's draft
+# extension (not in the 3D Tiles registry), on the implicit root's content.
+# 3d-tiles-validator does not collect extensions from implicit template content, so it
+# reports the declaration as unused (an explicit tileset gets EXTENSION_NOT_SUPPORTED).
+# rusty-tiles#87 replaces the extension with the registered 3D Tiles 2.0 one.
+[[warning]]
+validator = "3d-tiles-validator"
+code = "EXTENSION_USED_BUT_NOT_FOUND"
+message = "The extension '3DTILES_content_gltf_vector' was declared in 'extensionsUsed', but not found"
+reason = "rusty-tiles writes CesiumJS's draft vector extension on implicit content the validator skips"
+known_issue = "https://github.com/BenDyson-Arch/rusty-tiles/issues/87"

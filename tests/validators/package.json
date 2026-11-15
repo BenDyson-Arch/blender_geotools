@@ -1,0 +1,8 @@
+{
+  "name": "geotools-external-validators",
+  "private": true,
+  "description": "The 3d-tiles-validator pin for CI (tests/extvalidate.py).",
+  "dependencies": {
+    "3d-tiles-validator": "0.6.1"
+  }
+}

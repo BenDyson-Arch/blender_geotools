@@ -1,23 +1,16 @@
 """The metadata GLB (M4): schema from layers, packing, XMP, the writer hook, georeference.
 
-The external validators run when their paths are set (skipped otherwise):
-
-- ``GEOTOOLS_TEST_3D_TILES_VALIDATOR``: the 3d-tiles-validator CLI
-  (``npx 3d-tiles-validator`` installed locally, or its ``build/main``), run as
-  ``<cli> --tileContentFile FILE --reportFile REPORT``;
-- ``GEOTOOLS_TEST_GLTF_VALIDATOR``: the Khronos glTF-Validator CLI, run as
-  ``<cli> -o FILE`` (the JSON report on stdout).
+The external validators run when their commands are set (``tests/extvalidate.py``),
+skipped otherwise.
 """
 
 from __future__ import annotations
 
 import json
 import math
-import os
-import shlex
-import subprocess
 from pathlib import Path
 
+import extvalidate
 import glbcheck
 import numpy as np
 import pytest
@@ -642,43 +635,14 @@ def _write_sample(tmp_path: Path) -> Path:
     return path
 
 
-TILES_VALIDATOR = os.environ.get("GEOTOOLS_TEST_3D_TILES_VALIDATOR", "")
-GLTF_VALIDATOR = os.environ.get("GEOTOOLS_TEST_GLTF_VALIDATOR", "")
-
-
-@pytest.mark.skipif(not TILES_VALIDATOR, reason="set GEOTOOLS_TEST_3D_TILES_VALIDATOR")
+@pytest.mark.skipif(extvalidate.tiles() is None, reason="set GEOTOOLS_TEST_3D_TILES_VALIDATOR")
 def test_3d_tiles_validator_accepts_the_glb(tmp_path: Path) -> None:
-    path = _write_sample(tmp_path)
-    report = tmp_path / "report.json"
-    subprocess.run(
-        [
-            *shlex.split(TILES_VALIDATOR),
-            "--tileContentFile",
-            str(path),
-            "--reportFile",
-            str(report),
-        ],
-        check=False,
-        capture_output=True,
-        timeout=300,
-    )
-    result = json.loads(report.read_text())
-    assert result["numErrors"] == 0 and result["numWarnings"] == 0, json.dumps(result, indent=1)
+    extvalidate.check_3d_tiles(_write_sample(tmp_path), content=True)
 
 
-@pytest.mark.skipif(not GLTF_VALIDATOR, reason="set GEOTOOLS_TEST_GLTF_VALIDATOR")
+@pytest.mark.skipif(extvalidate.gltf() is None, reason="set GEOTOOLS_TEST_GLTF_VALIDATOR")
 def test_gltf_validator_accepts_the_glb(tmp_path: Path) -> None:
-    path = _write_sample(tmp_path)
-    done = subprocess.run(
-        [*shlex.split(GLTF_VALIDATOR), "-o", str(path)],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
-    report = json.loads(done.stdout)
-    issues = report["issues"]
-    assert issues["numErrors"] == 0 and issues["numWarnings"] == 0, done.stdout
+    extvalidate.check_gltf(_write_sample(tmp_path))
 
 
 # --- the geotools: namespace -----------------------------------------------------------------
