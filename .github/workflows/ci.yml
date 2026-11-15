@@ -19,6 +19,8 @@ env:
   RUFF_VERSION: "0.17.4"
   PYTEST_VERSION: "9.2.0"
   NUMPY_VERSION: "2.5.4"
+  # Property tests (tests/core/test_properties.py); a new release may draw other examples.
+  HYPOTHESIS_VERSION: "6.170.14"
   # import-linter checks the layering in [tool.importlinter] (pyproject.toml); uvx runs it.
   IMPORT_LINTER_VERSION: "2.15"
   UV_VERSION: "0.13.6"
@@ -46,7 +48,8 @@ jobs:
         run: |
           pyproj_pin=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["tool"]["geotools"]["wheels"]["pyproj"])')
           python -m pip install "pytest==${PYTEST_VERSION}" "ruff==${RUFF_VERSION}" \
-            "numpy==${NUMPY_VERSION}" "pyproj==${pyproj_pin}" "uv==${UV_VERSION}"
+            "numpy==${NUMPY_VERSION}" "pyproj==${pyproj_pin}" "uv==${UV_VERSION}" \
+            "hypothesis==${HYPOTHESIS_VERSION}"
       - name: ruff check
         run: ruff check --output-format=github geotools scripts tests
       - name: ruff format --check
@@ -82,7 +85,7 @@ jobs:
         run: |
           pyproj_pin=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["tool"]["geotools"]["wheels"]["pyproj"])')
           python -m pip install "pytest==${PYTEST_VERSION}" \
-            "numpy==${NUMPY_VERSION}" "pyproj==${pyproj_pin}"
+            "numpy==${NUMPY_VERSION}" "pyproj==${pyproj_pin}" "hypothesis==${HYPOTHESIS_VERSION}"
       - name: pytest (tests/core)
         run: python -m pytest
 

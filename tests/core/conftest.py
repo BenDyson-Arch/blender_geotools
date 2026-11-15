@@ -1,15 +1,28 @@
-"""Make ``import geotools`` work from a source checkout, without Blender."""
+"""Make ``import geotools`` work from a source checkout, without Blender.
+
+Hypothesis settings profiles (``test_properties.py``): ``ci``, the default, runs
+a few derandomised examples per property so CI stays fast and repeatable;
+``GEOTOOLS_HYPOTHESIS_PROFILE=thorough`` runs many random examples and keeps
+failures in ``.hypothesis/`` for the next run.
+"""
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
+
+from hypothesis import settings
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 for path in (REPO_ROOT, REPO_ROOT / "tests"):  # tests/: glbcheck, shared with the Blender suite
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
+
+settings.register_profile("ci", max_examples=100, deadline=None, derandomize=True, database=None)
+settings.register_profile("thorough", max_examples=1000, deadline=None)
+settings.load_profile(os.environ.get("GEOTOOLS_HYPOTHESIS_PROFILE", "ci"))
 
 
 # --- the project CRS: rusty-tiles 0.4.1's allow-list, or the 0.4.0 wheel ----------------
