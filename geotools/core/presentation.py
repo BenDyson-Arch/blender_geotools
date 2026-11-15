@@ -41,6 +41,7 @@ from .ramps import PALETTES, ramp_stops
 
 __all__ = [
     "PRESENT_ATTRIBUTE",
+    "VIEW_ATTRIBUTE",
     "Blend",
     "Target",
     "presentation_issues",
@@ -50,7 +51,13 @@ __all__ = [
 ]
 
 PRESENT_ATTRIBUTE = ATTRIBUTE_PREFIX + "present"
-"""The byte colour attribute (CORNER domain) that holds a COLOR_0 presentation."""
+"""The byte colour attribute GeoTools 0.3's Write Colours painted on source meshes.
+Files from then may still hold it; the exporter never publishes it."""
+
+VIEW_ATTRIBUTE = ATTRIBUTE_PREFIX + "view"
+"""The byte colour attribute (CORNER domain) the live layer view writes into the
+evaluated mesh (``blender.live_view``); never stored on a source mesh, never
+published."""
 
 LEGEND_STOPS = 11
 """Entries in a variant record's ``ramp_stops``."""
@@ -62,7 +69,7 @@ VARIANT_RANGE_INVALID = "variant-range-invalid"
 
 
 class Target(StrEnum):
-    COLOR_0 = "COLOR_0"  # FACE and CORNER layers: the gt_present colour attribute
+    COLOR_0 = "COLOR_0"  # FACE and CORNER layers: the glTF vertex colours
     BASE_COLOR = "BASE_COLOR"  # TEXTURE layers: an 8-bit base-colour texture
     EMISSIVE = "EMISSIVE"  # TEXTURE layers: an 8-bit emissive texture
 

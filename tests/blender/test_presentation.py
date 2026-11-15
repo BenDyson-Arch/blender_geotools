@@ -1,6 +1,6 @@
 """Layer presentation and variant tilesets (``blender.presentation``, design section 4).
 
-Ramps into COLOR_0 colours and the ``gt_present`` preview, no-data and category
+Ramps into COLOR_0 colours, no-data and category
 colours, texture presentations, what the exporter writes for each target and
 blend mode (decoded from the GLB), the user's data left alone, layers computed
 by Geometry Nodes (also changing the topology), Apply Modifiers off, and the
@@ -136,14 +136,6 @@ def _loop_totals(mesh: bpy.types.Mesh) -> np.ndarray:
     return totals
 
 
-def _present_bytes(mesh: bpy.types.Mesh) -> np.ndarray:
-    attr = mesh.attributes["gt_present"]
-    assert (attr.domain, attr.data_type) == ("CORNER", "BYTE_COLOR")
-    values = np.empty(len(mesh.loops) * 4, dtype=np.float32)
-    attr.data.foreach_get("color_srgb", values)
-    return np.round(values.reshape(-1, 4) * 255.0).astype(np.uint8)
-
-
 def _image_bytes(image: bpy.types.Image) -> np.ndarray:
     values = np.empty(len(image.pixels), dtype=np.float32)
     image.pixels.foreach_get(values)
@@ -209,11 +201,7 @@ def _accessor(document: dict, binary: bytes, index: int) -> np.ndarray:
 
 
 def test_presentation_registered() -> None:
-    for idname in (
-        "geotools.layer_write_presentation",
-        "geotools.layer_presentation_reset_colors",
-    ):
-        assert h.operator_available(idname), idname
+    assert h.operator_available("geotools.layer_presentation_reset_colors")
     assert "layer" in bpy.ops.geotools.publish.get_rna_type().properties
     layer_props = bpy.types.PropertyGroup.bl_rna_get_subclass_py("GeoToolsLayer")
     assert layer_props is not None and "presentation" in layer_props.bl_rna.properties
@@ -242,7 +230,7 @@ def test_presentation_panel_draws() -> None:
     props = h.props_drawn(calls)
     assert {"blend", "palette", "range_min", "range_max", "nodata_color"} <= set(props)
     assert "target" not in props  # a face layer has one target, so it is not shown
-    assert ("operator", "geotools.layer_write_presentation", "BRUSH_DATA") in calls
+    assert "show_in_viewport" in props  # the live view (test_live_view)
     assert ("operator", "geotools.publish", "EXPORT") not in calls  # variants: Publish only
     assert ("label", "Publish: choose it as Variant", "INFO") in calls
     assert h.draw_header(_display()) is None
@@ -311,10 +299,10 @@ def test_display_shows_auto_range() -> None:
     assert present._auto_text(item, "max") == "Auto: 1"
 
 
-# --- COLOR_0: gt_present -----------------------------------------------------------------------
+# --- COLOR_0 -------------------------------------------------------------------------------------
 
 
-def test_face_ramp_to_gt_present() -> None:
+def test_face_ramp_to_color_0() -> None:
     h.reset_scene()
     obj = _grid(n=3)
     core = _core_layers()
@@ -337,17 +325,6 @@ def test_face_ramp_to_gt_present() -> None:
     assert record["layer"] == "slope" and record["palette"] == "magma"
     assert record["range"] == {"min": 0.0, "max": 8.0, "auto_min": False, "auto_max": False}
     assert record["ramp_stops"] == _ramps().ramp_stops("magma", 0.0, 8.0, 11)
-
-    # The preview paints the same colours into gt_present, per corner.
-    preview_record, skipped = _present().write_preview(bpy.context.scene, name)
-    assert preview_record == record and skipped == []
-    got = _present_bytes(obj.data)
-    np.testing.assert_array_equal(got, np.repeat(expected, _loop_totals(obj.data), axis=0))
-
-    # The operator does the same for the selected layer.
-    obj.data.attributes.remove(obj.data.attributes["gt_present"])
-    assert bpy.ops.geotools.layer_write_presentation() == {"FINISHED"}
-    np.testing.assert_array_equal(_present_bytes(obj.data)[::4], expected)
 
 
 def test_corner_ramp_nodata_and_auto_range() -> None:
@@ -383,15 +360,10 @@ def test_corner_ramp_nodata_and_auto_range() -> None:
     # Bare has no values: the exporter paints it with the no-data colour.
     assert presentation.domain == "CORNER" and set(presentation.colors) == {"Grid"}
     assert presentation.nodata_rgba == (255, 0, 0, 255)
-    _preview_record, skipped = _present().write_preview(bpy.context.scene, name)
-    assert skipped == []
-    got = _present_bytes(obj.data)
-    np.testing.assert_array_equal(presentation.colors["Grid"], got)
+    got = presentation.colors["Grid"]
     np.testing.assert_array_equal(got[:2], [[255, 0, 0, 255]] * 2)
     np.testing.assert_array_equal(got[2:], _ramps().apply_ramp(values[2:], low, high, "greys"))
-    np.testing.assert_array_equal(
-        _present_bytes(bare.data), np.tile([255, 0, 0, 255], (len(bare.data.loops), 1))
-    )
+    assert "Bare" not in presentation.colors and len(bare.data.loops) == 4
 
     # One automatic end: the other is the user's.
     item = _layers().find_layer(bpy.context.scene, name)
@@ -461,32 +433,40 @@ def test_user_colours_and_materials_unchanged() -> None:
     )
     _layers().write_layer(mesh, _spec(name), np.linspace(0, 1, len(mesh.polygons)))
     _present().build_presentation(bpy.context.scene, name)
-    _present().write_preview(bpy.context.scene, name)
-    _present().write_preview(bpy.context.scene, name)  # again: replaces in place
-
+    item = _layers().find_layer(bpy.context.scene, name)
+    item.presentation.show_in_viewport = True  # the live view takes the active colour only
     attrs = mesh.color_attributes
+    assert (attrs.default_color_name, attrs.active_color_name) == ("Paint", "gt_view")
+    item.presentation.show_in_viewport = False
+
     assert (attrs.default_color_name, attrs.active_color_name) == ("Paint", "Edit")
     assert plain.data.color_attributes.default_color_name == ""
     assert plain.data.color_attributes.active_color_name == ""
-    assert [a.name for a in attrs] == ["Paint", "Edit", "gt_present"]
+    assert [a.name for a in attrs] == ["Paint", "Edit"]
     after = np.empty(len(mesh.loops) * 4, np.float32)
     paint.data.foreach_get("color", after)
     np.testing.assert_array_equal(after, paint_before)
     assert (_material_state(material), tuple(m.name for m in bpy.data.materials)) == before
 
-    # The plain export never publishes gt_present.
+    # The plain export never publishes gt_present (Write Colours painted it up to
+    # 0.3) or gt_view (the live view's, here applied by hand).
+    for attr_name in ("gt_present", "gt_view"):
+        mesh.color_attributes.new(attr_name, "BYTE_COLOR", "CORNER")
+        plain.data.color_attributes.new(attr_name, "BYTE_COLOR", "CORNER")
+    attrs.active_color_name = "Edit"
     scene, _topology = _extract()
     by_material = {p.material: p for p in scene.primitives}
     painted_prim = by_material[0]
     np.testing.assert_allclose(painted_prim.color[0], paint_before[:4], atol=1e-6)
     plain_prim = by_material[None]
-    assert plain_prim.color is None, "gt_present leaked into the plain tileset"
-    attrs.render_color_index = 2  # even when the user renders it
-    attrs.active_color_index = 2
-    scene, _topology = _extract()
-    np.testing.assert_allclose(
-        {p.material: p for p in scene.primitives}[0].color[0], paint_before[:4], atol=1e-6
-    )
+    assert plain_prim.color is None, "gt_present or gt_view leaked into the plain tileset"
+    for index in (2, 3):  # gt_present, gt_view: even when the user renders them
+        attrs.render_color_index = index
+        attrs.active_color_index = index
+        scene, _topology = _extract()
+        np.testing.assert_allclose(
+            {p.material: p for p in scene.primitives}[0].color[0], paint_before[:4], atol=1e-6
+        )
 
 
 def test_replace_and_multiply_in_the_glb() -> None:
@@ -600,15 +580,12 @@ def test_modifiers_and_presentation() -> None:
     evaluated = obj.evaluated_get(bpy.context.evaluated_depsgraph_get()).data
     values = _layers().read_layer(evaluated, _spec(name))
     np.testing.assert_array_equal(np.sort(values), np.repeat(np.arange(4, dtype=np.float32), 4))
-    # A preview cannot be painted on the original corners: skipped, not wrong.
-    _preview, skipped = _present().write_preview(bpy.context.scene, name)
-    assert skipped == ["Grid"] and "gt_present" not in obj.data.attributes
     obj.modifiers.remove(sub)
 
-    # The export never reads gt_present: a stale or dropped preview changes nothing.
+    # The export never reads gt_present, which Write Colours painted up to 0.3: a
+    # stale or dropped one changes nothing.
     presentation, _record = _present().build_presentation(bpy.context.scene, name)
-    _present().write_preview(bpy.context.scene, name)
-    stale = obj.data.attributes["gt_present"]
+    stale = obj.data.attributes.new("gt_present", "BYTE_COLOR", "CORNER")
     stale.data.foreach_set("color_srgb", np.zeros(4 * len(obj.data.loops), np.float32))
     gn = obj.modifiers.new("Drop", "NODES")
     gn.node_group = _remove_attribute_tree("gt_present")
@@ -1136,9 +1113,16 @@ def test_geometry_nodes_layer() -> None:
                     _linear_to_srgb_bytes(color[indices[:, corner]]), expected[face][:, :3]
                 )
         assert faces == 16
-    # The preview cannot be painted on the 4 original faces; the export did not need it.
-    assert bpy.ops.geotools.layer_write_presentation() == {"FINISHED"}
-    assert "gt_present" not in obj.data.attributes
+    # The live view shows the 16 evaluated faces, in the published colours.
+    item = _layers().find_layer(bpy.context.scene, name)
+    item.presentation.show_in_viewport = True
+    evaluated = obj.evaluated_get(bpy.context.evaluated_depsgraph_get()).data
+    view = np.empty(len(evaluated.loops) * 4, np.float32)
+    evaluated.attributes["gt_view"].data.foreach_get("color_srgb", view)
+    view_bytes = np.round(view.reshape(-1, 4) * 255.0).astype(np.int64)
+    by_face = np.repeat(expected, _loop_totals(evaluated), axis=0)
+    assert np.abs(view_bytes - by_face).max() <= 1
+    item.presentation.show_in_viewport = False
 
     # A variant publish of it validates, with every ramp colour in the tiles.
     if h.CONFIG.expect == "available":
@@ -1214,8 +1198,6 @@ def test_apply_modifiers_off() -> None:
     assert L.update_value_range(scene, item) == (5.0, 8.0)
     presentation, _record = _present().build_presentation(scene, name)
     assert presentation.colors["Grid"].shape == (4, 4)
-    _preview, skipped = _present().write_preview(scene, name)
-    assert skipped == [] and "gt_present" in obj.data.attributes
 
     # On again: the modifier's values replace them in what is read.
     profile.apply_modifiers = True

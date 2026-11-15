@@ -10,9 +10,10 @@ import numpy as np
 import pytest
 
 from geotools.core.issues import Severity
-from geotools.core.layers import DataType, Domain, LayerSpec
+from geotools.core.layers import RESERVED_NAMES, DataType, Domain, LayerSpec
 from geotools.core.presentation import (
     PRESENT_ATTRIBUTE,
+    VIEW_ATTRIBUTE,
     Blend,
     Target,
     presentation_issues,
@@ -28,8 +29,11 @@ COVER = LayerSpec("cover", Domain.CORNER, DataType.CATEGORY, categories=("bare",
 SHADE = LayerSpec("shade", Domain.TEXTURE, DataType.FLOAT)
 
 
-def test_present_attribute_is_reserved() -> None:
+def test_present_and_view_attributes_are_reserved() -> None:
     assert PRESENT_ATTRIBUTE == "gt_present"
+    assert VIEW_ATTRIBUTE == "gt_view"
+    for attribute in (PRESENT_ATTRIBUTE, VIEW_ATTRIBUTE):
+        assert attribute.removeprefix("gt_") in RESERVED_NAMES
 
 
 def test_targets_for_domain() -> None:

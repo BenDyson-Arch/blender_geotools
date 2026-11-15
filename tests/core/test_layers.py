@@ -44,7 +44,9 @@ def test_valid_source_attributes(source: str) -> None:
     assert L.validate(spec(source_attribute=source)) == []
 
 
-@pytest.mark.parametrize("source", [" slope", "slope ", ".corner_vert", "gt_present", "x" * 64])
+@pytest.mark.parametrize(
+    "source", [" slope", "slope ", ".corner_vert", "gt_present", "gt_view", "x" * 64]
+)
 def test_invalid_source_attributes(source: str) -> None:
     issues = L.validate(spec(source_attribute=source))
     assert codes(issues) == ["layer-attribute-invalid"], issues
@@ -70,7 +72,18 @@ def test_valid_names(name: str) -> None:
 
 @pytest.mark.parametrize(
     "name",
-    ["", "Slope", "2slope", "_slope", "slope-deg", "slope deg", "x" * 49, "sløpe", "present"],
+    [
+        "",
+        "Slope",
+        "2slope",
+        "_slope",
+        "slope-deg",
+        "slope deg",
+        "x" * 49,
+        "sløpe",
+        "present",
+        "view",
+    ],
 )
 def test_invalid_names(name: str) -> None:
     issues = L.validate(spec(name=name))
