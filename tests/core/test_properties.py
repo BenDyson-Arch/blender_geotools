@@ -497,8 +497,17 @@ def test_contours_of_a_closed_surface_are_closed(surface, interval, base, datum)
 
 
 def test_hypothesis_is_pinned() -> None:
-    """CI installs the hypothesis that CONTRIBUTING.md names, in both core jobs."""
+    """Every CI job that runs the core tests installs the pinned hypothesis.
+
+    ``tests/core/conftest.py`` imports hypothesis, so a job that runs any file
+    under ``tests/core`` without it fails before collecting a test.
+    """
     ci = (REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     (pin,) = re.findall(r'^\s+HYPOTHESIS_VERSION: "([^"]+)"$', ci, re.MULTILINE)
-    assert ci.count('"hypothesis==${HYPOTHESIS_VERSION}"') == 2
+    jobs = re.split(r"^  (?=[\w-]+:$)", ci.split("\njobs:\n", 1)[1], flags=re.MULTILINE)
+    runs_core = [j for j in jobs if re.search(r"-m pytest(?![\w-])", j)]
+    assert len(runs_core) >= 3, "expected the core, macOS/Windows and wheel jobs to run pytest"
+    for job in runs_core:
+        name = job.split(":", 1)[0]
+        assert '"hypothesis==${HYPOTHESIS_VERSION}"' in job, f"CI job {name}: install hypothesis"
     assert f"hypothesis=={pin}" in (REPO / "CONTRIBUTING.md").read_text(encoding="utf-8")
