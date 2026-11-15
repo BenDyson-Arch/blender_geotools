@@ -772,7 +772,7 @@ PRESETS: tuple[Preset, ...] = (
     # --- change and distance ------------------------------------------------------------
     Preset(
         id="surface_distance",
-        version=1,
+        version=2,
         group="GeoTools Surface Distance",
         category=Category.CHANGE,
         label="Distance to Surface",
