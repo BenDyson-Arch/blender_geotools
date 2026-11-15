@@ -212,7 +212,8 @@ jobs:
       - name: pytest (external validators on the core GLB writer)
         run: |
           pyproj_pin=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["tool"]["geotools"]["wheels"]["pyproj"])')
-          python -m pip install "pytest==${PYTEST_VERSION}" "numpy==${NUMPY_VERSION}" "pyproj==${pyproj_pin}"
+          python -m pip install "pytest==${PYTEST_VERSION}" "numpy==${NUMPY_VERSION}" "pyproj==${pyproj_pin}" \
+            "hypothesis==${HYPOTHESIS_VERSION}"
           python -m pytest tests/core/test_extvalidate.py tests/core/test_metadata_glb.py
       - name: Set up Blender
         id: blender
