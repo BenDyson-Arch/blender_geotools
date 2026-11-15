@@ -1,9 +1,10 @@
-"""The metadata GLB (M4): object ids, layer values, georeference, and File > Export.
+"""The GLB with metadata: object ids, layer values, georeference, and File > Export.
 
 A standard glTF 2.0 GLB of the source collection with object identity and
 layers as ``EXT_mesh_features`` / ``EXT_structural_metadata`` and the
-georeference as ``KHR_xmp_json_ld`` (docs/design/m4-glb-metadata.md). It is
-separate from the plain ``source.glb`` rusty-tiles tiles.
+georeference as ``KHR_xmp_json_ld`` (docs/reference/glb-format.md). It is
+separate from the plain ``source.glb`` rusty-tiles tiles, because rusty-tiles 0.4
+refuses input with extensions; the plain file stays byte-identical.
 
 * :func:`prepare_glb` does the main-thread work: refreshes the layers, reads
   FACE and CORNER values from the meshes the export publishes
@@ -363,7 +364,7 @@ def prepare_glb(
     props = scene.geotools
     collection = props.source_collection
     if collection is None:
-        raise ExportError("Set or ingest a source collection first.")
+        raise ExportError("Set or import a source collection first.")
     objects = source_objects(scene)
     if any(o.data.is_editmode for o in objects):
         raise ExportError("A source object is in Edit Mode; switch to Object Mode first.")
@@ -559,7 +560,7 @@ class GEOTOOLS_OT_export_glb(bpy.types.Operator, ExportHelper):
     @classmethod
     def poll(cls, context: bpy.types.Context) -> bool:
         if context.scene is None or context.scene.geotools.source_collection is None:
-            cls.poll_message_set("Set or ingest a GeoTools source collection first")
+            cls.poll_message_set("Set or import a GeoTools source collection first")
             return False
         return True
 

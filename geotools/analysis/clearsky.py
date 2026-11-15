@@ -31,6 +31,9 @@ Assumptions and accuracy, stated plainly:
   ±5 % and a scatter of a few percent, and larger errors for the beam
   component, given a good turbidity value.
 - Below the horizon (apparent zenith of 90° or more) all three are 0.
+- Diffuse light is isotropic, and there is no ground-reflected light. Monthly
+  turbidity, the Perez anisotropic sky, ground reflection and measured or
+  typical-year (TMY) weather are issue #112.
 
 Implemented from the equations; ``tests/core/test_sun_hours.py`` checks
 the outputs against values computed with pvlib-python 0.16.1.

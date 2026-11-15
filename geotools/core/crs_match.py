@@ -7,7 +7,10 @@ they are refused with a message naming both CRSs. Rasters are never
 reprojected. When the data's CRS cannot be determined, the user may confirm
 that it is in the project CRS.
 
-The design is in ``docs/design/m8-geo-formats.md`` ("CRS matching").
+Where a data CRS comes from (:class:`DataCrs.source`): a GeoJSON ``crs``
+member, else RFC 7946's WGS84; a GeoPackage table's ``srs_id`` in
+``gpkg_spatial_ref_sys``; GeoTIFF GeoKeys; or the user. A mismatch without
+pyproj is refused with both CRSs named and the hint to reproject in QGIS.
 """
 
 from __future__ import annotations

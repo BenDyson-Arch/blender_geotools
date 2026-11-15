@@ -1,14 +1,12 @@
 # Validation: the sun, sun hours, clear-sky insolation and shadow studies
 
-Status: validated on `val/solar` (2026-11-14), against GeoTools 0.4.0-dev
-(develop at 38fd2e3) in Blender 5.2.4 with rusty-tiles 0.4.1 and pyproj 3.8.0.
-Three discrepancies were left for a decision; none was a bug in what the
-tools claim, and all three are now [resolved](#decisions-resolved).
+Checked on 2026-11-14 in Blender 5.2.4 with rusty-tiles 0.4.1 and pyproj
+3.8.0. Three discrepancies were left for a decision; none was a bug in what
+the tools claim, and all three are [resolved](#decisions-resolved).
 
 This covers the Sun sub-panel (Place Sun, Over a Day), Sun Hours (with its
 clear-sky insolation), and Shadow Study, as described in the
-[user guide](../guide/analysis.md) and the
-[M5 design](../design/m5-analysis.md). The code is
+[user guide](../guide/analysis.md). The code is
 `geotools/analysis/sun.py`, `_spa_tables.py`, `sun_hours.py`, `clearsky.py`,
 `site.py` (`sun_site`), and the Blender side in `geotools/blender/analysis.py`
 and `sun_hours.py`. For each tool this page gives the definition followed, the
@@ -29,7 +27,7 @@ references, the cases, the tolerances and why, the results and a verdict.
 
 No bugs were found. The brief asked whether insolation is ESRA (Rigollier et
 al. 2000, as in GRASS r.sun): it is not, and it does not claim to be. It is
-Ineichen–Perez, and the code, the design doc and the guide all say so.
+Ineichen–Perez, and the code, the documentation and the guide all say so.
 
 ## Method
 
@@ -228,7 +226,7 @@ first with it down faded the light rather than switching it off.
 
 ## Sun Hours
 
-**Definition** ([design](../design/m5-analysis.md#sun-hours-insolation-and-shadow-studies)):
+**Definition** ([guide](../guide/analysis.md#sun-hours)):
 over the local days of the period (midnight to midnight in the time zone, so
 23, 24.5 or 25 h on a change day), the hours during which the sun's centre is
 above the horizon (apparent elevation > 0 with refraction on, airless with it
@@ -277,7 +275,7 @@ night are exact. **Seasons and years** at 1-minute steps: 27.5° S June–August
 nearly the same clock time all year, the midpoint rule's error at each edge
 has nearly the same sign every day. At the equator (UTC+02:00, 30° E) a year
 at 15-minute steps is 7.1 h short (−0.16 %) and at 60 minutes 29 h short
-(−0.65 %); at 51.18° N, 2.6 h and 9.8 h. This agrees with the design doc's
+(−0.65 %); at 51.18° N, 2.6 h and 9.8 h. This agrees with the documented
 table (0.35 % at 30 minutes, 0.64 % at 60), measured at 27.5° S.
 
 **Slopes, walls and overhangs** (70 cases: horizontal, south 30°, north 30°,
@@ -371,7 +369,7 @@ of M sky rays against (1 + cos tilt) / 2, worst over 24 aspects:
 | 120° | 0.25 | 4.3 % | 1.0 % | 0.27 % |
 | 150° | 0.067 | 10.7 % | 2.6 % | 0.62 % |
 
-It converges as 1/M. On open horizontal ground it is exact, as the design doc
+It converges as 1/M. On open horizontal ground it is exact, as the documentation
 says.
 
 **Against GRASS r.sun 8.4.1** (ESRA, same TL, solar constant 1366.1, albedo 0,
@@ -387,7 +385,7 @@ says.
 Ineichen gives less beam than ESRA at high air mass (winter, low sun, north
 walls), and less diffuse everywhere. On tilted surfaces the isotropic sky
 gives less diffuse than Muneer's model on surfaces facing the sun (no
-circumsolar brightening) and more on surfaces facing away. The design doc
+circumsolar brightening) and more on surfaces facing away. The documentation
 already says this; these are its sizes. Neither model is right everywhere:
 their accuracy against measurements depends on the site and on the turbidity
 given (Ineichen 2006 compares both against measured clear-sky data).
@@ -423,7 +421,7 @@ the chosen local times on those dates.
 | 2100–2149 | 26 s | up to 201 s |
 
 In TT the error is SPA's longitude accuracy (26 s for 0.0003°). In UT1 the
-ΔT models differ for future years. The design doc's "within a minute of the
+ΔT models differ for future years. The documented "within a minute of the
 published times" holds to 2067. Only the local date is used, so a moment off
 by a minute or three changes the study only when it falls within that of
 local midnight.
@@ -466,8 +464,8 @@ and polar stereographic grids with convergence of 34° and 62°.
 
 ## Decisions (resolved)
 
-The validation left three points for a decision. The user's decisions
-(2026-11-14) are implemented on `fix/validation-decisions`, each with
+The validation left three points for a decision. What was decided
+(2026-11-14), each with
 regression tests.
 
 1. **Non-conformal CRSs.** `scene azimuth = true azimuth − convergence` is

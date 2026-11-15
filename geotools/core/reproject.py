@@ -1,7 +1,6 @@
 """Reproject vector points into the project CRS with the bundled pyproj.
 
-Decided for M8 (docs/design/m8-geo-formats.md, "CRS matching"): rusty-tiles does
-no general reprojection, so imported *vector points* in another CRS are
+rusty-tiles does all CRS maths at publish time and no general reprojection, so imported *vector points* in another CRS are
 reprojected here, with PROJ choosing EPSG's best operation. Rasters are never
 reprojected. Tile placement is unaffected: publishing still goes from the
 project CRS through rusty-tiles.

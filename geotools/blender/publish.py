@@ -416,7 +416,7 @@ class GEOTOOLS_OT_publish(bpy.types.Operator):
         props = context.scene.geotools
         profile = active_profile(context.scene)
         if props.source_collection is None and not is_vector(profile):
-            self.report({"ERROR"}, "Cannot publish: set or ingest a source collection first")
+            self.report({"ERROR"}, "Cannot publish: set or import a source collection first")
             return {"CANCELLED"}
         if profile is None:
             self.report(

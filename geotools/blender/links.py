@@ -2,8 +2,8 @@
 
 An object made from a geo file keeps a link to it (``obj.geotools_link``):
 the file, the layer, the fid field, the CRS, the import options and a
-fingerprint of the file at the last sync. See docs/design/m8-geo-formats.md
-("Linked sources").
+fingerprint of the file at the last sync. Geometry is never written back:
+QGIS stays the 2D editor; only attribute columns are (``geotools.link_write_back``).
 
 - :func:`check_link` compares the file with the fingerprint: stat first, and
   hash only if the stat changed. It runs from the ``load_post`` handler, from

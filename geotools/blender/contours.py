@@ -20,7 +20,6 @@ absolute Z in the project CRS, and a Vectors build profile publishes them. A
 section's chainage is each point's M (LineString ZM in a GeoPackage; a
 ``chainage`` property with one value per point in GeoJSON), named by the
 object's ``geotools_measure`` property.
-See docs/design/m5-analysis.md.
 """
 
 from __future__ import annotations

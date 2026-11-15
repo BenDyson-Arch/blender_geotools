@@ -690,7 +690,7 @@ class GEOTOOLS_OT_layer_write_presentation(bpy.types.Operator):
             cls.poll_message_set("Switch to Object Mode first")
             return False
         if context.scene.geotools.source_collection is None:
-            cls.poll_message_set("Set or ingest a source collection first")
+            cls.poll_message_set("Set or import a source collection first")
             return False
         return True
 

@@ -356,4 +356,5 @@ Export > GeoPackage (.gpkg)**, with absolute heights, or publish them with a
 Vectors build profile. 1 m contours of 10 million triangles take about 6
 seconds.
 
-Design details for every tool: [design/m5-analysis.md](../design/m5-analysis.md).
+How each tool was checked against reference tools, with its measured
+accuracy, is in [Validation](../validation/README.md).

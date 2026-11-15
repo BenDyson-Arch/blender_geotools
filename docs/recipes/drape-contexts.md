@@ -13,8 +13,8 @@ modifier, and adding and linking nodes in the Geometry Nodes editor.
 
 All of this uses stock Blender nodes. GeoTools reads and writes the geo formats
 and keeps the GeoJSON linked to the object. It ships no draping node groups,
-because Blender already does draping well (the Scope decision in
-[ROADMAP.md](../ROADMAP.md)). Every node below is in Blender's own Add menu.
+because Blender already does draping well. Every node below is in Blender's
+own Add menu.
 
 ## The example file
 

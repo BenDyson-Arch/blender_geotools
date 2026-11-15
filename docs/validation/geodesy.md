@@ -1,9 +1,8 @@
 # Validation: geodesy and measurement
 
-Status: validated on `val/geodesy` (2026-11-14), against GeoTools develop at
-38fd2e3 with rusty-tiles 0.4.1, pyproj 3.8.0 (PROJ 9.8.1) and Blender 5.2.4.
-One bug was found and fixed (Measure in non-conformal CRSs); four points were
-left for a decision, and all four are now resolved
+Checked on 2026-11-14 with rusty-tiles 0.4.1, pyproj 3.8.0 (PROJ 9.8.1) and
+Blender 5.2.4. One bug was found and fixed (Measure in non-conformal CRSs);
+four points were left for a decision, and all four are resolved
 ([Decisions](#decisions-resolved)).
 
 This covers the **Measure** sub-panel (`geotools/analysis/site.py` and its
@@ -230,7 +229,7 @@ documented.
   central meridian, 0.28 ppm in Albers, and 3.8 ppm in Web Mercator at 60° N,
   where a straight grid line is a rhumb line. The true bearing is out by
   0.3–0.9″. This is the textbook survey reduction (the arc-to-chord terms are
-  left out), and the m5 design note's "well under 1 ppm for lines of a few
+  left out), and the documented "well under 1 ppm for lines of a few
   kilometres" holds.
 - The Gaussian radius against the radius in the line's azimuth: at most
   0.4 ppm at 1.5 km of height (the radii differ by up to e′² cos² φ / 2 ≈ 0.3 %,
@@ -338,7 +337,7 @@ the reference at four sites (MGA 56, UTM 33N, Lambert-93, Albers GDA94) to
 
 **Vertical offset and height offset.** The ellipsoidal height is z + A +
 height offset, both in Measure and in publishing (checked through ECEF below).
-With the height offset at 0 the height factor uses the RL; the m5 design note
+With the height offset at 0 the height factor uses the RL; the documentation
 gives the effect (N/R, 6 ppm for a 40 m geoid separation).
 
 **The CRS operation recorded for publishing.** `rusty_tiles.resolve_source_crs`
@@ -374,7 +373,7 @@ whose semi-minor axes differ by 0.1 mm.
 
 **Verdict: agrees** (publishing and, to first order, the GLB metadata frame).
 
-## Geo formats (M8)
+## Geo formats
 
 GDAL 3.12.0 (PROJ 9.7.0) writes the sources; GeoTools reads them with its own
 readers; GeoTools' exports go back to GDAL.
@@ -424,8 +423,8 @@ GeoTools' GeoPackage.
 
 ## Decisions (resolved)
 
-The validation left four points for a decision. The user's decisions
-(2026-11-14) are implemented on `fix/validation-decisions`, each with
+The validation left four points for a decision. What was decided
+(2026-11-14), each with
 regression tests.
 
 1. **The GLB metadata frame was measured one-sided.**

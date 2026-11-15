@@ -281,7 +281,7 @@ def test_panels_order_and_draw() -> None:
     panels = h.submodule("blender.panels")
     top = [c for c in panels.classes if not getattr(c, "bl_parent_id", "")]
     # The workflow: set up, bring data in, analyse, layers and textures, check,
-    # publish, inspect the output (docs/design/ui-structure.md).
+    # publish, inspect the output (see the blender.panels docstring).
     assert [c.bl_label for c in top] == [
         "Project",
         "Source",

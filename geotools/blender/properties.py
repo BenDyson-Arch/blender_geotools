@@ -506,7 +506,7 @@ class GeoToolsImageInfo(bpy.types.PropertyGroup):
 
 
 # --- layers ---------------------------------------------------------------------------
-# The registry of docs/design/m3-layers.md. ``blender.layers.spec_from_props`` is
+# The layer registry (core.layers). ``blender.layers.spec_from_props`` is
 # the only place a ``core.layers.LayerSpec`` is built from these properties.
 
 LAYER_DOMAIN_ITEMS = (
@@ -891,7 +891,7 @@ class GeoToolsProject(bpy.types.PropertyGroup):
     )
     source_filepath: StringProperty(
         name="Source File",
-        description="File the source was last ingested from",
+        description="File the source was last imported from",
         subtype="FILE_PATH",
         options={"PATH_SUPPORTS_BLEND_RELATIVE"},
     )

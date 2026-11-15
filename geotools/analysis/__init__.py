@@ -1,4 +1,4 @@
-"""M5 analysis (bpy-free): the sun and Moon, sun hours, archaeoastronomy, points on Earth, hydrology, contours.
+"""Analysis maths (bpy-free): the sun and Moon, sun hours, archaeoastronomy, points on Earth, hydrology, contours.
 
 - :mod:`.sun`: NREL SPA sun positions, vectorised over time, and time zones.
 - :mod:`.site`: where scene points are on Earth (E, N, RL, latitude and
@@ -16,5 +16,12 @@
 - :mod:`.slicing` and :mod:`.polylines`: contours and sections, chained into
   polylines.
 
-The design is in ``docs/design/m5-analysis.md``.
+Scope: GeoTools computes only what needs the georeference (where the sun is
+from this site at this moment, where a scene point is on Earth) or what
+neither a GIS nor stock Blender does well (hydrology on the 3D surface).
+Blender does the rest: its Sun light casts the shadows, Cycles casts the rays
+of sun hours and the horizon (``blender.ray_bake``), and the Geometry Nodes
+presets (:mod:`.presets`) compute terrain shape and visibility. Each tool's
+accuracy against reference tools is on the validation pages of the docs site
+(``docs/validation/``), with the reference tests beside them.
 """

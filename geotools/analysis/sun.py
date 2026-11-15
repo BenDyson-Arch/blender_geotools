@@ -1,9 +1,13 @@
 """Where the sun is: NREL's Solar Position Algorithm, vectorised over time.
 
 bpy-free and numpy only, so it can be tested with plain pytest and reused by
-the later M5 tools (sun hours, insolation, archaeoastronomy), which need many
+the other analysis tools (sun hours, insolation, archaeoastronomy), which need many
 time steps: a year at one-minute steps is about half a million positions and
 takes well under a second.
+
+SPA rather than NOAA's spreadsheet formulation (Meeus' low-precision method,
+good to about 0.01 degrees near the present): SPA is exact to the paper over
+the dates archaeoastronomy needs, and fast enough vectorised.
 
 Algorithm: Reda and Andreas, "Solar Position Algorithm for Solar Radiation
 Applications", NREL/TP-560-34302 (2003, revised 2008). The paper states an
@@ -37,6 +41,7 @@ on Windows has no system time zone database, and Blender's bundled Python does
 not ship the ``tzdata`` package, so a named zone may be unavailable there:
 :func:`zone` then raises :class:`TimeZoneUnavailable` and callers fall back to a
 fixed UTC offset (:func:`fixed_offset`), which has no daylight saving.
+Whether to bundle ``tzdata`` instead is issue #77.
 
 The direction helpers (:func:`direction`, :func:`light_euler`) work in a
 scene frame whose +Y is "north" for the caller: true north, or grid north once

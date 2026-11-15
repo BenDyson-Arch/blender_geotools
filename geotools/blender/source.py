@@ -1,4 +1,4 @@
-"""Source collection: ingest a mesh, read an offset file, summarise.
+"""Source collection: import a mesh, read an offset file, summarise.
 
 Import Source Mesh reads an offset file found beside the mesh only when the
 project has no origin yet, or already uses the same offset
@@ -541,7 +541,7 @@ class GEOTOOLS_OT_refresh_source_summary(bpy.types.Operator):
     @classmethod
     def poll(cls, context: bpy.types.Context) -> bool:
         if context.scene is None or context.scene.geotools.source_collection is None:
-            cls.poll_message_set("Set or ingest a source collection first")
+            cls.poll_message_set("Set or import a source collection first")
             return False
         return True
 

@@ -1,10 +1,9 @@
 # Validation: terrain shape and archaeological visualisation
 
-Status: validated on `val/terrain` (2026-11-12), against GeoTools 0.4.0-dev
-(develop at 4ea4fe0) in Blender 5.2.4. The five open points were decided on
-2026-11-14 and are [resolved](#decisions-resolved): the plan curvature preset
-is labelled Plan (Tangential) Curvature, the TPI default is 96 samples, and the
-rest is documented in analysis-presets.md.
+Checked on 2026-11-12 in Blender 5.2.4. The five open points are
+[resolved](#decisions-resolved): the plan curvature preset is labelled Plan
+(Tangential) Curvature, the TPI default is 96 samples, and the rest is
+documented in analysis-presets.md.
 
 This covers the Geometry Nodes presets of
 [analysis-presets.md](../analysis-presets.md) under *Terrain shape* and
@@ -32,7 +31,7 @@ reference tools, the cases, the tolerances, the results and a verdict.
 | Fast (bake) paths | the same rays as the live presets | **agree** with the live presets |
 
 No bugs were found. The [discrepancies](#decisions-resolved) were conventions
-or documentation; the user's decisions on them are implemented: one label and
+or documentation; the decisions on them are implemented: one label and
 one default changed (TPI Samples 24 → 96), and the rest is documented.
 
 ## Method
@@ -503,8 +502,8 @@ existing `test_preset_bake.py` covers the level plane and the V-trench.
 
 ## Decisions (resolved)
 
-The validation left five documentation and labelling choices. The user's
-decisions (2026-11-14) are implemented on this branch:
+The validation left five documentation and labelling choices. What was
+decided (2026-11-14):
 
 1. **"Plan curvature" means different things.** GeoTools' plan curvature is
    k_h (WhiteboxTools' `TangentialCurvature`, Florinsky's *horizontal*

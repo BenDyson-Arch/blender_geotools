@@ -1,4 +1,4 @@
-"""Colour ramps for presenting layers (see docs/design/m3-layers.md, section 4).
+"""Colour ramps for presenting layers as colours (variants and the viewport preview).
 
 ``bpy``-free numpy. A palette is a compact table of sRGB stops, evenly spaced
 from the low end (row 0) to the high end (last row), and values are mapped to

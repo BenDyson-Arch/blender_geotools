@@ -2,8 +2,7 @@
 
 ``geotools.bake_texture_layer`` bakes a FACE or CORNER layer's attribute (``gt_<name>``
 or its source attribute), or any named attribute of the evaluated mesh (a Geometry Nodes
-output), into the layer's images on the source UVs. See section 3 of
-docs/design/m3-layers.md.
+output), into the layer's images on the source UVs.
 
 - Cycles EMIT through a temporary bake material per object: Attribute, then
   Emission, then Material Output, with an active Image Texture of the layer's
@@ -544,7 +543,7 @@ class GEOTOOLS_OT_bake_texture_layer(bpy.types.Operator):
             cls.poll_message_set("Switch to Object Mode first")
             return False
         if context.scene.geotools.source_collection is None:
-            cls.poll_message_set("Set or ingest a source collection first")
+            cls.poll_message_set("Set or import a source collection first")
             return False
         return True
 
@@ -820,7 +819,7 @@ class GEOTOOLS_OT_check_layer_uvs(bpy.types.Operator):
             cls.poll_message_set("Select a texture layer")
             return False
         if context.scene.geotools.source_collection is None:
-            cls.poll_message_set("Set or ingest a source collection first")
+            cls.poll_message_set("Set or import a source collection first")
             return False
         return True
 

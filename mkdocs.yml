@@ -2,7 +2,8 @@
 #
 # Preview:   uvx --with-requirements requirements-docs.txt mkdocs serve
 # Check:     uvx --with-requirements requirements-docs.txt mkdocs build --strict
-# CI and deployment: .github/workflows/docs.yml. See CONTRIBUTING.md, "Docs site".
+# CI and deployment: .github/workflows/docs.yml. Every page is for users;
+# tests/core/test_docs_policy.py checks the pages, the nav and the word caps.
 #
 # The Markdown under docs/ is also read on GitHub, so keep links relative
 # (page.md, ../guide/page.md#anchor). docs/hooks/site_links.py turns links that
@@ -80,9 +81,9 @@ extra_css:
 
 plugins:
   - search
-  # Pulls the repository's root files (CONTRIBUTING.md, CHANGELOG.md, LICENSE)
-  # into the stub pages docs/contributing.md, docs/changelog.md and
-  # docs/license.md, rewriting their relative links for the stub's location.
+  # Pulls the repository's root files (CHANGELOG.md, LICENSE) into the stub
+  # pages docs/changelog.md and docs/license.md, rewriting their relative links
+  # for the stub's location, and README.md's install steps into docs/index.md.
   - include-markdown
 
 markdown_extensions:
@@ -133,7 +134,7 @@ nav:
       - Working alongside BlenderGIS: guide/blendergis.md
   - Reference:
       - Analysis presets: analysis-presets.md
-      - Texture cleanup workflow: texture-cleanup.md
+      - GLB format: reference/glb-format.md
       - "Recipe: drape excavation contexts": recipes/drape-contexts.md
       - Validation:
           - validation/README.md
@@ -143,17 +144,5 @@ nav:
           - Hydrology, contours and sections: validation/hydrology.md
           - Visibility, change, volumes and paths: validation/visibility.md
           - Sun, sun hours, insolation and shadow studies: validation/solar.md
-  - Developer:
-      - Contributing: contributing.md
-      - Changelog: changelog.md
-      - Roadmap: ROADMAP.md
-      - Backlog: BACKLOG.md
-      - Design notes:
-          - Sidebar structure: design/ui-structure.md
-          - Scene georeference (BlenderGIS keys): design/georeference-interop.md
-          - "M3: layers and the bake engine": design/m3-layers.md
-          - "M4: GLB export with metadata": design/m4-glb-metadata.md
-          - "M5: analysis": design/m5-analysis.md
-          - "M7: output inspection": design/m7-output-inspection.md
-          - "M8: geo formats": design/m8-geo-formats.md
-      - License: license.md
+  - Changelog: changelog.md
+  - License: license.md

@@ -9,6 +9,8 @@ type = "add-on"
 website = "https://github.com/BenDyson-Arch/blender_geotools"
 tags = ["Import-Export", "Mesh", "Bake"]
 
+# GeoTools supports the latest Blender release only (5.2 LTS); revisit with each
+# new release. The bundled pyproj is cp313, Blender 5.2's Python.
 blender_version_min = "5.2.0"
 
 license = ["SPDX:GPL-3.0-or-later"]

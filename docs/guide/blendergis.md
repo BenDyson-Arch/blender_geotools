@@ -122,6 +122,3 @@ and change neither: GeoTools keeps placing the scene by E and N. **Origin from
 Latitude/Longitude** takes E and N from the latitude and longitude instead; it
 asks first when the source collection has objects, because they then move on
 Earth with the origin.
-
-Design details:
-[design/georeference-interop.md](../design/georeference-interop.md).

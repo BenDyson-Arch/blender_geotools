@@ -49,7 +49,11 @@ main exit leaves it), volume, plan area and greatest depth. Volume is
 ``sum(depth x signed plan area)``, so an overhang's underside below the water
 subtracts the solid above it.
 
-See docs/design/m5-analysis.md.
+Single flow direction, not a multiple-flow split: accumulation stays a tree,
+so it vectorises. Known limits: water does not cling to undersides; objects
+that touch without sharing an edge are not joined; faces that meet only at a
+vertex are not linked, so a V-channel running along mesh edges breaks into
+shallow false pits (issue #106). Accuracy: ``docs/validation/hydrology.md``.
 """
 
 from __future__ import annotations

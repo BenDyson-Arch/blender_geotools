@@ -193,4 +193,4 @@ GeoTools CRS presets (PROJ strings for MGA and NZTM) are replaced by their EPSG
 codes, only when rusty-tiles resolves the code to the same definition; CRS
 Details then says so.
 
-Design details: [design/georeference-interop.md](../design/georeference-interop.md).
+More on the shared georeference: [Working alongside BlenderGIS](blendergis.md).

@@ -46,8 +46,8 @@ Both routes run the checks first and stop on an error.
   model's +X axis and `geotools:groundMetresPerModelMetre`: how many metres
   on the ground one model metre along +X is, at the origin. That is about
   1 / the combined scale factor (1.0004 where the grid scale factor is
-  0.9996), not the grid scale factor itself. Every term is listed in
-  [design/m4-glb-metadata.md](../design/m4-glb-metadata.md#5-placement-and-the-geotools-xmp-terms).
+  0.9996), not the grid scale factor itself. Every term is listed in the
+  [GLB format reference](../reference/glb-format.md#placement-and-the-geotools-terms).
 
 ### Face layers
 
@@ -77,6 +77,8 @@ rusty-tiles, which computes the transform.
   attributes must stay within ±2^24.
 - A float layer without a no-data value writes NaN where it has no value. Set
   a no-data value to make it explicit.
-- This GLB is not tiled. Tiling it, with its metadata, needs rusty-tiles 0.5.
+- This GLB is not tiled: in a tileset, layers reach the tiles only as colours,
+  in [variants](layers.md#publish-a-layer-as-a-variant).
 
-Design details: [design/m4-glb-metadata.md](../design/m4-glb-metadata.md).
+The [GLB format reference](../reference/glb-format.md) describes the file in
+full, for reading it in other tools.

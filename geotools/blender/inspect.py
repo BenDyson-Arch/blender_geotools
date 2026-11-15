@@ -18,7 +18,15 @@
   comparison of levels (one depth at a time, or side by side).
 
 Settings and results live on ``scene.geotools_inspect``; panels are in
-``inspect_ui``. See docs/design/m7-output-inspection.md.
+``inspect_ui``.
+
+Decisions: tiles are read as rusty-tiles' decoded arrays, never as a GLB view
+(Blender's importer may merge vertices across face IDs); they are placed with
+the placement ``build.json`` recorded, not the scene's current one, and any
+difference is reported; coarse faces trace to their whole representative
+source primitive, the finest answer a coarse tile holds; a source published
+with topology-changing modifiers is refused for tracing, since its face map
+numbers evaluated faces; opened tiles are views and are never written back.
 """
 
 from __future__ import annotations

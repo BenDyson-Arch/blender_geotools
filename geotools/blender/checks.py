@@ -20,7 +20,7 @@ _SEVERITY_ORDER = {Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2}
 
 def _source_poll(cls: type, context: bpy.types.Context) -> bool:
     if context.scene is None or context.scene.geotools.source_collection is None:
-        cls.poll_message_set("Set or ingest a source collection first")
+        cls.poll_message_set("Set or import a source collection first")
         return False
     return True
 

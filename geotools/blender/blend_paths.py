@@ -1,7 +1,7 @@
 """The paths GeoTools stores in its own properties, against the open ``.blend``.
 
 Thin Blender glue over :mod:`geotools.core.paths` (the rule is documented
-there and in CONTRIBUTING.md, "File paths"):
+there):
 
 - :func:`abspath` reads a stored path: ``//`` with either separator against
   the ``.blend``'s folder (or a linked library's), anything else as is. Use it
@@ -13,8 +13,13 @@ there and in CONTRIBUTING.md, "File paths"):
 Stored paths are rewritten only when GeoTools writes them: when it sets the
 property, when the user edits one that has :func:`portable_update`, and on
 saving to another folder (:func:`_on_save_pre`), where ``//`` paths are
-re-expressed against the new folder as Blender does for its own data. Loading
-a file never changes them.
+re-expressed against the new folder as Blender does for its own data (Save
+Copy leaves the open file's paths alone). Loading a file never changes them.
+
+A new path property must be listed in :func:`stored_paths`. Paths that only
+record where a build ran (``output`` and ``blend_file`` in ``build.json``) are
+never resolved, and add-on preferences (the rusty-tiles CLI, the Cesium
+folder) belong to one machine and stay absolute.
 """
 
 from __future__ import annotations

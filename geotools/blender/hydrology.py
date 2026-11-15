@@ -8,11 +8,12 @@ surface, casts the drops with Blender's Geometry Nodes Raycast
   and depression (a CATEGORY: 0 none, then 1, 2 ... by volume);
 * optionally a point object of the depressions (their pour points, with level,
   volume, area and depth) and a line object of the main flow paths, both
-  exportable through Export Vectors (M8) and publishable as vectors.
+  exportable through Export Vectors and publishable as vectors.
 
 Geometric only: no rainfall, infiltration or hydraulics. Settings and the last
 result live on ``scene.geotools_hydrology``; the panel is in ``surface_ui``.
-See docs/design/m5-analysis.md.
+Drops are cast by a Geometry Nodes Raycast in one evaluation, against only the
+faces under some drop: GeoTools ships no ray caster of its own.
 """
 
 from __future__ import annotations
