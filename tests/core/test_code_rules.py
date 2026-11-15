@@ -450,3 +450,58 @@ def test_ui_strings_say_import_not_ingest() -> None:
         "One word per thing in the UI: Import brings a file in (see the blender.panels "
         "docstring). The operator id geotools.ingest_source stays for scripts.\n" + "\n".join(found)
     )
+
+
+# --- subnormals: Blender 5.3 runs Python with denormals-are-zero --------------------------
+
+
+def _is_subnormal_constant(node: ast.AST) -> bool:
+    """A subnormal float literal, ``nextafter(0, ...)`` or ``finfo(...).smallest_subnormal``."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, float):
+        return 0.0 < abs(node.value) < 2.2250738585072014e-308  # smallest normal binary64
+    if isinstance(node, ast.Attribute):
+        return node.attr == "smallest_subnormal"
+    return (
+        isinstance(node, ast.Call)
+        and _dotted(node.func).split(".")[-1] == "nextafter"
+        and bool(node.args)
+        and isinstance(node.args[0], ast.Constant)
+        and node.args[0].value == 0
+    )
+
+
+def _subnormal_constants(tree: ast.AST) -> Iterator[ast.AST]:
+    return (node for node in ast.walk(tree) if _is_subnormal_constant(node))
+
+
+def test_no_subnormal_constants() -> None:
+    found = [
+        f"{_rel(path)}:{node.lineno}"
+        for path in _modules()
+        for node in _subnormal_constants(_tree(path))
+    ]
+    assert not found, (
+        "Blender 5.3 runs Python with denormals-are-zero (and flush-to-zero), so a "
+        "subnormal compares and computes as 0 in numpy there, but not in 5.2 or in "
+        "tests/core. Compare with 0 and keep the sign some other way (see "
+        "core.uv_overlap._edge).\n" + "\n".join(found)
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "x = 5e-324",
+        "x = -1e-310",
+        "import numpy as np\nt = float(np.nextafter(0.0, 1.0))",
+        "from numpy import nextafter\nt = nextafter(0, 1)",
+        "import numpy as np\nt = np.finfo(np.float32).smallest_subnormal",
+    ],
+)
+def test_the_subnormal_rule_catches(source: str) -> None:
+    assert list(_subnormal_constants(ast.parse(source)))
+
+
+def test_the_subnormal_rule_ignores_normal_numbers() -> None:
+    source = "import numpy as np\na = 1e-300\nb = np.nextafter(1.0, 2.0)\nc = np.finfo(float).tiny"
+    assert not list(_subnormal_constants(ast.parse(source)))
