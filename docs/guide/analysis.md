@@ -13,6 +13,7 @@ sub-panels, top to bottom (Measure and Presets start open):
 |---|---|
 | [Measure](#measure) | E, N, height and latitude and longitude of a point; distances and areas. |
 | [Presets](#presets) | Geometry Nodes analyses: slope, aspect, visibility, volumes and more. |
+| [Least-Cost Routes](#least-cost-routes) | The quickest route over the 3D surface, uphill and downhill costed apart, and the travel time to every face. |
 | [Hydrology](#hydrology) | Where water runs and ponds on the 3D surface. |
 | [Contours and Sections](#contours-and-sections) | Contour and section lines. |
 | [Sun](#sun) | Places or animates a Blender Sun light for a date, time and place. |
@@ -265,7 +266,87 @@ Every preset's formula, inputs, accuracy and timing are in
 
 **Limits.** Live presets re-evaluate with the mesh, which can take minutes at
 10 million triangles for the visibility presets; use the Fast Bake entries.
-Least-cost paths use one cost per edge both ways.
+The Least-Cost Path preset follows mesh edges and uses one cost per edge both
+ways; [Least-Cost Routes](#least-cost-routes) says when to use which.
+
+## Least-Cost Routes
+
+The quickest way to walk (or wheel) over one 3D surface: a route from a
+Start to an End, and the travel time from Start to every face. Uphill and
+downhill cost differently, so the route there and the route back can differ,
+and routes cross faces at any angle instead of following mesh edges.
+
+1. Choose the **Surface**: the **Source Collection** or the **Selected
+   Objects**. It must be one mesh object.
+2. Set **Start** and **End**: any objects, usually Empties. Their origins snap
+   to the nearest face that can be crossed. Left empty, each gets a new Empty
+   at the 3D cursor (`Route Start`, `Route End`, in GeoTools Analysis): move
+   it and press again.
+3. Choose the **Model** and set **Max Slope** (30° by default): faces steeper
+   than this, or facing down, cannot be crossed.
+4. Optionally choose a **Cost Layer**: a face layer whose values multiply the
+   time on each face (2 for dense scrub). 0, negative or no data is
+   impassable, so a wall or a trench is a band of no data with its gaps.
+5. Choose the outputs: **Route**, **Travel Time** (into the **Time Layer**,
+   `travel_time`) or both, and optionally **Isochrones**.
+6. Press **Compute Least-Cost**. The status bar counts the search's passes;
+   Esc cancels.
+
+The models, per step of horizontal run d and rise h:
+
+| Model | Time | Source |
+|---|---|---|
+| **Tobler** | d at 6 exp(−3.5 \|h/d + 0.05\|) km/h: 6 km/h at 5 % downhill, 5.04 on the level | Tobler (1993), as the Least-Cost Path preset |
+| **Langmuir (r.walk)** | 0.72 s/m × d + 6.0 s per metre climbed; downhill −1.9998 s per metre dropped down to 12° (tan 12° = 0.2125), +1.9998 s per metre steeper | GRASS r.walk's default coefficients (Aitken 1977, Langmuir 1984) |
+| **Naismith** | 0.72 s/m × d (5 km/h) + 6 s per metre climbed (600 m an hour); descents add nothing | Naismith (1892) |
+| **Wheelchair** | 1.12 m/s on the level and downhill, falling linearly to 0.59 m/s at a 4.8° climb; no step steeper than **Max Gradient** (8.33 %, 1:12) either way | Speeds measured for manual wheelchairs by Jahanian et al. (2016); 1:12 is the steepest ramp of the ADA Standards (2010, 405.2) |
+
+The outputs:
+
+- **Route**: a line object, `Least-Cost Route`, in GeoTools Analysis, with
+  `elapsed` (seconds from Start) at each point and `time` on each edge. Export
+  it with **Export Vectors**, or publish it with a Vectors build profile.
+- **Travel Time**: a face layer of the seconds from Start to each face's
+  centre. Faces that cannot be reached have no data. It displays and
+  publishes as a variant like any layer.
+- **Isochrones**: with a step in minutes (0 for none), a category layer
+  (**Band Layer**, `isochrones`) of the bands 0 to 5 min, 5 to 10 min and so
+  on, with `Unreached` for faces with no time.
+
+**Steiner Points** (3 by default) are points added inside every triangle edge,
+so a route can cross a face in more directions. With none, routes follow mesh
+edges: up to 41 % longer than the straight line on a triangulated grid. With 3
+the worst direction is 2.9 % longer and the average 1.2 %; with 6, 1.1 % and
+0.5 % ([validation](../validation/least-cost.md#any-angle-routes)). More points
+cost time: on one million triangles, 2 s with none, about 13 s with 3 and
+16 s with 4.
+
+In a CRS project, plan distances are ground distances: grid distances
+divided by the combined scale factor at the surface's centre.
+
+**When to use which.** The Least-Cost Path preset is a live Geometry Nodes
+modifier: it updates as you move Start and End or edit the mesh, which suits
+trying routes out. Least-Cost Routes is computed once, and gives the one-way
+quickest route (the preset routes on the mean of both directions), routes not
+tied to mesh edges, the travel time to every face, isochrones, and the
+Langmuir, Naismith and wheelchair models. Use it for results you publish or
+report.
+
+**Limits.**
+
+- **One connected surface.** Several objects are refused: join them into
+  one object (Object > Join) where they meet. Routes from one object to
+  another through stairs, ladders or doorways are issue
+  [#109](https://github.com/BenDyson-Arch/blender_geotools/issues/109).
+- **Normals point out of the ground.** A face facing down is an overhang's
+  underside and is never crossed; recalculate the normals of a mesh imported
+  inside out.
+- **The wheelchair model has no cross-slope limit.** Each step is held to
+  Max Gradient, so on a slope steeper than that the route traverses it, as a
+  ramp's switchbacks do; the ADA's 1:48 cross slope is not checked.
+- **Times are to face centres** and Start and End snap to the surface, so a
+  Start in mid-air or on a wall starts from the nearest face that can be
+  crossed; the result says how far it moved when that is more than 0.5 m.
 
 ## Hydrology
 

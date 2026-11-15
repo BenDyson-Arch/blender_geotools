@@ -1,4 +1,4 @@
-"""Shared by hydrology and contours: surfaces as numpy arrays in, line and point objects out.
+"""Shared by hydrology, contours and least-cost routes: surfaces as numpy arrays in, line and point objects out.
 
 * :func:`read_surface` reads the evaluated meshes of a set of objects (the
   source collection, or the selected objects) into one world-space mesh of
@@ -23,10 +23,11 @@ from dataclasses import dataclass, field
 import bpy
 import numpy as np
 
+from ..analysis import site
 from ..core.placement import PlacementMode
 from .export import same_topology
 from .layers import apply_modifiers, layer_meshes, source_objects
-from .properties import placement_from_props
+from .properties import FieldError, placement_from_props
 
 log = logging.getLogger(__name__)
 
@@ -76,6 +77,7 @@ class SurfaceArrays:
     n_edges: int
     flip: np.ndarray
     triangles: np.ndarray | None
+    triangle_faces: np.ndarray | None = None  # the face of each triangle (combined ids)
     parts: list[Part] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
@@ -102,7 +104,8 @@ def read_surface(
     """The evaluated meshes of ``objects`` as one mesh in world space.
 
     ``topology`` reads faces with their corner vertices and edges (hydrology);
-    ``triangles`` reads Blender's loop triangles (contours and sections). An
+    ``triangles`` reads Blender's loop triangles and the face of each (contours,
+    sections and least-cost routes). An
     object's values can be written back (``Part.writable``) when its evaluated
     mesh has its original topology and no earlier object shares its mesh.
     """
@@ -114,7 +117,7 @@ def read_surface(
     scene = context.scene
     apply = apply_modifiers(scene)
     depsgraph = context.evaluated_depsgraph_get()
-    positions, starts, corner_verts, corner_edges, flips, tris = [], [], [], [], [], []
+    positions, starts, corner_verts, corner_edges, flips, tris, tri_faces = ([] for _ in range(7))
     parts: list[Part] = []
     notes: list[str] = []
     seen: dict[int, str] = {}
@@ -139,6 +142,9 @@ def read_surface(
             t = np.empty(3 * n_t, np.int32)
             mesh.loop_triangles.foreach_get("vertices", t)
             tris.append(t.reshape(-1, 3).astype(np.int64) + v_base)
+            p = np.empty(n_t, np.int32)
+            mesh.loop_triangle_polygons.foreach_get("value", p)
+            tri_faces.append(p.astype(np.int64) + f_base)
         pointer = obj.data.as_pointer()
         writable = True
         if pointer in seen:
@@ -169,6 +175,7 @@ def read_surface(
         n_edges=e_base,
         flip=cat(flips) if topology else np.zeros(0, bool),
         triangles=cat(tris) if triangles else None,
+        triangle_faces=cat(tri_faces) if triangles else None,
         parts=parts,
         notes=notes,
     )
@@ -184,6 +191,28 @@ def datum(scene: bpy.types.Scene) -> tuple[float, str]:
     if PlacementMode(placement.mode) is PlacementMode.SOURCE_CRS:
         return float(placement.source_offset[2]), "RL"
     return 0.0, "local z"
+
+
+def ground_scale(context: bpy.types.Context, centre: np.ndarray, what: str) -> tuple[float, str]:
+    """The combined scale factor at ``centre`` (1 when unknown) and a note on ``what``.
+
+    In a SOURCE_CRS project scene metres are grid metres: ground distances are
+    grid distances divided by the factor. ``what`` names the results in the
+    note ("Areas and volumes").
+    """
+    try:
+        placement = placement_from_props(context.scene.geotools)
+    except FieldError:
+        return 1.0, f"{what} are in scene units (the project placement is not valid)."
+    if PlacementMode(placement.mode) is not PlacementMode.SOURCE_CRS:
+        return 1.0, ""
+    if not site.available():
+        return 1.0, f"{what} are grid values: pyproj is needed for the scale factor."
+    try:
+        reading = site.read_point(placement, tuple(float(c) for c in centre))
+    except (site.SiteError, site.GeodesyUnavailable, ValueError) as ex:
+        return 1.0, f"{what} are grid values ({ex})."
+    return float(reading.combined_scale), ""
 
 
 # --- vertical rays ---------------------------------------------------------------------------

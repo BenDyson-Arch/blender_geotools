@@ -353,7 +353,8 @@ slower on steep descents (−30°: 3.80 against 1.87 s/m); uphill, r.walk is
 slower up to about 24° and quicker above. These are
 two hiking models, not an error; GeoTools follows the one it cites, with the
 horizontal run as r.walk uses (dividing slope distance instead would add up to
-15 % at 30°).
+15 % at 30°). [Least-Cost Routes](least-cost.md) offers Langmuir, as r.walk
+uses it, as one of its models.
 
 **Edge-graph bias.** On level ground from (0, 0), GeoTools' time over the
 straight-line time (all equal to networkx's prediction to 10⁻⁵):

@@ -308,6 +308,7 @@ def test_panels_order_and_draw() -> None:
         "GEOTOOLS_PT_analysis": [
             "Measure",
             "Presets",
+            "Least-Cost Routes",
             "Hydrology",
             "Contours and Sections",
             "Sun",
@@ -328,6 +329,7 @@ def test_panels_order_and_draw() -> None:
         "Shadow Study",
         "Archaeoastronomy",
         "Hydrology",
+        "Least-Cost Routes",
         "Contours and Sections",
         "Display",
         "Details",

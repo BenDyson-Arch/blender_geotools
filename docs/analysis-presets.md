@@ -732,8 +732,10 @@ exists. **Paths follow mesh edges**, so on a regular grid they zig-zag: a route
 between the directions of the grid's edges is up to √2 longer than straight
 on a triangulated grid (1.08 with both diagonals). Irregular photogrammetry
 meshes have edges in every direction and are far less biased. The zig-zag
-shows as extra length and time, not hidden. Landscape-scale cost surfaces
-belong in a GIS (QGIS r.walk), imported as geodata.
+shows as extra length and time, not hidden. For the one-way quickest route,
+routes across faces, a travel-time layer and other walking models, use
+[Least-Cost Routes](guide/analysis.md#least-cost-routes); landscape-scale cost
+surfaces belong in a GIS (QGIS r.walk), imported as geodata.
 
 | Input | Default | |
 |---|---|---|
@@ -894,14 +896,13 @@ this shared machine (about 16 s of it fixed cost), 3.6 s at 1M.
 - **Directed least-cost routing.** Shortest Edge Paths takes one cost per
   edge, used both ways, so Tobler's asymmetry (downhill faster than uphill)
   cannot steer the route; the route uses the mean of the two directions and
-  the time reported is the directional time along it. A directed graph search
-  (numpy, in GeoTools code) or QGIS r.walk would give the true one-way
-  route. A cost-distance layer (the time from every vertex to End) is
-  possible in stock nodes: Shortest Edge Paths' Total Cost is exactly that
-  (with the same symmetric cost).
+  the time reported is the directional time along it. GeoTools' own
+  [Least-Cost Routes](guide/analysis.md#least-cost-routes) searches the
+  directed graph and writes the travel-time layer.
 - **Paths not tied to edges.** Graph paths on a mesh follow its edges (see
-  Least-Cost Path); routing across faces needs a fast-marching solver, which
-  has no stock-node form.
+  Least-Cost Path); crossing faces needs points inside the edges (Steiner
+  points) or a fast-marching solver, which have no stock-node form. Least-Cost
+  Routes adds the Steiner points.
 - **Hydrology.** Flow accumulation, depression filling and routing over flats
   need ordering by height and propagation along receivers (pointer jumping),
   which a Repeat zone can do only one step per iteration over the whole mesh:

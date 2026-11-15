@@ -7,7 +7,7 @@
     keeps the old name, ``GEOTOOLS_PT_analysis_coordinates``.)
   - Presets: the Add Analysis menu of Geometry Nodes presets
     (``analysis_presets``) and the presets on the active object.
-  - Hydrology, and Contours and Sections (``surface_ui``).
+  - Least-Cost Routes, Hydrology, and Contours and Sections (``surface_ui``).
   - Sun: date, time and time zone, site, Place Sun and Animate Day, and the
     last sun position with the convergence applied. Its sub-panels use its
     date, time zone and site:

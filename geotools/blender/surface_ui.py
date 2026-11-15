@@ -1,8 +1,9 @@
-"""Sidebar panels of the surface tools: Hydrology, and Contours and Sections.
+"""Sidebar panels of the surface tools: Least-Cost Routes, Hydrology, and Contours and Sections.
 
 Sub-panels of Analysis (``analysis_ui.GEOTOOLS_PT_analysis``), listed by
 ``analysis_ui`` after Measure and Presets. They draw stored settings and
-results only; the operators (``hydrology``, ``contours``) compute.
+results only; the operators (``least_cost``, ``hydrology``, ``contours``)
+compute.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ import json
 
 import bpy
 
-from . import contours, hydrology
+from . import contours, hydrology, least_cost
 from .ui import big_button, info_row, split_column, wrapped
 
 
@@ -31,6 +32,65 @@ def _error(layout, context, text: str) -> None:
 
 def _area(value: float) -> str:
     return f"{value / 1e4:,.2f} ha" if value >= 1e5 else f"{value:,.1f} m²"
+
+
+def _duration(seconds: float) -> str:
+    if seconds >= 3600:
+        return f"{seconds / 3600:,.2f} h"
+    return f"{seconds / 60:,.1f} min" if seconds >= 60 else f"{seconds:,.1f} s"
+
+
+class GEOTOOLS_PT_analysis_least_cost(_SurfacePanel, bpy.types.Panel):
+    """Directed least-cost routes and travel times over one surface."""
+
+    bl_idname = "GEOTOOLS_PT_analysis_least_cost"
+    bl_label = "Least-Cost Routes"
+
+    def draw(self, context: bpy.types.Context) -> None:
+        layout = self.layout
+        props = least_cost.settings(context)
+        col = split_column(layout)
+        col.prop(props, "surface")
+        col.prop(props, "start", text="Start")
+        col.prop(props, "end", text="End")
+        if props.start is None or (props.make_route and props.end is None):
+            wrapped(col, context, "Empty: a new Empty at the 3D cursor.", "INFO")
+        col.prop(props, "model")
+        col.prop(props, "max_slope")
+        sub = col.column()
+        sub.active = props.model == "WHEELCHAIR"
+        sub.prop(props, "max_gradient")
+        col.prop_search(props, "cost_layer", context.scene.geotools, "layers", icon="RNA")
+        col.prop(props, "steiner")
+        col.prop(props, "make_route")
+        col.prop(props, "make_layer")
+        sub = col.column()
+        sub.active = props.make_layer
+        sub.prop(props, "time_layer")
+        sub.prop(props, "band_minutes")
+        row = sub.row()
+        row.active = props.make_layer and props.band_minutes > 0
+        row.prop(props, "band_layer")
+        big_button(layout).operator("geotools.least_cost", icon="TRACKING")
+        if props.error:
+            _error(layout, context, props.error)
+            return
+        if not props.result:
+            return
+        result = json.loads(props.result)
+        box = layout.box()
+        box.label(text=f"{result['faces']:,} faces, {result['nodes']:,} nodes", icon="MESH_DATA")
+        col = box.column(align=True)
+        route = result["route"]
+        if route:
+            info_row(col, "Route", _duration(route["time"]))
+            info_row(col, "Length", f"{route['length']:,.1f} m")
+        if result.get("max_time") is not None:
+            info_row(col, "Reached", f"{result['reached']:,} faces")
+            info_row(col, "Furthest", _duration(result["max_time"]))
+        info_row(col, "Time", f"{result['seconds']:.1f} s")
+        for note in result["notes"]:
+            wrapped(box, context, note, "INFO")
 
 
 class GEOTOOLS_PT_analysis_hydrology(_SurfacePanel, bpy.types.Panel):
@@ -140,4 +200,8 @@ class GEOTOOLS_PT_analysis_contours(_SurfacePanel, bpy.types.Panel):
         layout.label(text="Export: File > Export > GeoPackage", icon="EXPORT")
 
 
-classes = (GEOTOOLS_PT_analysis_hydrology, GEOTOOLS_PT_analysis_contours)
+classes = (
+    GEOTOOLS_PT_analysis_least_cost,
+    GEOTOOLS_PT_analysis_hydrology,
+    GEOTOOLS_PT_analysis_contours,
+)
