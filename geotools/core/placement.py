@@ -125,7 +125,8 @@ def _vec3(v: Vec3) -> Vec3:
 
 def _all_finite(values: object, length: int) -> bool:
     try:
-        numbers = [float(v) for v in values]  # type: ignore[attr-defined]
+        # Any object: a TypeError here means not a sequence of numbers.
+        numbers = [float(v) for v in values]  # pyright: ignore[reportGeneralTypeIssues]
     except (TypeError, ValueError):
         return False
     return len(numbers) == length and all(math.isfinite(v) for v in numbers)

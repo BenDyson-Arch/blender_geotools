@@ -167,8 +167,8 @@ def offer_project_crs(
     if keep or bounds is None or not all(math.isfinite(v) for v in bounds):
         source_crs = project_definition(data_crs)
         label = crs_catalog.name(source_crs) or None
-        offset = tuple(float(v) for v in project_offset)
-        origin = DataOrigin(source_crs, data_crs.epsg, label, offset, set_offset=False)  # type: ignore[arg-type]
+        offset = (float(project_offset[0]), float(project_offset[1]), float(project_offset[2]))
+        origin = DataOrigin(source_crs, data_crs.epsg, label, offset, set_offset=False)
     else:
         origin = suggest_origin(data_crs, bounds)
     raise NeedsProjectOrigin(
@@ -300,7 +300,8 @@ def check_offset_file(
     """
     mode = PlacementMode(str(getattr(mode, "value", mode)).lower())
     file = (float(offset[0]), float(offset[1]), float(offset[2]))
-    project = tuple(None if v is None else float(v) for v in project)  # type: ignore[assignment]
+    e, n, a = (None if v is None else float(v) for v in project)
+    project = (e, n, a)
 
     def offer(reason: str, shift: Vec3 | None = None) -> OffsetFileCheck:
         return OffsetFileCheck(OffsetAction.OFFER, file, project, reason, shift)
@@ -318,9 +319,9 @@ def check_offset_file(
         if all(_is_zero(v) for v in project):
             return OffsetFileCheck(OffsetAction.APPLY, file, project)
         shift = None
-        if all(v is not None for v in project):
-            shift = tuple(f - p for f, p in zip(file, project, strict=True))  # type: ignore[operator]
-        return offer(f"the project's origin is {_origin_text(project)}", shift)  # type: ignore[arg-type]
+        if e is not None and n is not None and a is not None:
+            shift = (file[0] - e, file[1] - n, file[2] - a)
+        return offer(f"the project's origin is {_origin_text(project)}", shift)
     # LOCAL
     if scene.complete:
         if (scene.x, scene.y) == file[:2]:

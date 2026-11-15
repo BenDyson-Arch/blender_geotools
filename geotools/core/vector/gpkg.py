@@ -278,12 +278,16 @@ def _column(name: str, declared: str, values: list[object]) -> Column | None:
         return Column(name, ColumnType.BOOL, arr, _null_mask(values), declared)
     is_int = "INT" in declared  # SQLite's integer affinity rule
     is_float = any(t in declared for t in ("REAL", "FLOA", "DOUB"))
-    ints = is_int and numeric and all(isinstance(v, int) for v in present)
-    if ints and min(present) >= INT32_MIN and max(present) <= INT32_MAX:
+    int_values = [v for v in present if isinstance(v, int)]
+    ints = is_int and numeric and len(int_values) == len(present)
+    if ints and min(int_values) >= INT32_MIN and max(int_values) <= INT32_MAX:
         arr = np.asarray([0 if v is None else v for v in values], dtype=np.int64)
         return Column(name, ColumnType.INT, arr, _null_mask(values), declared)
     if (is_int or is_float) and numeric:
-        arr = np.asarray([np.nan if v is None else float(v) for v in values], dtype=np.float64)
+        # numeric: every value is None, an int or a float.
+        arr = np.asarray(
+            [float(v) if isinstance(v, int | float) else np.nan for v in values], dtype=np.float64
+        )
         return Column(name, ColumnType.FLOAT, arr, _null_mask(values), declared)
     if any(t in declared for t in ("CHAR", "CLOB", "TEXT", "DATE", "TIME")):
         text = ["" if v is None else v if isinstance(v, str) else str(v) for v in values]
@@ -376,6 +380,7 @@ def _pyproj_crs(text: str | None):
     if not text or not deps.probe_pyproj().available:
         return None
     import pyproj
+    import pyproj.exceptions
 
     try:
         return pyproj.CRS.from_user_input(text)
@@ -384,7 +389,7 @@ def _pyproj_crs(text: str | None):
 
 
 def _to_wkt(parsed, version: str) -> str | None:
-    import pyproj
+    import pyproj.exceptions
 
     try:
         return parsed.to_wkt(version) or None

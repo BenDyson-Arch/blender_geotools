@@ -75,6 +75,9 @@ def _macos_available() -> int | None:
 
 
 def _windows_available() -> int | None:
+    if sys.platform != "win32":  # ctypes.windll exists on Windows only
+        return None
+
     class MemoryStatusEx(ctypes.Structure):
         _fields_ = [
             ("dwLength", ctypes.c_ulong),
@@ -90,6 +93,6 @@ def _windows_available() -> int | None:
 
     status = MemoryStatusEx()
     status.dwLength = ctypes.sizeof(MemoryStatusEx)
-    if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):  # type: ignore[attr-defined]
+    if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
         return None
     return int(status.ullAvailPhys)

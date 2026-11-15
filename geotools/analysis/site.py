@@ -854,7 +854,9 @@ def sun_site(
             lon, lat, height, -float(placement.heading_degrees), "anchor heading", "WGS 84"
         )
     located = _locate(placement, np.asarray(local, dtype=np.float32).astype(np.float64)[None, :])
-    lon, lat = float(located.lon[0]), float(located.lat[0])  # type: ignore[index]
+    # SOURCE_CRS with need_geodetic: _locate fills lon, lat and height.
+    lon = float(located.lon[0])  # pyright: ignore[reportOptionalSubscript]
+    lat = float(located.lat[0])  # pyright: ignore[reportOptionalSubscript]
     _check_lon_lat(lon, lat)
     to_ellipsoid = None
     if located.to_ellipsoid is not None and not _grid(crs_input(placement.source_crs)).conformal:
@@ -863,7 +865,7 @@ def sun_site(
     return SunSite(
         lon,
         lat,
-        float(located.height[0]),  # type: ignore[index]
+        float(located.height[0]),  # pyright: ignore[reportOptionalSubscript]
         float(located.convergence[0]),
         "grid north" if located.radius is not None else "true north",
         located.geodetic_name,

@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+from numpy.typing import ArrayLike
 
 from . import deps
 
@@ -75,7 +76,7 @@ def available() -> bool:
 
 
 def reproject_points(
-    xyz: np.ndarray,
+    xyz: ArrayLike,
     source: str,
     target: str,
     *,
@@ -100,6 +101,7 @@ def reproject_points(
     points = _validated(xyz)
 
     import pyproj
+    import pyproj.exceptions
     import pyproj.network
 
     source_crs = _crs(pyproj, source, "source")
@@ -166,7 +168,7 @@ def reproject_points(
         notes.append(
             f"No vertical transform: Z was passed through unchanged, since {which} vertical axis."
         )
-    if outside:
+    if outside and area is not None:
         notes.append(
             f"{outside} of {len(points)} points lie outside the area of use of the "
             f"operation ({area.name}; lon {area.west:g} to {area.east:g}, "

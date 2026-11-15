@@ -10,6 +10,7 @@ open work are GitHub issues and milestones, not files.
 ```sh
 ruff check . && ruff format --check .
 uvx --from import-linter==2.15 lint-imports
+uvx pyright@1.1.414 --pythonpath "$(command -v python)"  # types; Python with numpy, pyproj
 python -m pytest                                        # tests/core, no Blender
 python scripts/run_blender_tests.py --expect missing    # Blender suite, no wheels
 python scripts/fetch_wheels.py --platform linux-x64

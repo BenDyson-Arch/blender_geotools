@@ -18,11 +18,15 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from . import crs_catalog
 from . import reproject as _reproject
 from .placement import Placement, PlacementMode
 from .reproject import ReprojectionReport, ReprojectionUnavailable
+
+if TYPE_CHECKING:
+    from numpy.typing import ArrayLike
 
 # Where a DataCrs came from.
 SOURCE_GEOJSON_MEMBER = "geojson-crs-member"
@@ -81,7 +85,7 @@ def _source_text(data_crs: DataCrs) -> str:
 
 
 def reproject(
-    points: object,
+    points: ArrayLike,
     data_crs: DataCrs,
     project_crs: DataCrs,
     *,
@@ -339,9 +343,9 @@ def is_geographic(crs: DataCrs) -> bool | None:
     if not crs.known:
         return None
     if _reproject.available():
-        try:
-            import pyproj
+        import pyproj.exceptions
 
+        try:
             parsed = pyproj.CRS.from_user_input(crs.epsg or (crs.definition or "").strip())
         except (pyproj.exceptions.CRSError, TypeError, ValueError):
             parsed = None

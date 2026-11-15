@@ -224,4 +224,5 @@ def variant_record(
     }
     record["nodata_rgba"] = _rgba_list(nodata_rgba)
     record["ramp_stops"] = ramp_stops(palette, low, high, stops, log=scale == "LOG")
-    return json_safe(record)  # type: ignore[return-value]
+    # json_safe keeps a dict a dict; its signature says only object.
+    return json_safe(record)  # pyright: ignore[reportReturnType]

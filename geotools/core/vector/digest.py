@@ -10,6 +10,7 @@ string values, which are hashed once per feature.
 from __future__ import annotations
 
 import zlib
+from collections.abc import Iterable
 
 import numpy as np
 
@@ -42,10 +43,10 @@ def _sum_by(values: np.ndarray, owner: np.ndarray, n: int) -> np.ndarray:
     return out
 
 
-def _value_bits(ctype: ColumnType, values: object) -> np.ndarray:
+def _value_bits(ctype: ColumnType, values: Iterable[object]) -> np.ndarray:
     if ctype is ColumnType.STRING:
         return np.fromiter(
-            (zlib.crc32(v if isinstance(v, bytes) else str(v).encode()) for v in values),  # type: ignore[union-attr]
+            (zlib.crc32(v if isinstance(v, bytes) else str(v).encode()) for v in values),
             dtype=np.uint64,
         )
     if ctype is ColumnType.FLOAT:
@@ -61,7 +62,7 @@ def feature_digests(
     n_features: int,
     positions: np.ndarray,
     vertex_feature: np.ndarray,
-    columns: dict[str, tuple[ColumnType, object]],
+    columns: dict[str, tuple[ColumnType, Iterable[object]]],
 ) -> np.ndarray:
     """One uint64 digest per feature.
 
