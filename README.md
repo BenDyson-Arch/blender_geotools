@@ -5,7 +5,8 @@
 GeoTools brings GIS into Blender. Place a site in a real coordinate system,
 bring in GeoJSON, GeoPackage and GeoTIFF, and analyse the full 3D mesh, not a
 2.5D raster: terrain shape, archaeological visualisation, visibility, sun and
-shadow, archaeoastronomy, hydrology, measurement, contours and sections.
+shadow, archaeoastronomy, hydrology, least-cost routes, measurement, contours and
+sections.
 Results are layers you can view, export as vectors or GLB metadata, and
 publish as OGC 3D Tiles with
 [rusty-tiles](https://github.com/BenDyson-Arch/rusty-tiles).

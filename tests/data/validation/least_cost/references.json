@@ -1,0 +1,102 @@
+{
+ "versions": {
+  "networkx": "3.7",
+  "numpy": "2.5.4",
+  "gdal": "GDAL 3.13.3 \"Iowa City\", released 2026/08/13",
+  "gdal_image": "ghcr.io/osgeo/gdal:ubuntu-small-3.13.3",
+  "grass": "GRASS 8.5.0",
+  "grass_image": "osgeo/grass-gis:8.5.0-alpine"
+ },
+ "case": {
+  "h": 1.0,
+  "start": [
+   -28.0,
+   -28.0
+  ],
+  "end": [
+   28.0,
+   26.0
+  ],
+  "max_slope": 30.0
+ },
+ "runs": {
+  "tobler_k2": {
+   "links": 390432,
+   "nodes": 29057,
+   "reached": 26199,
+   "there": {
+    "time": 69.68096507022229,
+    "nodes": 83
+   },
+   "back": {
+    "time": 69.78323237935273,
+    "nodes": 97
+   }
+  },
+  "langmuir_k2": {
+   "links": 390432,
+   "nodes": 29057,
+   "reached": 26199,
+   "there": {
+    "time": 69.83358664507716,
+    "nodes": 92
+   },
+   "back": {
+    "time": 71.17344019501739,
+    "nodes": 98
+   }
+  },
+  "naismith_k2": {
+   "links": 390432,
+   "nodes": 29057,
+   "reached": 26199,
+   "there": {
+    "time": 75.8604373153763,
+    "nodes": 89
+   },
+   "back": {
+    "time": 75.8600931649753,
+    "nodes": 81
+   }
+  },
+  "wheelchair_k2": {
+   "links": 198956,
+   "nodes": 29057,
+   "reached": 19380,
+   "there": {
+    "time": 97.52123397903779,
+    "nodes": 152
+   },
+   "back": {
+    "time": 97.59094263654599,
+    "nodes": 139
+   }
+  },
+  "tobler_k0": {
+   "links": 22274,
+   "nodes": 4225,
+   "reached": 3925,
+   "there": {
+    "time": 71.63184212949669,
+    "nodes": 62
+   },
+   "back": {
+    "time": 71.92343796504265,
+    "nodes": 62
+   }
+  },
+  "tobler_k2_cost": {
+   "links": 374892,
+   "nodes": 29057,
+   "reached": 25228,
+   "there": {
+    "time": 77.67549749485286,
+    "nodes": 94
+   },
+   "back": {
+    "time": 79.0258394165513,
+    "nodes": 104
+   }
+  }
+ }
+}

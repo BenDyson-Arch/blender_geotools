@@ -25,7 +25,7 @@ minutes.
 | [Layers and bakes](layers.md) | Layers | Values per face, corner or texel; layers from Geometry Nodes; texture bakes; colours; variant tilesets. |
 | [Checks and publishing](publish.md) | Checks, Publish | The checks and their fixes; build profiles; what a publish writes; preview. |
 | [GLB with metadata](glb-metadata.md) | Publish, File > Export | One glTF file with objects, layers and the georeference as metadata. |
-| [Analysis](analysis.md) | Analysis | Sun, sun hours, shadow studies, archaeoastronomy, coordinates and measurement, presets, hydrology, contours and sections. |
+| [Analysis](analysis.md) | Analysis | Sun, sun hours, shadow studies, archaeoastronomy, coordinates and measurement, presets, least-cost routes, hydrology, contours and sections. |
 | [Texture cleanup](textures.md) | Textures | Painting setup, filling holes, removing masked objects, padding, balancing pages. |
 | [Inspecting output](inspect-output.md) | Inspect Output | Opening published tiles in Blender and tracing them to the source. |
 | [Geo formats](geo-formats.md) | Linked Data, File > Import and Export | GeoJSON and GeoPackage in and out, GeoTIFF in; linked files; vector publishing. |

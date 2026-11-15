@@ -30,7 +30,7 @@ Naming rules for everything the sidebar shows:
   not apply, and its buttons) and the summary.
 - Linked Data: GeoJSON, GeoPackage and GeoTIFF files linked to objects
   (``links_ui``).
-- Analysis (``analysis_ui``): Measure, Presets, Hydrology, Contours and
+- Analysis (``analysis_ui``): Measure, Presets, Least-Cost Routes, Hydrology, Contours and
   Sections, and Sun (with Sun Hours and Shadow Study), then Archaeoastronomy.
 - Layers: the layer registry and the selected layer at a glance, with the
   attribute a face or corner layer is read from (a Geometry Nodes output,

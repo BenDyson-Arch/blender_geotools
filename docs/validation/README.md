@@ -79,6 +79,17 @@ origin). Resolved: the sign of distance to surface within the wedge of
 edges sharper than 90° (kept, as CloudCompare, documented) and Earth
 curvature (documented with its size; an optional input is issue [#105](https://github.com/BenDyson-Arch/blender_geotools/issues/105)).
 
+## Least-cost routes
+
+[least-cost.md](least-cost.md): Least-Cost Routes' directed search, the
+Tobler, Langmuir (r.walk), Naismith and wheelchair models, routes across faces
+through Steiner points and the travel-time layer, against closed forms,
+networkx 3.7 on the same directed graph and GRASS GIS 8.5.0 r.walk. All
+agree: networkx gives the same routes and node times within 4×10⁻¹⁶. The
+bias that remains across faces (2.9 % in the worst direction with the default
+3 Steiner points) and the raster's direction bias against r.walk are
+documented. No bugs found.
+
 ## Sun, sun hours, clear-sky insolation and shadow studies
 
 [solar.md](solar.md): sun position (NREL SPA), ΔT, time zones, grid

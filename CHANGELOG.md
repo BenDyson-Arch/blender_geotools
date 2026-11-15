@@ -9,6 +9,13 @@ and the project follows semantic versioning where practical.
 
 ### Added
 
+- **Least-Cost Routes** in the Analysis panel: the quickest route over one 3D
+  surface with uphill and downhill costed apart, crossing faces at any angle
+  (Steiner Points), and the travel time from Start to every face as a layer,
+  with optional isochrones. Models: Tobler, Langmuir (GRASS r.walk's
+  coefficients), Naismith and a wheelchair model limited to 1:12. Checked
+  against networkx and r.walk on the
+  [validation page](docs/validation/least-cost.md).
 - Development checks that make the rules from 0.3.0 fail the build, each
   message saying what to use instead. ruff now runs the full B, SIM, PLW, RUF,
   DTZ, PTH, UP, BLE and a few smaller rule families on top of its defaults,

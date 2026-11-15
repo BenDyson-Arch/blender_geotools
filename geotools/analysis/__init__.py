@@ -1,4 +1,4 @@
-"""Analysis maths (bpy-free): the sun and Moon, sun hours, archaeoastronomy, points on Earth, hydrology, contours.
+"""Analysis maths (bpy-free): sun and Moon, sun hours, archaeoastronomy, points on Earth, hydrology, least-cost routes, contours.
 
 - :mod:`.sun`: NREL SPA sun positions, vectorised over time, and time zones.
 - :mod:`.site`: where scene points are on Earth (E, N, RL, latitude and
@@ -13,12 +13,15 @@
   standstills, the declination inversion and alignments.
 - :mod:`.hydrology`: 3D surface hydrology on a mesh's faces: flow routing,
   accumulation, filling and depressions.
+- :mod:`.least_cost`: directed least-cost routes and travel times over a
+  triangulated surface (walking models, Steiner points, a vectorised Dijkstra).
 - :mod:`.slicing` and :mod:`.polylines`: contours and sections, chained into
   polylines.
 
 Scope: GeoTools computes only what needs the georeference (where the sun is
 from this site at this moment, where a scene point is on Earth) or what
-neither a GIS nor stock Blender does well (hydrology on the 3D surface).
+neither a GIS nor stock Blender does well (hydrology and directed least-cost
+routes on the 3D surface).
 Blender does the rest: its Sun light casts the shadows, Cycles casts the rays
 of sun hours and the horizon (``blender.ray_bake``), and the Geometry Nodes
 presets (:mod:`.presets`) compute terrain shape and visibility. Each tool's

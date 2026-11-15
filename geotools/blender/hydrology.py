@@ -28,7 +28,7 @@ import numpy as np
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
 
 from ..analysis import hydrology as hy
-from ..analysis import polylines, site
+from ..analysis import polylines
 from ..analysis.slicing import lines_from_chains
 from ..analysis.sun_hours import ray_offset
 from ..core.layers import (
@@ -40,15 +40,15 @@ from ..core.layers import (
     format_provenance,
     make_provenance,
 )
-from ..core.placement import PlacementMode
 from .common import extension_version, redraw_ui
 from .layers import ensure_layer, find_layer, refresh_layer, spec_from_props, write_layer
-from .properties import FieldError, placement_from_props
+from .properties import FieldError
 from .surface import (
     SURFACE_ITEMS,
     SurfaceError,
     cast_vertical,
     datum,
+    ground_scale,
     read_surface,
     remove_output,
     surface_objects,
@@ -167,23 +167,6 @@ def _names(props: GeoToolsHydrologySettings) -> list[str]:
     ]
 
 
-def _ground_scale(context: bpy.types.Context, centre: np.ndarray) -> tuple[float, str]:
-    """The combined scale factor at the surface's centre (1 when unknown) and a note."""
-    try:
-        placement = placement_from_props(context.scene.geotools)
-    except FieldError:
-        return 1.0, "Areas and volumes are in scene units (the project placement is not valid)."
-    if PlacementMode(placement.mode) is not PlacementMode.SOURCE_CRS:
-        return 1.0, ""
-    if not site.available():
-        return 1.0, "Areas and volumes are grid values: pyproj is needed for the scale factor."
-    try:
-        reading = site.read_point(placement, tuple(float(c) for c in centre))
-    except (site.SiteError, site.GeodesyUnavailable, ValueError) as ex:
-        return 1.0, f"Areas and volumes are grid values ({ex})."
-    return float(reading.combined_scale), ""
-
-
 def _specs(names: list[str], categories: tuple[str, ...], provenance) -> list[LayerSpec]:
     acc, depth, dep = names
     return [
@@ -276,7 +259,7 @@ def compute(context: bpy.types.Context) -> dict:
 
     a_datum, height_name = datum(scene)
     centre = 0.5 * (surface.centroids.min(axis=0) + surface.centroids.max(axis=0))
-    csf, note = _ground_scale(context, centre)
+    csf, note = ground_scale(context, centre, "Areas and volumes")
     if note:
         notes.append(note)
     area_scale, volume_scale = hy.ground_scale(csf)

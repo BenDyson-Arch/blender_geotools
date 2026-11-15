@@ -143,6 +143,7 @@ nav:
           - Archaeoastronomy: validation/archaeoastronomy.md
           - Hydrology, contours and sections: validation/hydrology.md
           - Visibility, change, volumes and paths: validation/visibility.md
+          - Least-cost routes: validation/least-cost.md
           - Sun, sun hours, insolation and shadow studies: validation/solar.md
   - Changelog: changelog.md
   - License: license.md
