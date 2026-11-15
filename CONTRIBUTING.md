@@ -94,7 +94,9 @@ CI (`.github/workflows/ci.yml`) runs on pull requests and on pushes to
 `main`, `develop` and `release/**`. The `core (pytest, ruff)` and
 `blender (official 5.2 LTS, no wheels)` jobs are required. The wheel job and
 the macOS and Windows jobs must pass before a release too, because every
-platform zip ships.
+platform zip ships. The `blender-range` jobs run both suites on the oldest
+Blender the manifest allows and on the newest release; they are not required
+yet. When Blender ships a release, add it there with its checksum.
 
 ## Docs site
 
