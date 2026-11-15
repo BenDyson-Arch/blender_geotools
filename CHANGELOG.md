@@ -7,6 +7,20 @@ and the project follows semantic versioning where practical.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-15
+
+Two fixes for Blender 5.3. From 0.3.1, CI also runs the tests on Blender
+5.2.0 and 5.3.0.
+
+### Fixed
+
+- In Blender releases after 5.2, the texture tools (Fill Holes, the paint
+  setup's overlap mask) and the UV overlap check left out the texels on edges
+  shared by two triangles, such as the diagonal of every quad.
+- Distance to Surface gave 0 instead of the distance for a point in the plane
+  of the face it is signed by, at a sharp edge. An analysis added before keeps
+  the old node group until you remove its modifier and add it again.
+
 ## [0.3.0] - 2026-11-14
 
 The rebuilt GeoTools: GIS for Blender 5.2. Georeference a site, bring in
@@ -926,7 +940,8 @@ Tiles with rusty-tiles. See `docs/ROADMAP.md` and the release notes.
 - Importing `PYSU.gpkg` no longer fails on a degenerate MultiPolygon part with only two distinct exterior points.
 - Blender 5.1 string mesh attribute writes no longer fail when assigning feature properties.
 
-[Unreleased]: https://github.com/BenDyson-Arch/blender_geotools/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/BenDyson-Arch/blender_geotools/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/BenDyson-Arch/blender_geotools/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/BenDyson-Arch/blender_geotools/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/BenDyson-Arch/blender_geotools/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/BenDyson-Arch/blender_geotools/releases/tag/v0.1.0

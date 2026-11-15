@@ -21,7 +21,10 @@ rusty-tiles and pyproj versions default to the pins in pyproject.toml. With
 --expect missing it builds with --no-wheels, and neither library may load.
 
 A Blender whose Python is not 3.13 (a distribution build on 3.14, say) needs
-wheels fetched with ``scripts/fetch_wheels.py --python 3.14``.
+wheels fetched with ``scripts/fetch_wheels.py --python 3.14``. The runner logs
+the CPython of the Blender under test and, before installing, fails on a zip
+whose wheels that CPython cannot load, naming the wheels and the ``--python``
+to fetch and build them with.
 
 Stdlib only (Python 3.12+). Works on Linux, macOS and Windows.
 """
@@ -42,7 +45,14 @@ import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fetch_wheels import REPO_ROOT, FetchError, python_label, read_config
+from fetch_wheels import (
+    REPO_ROOT,
+    FetchError,
+    WheelName,
+    python_compatible,
+    python_label,
+    read_config,
+)
 
 SUITE = REPO_ROOT / "tests" / "blender" / "run_suite.py"
 BUILD_SCRIPT = REPO_ROOT / "scripts" / "build_extension.py"
@@ -115,6 +125,21 @@ def blender_python(blender: str, env: dict[str, str]) -> tuple[int, int]:
     raise RunError(
         f"could not read the Python version of {blender} (exit code {result.returncode})"
     )
+
+
+def check_wheels_python(manifest: dict, python: tuple[int, int]) -> None:
+    """Fail if the zip bundles a wheel that this CPython cannot load."""
+    names = [Path(entry).name for entry in manifest.get("wheels", [])]
+    try:
+        wrong = [n for n in names if not python_compatible(WheelName.parse(n), python)]
+    except ValueError as ex:
+        raise RunError(f"the zip's manifest lists a bad wheel: {ex}") from ex
+    if wrong:
+        label = python_label(python)
+        raise RunError(
+            f"Blender runs CPython {label}, which cannot load {', '.join(wrong)}; "
+            f"fetch and build the wheels with --python {label}"
+        )
 
 
 def build(
@@ -298,16 +323,16 @@ def main(argv: list[str] | None = None) -> int:
             expect_pyproj_version = args.expect_pyproj_version or config.pins.get("pyproj")
 
         env = isolated_env(user_resources)
+        python = blender_python(blender, env)
+        print(f"Blender runs CPython {python_label(python)}")
         if args.zip is not None:
             zip_path = args.zip.expanduser().resolve()
             if not zip_path.is_file():
                 raise RunError(f"--zip {zip_path} does not exist")
         else:
-            python = blender_python(blender, env) if args.expect == "available" else None
-            if python is not None:
-                print(f"Blender runs CPython {python_label(python)}")
             zip_path = build(blender, tmp / "dist", args.expect == "available", env, python)
         manifest = zip_manifest(zip_path)
+        check_wheels_python(manifest, python)
         ext_id, ext_version = str(manifest["id"]), str(manifest["version"])
         print(f"testing {zip_path.name} ({ext_id} {ext_version}) in {user_resources}")
 
