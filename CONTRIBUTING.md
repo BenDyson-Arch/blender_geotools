@@ -246,8 +246,8 @@ tests; without them they are skipped. Blender's
 Python has no pytest, so `tests/blender/run_suite.py` is a small runner of its
 own.
 
-CI (`.github/workflows/ci.yml`) runs on pull requests and on pushes to `main`
-and `develop`. It has these jobs:
+CI (`.github/workflows/ci.yml`) runs on pull requests and on pushes to `main`,
+`develop` and `release/**`. It has these jobs:
 
 - `core`: ruff and pytest, with pyproj installed at the pin so the reprojection
   tests run.
@@ -263,9 +263,14 @@ and `develop`. It has these jobs:
   the `blender` job on the official macOS `.dmg` and Windows `.zip` of the same
   Blender, each checksum-pinned (`BLENDER_SHA256_MACOS_ARM64`,
   `BLENDER_SHA256_WINDOWS_X64`) and cached.
+- `blender (official <version>, no wheels)` and `blender (official <version>,
+  rusty-tiles wheel from PyPI)` (`blender-range`): both suites on the oldest
+  Blender the manifest allows (5.2.0) and on the newest release (5.3.0), each
+  checksum-pinned. When Blender ships a release, add it there with its checksum.
 
-The macOS and Windows jobs are not required checks yet; a failure there still
-needs fixing before a release, since every platform zip ships.
+The macOS and Windows jobs and the 5.2.0 jobs are not required checks yet; a
+failure there still needs fixing before a release, since every platform zip
+ships.
 
 `.github/actions/setup-blender` downloads, verifies and caches the Blender
 build for its `platform` input (`linux-x64`, `macos-arm64` or `windows-x64`).
@@ -363,11 +368,11 @@ are done.
 
 `main`, `develop` and `release/*` are protected by rulesets: no deletion or force
 push, changes only through a pull request with review threads resolved, merge
-or squash only, and the `core (pytest, ruff)` and
-`blender (official 5.2 LTS, no wheels)` checks must pass. On `main` the branch
-must also be up to date with its base, and a code-owner review is required
-(repository admins can bypass it). Release tags `v*` cannot be deleted or
-moved.
+or squash only, and the `core (pytest, ruff)` check and the `blender` jobs on
+Blender 5.2 LTS and 5.3.0, with and without the wheels, must pass. On `main`
+the branch must also be up to date with its base, and a code-owner review is
+required (repository admins can bypass it). Release tags `v*` cannot be deleted
+or moved.
 
 ## Releasing
 
