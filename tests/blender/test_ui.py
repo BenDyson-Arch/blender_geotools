@@ -149,3 +149,51 @@ def test_operator_labels_are_title_case() -> None:
                 wrong.append(label)
                 break
     assert not wrong, wrong
+
+
+def _sidebar(width: int = 280):
+    """A context with a sidebar region ``width`` px wide and Blender's preferences."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(region=SimpleNamespace(width=width), preferences=bpy.context.preferences)
+
+
+CRS = "EPSG:7856 GDA2020 / MGA ZONE 56 TO WGS 84 (EPSG:4326) 1234567890 EPSG:8450"
+
+
+def test_clipped_measures_capitals_and_digits() -> None:
+    """A list row's message is cut to its measured width, not a character estimate.
+
+    Capitals and digits are wider than the old 6.5 px a character, so the
+    estimate let Blender clip such text again, in the middle.
+    """
+    ui = h.submodule("blender.ui")
+    reserve = h.submodule("blender.checks").LIST_RESERVE_PX
+    context = _sidebar()
+    room = ui.line_px(context, reserve)
+    cut = ui.clipped(context, CRS, reserve_px=reserve)
+    assert cut.endswith("\u2026") and CRS.startswith(cut[:-1])
+    assert ui.fits(context, cut, room)
+    longer = next(ui._cut(CRS, k) for k in range(len(cut), len(CRS)) if ui._cut(CRS, k) != cut)
+    assert not ui.fits(context, longer, room)  # the next longer cut
+    # The old estimate (6.5 px a character) kept more than fits.
+    estimate = max(int((280 - 56) / 6.5) - 6, 8)
+    assert not ui.fits(context, CRS[: estimate - 1] + "\u2026", room)
+    assert ui.clipped(context, "Short", reserve_px=reserve) == "Short"
+
+
+def test_wrapped_lines_fit_the_sidebar() -> None:
+    """Every wrapped line of an all-caps-and-digits message fits, at both widths."""
+    ui = h.submodule("blender.ui")
+    for width in (280, 240):
+        context = _sidebar(width)
+        room = ui.line_px(context)
+        lines = ui._lines(context, CRS, room, ui.wrap_chars(context))
+        assert " ".join(lines) == CRS, lines
+        assert len(lines) > 1
+        assert all(ui.fits(context, line, room) for line in lines), lines
+    path = "/a/very/long/path/WITHOUT/SPACES/THAT/MUST/BREAK/1234567890/1234567890.3tz"
+    lines = ui._lines(_sidebar(), path, ui.line_px(_sidebar()), 36)
+    assert "".join(lines) == path and all(
+        ui.fits(_sidebar(), x, ui.line_px(_sidebar())) for x in lines
+    )

@@ -13,9 +13,12 @@ from .layers import refresh_layers
 from .properties import SEVERITY_ICONS, FieldError, field_issues, placement_from_props
 from .source import refresh_summary
 from .texture_state import check_issues as texture_issues
-from .ui import clipped, wrap_chars
+from .ui import clipped
 
 _SEVERITY_ORDER = {Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2}
+LIST_RESERVE_PX = 12
+"""Room an issue row needs besides ``ui.LINE_MARGIN_PX``: the list's box and
+scroll bar, in pixels at UI scale 1."""
 
 
 def _source_poll(cls: type, context: bpy.types.Context) -> bool:
@@ -232,7 +235,7 @@ class GEOTOOLS_UL_issues(bpy.types.UIList):
     ) -> None:
         # Messages already name their subject. Cut at the end, not in the middle, so the
         # subject stays readable; the box under the list shows the whole message.
-        text = clipped(item.message, wrap_chars(context) - 6)
+        text = clipped(context, item.message, reserve_px=LIST_RESERVE_PX)
         layout.label(text=text, icon=SEVERITY_ICONS.get(item.severity, "INFO"))
 
 

@@ -91,8 +91,12 @@ need a rusty-tiles CLI and a Cesium `Build/Cesium` folder, given in
 are skipped.
 
 For UI work, `python3 scripts/ui_screenshots.py --out DIR` opens Blender on
-your display and writes screenshots of every sidebar panel; panel tests draw
-into a stub layout and cannot see truncated labels.
+your display, writes screenshots of every sidebar panel and fails if text is
+clipped at the default sidebar width, warning at a narrow one (its docstring
+says how);
+panel tests draw into a stub layout and cannot see that. CI runs it under
+Xvfb on pull requests that touch `geotools/blender/` and uploads the
+`ui-screenshots` artifact.
 
 CI (`.github/workflows/ci.yml`) runs on pull requests and on pushes to
 `main`, `develop` and `release/**`. The `core (pytest, ruff)` and
