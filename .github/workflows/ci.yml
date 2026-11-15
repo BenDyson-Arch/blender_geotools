@@ -195,3 +195,54 @@ jobs:
           shopt -s failglob
           python scripts/run_blender_tests.py --blender "$BLENDER" \
             --zip dist/geotools-*-linux_x64.zip --expect available
+
+  ui-screenshots:
+    name: UI screenshots (clipped text)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # GUI Blender on Xvfb (Mesa's software OpenGL). Pull requests that touch the
+    # sidebar's code get its screenshots as an artifact, and fail on clipped text
+    # (scripts/ui_screenshots.py). Other pull requests skip the steps.
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - name: Does the change touch the UI?
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ] ||
+             git diff --name-only HEAD^1 HEAD |
+               grep -qE '^(geotools/blender/|scripts/ui_screenshots\.py$|\.github/workflows/ci\.yml$)'; then
+            echo "ui=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No sidebar changes; skipping the screenshots."
+            echo "ui=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-python@v7
+        if: steps.changes.outputs.ui == 'true'
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Set up Blender
+        if: steps.changes.outputs.ui == 'true'
+        uses: ./.github/actions/setup-blender
+        with:
+          version: ${{ env.BLENDER_VERSION }}
+          sha256: ${{ env.BLENDER_SHA256 }}
+      - name: Install Xvfb and Mesa
+        if: steps.changes.outputs.ui == 'true'
+        run: sudo apt-get install -y -q --no-install-recommends xvfb xauth libgl1-mesa-dri
+      - name: Fetch the pinned wheels (so the demo publishes and Last Build shows)
+        if: steps.changes.outputs.ui == 'true'
+        run: python scripts/fetch_wheels.py --platform linux-x64
+      - name: Screenshot the sidebar and check for clipped text
+        if: steps.changes.outputs.ui == 'true'
+        run: |
+          xvfb-run -a -s "-screen 0 1920x1440x24" \
+            python scripts/ui_screenshots.py --blender "$BLENDER" --out ui-screenshots
+      - name: Upload the screenshots
+        if: always() && steps.changes.outputs.ui == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-screenshots
+          path: ui-screenshots/
+          if-no-files-found: warn

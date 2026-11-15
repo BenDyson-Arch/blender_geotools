@@ -28,9 +28,36 @@ linked sources in the Linked Data panel: a synthetic DEM GeoTIFF of the same
 terrain (written with the test fixture writer, ``tests/blender/_geotiff.py``)
 and a GeoJSON of four contexts.
 
+After each shot it checks for clipped text and exits 1 if it finds any (see
+"Clipped text" below). The result is in ``clipping.json``; each shot with
+clipped text also gets ``clipped_<shot>_<width>.png``, the check's strips
+with the marks boxed in red.
+
 Usage:
     python3 scripts/ui_screenshots.py --out /tmp/shots
     python3 scripts/ui_screenshots.py --out /tmp/shots --states montage
+    xvfb-run -a -s "-screen 0 1920x1440x24" python3 scripts/ui_screenshots.py --out shots
+
+Clipped text:
+* Blender clips text that does not fit its button with an ellipsis, in the
+  middle of a label or at the end, and Python cannot see button sizes (the
+  layout is resolved after ``draw()``, and ``UILayout.introspect()`` is empty
+  there). So the check looks at pixels: it shoots the sidebar again with the
+  text theme colours set to magenta, which makes a clean text mask, and finds
+  ellipses in it (:func:`find_ellipses`). Text fields (``wcol_text``: paths,
+  names, search fields) keep their colour: Blender clips the user's own
+  values there by design.
+* GeoTools' own ellipses ("Import Source Mesh...", ``ui.clipped``) would look
+  the same, so during the check every text GeoTools passes to the layout has
+  them swapped for glyphs of exactly the same width (:func:`neutral_text`,
+  measured with ``blf``), which leaves the layout and Blender's clipping as
+  they were.
+* It checks at the sidebar's default width and at ``--narrow`` (unscaled
+  pixels). Python cannot set a region's width, so the edge is dragged with
+  simulated mouse events (Blender runs with ``--enable-event-simulate``,
+  which also ignores your own mouse and keyboard while it runs).
+* It first checks a calibration panel with two clipped and three
+  intentional ellipses, and fails if it does not find exactly the two.
 
 Notes:
 * Only one sidebar tab can be shown and Python cannot pick the active tab, so
@@ -54,6 +81,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 try:
@@ -65,8 +93,129 @@ except ImportError:
 
 STATES = ("empty", "mid", "ready", "montage", "texture", "glb")
 WINDOW = (1800, 1350)
-GUI_TIMEOUT = 300  # seconds
+GUI_TIMEOUT = 900  # seconds
 MONTAGE_WORKSPACE = "Modeling"  # a factory workspace with a 3D Viewport
+NARROW = 240  # unscaled pixels; Blender's default sidebar is 280
+REPORT = "clipping.json"
+
+
+# --- clipped text (pure functions, tested in tests/core/test_ui_clipping.py) ------------------
+
+ELLIPSES = ("...", "…")
+# Same-width stand-ins for an intentional ellipsis, tried in order: three
+# periods, then the ellipsis character. None reads as three lone dots (not
+# "'''": apostrophes are dots at 11 px).
+SUBSTITUTES = (
+    ("!!!", "m"),
+    ("iii", "M"),
+    ("lll", "m"),
+    ("|||", "—"),
+)
+
+
+def neutral_text(text: str, width) -> str:
+    """``text`` with its ellipses swapped for stand-ins of exactly the same width.
+
+    ``width(str) -> float`` measures with the UI font. Raises ``ValueError``
+    when no stand-in matches, so a new string cannot slip past the check.
+    """
+    if not any(mark in text for mark in ELLIPSES):
+        return text
+    want = width(text)
+    for dots, char in SUBSTITUTES:
+        candidate = text.replace(ELLIPSES[0], dots).replace(ELLIPSES[1], char)
+        if width(candidate) == want:
+            return candidate
+    raise ValueError(f"no same-width stand-in for the ellipsis in {text!r}")
+
+
+def text_mask(pixels):
+    """Where text drawn in magenta is: ``pixels`` (h, w, >=3) in 0..1 -> bool (h, w).
+
+    Over a grey background ``min(r, b) - g`` is the text's coverage, so
+    anti-aliased edges count from about a third.
+    """
+    import numpy as np
+
+    return (np.minimum(pixels[..., 0], pixels[..., 2]) - pixels[..., 1]) > 0.35
+
+
+def _components(mask) -> list[tuple[int, int, int, int]]:
+    """Boxes ``(x0, y0, x1, y1)``, inclusive, of the 8-connected parts of ``mask``."""
+    import numpy as np
+
+    height, width = mask.shape
+    grid = mask.tolist()
+    boxes = []
+    for y, x in zip(*(a.tolist() for a in np.nonzero(mask)), strict=True):
+        if not grid[y][x]:
+            continue
+        grid[y][x] = False
+        stack = [(y, x)]
+        x0 = x1 = x
+        y0 = y1 = y
+        while stack:
+            cy, cx = stack.pop()
+            x0, x1, y0, y1 = min(x0, cx), max(x1, cx), min(y0, cy), max(y1, cy)
+            for ny in (cy - 1, cy, cy + 1):
+                if 0 <= ny < height:
+                    row = grid[ny]
+                    for nx in (cx - 1, cx, cx + 1):
+                        if 0 <= nx < width and row[nx]:
+                            row[nx] = False
+                            stack.append((ny, nx))
+        boxes.append((x0, y0, x1, y1))
+    return boxes
+
+
+def find_ellipses(mask, em: float) -> list[tuple[int, int, int, int]]:
+    """Boxes ``(x0, y0, x1, y1)`` of ellipses in a text mask, top row first.
+
+    ``em`` is the UI font size in pixels. An ellipsis is three dots (parts at
+    most 0.3 em each way) on the same rows (within 1 px), evenly spaced
+    (within 1 px) 0.15 to 0.5 em apart, with no text in the 0.5 em above
+    them (a colon, the dots of "iii") or the 0.25 em below. Dots too near the
+    top or bottom edge for those rows to be seen are skipped.
+    """
+    big = max(2, round(0.3 * em))
+    dots = sorted(b for b in _components(mask) if b[2] - b[0] < big and b[3] - b[1] < big)
+    found: list[tuple[int, int, int, int]] = []
+    used: set[tuple[int, int, int, int]] = set()
+
+    def level(a, b) -> bool:
+        return abs(a[1] - b[1]) <= 1 and abs(a[3] - b[3]) <= 1
+
+    for i, a in enumerate(dots):
+        if a in used:
+            continue
+        for j in range(i + 1, len(dots)):
+            b = dots[j]
+            step = b[0] - a[0]
+            if step > 0.5 * em:
+                break
+            if step < 0.15 * em or not level(a, b):
+                continue
+            c = next(
+                (
+                    c
+                    for c in dots[j + 1 :]
+                    if abs(c[0] - b[0] - step) <= 1 and c[0] > b[0] and level(a, c)
+                ),
+                None,
+            )
+            if c is None:
+                continue
+            x0, x1 = a[0], c[2]
+            top, bottom = min(a[1], b[1], c[1]), max(a[3], b[3], c[3])
+            if top - round(0.5 * em) < 0 or bottom + 2 + round(0.25 * em) > mask.shape[0]:
+                break  # cut off by the edge: the rows around it are not all there
+            above = mask[top - round(0.5 * em) : top - 1, x0 : x1 + 1]
+            below = mask[bottom + 2 : bottom + 2 + round(0.25 * em), x0 : x1 + 1]
+            if not above.any() and not below.any():
+                found.append((x0, top, x1, bottom))
+                used.update((a, b, c))
+                break
+    return found
 
 
 # --- host side ---------------------------------------------------------------------------------
@@ -106,6 +255,12 @@ def host_main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="keep WAYLAND_DISPLAY (by default Blender is pushed onto Xwayland)",
     )
+    parser.add_argument(
+        "--narrow",
+        type=int,
+        default=NARROW,
+        help=f"the narrow sidebar width the clip check also uses, unscaled px (default {NARROW})",
+    )
     parser.add_argument("--keep", action="store_true", help="keep the temporary profile")
     args = parser.parse_args(argv)
     states = [s.strip() for s in args.states.split(",") if s.strip()]
@@ -114,6 +269,7 @@ def host_main(argv: list[str] | None = None) -> int:
         parser.error(f"unknown states: {', '.join(unknown)}")
     out = args.out.expanduser().resolve()
     out.mkdir(parents=True, exist_ok=True)
+    (out / REPORT).unlink(missing_ok=True)
 
     tmp = Path(tempfile.mkdtemp(prefix="geotools-ui-shots-")).resolve()
     user_resources = tmp / "user"
@@ -155,6 +311,7 @@ def host_main(argv: list[str] | None = None) -> int:
             env["WAYLAND_DISPLAY"] = ""
         cmd = [
             blender,
+            "--enable-event-simulate",  # the clip check drags the sidebar edge
             "--window-geometry",
             "0",
             "0",
@@ -171,12 +328,14 @@ def host_main(argv: list[str] | None = None) -> int:
             str(out),
             "--states",
             ",".join(states),
+            "--narrow",
+            str(args.narrow),
         ]
         print("$ " + " ".join(cmd), flush=True)
         result = subprocess.run(cmd, env=env, timeout=GUI_TIMEOUT, check=False)
         written = sorted(p.name for p in out.glob("*.png"))
         print(f"exit code {result.returncode}; {out}: {', '.join(written)}")
-        return 0 if result.returncode == 0 else 1
+        return 1 if result.returncode != 0 else report_clipping(out / REPORT)
     except (RunError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as ex:
         print(f"error: {ex}", file=sys.stderr)
         return 1
@@ -185,6 +344,28 @@ def host_main(argv: list[str] | None = None) -> int:
             print(f"kept {tmp}")
         else:
             remove_tree(tmp)
+
+
+def report_clipping(path: Path) -> int:
+    """Print the clip check's result from ``path``; 0 when it ran and found nothing."""
+    import json
+
+    if not path.is_file():
+        print(f"error: the run wrote no {path.name}", file=sys.stderr)
+        return 1
+    report = json.loads(path.read_text(encoding="utf-8"))
+    if report.get("error"):
+        print(f"error: the run failed:\n{report['error']}", file=sys.stderr)
+        return 1
+    clipped = report["clipped"]
+    checked = ", ".join(f"{c['shot']} at {c['width']} px" for c in report["checked"])
+    print(f"clip check: {len(clipped)} clipped text(s); checked {checked}")
+    for item in clipped:
+        print(
+            f"  clipped: {item['shot']} at {item['width']} px, box {item['box']} "
+            f"(px from the sidebar's top left; see {item['image']})"
+        )
+    return 1 if clipped else 0
 
 
 # --- inside Blender -------------------------------------------------------------------------------
@@ -202,6 +383,7 @@ def inner_main(argv: list[str]) -> None:
     parser.add_argument("--package", required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--states", required=True)
+    parser.add_argument("--narrow", type=int, default=NARROW)
     args = parser.parse_args(argv)
     out: Path = args.out
     states = args.states.split(",")
@@ -322,13 +504,22 @@ def inner_main(argv: list[str]) -> None:
             else:
                 bpy.ops.view2d.scroll_down(page=True)
 
-    def capture(name: str):
-        """Shoot the sidebar top to bottom; save the strips side by side."""
+    def scrolled() -> int:
+        """How far down the sidebar is scrolled, in pixels."""
+        _window, _area, region = ui_region()
+        return round(-region.view2d.region_to_view(0, region.height)[1])
+
+    def strips_of(tag: str):
+        """Shoot the sidebar top to bottom (generator, yields delays).
+
+        Returns the strips and how far down each one starts.
+        """
         scroll(None)
         yield 0.6
         strips: list[np.ndarray] = []
+        tops: list[int] = []
         for index in range(16):
-            strip = screenshot_sidebar(f"{name}_{index}")
+            strip = screenshot_sidebar(f"{tag}_{index}")
             # The end is reached when a page scroll no longer moves the view. Live
             # text (free memory) may still change a few pixels between shots.
             if strips and strip.shape == strips[-1].shape:
@@ -336,10 +527,286 @@ def inner_main(argv: list[str]) -> None:
                 if changed < 0.01:
                     break
             strips.append(strip)
+            tops.append(scrolled())
             scroll(True)
             yield 0.5
+        return strips, tops
+
+    def capture(name: str):
+        """Shoot the sidebar top to bottom, save the strips side by side, check for clipping."""
+        strips, _tops = yield from strips_of(name)
         save_png(side_by_side(strips), out / f"{name}.png")
         print(f"UI-SHOTS {name}: {len(strips)} strip(s)", flush=True)
+        yield from check_clipping(name)
+
+    # -- clipped text (see the module docstring) -------------------------------------------
+
+    report: dict = {"checked": [], "clipped": [], "calibration": None, "error": None}
+    # Widget text colours the check turns magenta. Not wcol_text (the user's own
+    # values in text, path and search fields) or wcol_tab (the category tabs).
+    widgets = (
+        "wcol_regular",
+        "wcol_tool",
+        "wcol_toolbar_item",
+        "wcol_radio",
+        "wcol_option",
+        "wcol_toggle",
+        "wcol_num",
+        "wcol_numslider",
+        "wcol_box",
+        "wcol_menu",
+        "wcol_pulldown",
+        "wcol_list_item",
+        "wcol_progress",
+    )
+    patched: list[tuple[type, str, object]] = []
+    saved_theme: list[tuple[object, str, tuple]] = []
+
+    def em() -> float:
+        prefs = bpy.context.preferences
+        return prefs.ui_styles[0].widget.points * prefs.system.ui_scale
+
+    def text_width(text: str) -> float:
+        import blf
+
+        blf.size(0, em())
+        return blf.dimensions(0, text)[0]
+
+    class CheckLayout:
+        """A UILayout whose texts have their ellipses neutralised (:func:`neutral_text`)."""
+
+        def __init__(self, layout) -> None:
+            object.__setattr__(self, "_layout", layout)
+
+        def __getattr__(self, name: str):
+            attr = getattr(self._layout, name)
+            if not callable(attr):
+                return attr
+
+            def call(*args, **kwargs):
+                for key in ("text", "heading"):
+                    if isinstance(kwargs.get(key), str):
+                        kwargs[key] = neutral_text(kwargs[key], text_width)
+                return wrap(attr(*args, **kwargs))
+
+            return call
+
+        def __setattr__(self, name: str, value) -> None:
+            setattr(self._layout, name, value)
+
+    def wrap(value):
+        if isinstance(value, bpy.types.UILayout):
+            return CheckLayout(value)
+        if isinstance(value, tuple):
+            return tuple(wrap(v) for v in value)
+        return value
+
+    class PanelView:
+        """A panel as its draw functions see it, with ``layout`` a :class:`CheckLayout`."""
+
+        def __init__(self, panel, layout) -> None:
+            object.__setattr__(self, "_panel", panel)
+            object.__setattr__(self, "layout", layout)
+
+        def __getattr__(self, name: str):
+            attr = getattr(type(self._panel), name, None)
+            if isinstance(attr, types.FunctionType):
+                return types.MethodType(attr, self)  # helpers see self.layout too
+            return getattr(self._panel, name)
+
+    def patch(cls: type, name: str, make) -> None:
+        original = getattr(cls, name, None)
+        if original is None:
+            return
+        patched.append((cls, name, cls.__dict__.get(name)))
+        setattr(cls, name, make(original))
+
+    def panel_draw(original):
+        def draw(self, context):
+            return original(PanelView(self, CheckLayout(self.layout)), context)
+
+        return draw
+
+    def list_draw(original):
+        # Blender passes as many arguments as the function names, so name them all.
+        count = original.__code__.co_argcount - 3  # after self, context and layout
+
+        def draw_item(
+            self,
+            context,
+            layout,
+            data,
+            item,
+            icon,
+            active_data,
+            active_property,
+            index=0,
+            flt_flag=0,
+        ):
+            rest = (data, item, icon, active_data, active_property, index, flt_flag)
+            return original(self, context, CheckLayout(layout), *rest[:count])
+
+        return draw_item
+
+    def check_mode(classes: list[type]) -> None:
+        """Magenta text, and neutralised ellipses in everything ``classes`` draw."""
+        theme = bpy.context.preferences.themes[0]
+        ui_theme = theme.user_interface
+        targets = [(getattr(ui_theme, w), k) for w in widgets for k in ("text", "text_sel")]
+        targets += [(ui_theme, "panel_title"), (ui_theme, "panel_text")]
+        targets += [(theme.view_3d.space, k) for k in ("title", "text", "text_hi")]
+        for owner, key in targets:
+            value = tuple(getattr(owner, key))
+            saved_theme.append((owner, key, value))
+            setattr(owner, key, (1.0, 0.0, 1.0, 1.0)[: len(value)])
+        for cls in classes:
+            if issubclass(cls, bpy.types.Panel):
+                patch(cls, "draw", panel_draw)
+                patch(cls, "draw_header", panel_draw)
+            elif issubclass(cls, bpy.types.UIList):
+                patch(cls, "draw_item", list_draw)
+
+    def normal_mode() -> None:
+        while saved_theme:
+            owner, key, value = saved_theme.pop()
+            setattr(owner, key, value)
+        while patched:
+            cls, name, original = patched.pop()
+            if original is None:
+                delattr(cls, name)
+            else:
+                setattr(cls, name, original)
+
+    def geotools_classes() -> list[type]:
+        return [cls for module in mod("blender").MODULES for cls in getattr(module, "classes", ())]
+
+    edge = {"offset": None}
+
+    def set_sidebar_width(target: int):
+        """Drag the sidebar's edge until it is ``target`` px wide (generator)."""
+        window, area, region = ui_region()
+        main = next(r for r in area.regions if r.type == "WINDOW")
+        scale = bpy.context.preferences.system.ui_scale
+        # The resize zone sits just left of the region (3 px at UI scale 1).
+        offsets = [edge["offset"]] if edge["offset"] is not None else []
+        offsets += [round(k * scale) for k in (-3, -2, -4)]
+        for offset in offsets:
+            if region.width == target:
+                break
+            before = region.width
+            x, y = region.x + offset, region.y + region.height // 2
+            to = x + before - target
+            events = [("MOUSEMOVE", "NOTHING", x), ("LEFTMOUSE", "PRESS", x)]
+            events += [("MOUSEMOVE", "NOTHING", x + (to - x) * k // 6) for k in range(1, 7)]
+            events += [("LEFTMOUSE", "RELEASE", to)]
+            for kind, value, ex in events:
+                window.event_simulate(type=kind, value=value, x=ex, y=y)
+                yield 0.05
+            yield 0.4
+            window, area, region = ui_region()
+            if region.width != before:
+                edge["offset"] = offset
+        # Park the pointer over the viewport, away from any button.
+        window.event_simulate(
+            type="MOUSEMOVE", value="NOTHING", x=main.x + main.width // 3, y=main.y + 40
+        )
+        yield 0.3
+        window, area, region = ui_region()
+        if region.width != target:
+            raise RuntimeError(f"the sidebar is {region.width} px wide, not {target}")
+
+    def assemble(strips: list[np.ndarray], tops: list[int]) -> np.ndarray:
+        """The strips placed where they were scrolled to: one tall image, top row first."""
+        base = min(tops)
+        height = max(t - base + s.shape[0] for s, t in zip(strips, tops, strict=True))
+        canvas = np.zeros((height, strips[0].shape[1], 4), np.float32)
+        canvas[..., 3] = 1.0
+        for strip, top in zip(strips, tops, strict=True):
+            canvas[top - base : top - base + strip.shape[0]] = strip[::-1]
+        return canvas
+
+    def marked(canvas: np.ndarray, boxes: list, page: int) -> np.ndarray:
+        """``canvas`` with red boxes round ``boxes``, cut into pages side by side."""
+        canvas = canvas.copy()
+        height, width = canvas.shape[:2]
+        red = np.array([1.0, 0.0, 0.0, 1.0], np.float32)
+        for box in boxes:
+            x0, x1 = max(box[0] - 2, 0), min(box[2] + 2, width - 1)
+            y0, y1 = max(box[1] - 2, 0), min(box[3] + 2, height - 1)
+            canvas[y0 : y1 + 1, [x0, x1]] = red
+            canvas[[y0, y1], x0 : x1 + 1] = red
+        return side_by_side([canvas[i : i + page][::-1] for i in range(0, height, page)])
+
+    def check_clipping(name: str):
+        """Shoot the sidebar again in check mode at both widths; record clipped text."""
+        _window, _area, region = ui_region()
+        default = region.width
+        narrow = round(args.narrow * bpy.context.preferences.system.ui_scale)
+        check_mode(geotools_classes())
+        try:
+            for width in (default, narrow):
+                yield from set_sidebar_width(width)
+                strips, tops = yield from strips_of(f"check_{name}_{width}")
+                canvas = assemble(strips, tops)
+                found = find_ellipses(text_mask(canvas), em())
+                report["checked"].append({"shot": name, "width": width})
+                if found:
+                    image = f"clipped_{name}_{width}.png"
+                    save_png(marked(canvas, found, strips[0].shape[0]), out / image)
+                    report["clipped"] += [
+                        {"shot": name, "width": width, "box": list(b), "image": image}
+                        for b in found
+                    ]
+                print(f"UI-SHOTS clip check {name} at {width} px: {len(found)}", flush=True)
+        finally:
+            normal_mode()
+        yield from set_sidebar_width(default)
+
+    class VIEW3D_PT_geotools_clip_calibration(bpy.types.Panel):
+        bl_space_type = "VIEW_3D"
+        bl_region_type = "UI"
+        bl_category = "Clip check"
+        bl_label = "Clip check"
+
+        def draw(self, context):
+            layout = self.layout
+            layout.label(text="Calibration: a label far too long for any sidebar, so it clips")
+            layout.label(text="Ends on purpose\u2026", icon="INFO")
+            layout.label(text="Three periods ... then more")
+            layout.operator("wm.save_mainfile", text="Save As...")
+            layout.label(text="Short, with 1.25 m, a:b and iii")
+            row = layout.row()
+            row.label(text="Left")
+            row.operator("wm.save_mainfile", text="A button far too long for its half")
+
+    calibration_found = 2  # the long label and the long button
+
+    def calibrate():
+        """Check the calibration panel; the run fails unless exactly its two clips are found."""
+        cls = VIEW3D_PT_geotools_clip_calibration
+        bpy.utils.register_class(cls)
+        check_mode([cls])
+        try:
+            _window, area, region = ui_region()
+            area.tag_redraw()
+            yield 0.5  # the region lists a category once it has drawn it
+            region.active_panel_category = cls.bl_category
+            area.tag_redraw()
+            yield 1.0
+            strip = screenshot_sidebar("calibration")
+        finally:
+            normal_mode()
+            bpy.utils.unregister_class(cls)
+        found = find_ellipses(text_mask(strip[::-1]), em())
+        report["calibration"] = {"expected": calibration_found, "found": len(found)}
+        if len(found) != calibration_found:
+            save_png(marked(strip[::-1], found, strip.shape[0]), out / "clipped_calibration.png")
+            raise RuntimeError(
+                f"the clip check found {len(found)} clipped texts in its calibration panel, "
+                f"not {calibration_found} (see clipped_calibration.png)"
+            )
+        area.tag_redraw()
+        yield 0.5
 
     # -- the demo scene ------------------------------------------------------------------
 
@@ -583,6 +1050,7 @@ def inner_main(argv: list[str]) -> None:
         hide_other_tabs()
         prepare_view()
         yield 1.0
+        yield from calibrate()
         window, _area, region = ui_region()
         print(
             f"UI-SHOTS window {window.width}x{window.height}, sidebar at "
@@ -632,12 +1100,17 @@ def inner_main(argv: list[str]) -> None:
     steps = run()
 
     def tick():
+        import json
+        import traceback
+
         try:
             return next(steps)
         except StopIteration:
             pass
         except Exception:
             logging.getLogger("ui_screenshots").exception("the screenshot run failed")
+            report["error"] = traceback.format_exc()
+        (out / REPORT).write_text(json.dumps(report, indent=1), encoding="utf-8")
         bpy.ops.wm.quit_blender()
         return None
 
