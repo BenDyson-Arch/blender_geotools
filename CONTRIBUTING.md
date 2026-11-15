@@ -92,7 +92,8 @@ are skipped.
 
 For UI work, `python3 scripts/ui_screenshots.py --out DIR` opens Blender on
 your display, writes screenshots of every sidebar panel and fails if text is
-clipped at the default or a narrow sidebar width (its docstring says how);
+clipped at the default sidebar width, warning at a narrow one (its docstring
+says how);
 panel tests draw into a stub layout and cannot see that. CI runs it under
 Xvfb on pull requests that touch `geotools/blender/` and uploads the
 `ui-screenshots` artifact.

@@ -291,8 +291,10 @@ jobs:
     timeout-minutes: 30
     # GUI Blender on Xvfb, on Mesa's software Vulkan (lavapipe; with its software
     # OpenGL, Blender's screenshots are black). Pull requests that touch the
-    # sidebar's code get its screenshots as an artifact, and fail on clipped text
-    # (scripts/ui_screenshots.py). Other pull requests skip the steps.
+    # sidebar's code get its screenshots as an artifact, and fail on text clipped
+    # at the default sidebar width; at the narrow width it only warns
+    # (scripts/ui_screenshots.py). Other pull requests skip the steps. Not a
+    # required check.
     steps:
       - uses: actions/checkout@v7
         with:

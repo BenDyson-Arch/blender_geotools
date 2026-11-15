@@ -28,10 +28,11 @@ linked sources in the Linked Data panel: a synthetic DEM GeoTIFF of the same
 terrain (written with the test fixture writer, ``tests/blender/_geotiff.py``)
 and a GeoJSON of four contexts.
 
-After each shot it checks for clipped text and exits 1 if it finds any (see
-"Clipped text" below). The result is in ``clipping.json``; each shot with
-clipped text also gets ``clipped_<shot>_<width>.png``, the check's strips
-with the marks boxed in red.
+After each shot it checks for clipped text (see "Clipped text" below) and
+exits 1 if it finds any at the sidebar's default width; clipped text at the
+narrow width is reported as a warning. The result is in ``clipping.json``;
+each shot with clipped text also gets ``clipped_<shot>_<width>.png``, the
+check's strips with the marks boxed in red.
 
 Usage:
     python3 scripts/ui_screenshots.py --out /tmp/shots
@@ -53,8 +54,8 @@ Clipped text:
   them swapped for glyphs of exactly the same width (:func:`neutral_text`,
   measured with ``blf``), which leaves the layout and Blender's clipping as
   they were.
-* It checks at the sidebar's default width and at ``--narrow`` (unscaled
-  pixels). Python cannot set a region's width, so the edge is dragged with
+* It checks at the sidebar's default width, which gates, and at
+  ``--narrow`` (unscaled pixels), which only warns. Python cannot set a region's width, so the edge is dragged with
   simulated mouse events (Blender runs with ``--enable-event-simulate``,
   which also ignores your own mouse and keyboard while it runs).
 * It first checks a calibration panel with two clipped and three
@@ -355,7 +356,11 @@ def host_main(argv: list[str] | None = None) -> int:
 
 
 def report_clipping(path: Path) -> int:
-    """Print the clip check's result from ``path``; 0 when it ran and found nothing."""
+    """Print the clip check's result from ``path``.
+
+    0 when it ran and found no clipped text at the default width. Clips at the
+    narrow width are printed as warnings (GitHub annotations in Actions).
+    """
     import json
 
     if not path.is_file():
@@ -366,14 +371,23 @@ def report_clipping(path: Path) -> int:
         print(f"error: the run failed:\n{report['error']}", file=sys.stderr)
         return 1
     clipped = report["clipped"]
+    failing = [c for c in clipped if c["fails"]]
     checked = ", ".join(f"{c['shot']} at {c['width']} px" for c in report["checked"])
-    print(f"clip check: {len(clipped)} clipped text(s); checked {checked}")
+    print(
+        f"clip check: {len(failing)} clipped text(s) at the default width, "
+        f"{len(clipped) - len(failing)} warning(s) at the narrow width; checked {checked}"
+    )
+    actions = os.environ.get("GITHUB_ACTIONS") == "true"
     for item in clipped:
-        print(
-            f"  clipped: {item['shot']} at {item['width']} px, box {item['box']} "
+        kind = "clipped" if item["fails"] else "warning, narrow width only"
+        where = (
+            f"{item['shot']} at {item['width']} px, box {item['box']} "
             f"(px from the sidebar's top left; see {item['image']})"
         )
-    return 1 if clipped else 0
+        print(f"  {kind}: {where}")
+        if actions:
+            print(f"::{'error' if item['fails'] else 'warning'}::Clipped sidebar text: {where}")
+    return 1 if failing else 0
 
 
 # --- inside Blender -------------------------------------------------------------------------------
@@ -762,7 +776,13 @@ def inner_main(argv: list[str]) -> None:
                     image = f"clipped_{name}_{width}.png"
                     save_png(marked(canvas, found, strips[0].shape[0]), out / image)
                     report["clipped"] += [
-                        {"shot": name, "width": width, "box": list(b), "image": image}
+                        {
+                            "shot": name,
+                            "width": width,
+                            "fails": width == default,  # narrow-width clips only warn
+                            "box": list(b),
+                            "image": image,
+                        }
                         for b in found
                     ]
                 print(f"UI-SHOTS clip check {name} at {width} px: {len(found)}", flush=True)

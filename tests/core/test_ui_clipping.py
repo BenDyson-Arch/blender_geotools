@@ -132,3 +132,35 @@ def test_skips_dots_cut_off_by_the_edge() -> None:
     ellipsis(mask, 10, 38)  # the bottom row: the rows below are not in the image
     ellipsis(mask, 40, 1)  # the top row
     assert shots.find_ellipses(mask, EM) == []
+
+
+def _report(tmp_path: Path, clipped: list[dict], error: str | None = None) -> Path:
+    import json
+
+    path = tmp_path / "clipping.json"
+    checked = [{"shot": "montage", "width": 280}, {"shot": "montage", "width": 240}]
+    report = {"checked": checked, "clipped": clipped, "error": error}
+    path.write_text(json.dumps(report), encoding="utf-8")
+    return path
+
+
+def _clip(width: int) -> dict:
+    return {
+        "shot": "montage",
+        "width": width,
+        "fails": width == 280,
+        "box": [1, 2, 3, 4],
+        "image": f"clipped_montage_{width}.png",
+    }
+
+
+def test_only_default_width_clips_fail(tmp_path: Path, capsys) -> None:
+    assert shots.report_clipping(_report(tmp_path, [])) == 0
+    assert shots.report_clipping(_report(tmp_path, [_clip(240), _clip(240)])) == 0
+    assert "warning, narrow width only" in capsys.readouterr().out
+    assert shots.report_clipping(_report(tmp_path, [_clip(240), _clip(280)])) == 1
+
+
+def test_a_failed_or_missing_run_fails(tmp_path: Path) -> None:
+    assert shots.report_clipping(_report(tmp_path, [], error="Traceback ...")) == 1
+    assert shots.report_clipping(tmp_path / "missing.json") == 1
