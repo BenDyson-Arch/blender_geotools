@@ -35,6 +35,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -97,10 +98,10 @@ def default_inputs(preset_id: str) -> dict[str, object]:
     return {i.name: i.default for i in preset.inputs if i.name in input_names(preset_id)}
 
 
-def check_inputs(preset_id: str, inputs: Mapping[str, object]) -> dict[str, object]:
+def check_inputs(preset_id: str, inputs: Mapping[str, object]) -> dict[str, Any]:
     """The inputs, complete and within the preset's limits; ``ValueError`` otherwise."""
     preset = catalog.get(preset_id)
-    values = default_inputs(preset_id)
+    values: dict[str, Any] = default_inputs(preset_id)
     unknown = set(inputs) - set(values)
     if unknown:
         raise ValueError(f"{preset.label} has no input {min(unknown)!r}")
@@ -241,7 +242,7 @@ def layer_spec(
     objects and what occludes, plus ``run`` (samples, rays, bakes, ...).
     """
     preset = catalog.get(preset_id)
-    if preset_id not in FAST:
+    if preset_id not in FAST or preset.domain is None:
         raise ValueError(f"{preset.label} has no fast path")
     kind = "horizon" if preset_id in HORIZON else "viewshed"
     parameters: dict[str, object] = {

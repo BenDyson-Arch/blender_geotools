@@ -66,7 +66,8 @@ class VectorOptions:
         site_bbox = None
         if isinstance(bbox, list) and len(bbox) == 4:
             try:
-                site_bbox = tuple(float(v) for v in bbox)  # type: ignore[assignment]
+                min_e, min_n, max_e, max_n = (float(v) for v in bbox)
+                site_bbox = (min_e, min_n, max_e, max_n)
             except (TypeError, ValueError):
                 site_bbox = None
         columns = raw.get("columns")

@@ -21,6 +21,8 @@ env:
   NUMPY_VERSION: "2.5.4"
   # import-linter checks the layering in [tool.importlinter] (pyproject.toml); uvx runs it.
   IMPORT_LINTER_VERSION: "2.15"
+  # pyright type-checks the packages in [tool.pyright] (pyproject.toml); uvx runs it.
+  PYRIGHT_VERSION: "1.1.414"
   UV_VERSION: "0.13.6"
   # Official Blender 5.2 LTS, latest patch release. To update, take the
   # linux-x64 .tar.xz, macos-arm64 .dmg and windows-x64 .zip lines from
@@ -53,6 +55,8 @@ jobs:
         run: ruff format --check geotools scripts tests
       - name: import-linter (layering)
         run: uvx --from "import-linter==${IMPORT_LINTER_VERSION}" lint-imports
+      - name: pyright (types)
+        run: uvx "pyright@${PYRIGHT_VERSION}" --pythonpath "$(command -v python)"
       - name: pytest (tests/core)
         run: python -m pytest
 

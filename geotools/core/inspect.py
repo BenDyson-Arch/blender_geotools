@@ -201,11 +201,9 @@ def assemble(tile: DecodedTile, frame: SceneFrame) -> TileMesh:
     )
     source_primitive = _int32(np.concatenate([p.source_primitive for p in prims]), "An ID")
     source_triangle = None
-    if all(p.source_triangle is not None for p in prims):
-        source_triangle = _int32(
-            np.concatenate([p.source_triangle for p in prims]),  # type: ignore[misc]
-            "A source triangle",
-        )
+    triangles = [p.source_triangle for p in prims if p.source_triangle is not None]
+    if len(triangles) == len(prims):
+        source_triangle = _int32(np.concatenate(triangles), "A source triangle")
     uvs = None
     if any(p.uvs for p in prims):
         corner_uv = []
@@ -223,8 +221,9 @@ def assemble(tile: DecodedTile, frame: SceneFrame) -> TileMesh:
             ]
         ).astype(np.float32)
     normals = None
-    if all(p.normals is not None for p in prims):
-        normals = np.concatenate([p.normals for p in prims]).astype(np.float32)  # type: ignore[misc]
+    prim_normals = [p.normals for p in prims if p.normals is not None]
+    if len(prim_normals) == len(prims):
+        normals = np.concatenate(prim_normals).astype(np.float32)
         if tile.root_transform is not None:
             # Tile-frame normals to the scene: the rotation of the same placement.
             rotation = _rotation(frame, tile)

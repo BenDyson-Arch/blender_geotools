@@ -391,9 +391,9 @@ def sync_lat_lon(keys: Any, locate: LonLatFn = origin_lon_lat) -> bool:
     BlenderGIS does). Returns True when lat/lon were written.
     """
     scene = read(keys)
-    if not scene.has_crs or not scene.has_origin or not scene.crs:
+    if not scene.has_crs or scene.x is None or scene.y is None or not scene.crs:
         return False
-    found = locate(scene.crs, scene.x, scene.y)  # type: ignore[arg-type]
+    found = locate(scene.crs, scene.x, scene.y)
     if found is None:
         for key in (LATITUDE, LONGITUDE):
             if key in keys:
@@ -738,7 +738,7 @@ def _current_origin(keys: Any, store: Any, mode: object) -> tuple[float, float] 
     """The project's E/N as numbers; None when it has no projected origin."""
     if keys_live(keys, mode):
         scene = read(keys)
-        return (scene.x, scene.y) if scene.has_origin else None  # type: ignore[return-value]
+        return None if scene.x is None or scene.y is None else (scene.x, scene.y)
     if STORE_E not in store and STORE_N not in store:
         return None
     e = _parse(str(store.get(STORE_E, STORE_DEFAULTS[STORE_E])))

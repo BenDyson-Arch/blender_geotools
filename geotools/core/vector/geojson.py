@@ -105,9 +105,10 @@ def crs_of(data: dict) -> DataCrs:
 def detect_fids(features: list[dict]) -> tuple[str, np.ndarray]:
     """``(fid_field, fids)``: the ``id`` members if all are distinct ints, else positions."""
     ids = [f.get("id") if isinstance(f, dict) else None for f in features]
-    ints = bool(ids) and all(isinstance(i, int) and not isinstance(i, bool) for i in ids)
-    if ints and len(set(ids)) == len(ids) and all(-(2**63) <= i < 2**63 for i in ids):
-        return "id", np.asarray(ids, dtype=np.int64)
+    int_ids = [i for i in ids if isinstance(i, int) and not isinstance(i, bool)]
+    ints = bool(ids) and len(int_ids) == len(ids)
+    if ints and len(set(int_ids)) == len(ids) and all(-(2**63) <= i < 2**63 for i in int_ids):
+        return "id", np.asarray(int_ids, dtype=np.int64)
     return INDEX_FID, np.arange(len(features), dtype=np.int64)
 
 

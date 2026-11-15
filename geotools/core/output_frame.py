@@ -80,7 +80,8 @@ class FrameError(ValueError):
 
 def _vec3(value: object, what: str) -> Vec3:
     try:
-        x, y, z = (float(v) for v in value)  # type: ignore[union-attr]
+        # Any JSON value: a TypeError here is a malformed record.
+        x, y, z = (float(v) for v in value)  # pyright: ignore[reportGeneralTypeIssues]
     except (TypeError, ValueError):
         raise FrameError(f"build.json has a malformed {what}: {value!r}") from None
     if not all(math.isfinite(v) for v in (x, y, z)):
@@ -145,6 +146,7 @@ def _to_crs(crs_text: str) -> Any:
             f"Placing CRS output needs pyproj, which is not available: {status.summary}"
         )
     import pyproj
+    import pyproj.exceptions
 
     try:
         crs = pyproj.CRS.from_user_input(crs_text)

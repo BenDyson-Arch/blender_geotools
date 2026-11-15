@@ -22,6 +22,7 @@ triangles (17) are read as polygons. M values are ignored. Curves are refused.
 from __future__ import annotations
 
 import struct
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -202,7 +203,7 @@ def _encode_part(
     return header + struct.pack("<I", q1 - q0) + b"".join(rings)
 
 
-def gpkg_blob(wkb: bytes, srs_id: int, envelope: np.ndarray | None) -> bytes:
+def gpkg_blob(wkb: bytes, srs_id: int, envelope: Sequence[float] | np.ndarray | None) -> bytes:
     """A GeoPackage geometry: little-endian header, then ``envelope`` and ``wkb``.
 
     ``envelope`` is ``[minx, maxx, miny, maxy]`` or with ``minz, maxz`` too

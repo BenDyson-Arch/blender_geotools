@@ -90,6 +90,19 @@ allowed-confusables = ["−", "–", "×", "′", "α", "γ"]
 "datetime.datetime.utcfromtimestamp".msg = "Use geotools.analysis.sun.utc_datetime(seconds): aware UTC, and valid before 1970 on Windows."
 "zoneinfo.ZoneInfo".msg = "Use geotools.analysis.sun.zone(name): it raises TimeZoneUnavailable, which tells the user what to install when the OS has no time zone database (Windows)."
 
+# Type checking, in CI's core job (PYRIGHT_VERSION in .github/workflows/ci.yml):
+#   uvx pyright@<PYRIGHT_VERSION> --pythonpath "$(command -v python)"
+# from the Python that has numpy and pyproj (uvx puts its own first on PATH). Standard mode
+# on the bpy-free packages; geotools/publish and geotools/blender follow (#128).
+[tool.pyright]
+include = ["geotools/core", "geotools/analysis"]
+pythonVersion = "3.13"
+typeCheckingMode = "standard"
+# Suppressions name pyright's rule: `# pyright: ignore[reportXxx]`, never a bare or mypy
+# `# type: ignore`, and one that no longer suppresses anything is an error.
+enableTypeIgnoreComments = false
+reportUnnecessaryTypeIgnoreComment = "error"
+
 # Import layering, checked in CI (IMPORT_LINTER_VERSION in .github/workflows/ci.yml):
 #   uvx --from import-linter==2.15 lint-imports
 [tool.importlinter]
