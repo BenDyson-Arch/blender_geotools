@@ -144,7 +144,7 @@ and `scripts/bench_preset_bake.py --compare` on the benchmark terrain):
 |---|---|
 | level plane: SVF, openness | SVF 1 exactly; openness 90.35° (as the preset); fast and live identical more than Max Distance from the edge |
 | V-trench, walls 30°: bottom | SVF 0.6737 (exact 0.6714), openness 70.75° and 109.51°, as the preset; fast and live identical away from the edge |
-| V-trench: every corner not on the mesh boundary | equal to the preset's bisection with exact ray-plane intersections (binary64), within 2×10⁻⁴, also where rays leave the mesh. The live preset differs from that on 13 % of the trench's corners, all within 1.5 m of the mesh's edge (not yet explained); on the boundary itself a ray along the edge grazes it, and either engine may call it a hit |
+| V-trench: every corner not on the mesh boundary | equal to the preset's bisection with exact ray-plane intersections (binary64), within 2×10⁻⁴, also where rays leave the mesh. The live preset differs from that on 13 % of the trench's corners, all within 1.5 m of the mesh's edge (unexplained); on the boundary itself a ray along the edge grazes it, and either engine may call it a hit |
 | benchmark terrain, 1M triangles, corners more than Max Distance from the edge | identical on 99.98 %; the rest (558 of 2.5M for SVF) differ where a bisection ray grazes the surface within float32, which either engine may call a hit: up to 0.02 SVF or 7° openness, mean 5×10⁻⁶ SVF |
 | wall on a plane, three observers (draped from 5 m) | every ground face equal to batch 2's segment-box test, and fast equals live on every face; the same over two bakes, and with an Occluders collection |
 | benchmark terrain, 1M triangles, 100 observers | equal to the live preset on all but 4 of 1M faces (grazing sight lines) |

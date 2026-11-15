@@ -49,7 +49,7 @@ to try the tools.
    viewport's mask overlay shows where they are. Turn the stencil off in
    Blender's Masking panel when you mean to paint there.
 
-3. **Clean** with Blender's brushes (see the recipes) and the GeoTools tools
+3. Clean with Blender's brushes (see the recipes) and the GeoTools tools
    (see below). Each GeoTools tool marks the image as edited.
 
 4. **Run Checks.** Run Checks now also reports:

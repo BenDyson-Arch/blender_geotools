@@ -32,7 +32,7 @@ and the project follows semantic versioning where practical.
 - Messages for a missing source collection say "Set or import a source
   collection first" (not "ingest").
 - The docs site has user pages only: the developer section (roadmap,
-  backlog, design notes) is gone. Planned work is in the GitHub issues, and
+  backlog, design notes) is gone. Open work is in the GitHub issues, and
   the texture cleanup page is now one page in the guide.
 - The publish record's `cleanup_diagnostics` and `rusty_tiles_version` come
   from rusty-tiles 0.4.1's API directly, with no fallback for older wheels.
