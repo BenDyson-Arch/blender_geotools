@@ -7,6 +7,11 @@ and the project follows semantic versioning where practical.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-15
+
+Two fixes for Blender 5.3. From 0.3.1, CI also runs the tests on Blender
+5.2.0 and 5.3.0.
+
 ### Fixed
 
 - In Blender releases after 5.2, the texture tools (Fill Holes, the paint
@@ -935,7 +940,8 @@ Tiles with rusty-tiles. See `docs/ROADMAP.md` and the release notes.
 - Importing `PYSU.gpkg` no longer fails on a degenerate MultiPolygon part with only two distinct exterior points.
 - Blender 5.1 string mesh attribute writes no longer fail when assigning feature properties.
 
-[Unreleased]: https://github.com/BenDyson-Arch/blender_geotools/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/BenDyson-Arch/blender_geotools/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/BenDyson-Arch/blender_geotools/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/BenDyson-Arch/blender_geotools/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/BenDyson-Arch/blender_geotools/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/BenDyson-Arch/blender_geotools/releases/tag/v0.1.0
