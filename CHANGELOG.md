@@ -37,6 +37,12 @@ and the project follows semantic versioning where practical.
 - The publish record's `cleanup_diagnostics` and `rusty_tiles_version` come
   from rusty-tiles 0.4.1's API directly, with no fallback for older wheels.
 
+### Fixed
+
+- A project origin on the antimeridian keeps its BlenderGIS latitude and
+  longitude. A rounding error put its longitude just past -180°, so the
+  position was refused and the two keys were deleted.
+
 ## [0.3.0] - 2026-11-14
 
 The rebuilt GeoTools: GIS for Blender 5.2, shipped as a Blender extension with

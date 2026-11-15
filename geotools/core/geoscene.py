@@ -340,9 +340,10 @@ def origin_lon_lat(definition: str, easting: float, northing: float) -> tuple[fl
     except Exception:
         log.debug("cannot locate %r at %r, %r", text, easting, northing, exc_info=True)
         return None
-    if not (math.isfinite(lon) and math.isfinite(lat)) or abs(lat) > 90.0 or abs(lon) > 180.0:
+    if not (math.isfinite(lon) and math.isfinite(lat)) or abs(lat) > 90.0:
         return None
-    return float(lon), float(lat)
+    # Into [-180, 180]: at the antimeridian PROJ can round to -180.00000000000006.
+    return math.remainder(float(lon), 360.0), float(lat)
 
 
 @lru_cache(maxsize=64)
