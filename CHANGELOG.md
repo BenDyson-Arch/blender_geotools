@@ -7,6 +7,15 @@ and the project follows semantic versioning where practical.
 
 ## [Unreleased]
 
+### Fixed
+
+- In Blender releases after 5.2, the texture tools (Fill Holes, the paint
+  setup's overlap mask) and the UV overlap check left out the texels on edges
+  shared by two triangles, such as the diagonal of every quad.
+- Distance to Surface gave 0 instead of the distance for a point in the plane
+  of the face it is signed by, at a sharp edge. An analysis added before keeps
+  the old node group until you remove its modifier and add it again.
+
 ## [0.3.0] - 2026-11-14
 
 The rebuilt GeoTools: GIS for Blender 5.2. Georeference a site, bring in
