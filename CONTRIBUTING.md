@@ -19,7 +19,7 @@ You need Python 3.11 or later for the scripts, and the official Blender 5.2
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
-pip install pytest numpy ruff pyproj==3.8.0   # pyproj at the pin in pyproject.toml
+pip install pytest numpy ruff pyproj==3.8.0 hypothesis==6.170.14  # pins: pyproject.toml, ci.yml
 ```
 
 Without pyproj the reprojection tests are skipped. Lint, format and import
@@ -78,6 +78,10 @@ python -m pytest                                        # tests/core, no Blender
 python scripts/run_blender_tests.py --expect missing    # built with --no-wheels
 python scripts/run_blender_tests.py --expect available  # with the fetched wheels
 ```
+
+The hypothesis property tests (`tests/core/test_properties.py`) run 100
+fixed examples each; `GEOTOOLS_HYPOTHESIS_PROFILE=thorough` runs 1,000
+random ones.
 
 `run_blender_tests.py` builds the zip, installs it into a temporary profile,
 runs `tests/blender/` and cleans up. Use `--blender PATH` (or `$BLENDER`), `-k

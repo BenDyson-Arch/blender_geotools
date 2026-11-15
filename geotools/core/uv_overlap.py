@@ -445,7 +445,7 @@ def _raster(
     ``idx`` are the in-range triangles, in the order of ``grid``'s boxes.
     """
     keys, owners = _samples(corners, idx, grid, wraps, owners=True)
-    if keys is None:
+    if keys is None or owners is None:
         return 0
     size = grid.gw * grid.gh
     sample = np.arange(keys.size, dtype=np.int32 if keys.size < 2**31 else np.int64)

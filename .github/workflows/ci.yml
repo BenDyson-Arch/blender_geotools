@@ -19,8 +19,12 @@ env:
   RUFF_VERSION: "0.17.4"
   PYTEST_VERSION: "9.2.0"
   NUMPY_VERSION: "2.5.4"
+  # Property tests (tests/core/test_properties.py); a new release may draw other examples.
+  HYPOTHESIS_VERSION: "6.170.14"
   # import-linter checks the layering in [tool.importlinter] (pyproject.toml); uvx runs it.
   IMPORT_LINTER_VERSION: "2.15"
+  # pyright type-checks the packages in [tool.pyright] (pyproject.toml); uvx runs it.
+  PYRIGHT_VERSION: "1.1.414"
   UV_VERSION: "0.13.6"
   # Official Blender 5.2 LTS, latest patch release. To update, take the
   # linux-x64 .tar.xz, macos-arm64 .dmg and windows-x64 .zip lines from
@@ -29,6 +33,14 @@ env:
   BLENDER_SHA256: "2fd14c50987426897ba60237ee996edf2b4151f4b1a72a460ca20be58c1d2d86"
   BLENDER_SHA256_MACOS_ARM64: "e73d564f97061b2496ccc5a0bd738937d2d3d0acae23621a00bbc7534dfd135f"
   BLENDER_SHA256_WINDOWS_X64: "bbd78f8931dc940444da4ff2983374930f9f5c092ae0e330588e9760bb9d967c"
+  # External validators, run on GeoTools output in the blender-wheel job (tests/extvalidate.py).
+  # 3d-tiles-validator and its whole tree are pinned with integrity hashes in
+  # tests/validators/package-lock.json (resolved with npm --before, two weeks back).
+  # glTF-Validator is Khronos' release binary; its SHA-256 was computed at pinning,
+  # as the release publishes none.
+  NODE_VERSION: "22.23.4"
+  GLTF_VALIDATOR_VERSION: "2.0.0-dev.3.10"
+  GLTF_VALIDATOR_SHA256: "168eba887964125abe17ae97899b38d0b3cfd73c266c78424c194929ddcbc522"
 
 jobs:
   core:
@@ -46,13 +58,16 @@ jobs:
         run: |
           pyproj_pin=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["tool"]["geotools"]["wheels"]["pyproj"])')
           python -m pip install "pytest==${PYTEST_VERSION}" "ruff==${RUFF_VERSION}" \
-            "numpy==${NUMPY_VERSION}" "pyproj==${pyproj_pin}" "uv==${UV_VERSION}"
+            "numpy==${NUMPY_VERSION}" "pyproj==${pyproj_pin}" "uv==${UV_VERSION}" \
+            "hypothesis==${HYPOTHESIS_VERSION}"
       - name: ruff check
         run: ruff check --output-format=github geotools scripts tests
       - name: ruff format --check
         run: ruff format --check geotools scripts tests
       - name: import-linter (layering)
         run: uvx --from "import-linter==${IMPORT_LINTER_VERSION}" lint-imports
+      - name: pyright (types)
+        run: uvx "pyright@${PYRIGHT_VERSION}" --pythonpath "$(command -v python)"
       - name: pytest (tests/core)
         run: python -m pytest
 
@@ -82,7 +97,7 @@ jobs:
         run: |
           pyproj_pin=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["tool"]["geotools"]["wheels"]["pyproj"])')
           python -m pip install "pytest==${PYTEST_VERSION}" \
-            "numpy==${NUMPY_VERSION}" "pyproj==${pyproj_pin}"
+            "numpy==${NUMPY_VERSION}" "pyproj==${pyproj_pin}" "hypothesis==${HYPOTHESIS_VERSION}"
       - name: pytest (tests/core)
         run: python -m pytest
 
@@ -167,12 +182,38 @@ jobs:
     # Tests the pinned PyPI wheels ([tool.geotools.wheels] in pyproject.toml:
     # rusty-tiles 0.4.1, pyproj, certifi) in Blender with --expect available, so the
     # publish, inspect and CRS tests run against the real wheel. It gates: a failure
-    # fails the run, and it never falls back to a wheel-less build.
+    # fails the run, and it never falls back to a wheel-less build. The external
+    # validators are required here: a missing one fails the tests instead of skipping.
+    env:
+      GEOTOOLS_TEST_REQUIRE_VALIDATORS: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install the external validators (3d-tiles-validator, glTF-Validator)
+        # Installed outside the checkout, so node_modules never reaches the repository's checks.
+        run: |
+          validators="$RUNNER_TEMP/validators"
+          mkdir -p "$validators/gltf"
+          cp tests/validators/package.json tests/validators/package-lock.json "$validators/"
+          npm ci --prefix "$validators" --no-audit --no-fund
+          archive="$RUNNER_TEMP/gltf_validator.tar.xz"
+          curl -fsSL -o "$archive" \
+            "https://github.com/KhronosGroup/glTF-Validator/releases/download/${GLTF_VALIDATOR_VERSION}/gltf_validator-${GLTF_VALIDATOR_VERSION}-linux64.tar.xz"
+          echo "${GLTF_VALIDATOR_SHA256}  $archive" | sha256sum -c -
+          tar -xJf "$archive" -C "$validators/gltf" gltf_validator
+          echo "GEOTOOLS_TEST_3D_TILES_VALIDATOR=$validators/node_modules/.bin/3d-tiles-validator" >> "$GITHUB_ENV"
+          echo "GEOTOOLS_TEST_GLTF_VALIDATOR=$validators/gltf/gltf_validator" >> "$GITHUB_ENV"
+          "$validators/node_modules/.bin/3d-tiles-validator" --version
+      - name: pytest (external validators on the core GLB writer)
+        run: |
+          pyproj_pin=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["tool"]["geotools"]["wheels"]["pyproj"])')
+          python -m pip install "pytest==${PYTEST_VERSION}" "numpy==${NUMPY_VERSION}" "pyproj==${pyproj_pin}"
+          python -m pytest tests/core/test_extvalidate.py tests/core/test_metadata_glb.py
       - name: Set up Blender
         id: blender
         uses: ./.github/actions/setup-blender

@@ -194,7 +194,7 @@ class VectorData:
     fids: np.ndarray  # int64, one per feature row
     columns: dict[str, Column]
     geometries: dict[Kind, Geometries]
-    crs: DataCrs
+    crs: DataCrs | None  # None: from a Blender mesh, which has no CRS of its own
     fid_field: str = "fid"
     dropped_parts: int = 0  # degenerate parts the reader skipped
     skipped_columns: list[str] = field(default_factory=list)
@@ -319,7 +319,7 @@ def concat(datas: list[VectorData], name: str) -> VectorData:
         ]
         if parts:
             geometries[kind] = concat_geometries(parts)
-    return VectorData(name, fids, columns, geometries, datas[0].crs if datas else None)  # type: ignore[arg-type]
+    return VectorData(name, fids, columns, geometries, datas[0].crs if datas else None)
 
 
 # --- building --------------------------------------------------------------------
@@ -450,13 +450,15 @@ def column_from_values(name: str, values: list[object], source_type: str = "") -
         arr = np.fromiter((bool(v) if v is not None else False for v in values), bool, len(values))
         return Column(name, ColumnType.BOOL, arr, null_mask, source_type)
     if all(isinstance(v, int) for v in present):  # bool is an int
-        ints = [int(v) if v is not None else 0 for v in values]
+        ints = [int(v) if isinstance(v, int) else 0 for v in values]
         if min(ints) >= INT32_MIN and max(ints) <= INT32_MAX:
             arr = np.asarray(ints, dtype=np.int64)
             return Column(name, ColumnType.INT, arr, null_mask, source_type)
     if all(isinstance(v, int | float) for v in present):
         arr = np.fromiter(
-            (float(v) if v is not None else np.nan for v in values), np.float64, len(values)
+            (float(v) if isinstance(v, int | float) else np.nan for v in values),
+            np.float64,
+            len(values),
         )
         return Column(name, ColumnType.FLOAT, arr, null_mask, source_type)
 

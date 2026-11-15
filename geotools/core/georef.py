@@ -102,10 +102,12 @@ def ecef_from_lon_lat_height(lon: float, lat: float, height: float) -> np.ndarra
     )
 
 
-def _root(result: PlacementProbe) -> np.ndarray:
-    if not result.ok or result.root_transform is None or result.origin_lon_lat_height is None:
+def _root(result: PlacementProbe) -> tuple[np.ndarray, Vec3]:
+    """The probe's root transform (4x4) and origin (lon, lat, height)."""
+    origin = result.origin_lon_lat_height
+    if not result.ok or result.root_transform is None or origin is None:
         raise GeorefError(result.error or "rusty-tiles gave no root transform")
-    return np.array(result.root_transform, dtype=np.float64).reshape(4, 4).T
+    return np.array(result.root_transform, dtype=np.float64).reshape(4, 4).T, origin
 
 
 def frame_from_probes(
@@ -121,7 +123,7 @@ def frame_from_probes(
     -``step[0]`` along X, and ``north`` those moved +``step[1]`` and -``step[1]``
     along Y."""
     mode = PlacementMode(mode)
-    root = _root(centre_probe)
+    root, (lon, lat, height) = _root(centre_probe)
     if mode is PlacementMode.ANCHOR:
         matrix = root
     elif mode is PlacementMode.SOURCE_CRS:
@@ -132,8 +134,7 @@ def frame_from_probes(
         for (plus, minus), d in ((east, step[0]), (north, step[1])):
             ends = []
             for result in (plus, minus):
-                _root(result)
-                ends.append(ecef_from_lon_lat_height(*result.origin_lon_lat_height))
+                ends.append(ecef_from_lon_lat_height(*_root(result)[1]))
             # Central difference, in the ENU frame at the centre.
             axes.append(rotation.T @ (ends[0] - ends[1]) / (2.0 * d))
         jacobian = np.column_stack([axes[0], axes[1], (0.0, 0.0, 1.0)])
@@ -143,15 +144,14 @@ def frame_from_probes(
         matrix = root @ local
     else:
         raise GeorefError("a local placement has no Earth frame")
-    lon, lat, height = centre_probe.origin_lon_lat_height
     origin_ecef = ecef_from_lon_lat_height(lon, lat, height)
     origin_local = np.linalg.solve(matrix, np.append(origin_ecef, 1.0))[:3]
     # Local +X in the ENU frame at the origin.
     lo, la = math.radians(lon), math.radians(lat)
-    east = np.array([-math.sin(lo), math.cos(lo), 0.0])
-    north = np.array([-math.sin(la) * math.cos(lo), -math.sin(la) * math.sin(lo), math.cos(la)])
+    east_enu = np.array([-math.sin(lo), math.cos(lo), 0.0])
+    north_enu = np.array([-math.sin(la) * math.cos(lo), -math.sin(la) * math.sin(lo), math.cos(la)])
     x_axis = matrix[:3, 0]
-    heading = math.degrees(math.atan2(float(x_axis @ north), float(x_axis @ east)))
+    heading = math.degrees(math.atan2(float(x_axis @ north_enu), float(x_axis @ east_enu)))
     return EcefFrame(
         model_to_ecef=tuple(float(v) for v in matrix.T.ravel()),
         origin_lon_lat_height=(float(lon), float(lat), float(height)),

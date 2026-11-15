@@ -39,6 +39,7 @@ import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
 from .layers import DataType, Domain, LayerSpec, display_name
 
@@ -203,8 +204,9 @@ def _check_float32_ints(spec: LayerSpec, storage: Storage) -> None:
     if DataType(spec.data_type) is not DataType.INT:
         return
     for value in (spec.value_min, spec.value_max, spec.nodata):
-        finite = value is not None and math.isfinite(float(value))
-        if finite and abs(float(value)) > FLOAT32_EXACT_INT:
+        if value is None or not math.isfinite(float(value)):
+            continue
+        if abs(float(value)) > FLOAT32_EXACT_INT:
             raise SchemaError(
                 f"Layer {spec.name!r}: integer {value:g} is beyond +-2^24, which a "
                 f"FLOAT32 {storage.value.lower()} cannot hold exactly (glTF vertex "
@@ -310,7 +312,7 @@ def layer_class(
     *,
     name: str,
     description: str,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """A class whose properties are ``specs`` (in order) stored in ``storage``."""
     properties: dict[str, object] = {}
     for spec in specs:

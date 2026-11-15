@@ -403,8 +403,10 @@ def geotools_terms(packet: dict[str, object]) -> dict[str, object]:
                     name = key[len(iri) :]
                     break
         if name:
-            is_list = isinstance(value, dict) and set(value) == {"@list"}
-            terms[name] = list(value["@list"]) if is_list else value  # type: ignore[index]
+            if isinstance(value, dict) and set(value) == {"@list"}:
+                terms[name] = list(value["@list"])
+            else:
+                terms[name] = value
     return terms
 
 
@@ -555,7 +557,7 @@ def face_class(specs: Sequence[LayerSpec]) -> dict[str, object]:
             raise ExportError(
                 f"A FACE layer is named {key!r}, which the face table uses itself; rename it."
             )
-    properties.update(cls["properties"])  # type: ignore[arg-type]
+    properties.update(cls["properties"])
     cls["properties"] = properties
     return cls
 
@@ -618,7 +620,7 @@ def build_extension(
     ]
 
     if face_table:
-        counts = [int(c) for c in face_counts]  # type: ignore[union-attr]
+        counts = [int(c) for c in face_counts]
         if len(counts) != len(names):
             raise ExportError("One face count per object is needed.")
         total = sum(counts)
@@ -721,7 +723,7 @@ def build_extension(
         "vertex_layers": [s.name for s in vertex_layers],
         "face_layers": [s.name for s in face_layers],
         "texture_layers": [s.name for s in texture_layers],
-        "face_table_rows": sum(face_counts) if face_table else None,  # type: ignore[arg-type]
+        "face_table_rows": sum(face_counts) if face_table else None,
         "property_textures": sum(1 for t in textures if t),
     }
     extension = MetadataExtension(

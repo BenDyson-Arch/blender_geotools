@@ -18,9 +18,10 @@ from __future__ import annotations
 import json
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
 import numpy as np
 
@@ -304,7 +305,7 @@ def format_provenance(provenance: Mapping[str, object] | None) -> str:
 # --- validation -----------------------------------------------------------------------
 
 
-def validate(spec: LayerSpec, existing_names: object = ()) -> list[Issue]:
+def validate(spec: LayerSpec, existing_names: Iterable[str] = ()) -> list[Issue]:
     """Problems with ``spec``; ``existing_names`` are the names of the *other* layers."""
     issues: list[Issue] = []
     name = spec.name
@@ -329,7 +330,7 @@ def validate(spec: LayerSpec, existing_names: object = ()) -> list[Issue]:
                 subject,
             )
         )
-    if name in set(existing_names):  # type: ignore[call-overload]
+    if name in set(existing_names):
         issues.append(
             Issue(
                 Severity.ERROR,
@@ -439,8 +440,8 @@ def _provenance_issues(spec: LayerSpec, subject: str | None) -> list[Issue]:
         return []
     ok = (
         isinstance(provenance, Mapping)
-        and isinstance(provenance.get("tool"), str)
-        and bool(provenance["tool"].strip())  # type: ignore[union-attr]
+        and isinstance(tool := provenance.get("tool"), str)
+        and bool(tool.strip())
         and isinstance(provenance.get("parameters", {}), Mapping)
         and isinstance(provenance.get("geotools_version", ""), str)
     )
@@ -534,9 +535,9 @@ def _finite_or_none(value: float | None) -> float | None:
     return float(value)
 
 
-def _categories_from_record(items: object) -> tuple[str, ...]:
+def _categories_from_record(items: Iterable[Any] | None) -> tuple[str, ...]:
     """Labels from ``[{"value": i, "label": ...}]`` (any order) or a list of labels."""
-    items = list(items or ())  # type: ignore[call-overload]
+    items = list(items or ())
     if not items or not isinstance(items[0], Mapping):
         return tuple(str(label) for label in items)
     by_value = {int(item["value"]): str(item["label"]) for item in items}
@@ -545,7 +546,7 @@ def _categories_from_record(items: object) -> tuple[str, ...]:
     return tuple(by_value[i] for i in range(len(items)))
 
 
-def from_record(d: dict[str, object]) -> LayerSpec:
+def from_record(d: Mapping[str, Any]) -> LayerSpec:
     """The :class:`LayerSpec` of a :func:`to_record` record.
 
     ``attribute`` becomes ``source_attribute`` unless it is the default
@@ -556,7 +557,7 @@ def from_record(d: dict[str, object]) -> LayerSpec:
 
     def number(key: str) -> float | None:
         value = d.get(key)
-        return None if value is None else float(value)  # type: ignore[arg-type]
+        return None if value is None else float(value)
 
     aggregation = d.get("aggregation")
     provenance = d.get("provenance")
@@ -575,7 +576,7 @@ def from_record(d: dict[str, object]) -> LayerSpec:
         label=str(d.get("label", "")),
         value_min=number("value_min"),
         value_max=number("value_max"),
-        provenance=None if provenance is None else dict(provenance),  # type: ignore[call-overload]
+        provenance=None if provenance is None else dict(provenance),
         source_attribute=(
             "" if attribute is None or attribute == attribute_name(name) else str(attribute)
         ),

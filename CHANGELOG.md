@@ -39,6 +39,9 @@ and the project follows semantic versioning where practical.
 
 ### Fixed
 
+- A project origin on the antimeridian keeps its BlenderGIS latitude and
+  longitude. A rounding error put its longitude just past -180°, so the
+  position was refused and the two keys were deleted.
 - In Blender releases after 5.2, the texture tools (Fill Holes, the paint
   setup's overlap mask) and the UV overlap check left out the texels on edges
   shared by two triangles, such as the diagonal of every quad.

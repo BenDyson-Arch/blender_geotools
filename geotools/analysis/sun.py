@@ -477,9 +477,14 @@ def solar_position_jd(
         geo = tuple(np.interp(jd, grid, values) for values in at_nodes)
     else:
         geo = _ephemeris(jd, _delta_t_at(jd, delta_t_seconds))
+    lam, beta, big_r, delta_psi, eps = geo
     return _topocentric(
         jd,
-        *geo,
+        lam,
+        beta,
+        big_r,
+        delta_psi,
+        eps,
         lat,
         lon,
         float(height),

@@ -1,5 +1,9 @@
 """Publish: refusals, an end-to-end publish, cancel, overwrite, preview.
 
+The end-to-end publish runs the external validators (``tests/extvalidate.py``)
+when their commands are set: 3d-tiles-validator on the ``.3tz`` and on the
+Extract for Web folder, both validators on the staged ``source.glb``.
+
 Background Blender runs no timers, so the tests wait with ``job.join()`` and
 then call ``publish.update_from_job()`` themselves, as the timer would.
 """
@@ -9,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 import tempfile
 import threading
 import time
@@ -20,6 +25,9 @@ from types import SimpleNamespace
 import _harness as h
 import bpy
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # tests/: extvalidate
+import extvalidate
 
 JOIN_SECONDS = 180.0
 
@@ -287,6 +295,7 @@ def test_publish_end_to_end() -> None:
         assert record["rusty_tiles_version"] == h.CONFIG.expect_version
         assert not (staging / "images").exists(), "extracted images were left behind"
         assert not (staging / "work").exists()
+        _external_validators(output, staging / "source.glb")
 
         facemap = h.submodule("core.facemap")
         face_map = facemap.load_face_map(staging / "facemap.npz")
@@ -326,6 +335,8 @@ def test_publish_end_to_end() -> None:
         assert tileset["asset"]["version"]
         assert (web / "index.html").is_file() and (web / ".geotools-web.json").is_file()
         assert not (web / "@3dtilesIndex1@").exists()
+        report = extvalidate.check_3d_tiles(web / "tileset.json")
+        print(f"    3d-tiles-validator on site.web: {extvalidate.summary(report)}")
         with zipfile.ZipFile(output) as zf:
             members = {n for n in zf.namelist() if n != "@3dtilesIndex1@" and not n.endswith("/")}
         on_disk = {p.relative_to(web).as_posix() for p in web.rglob("*") if p.is_file()}
@@ -361,6 +372,15 @@ def test_publish_end_to_end() -> None:
         calls = h.draw(panels.GEOTOOLS_PT_publish_last)
         assert ("operator", "geotools.extract_for_web", "URL") in calls
         assert ("operator", "geotools.open_web_folder", "FILE_FOLDER") not in calls
+
+
+def _external_validators(archive: Path, source_glb: Path) -> None:
+    report = extvalidate.check_3d_tiles(archive)
+    print(f"    3d-tiles-validator on {archive.name}: {extvalidate.summary(report)}")
+    report = extvalidate.check_gltf(source_glb)
+    print(f"    glTF-Validator on source.glb: {extvalidate.summary(report)}")
+    report = extvalidate.check_3d_tiles(source_glb, content=True)
+    print(f"    3d-tiles-validator on source.glb: {extvalidate.summary(report)}")
 
 
 @contextmanager

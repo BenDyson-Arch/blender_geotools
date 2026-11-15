@@ -54,6 +54,8 @@ def reproject_data(
     )
     if not len(coords):
         return data, None
+    if data.crs is None:
+        raise ValueError(f"{data.name} has no CRS to reproject from")
     has_z = bool(np.isfinite(coords[:, 2]).all())
     points = coords if has_z else coords[:, :2]
     moved, report = crs_match.reproject(points, data.crs, project, allow_network=allow_network)

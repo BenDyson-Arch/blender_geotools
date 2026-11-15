@@ -91,15 +91,18 @@ def build_face_map(scene: SceneExport, topology: dict[str, str]) -> FaceMap:
     Raises ``ExportError`` if a primitive is empty or lacks provenance."""
     if not scene.primitives:
         raise ExportError("The scene has no primitives, so there is no face map.")
-    counts = np.zeros(len(scene.primitives) + 1, dtype=np.int64)
-    for p, prim in enumerate(scene.primitives):
-        counts[p + 1] = _checked_rows(p, prim, len(scene.object_names))
+    checked = [
+        _checked_rows(p, prim, len(scene.object_names)) for p, prim in enumerate(scene.primitives)
+    ]
+    counts = np.zeros(len(checked) + 1, dtype=np.int64)
+    for p, (triangles, _objects, _polygons) in enumerate(checked):
+        counts[p + 1] = triangles
     offsets = np.cumsum(counts)
     source_object = np.empty(int(offsets[-1]), dtype=np.int32)
     source_polygon = np.empty(int(offsets[-1]), dtype=np.int32)
-    for p, prim in enumerate(scene.primitives):
-        source_object[offsets[p] : offsets[p + 1]] = prim.source_object
-        source_polygon[offsets[p] : offsets[p + 1]] = prim.source_polygon
+    for p, (_triangles, objects, polygons) in enumerate(checked):
+        source_object[offsets[p] : offsets[p + 1]] = objects
+        source_polygon[offsets[p] : offsets[p + 1]] = polygons
     return FaceMap(
         object_names=tuple(scene.object_names),
         primitive_offsets=offsets,
@@ -109,7 +112,10 @@ def build_face_map(scene: SceneExport, topology: dict[str, str]) -> FaceMap:
     )
 
 
-def _checked_rows(p: int, prim: PrimitiveData, object_count: int) -> int:
+def _checked_rows(
+    p: int, prim: PrimitiveData, object_count: int
+) -> tuple[int, np.ndarray, np.ndarray]:
+    """The primitive's triangle count, source_object and source_polygon, checked."""
     where = f"Primitive {p}"
     triangles = int(prim.indices.shape[0]) if prim.indices.ndim == 2 else 0
     if triangles == 0:
@@ -127,7 +133,7 @@ def _checked_rows(p: int, prim: PrimitiveData, object_count: int) -> int:
         raise ExportError(f"{where}: source_object is out of range.")
     if prim.source_polygon.min() < 0:
         raise ExportError(f"{where}: source_polygon has a negative polygon index.")
-    return triangles
+    return triangles, prim.source_object, prim.source_polygon
 
 
 def topology_digest(loop_totals: np.ndarray, loop_vertices: np.ndarray, vertex_count: int) -> str:

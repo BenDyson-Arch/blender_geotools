@@ -65,10 +65,11 @@ def check_crs(
         offer_project_crs(data, bounds, placement.source_offset, name)
         raise RasterError("Set the project CRS first (Project panel)")
     result = matches(project, data) if data is not None else None
-    offset = tuple(float(v) for v in placement.source_offset)
+    ox, oy, oz = placement.source_offset
+    offset = (float(ox), float(oy), float(oz))
     if result is True:
         return CrsCheck(offset, ())
-    if result is False:
+    if result is False and data is not None:
         raise RasterError(
             f"{name} is in {data.label()} but the project CRS is {project.label()}. "
             f"GeoTools does not reproject rasters. {QGIS_HINT}."
@@ -179,7 +180,7 @@ def dem_grid(info: GeoTiffInfo, band: np.ndarray, offset: Vec3, step: int = 1) -
     order = (3, 2, 1, 0) if info.pixel_size[0] * info.pixel_size[1] > 0 else (0, 1, 2, 3)
     all_valid = bool(valid.all())
     if all_valid:
-        flat = None
+        flat = None  # every vertex is kept
         index = np.arange(rows_n * cols_n, dtype=np.int32).reshape(rows_n, cols_n)
         quad = np.empty((rows_n - 1, cols_n - 1, 4), np.int32)
         for k, (dr, dc) in zip(order, _QUAD_CORNERS, strict=True):
@@ -208,7 +209,7 @@ def dem_grid(info: GeoTiffInfo, band: np.ndarray, offset: Vec3, step: int = 1) -
     us = ((np.arange(0, info.width, step) + 0.5) / info.width).astype(np.float32)
     vs = (1.0 - (np.arange(0, info.height, step) + 0.5) / info.height).astype(np.float32)
     zf = z.astype(np.float64) - oz if oz != 0.0 or z.dtype != np.float32 else z
-    if all_valid:
+    if flat is None:
         count = rows_n * cols_n
         positions = np.empty((rows_n, cols_n, 3), np.float32)
         positions[:, :, 0] = xs[None, :]
