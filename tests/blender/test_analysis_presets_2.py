@@ -230,6 +230,34 @@ def test_intervisibility_between_points() -> None:
     _clear_trees()
 
 
+def test_intervisibility_is_symmetric() -> None:
+    """A sees B exactly when B sees A, at equal heights: listed the other way round, every
+    pair's sight line is cast from its other end, and no verdict changes."""
+    _reset()
+    ground = _walled_ground()
+    xy = [(-8.0, -2.0), (-5.0, 4.0), (-1.0, -1.0), (0.5, 2.5), (4.0, 0.0), (6.0, -5.0), (8.0, 3.0)]
+    co = np.array([(x, y, 0.0) for x, y in xy])
+    seen = []
+    for points_co in (co, co[::-1]):
+        points = _object("Points", points_co)
+        _select(ground, points)
+        assert _add("intervisibility") == {"FINISHED"}
+        lines = _new_object("intervisibility")
+        _ap().set_input(lines.modifiers[0], "Height", 0.5)  # below the top of the wall
+        mesh = _evaluated(lines)
+        ends = _co(mesh)[_edges(mesh)]
+        visible = _attr(mesh, "visible")
+        hidden, unsure = _shadow(ends[:, 0] + (0, 0, OFFSET), ends[:, 1])
+        assert not unsure.any() and 0 < hidden.sum() < len(hidden) == 21
+        np.testing.assert_array_equal(visible == 0.0, hidden)
+        pairs = [tuple(sorted(map(tuple, np.round(e[:, :2], 3).tolist()))) for e in ends]
+        seen.append(dict(zip(pairs, visible.tolist(), strict=True)))
+        for obj in (lines, points):
+            bpy.data.objects.remove(obj)
+    assert seen[0] == seen[1]
+    _clear_trees()
+
+
 def test_line_of_sight_finds_the_obstruction() -> None:
     _reset()
     ground = _walled_ground()
