@@ -19,7 +19,7 @@ You need Python 3.11 or later for the scripts, and the official Blender 5.2
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
-pip install pytest numpy ruff pyproj==3.8.0   # pyproj at the pin in pyproject.toml
+pip install pytest numpy ruff pyproj==3.8.0 hypothesis==6.170.14  # pins: pyproject.toml, ci.yml
 ```
 
 Without pyproj the reprojection tests are skipped. Lint, format and import
@@ -79,6 +79,10 @@ python scripts/run_blender_tests.py --expect missing    # built with --no-wheels
 python scripts/run_blender_tests.py --expect available  # with the fetched wheels
 ```
 
+The hypothesis property tests (`tests/core/test_properties.py`) run 100
+fixed examples each; `GEOTOOLS_HYPOTHESIS_PROFILE=thorough` runs 1,000
+random ones.
+
 `run_blender_tests.py` builds the zip, installs it into a temporary profile,
 runs `tests/blender/` and cleans up. Use `--blender PATH` (or `$BLENDER`), `-k
 NAME` to run some tests, and `--keep` to keep the profile. The Preview tests
@@ -97,7 +101,9 @@ CI (`.github/workflows/ci.yml`) runs on pull requests and on pushes to
 `main`, `develop` and `release/**`. The `core (pytest, ruff)` and
 `blender (official 5.2 LTS, no wheels)` jobs are required. The wheel job and
 the macOS and Windows jobs must pass before a release too, because every
-platform zip ships.
+platform zip ships. The `blender-range` jobs run both suites on the oldest
+Blender the manifest allows and on the newest release; they are not required
+yet. When Blender ships a release, add it there with its checksum.
 
 ## Docs site
 

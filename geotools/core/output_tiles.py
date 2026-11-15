@@ -176,7 +176,7 @@ def decode_tile(archive: Path, uri: str) -> DecodedTile:
         raw = rt.decode_tile(Path(archive), uri, format="arrays")
     except rt.TilesError as exc:
         raise OutputTilesError(f"{type(exc).__name__}: {exc}") from exc
-    tables = list(raw.get("property_tables") or ())
+    tables: list[Mapping[str, Any]] = list(raw.get("property_tables") or ())
     primitives = tuple(_primitive(p, tables, uri) for p in raw["primitives"])
     return DecodedTile(
         uri=str(raw["uri"]),

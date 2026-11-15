@@ -27,11 +27,12 @@ offset is added.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 
 import numpy as np
 
+from ..crs_match import DataCrs
 from .model import (
     Column,
     ColumnType,
@@ -624,7 +625,7 @@ class _Take:
 
     __slots__ = ("index", "values")
 
-    def __init__(self, values: object, index: np.ndarray) -> None:
+    def __init__(self, values: Sequence[object] | np.ndarray, index: np.ndarray) -> None:
         self.values = values
         self.index = index
 
@@ -632,7 +633,7 @@ class _Take:
         return len(self.index)
 
     def __getitem__(self, i: int) -> object:
-        return self.values[int(self.index[i])]  # type: ignore[index]
+        return self.values[int(self.index[i])]
 
 
 def _subset(attrs: dict, index: np.ndarray) -> dict:
@@ -727,7 +728,7 @@ def points_from_vertices(mesh: MeshInput) -> tuple[Geometries, np.ndarray, dict[
     return geoms, out_fids.astype(np.int64), columns
 
 
-def vectors_from_mesh(mesh: MeshInput, name: str, crs: object) -> list[VectorData]:
+def vectors_from_mesh(mesh: MeshInput, name: str, crs: DataCrs | None) -> list[VectorData]:
     """One :class:`VectorData` per kind present in the mesh (polygons, lines, points)."""
     out = []
     for build in (polygons_from_faces, lines_from_edges, points_from_vertices):
@@ -740,7 +741,7 @@ def vectors_from_mesh(mesh: MeshInput, name: str, crs: object) -> list[VectorDat
                 fids=fids,
                 columns=columns,
                 geometries={geoms.kind: geoms},
-                crs=crs,  # type: ignore[arg-type]
+                crs=crs,
             )
         )
     return out

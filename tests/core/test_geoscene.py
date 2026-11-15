@@ -514,6 +514,20 @@ def test_interop_issues_include_the_lat_lon_offer_in_a_crs_project_only() -> Non
     assert codes == ["georef-keys-ignored"]
 
 
+def test_origin_lon_lat_at_the_antimeridian() -> None:
+    """A position on the antimeridian round-trips. pyproj gives this E/N of EPSG:3413 a
+    longitude of -180.00000000000006; it was refused, so sync_lat_lon deleted the
+    scene's latitude/longitude (found by test_properties.py)."""
+    pytest.importorskip("pyproj")
+    en = gs.lon_lat_to_origin("EPSG:3413", 179.99999999999994, 60.0)
+    assert en is not None
+    found = gs.origin_lon_lat("EPSG:3413", *en)
+    assert found is not None
+    lon, lat = found
+    assert -180.0 <= lon <= 180.0
+    assert gs.ground_distance(lon, lat, 179.99999999999994, 60.0) < 1e-3
+
+
 def test_lon_lat_to_origin_with_pyproj_inverts_origin_lon_lat() -> None:
     pytest.importorskip("pyproj")
     lon, lat = gs.origin_lon_lat("EPSG:7856", 502000.0, 6961000.0)

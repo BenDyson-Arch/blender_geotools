@@ -41,6 +41,7 @@ import zlib
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 
@@ -158,7 +159,7 @@ class GeoTiffInfo:
     rows_per_strip: int
     chunk_offsets: np.ndarray
     chunk_counts: np.ndarray
-    byteorder: str
+    byteorder: Literal["<", ">"]
     """``"<"`` (II) or ``">"`` (MM)."""
     bigtiff: bool
     geotransform: tuple[float, float, float, float, float, float]
@@ -259,7 +260,7 @@ class _Reader:
         head = fh.read(16)
         if len(head) < 8 or head[:2] not in (b"II", b"MM"):
             raise GeoTiffError(f"{self.name} is not a TIFF file")
-        self.order = "<" if head[:2] == b"II" else ">"
+        self.order: Literal["<", ">"] = "<" if head[:2] == b"II" else ">"
         (magic,) = struct.unpack(self.order + "H", head[2:4])
         if magic == 42:
             self.bigtiff = False
@@ -638,8 +639,9 @@ def read_band(info: GeoTiffInfo, band: int = 0, *, threads: int | None = None) -
         raise GeoTiffError(f"{info.name} has no band {band + 1}")
     dtype = info.dtype
     spp = 1 if info.planar == 2 else info.samples_per_pixel
-    if info.tiled:
-        tw, th = info.tile_size
+    tile = info.tile_size
+    if tile is not None:
+        tw, th = tile
         across, down = -(-info.width // tw), -(-info.height // th)
         per_plane = across * down
         shapes = [(th, tw)] * per_plane
@@ -683,8 +685,9 @@ def read_band(info: GeoTiffInfo, band: int = 0, *, threads: int | None = None) -
     else:
         blocks = [decode(k, raws[k]) for k in range(per_plane)]
 
-    if info.tiled:
-        tw, th = info.tile_size
+    if tile is not None:
+        tw, th = tile
+        across, down = -(-info.width // tw), -(-info.height // th)
         grid = np.stack(blocks).reshape(down, across, th, tw)
         out = grid.transpose(0, 2, 1, 3).reshape(down * th, across * tw)
         return np.ascontiguousarray(out[: info.height, : info.width])

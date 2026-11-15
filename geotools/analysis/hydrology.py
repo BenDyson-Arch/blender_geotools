@@ -91,7 +91,7 @@ class Surface:
     pairs: np.ndarray  # (m, 2) int64: faces sharing a mesh edge
     boundary_faces: np.ndarray  # (b,) int64: faces with an open edge
     boundary_points: np.ndarray  # (b, 3): the middle of each such face's lowest open edge
-    boundary_tangents: np.ndarray = None  # (b, 3): that edge's direction  # type: ignore[assignment]
+    boundary_tangents: np.ndarray  # (b, 3): that edge's direction
     non_manifold_edges: int = 0
 
     @property

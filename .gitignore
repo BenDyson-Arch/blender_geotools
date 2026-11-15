@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.hypothesis/
 
 .venv/
 venv/
@@ -28,3 +29,6 @@ dist/
 # MkDocs output and the docs venv (CONTRIBUTING.md, "Docs site")
 /site/
 /.venv-docs/
+
+# The external validators, if installed in place (tests/extvalidate.py)
+node_modules/

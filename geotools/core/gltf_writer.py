@@ -637,7 +637,8 @@ def _is_index(value: object) -> bool:
 
 def _finite_number(value: object) -> bool:
     try:
-        return math.isfinite(float(value))  # type: ignore[arg-type]
+        # Any object: float() refusing it is the answer, not a type error.
+        return math.isfinite(float(value))  # pyright: ignore[reportArgumentType]
     except (TypeError, ValueError):
         return False
 
@@ -829,7 +830,7 @@ def _validate_primitive(p: int, prim: PrimitiveData, scene: SceneExport) -> None
         raise ExportError(
             f"{where}: source_object and source_polygon must both be given or both be None."
         )
-    if has_object:
+    if prim.source_object is not None and prim.source_polygon is not None:
         _check_array(where, "source_object", prim.source_object, 0, np.int32, triangles)
         _check_array(where, "source_polygon", prim.source_polygon, 0, np.int32, triangles)
         if int(prim.source_object.min()) < 0 or int(prim.source_object.max()) >= len(

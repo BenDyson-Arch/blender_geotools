@@ -478,7 +478,11 @@ def _image_limits(image: ImageSummary) -> list[Issue]:
                     name,
                 )
             )
-        elif halved and image.file_bytes * 8 / image.bit_depth <= MAX_IMAGE_BYTES:
+        elif (
+            halved
+            and image.bit_depth is not None
+            and image.file_bytes * 8 / image.bit_depth <= MAX_IMAGE_BYTES
+        ):
             issues.append(
                 _warn(
                     "image-file-too-large",
