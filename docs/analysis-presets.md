@@ -604,8 +604,8 @@ Height** (0 m), **Spacing** (0.5 m), **Ray Offset** and **Occluders**.
 
 The signed distance from each vertex p to the nearest point q of the
 **Reference** surface (Geometry Proximity to its faces):
-`d = sign((p − q) · n_q) |p − q|`, with n_q the normal of the reference face q
-lies on (Sample Nearest Surface). Positive on the side the reference faces
+`d = ±|p − q|`, + when `(p − q) · n_q ≥ 0`, with n_q the normal of the
+reference face q lies on (Sample Nearest Surface). Positive on the side the reference faces
 (above, for terrain), negative behind it. For two surveys, add it to the later
 one with the earlier as Reference: positive is gain (deposition, growth,
 backfill), negative loss (erosion, excavation, collapse). Display diverging.

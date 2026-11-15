@@ -227,7 +227,7 @@ from the apex):
 | sphere R = 5 m (convex) | 1.3×10⁻³ | 5.8×10⁻⁴ | +4.0 % |
 | bowl R = 5 m (concave, values −1/R) | 1.4×10⁻³ | 6.3×10⁻⁴ | +4.0 % |
 | paraboloid dome / bowl | 3.1×10⁻⁴ | 7.7×10⁻⁵ | +4.0 % |
-| paraboloid apex (level) | profile, plan: no data; mean −2c within 10⁻³ | | |
+| paraboloid apex (level) | profile, plan: no data, or their limit −2c within 10⁻³ where the rays' rounding leaves a slope of about 10⁻⁶; mean −2c within 10⁻³ | | |
 
 On the waves DEM (h = 0.1 m, w = 0.1 m; 3,025 cells; RMS of the true
 curvature 0.74–0.99 m⁻¹):

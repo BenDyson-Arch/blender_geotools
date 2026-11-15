@@ -285,7 +285,6 @@ def overlap_issue(
 
 _BLOCK = 1 << 18  # candidate texels per broadcast block
 _CHUNK = 1 << 20  # triangles per chunk of the per-triangle passes
-_TINY = float(np.nextafter(0.0, 1.0))
 
 
 @dataclass(slots=True)
@@ -417,20 +416,25 @@ def _fold(index: np.ndarray, size: int, mode: Wrap) -> np.ndarray:
 def _edge(px, py, qx, qy) -> tuple[np.ndarray, ...]:
     """Edge function terms of the directed edges p -> q, from canonical endpoints.
 
-    Returns ``(lx, ly, ex, ey, threshold)``: ``w(x, y) = ex * (y - ly) - ey * (x - lx)``
-    is positive left of p -> q, and exactly opposite for q -> p, since both are
-    computed from the same endpoint. A centre is on the inside of the edge when
-    ``w > threshold``: 0, or just below 0 when a point on the edge belongs to the
-    left side (the inward normal (-ey, ex) points +x, or +y on a vertical edge).
+    Returns ``(lx, ly, ex, ey, flip)``. A centre is on the inside of the edge when
+    ``(w > 0) != flip`` for ``w(x, y) = ex * (y - ly) - ey * (x - lx)``. Unflipped,
+    ``w`` is positive left of p -> q, and exactly opposite for q -> p, since both
+    are computed from the same endpoint. A point on the edge belongs to the left
+    side when the inward normal (-ey, ex) points +x, or +y on a vertical edge:
+    that edge is flipped, its terms negated (exactly), so ``w > 0`` is right of
+    it and the test reads ``w >= 0`` on the left.
+
+    Comparisons with 0 only: Blender 5.3 runs Python with denormals-are-zero, so
+    a threshold of minus the smallest subnormal compares as 0 there and left a
+    centre on an edge shared by two triangles to neither of them.
     """
     swap = (qx < px) | ((qx == px) & (qy < py))
     lx = np.where(swap, qx, px)
     ly = np.where(swap, qy, py)
     ex = qx - px  # = sign * (high - low), exactly
     ey = qy - py
-    tie = (ey < 0) | ((ey == 0) & (ex > 0))
-    # w >= 0 is w > -(smallest subnormal): nothing lies between them.
-    return lx, ly, ex, ey, np.where(tie, -_TINY, 0.0)
+    flip = (ey < 0) | ((ey == 0) & (ex > 0))
+    return lx, ly, np.where(flip, -ex, ex), np.where(flip, -ey, ey), flip
 
 
 def _raster(
@@ -523,13 +527,14 @@ def _samples(
                 t1 = np.empty(px.shape)
                 t2 = np.empty(px.shape)
                 hit = np.empty(px.shape, bool)
-                for lx, ly, ex, ey, thr in edges:
+                for lx, ly, ex, ey, flip in edges:
                     np.subtract(py, ly[s:e, None], out=t1)
                     t1 *= ex[s:e, None]
                     np.subtract(px, lx[s:e, None], out=t2)
                     t2 *= ey[s:e, None]
                     t1 -= t2
-                    np.greater(t1, thr[s:e, None], out=hit)
+                    np.greater(t1, 0.0, out=hit)
+                    hit ^= flip[s:e, None]
                     inside &= hit
                 r, k = np.nonzero(inside)
                 if not r.size:
@@ -550,7 +555,7 @@ def _samples(
 def _triangle_edges(c: np.ndarray, grid: _Grid) -> list[tuple[np.ndarray, ...]]:
     """The three counter-clockwise edges of each triangle in texel space (binary64).
 
-    A zero-area triangle gets an infinite threshold: it owns nothing.
+    A zero-area triangle gets a zero first edge (``w`` is 0, never > 0): it owns nothing.
     """
     c = c.astype(np.float64)  # a float32 array times a Python float stays float32
     sx, sy = float(grid.width), float(grid.height)
@@ -562,7 +567,9 @@ def _triangle_edges(c: np.ndarray, grid: _Grid) -> list[tuple[np.ndarray, ...]]:
     bx, cx = np.where(cw, cx, bx), np.where(cw, bx, cx)
     by, cy = np.where(cw, cy, by), np.where(cw, by, cy)
     edges = [_edge(ax, ay, bx, by), _edge(bx, by, cx, cy), _edge(cx, cy, ax, ay)]
-    edges[0][4][area == 0] = np.inf
+    dead = area == 0
+    for term in edges[0][2:]:
+        term[dead] = 0
     return edges
 
 

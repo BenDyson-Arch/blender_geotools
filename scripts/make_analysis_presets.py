@@ -16,7 +16,9 @@ can open and edit any of them; GeoTools only appends them ("Add Analysis").
 the groups in the existing ``--out`` file. It exits 1 and lists what differs
 when the file is out of date with this script or the catalog; the Blender tests
 run it. A .blend is not byte-reproducible, so the comparison is of a canonical
-description (``describe``), not of the bytes.
+description (``describe``), not of the bytes. Write the file with the pinned
+Blender (5.2 LTS); in another Blender the check skips node locations, which
+follow the sockets that Blender shows.
 
 The formulas, inputs and limits are in docs/analysis-presets.md.
 """
@@ -1222,7 +1224,12 @@ def build_surface_distance(preset):
         {"Mesh": reference, "Value": t.on_domain(t.normal(), "FACE", "FLOAT_VECTOR")},
         data_type="FLOAT_VECTOR",
     ).outputs["Value"]
-    side = t.math("SIGN", t.dot(t.vsub(t.position(), nearest.outputs["Position"]), normal))
+    # +1 or -1, never 0: SIGN would zero the distance of a point in the plane of the
+    # face Sample Nearest Surface picks at a sharp edge (Blender 5.3 picks such faces).
+    ahead = t.compare(
+        "GREATER_EQUAL", t.dot(t.vsub(t.position(), nearest.outputs["Position"]), normal), 0.0
+    )
+    side = t.switch("FLOAT", ahead, -1.0, 1.0, label="Side")
     distance = nearest.outputs["Distance"]
     valid = t.boolean(
         "AND",
@@ -1773,6 +1780,13 @@ def check(out: Path) -> list[str]:
         dst.node_groups = list(src.node_groups)
     stored = describe_all(g for g in bpy.data.node_groups if g is not None)
     problems = _diff(fresh, stored)
+    saved = {tuple(lib.version[:2]) for lib in bpy.data.libraries}
+    if saved != {tuple(bpy.app.version[:2])}:
+        # _layout sizes a node by the sockets it shows, and newer Blenders add
+        # sockets (5.3: Realize Instances' Preserve Normals, Curve to Mesh's miter
+        # inputs), so locations match only in the Blender that wrote the file.
+        problems = [line for line in problems if "/location: " not in line]
+        print(f"{out} was saved by Blender {sorted(saved)}: node locations not compared")
     cats = out.parent / "blender_assets.cats.txt"
     if not cats.is_file() or cats.read_text(encoding="utf-8") != catalog_file_text():
         problems.append(f"{cats} is missing or out of date")
