@@ -4,7 +4,9 @@ A small synthetic GeoJSON layer in GDA2020 / MGA zone 56 (the project CRS is
 EPSG:7856, which rusty-tiles 0.4.1's allow-list resolves) is imported as a
 linked object, raised by a stock
 Geometry Nodes modifier, published with ``vector_to_3tz``, validated, and
-republished with ``reuse_tileset`` after an edit and a refresh.
+republished with ``reuse_tileset`` after an edit and a refresh. The
+external validators (``tests/extvalidate.py``) check the first and the reused
+archive when their commands are set.
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -21,6 +24,9 @@ import _harness as h
 import _vector_fixtures as vf
 import bpy
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # tests/: extvalidate
+import extvalidate
 
 E0, N0, A0 = vf.E0, vf.N0, 10.0
 LIFT = 2.5  # metres the Geometry Nodes modifier raises the features
@@ -231,6 +237,8 @@ def test_vector_publish_end_to_end_with_reuse() -> None:
         for layer in record["report_summary"]["layers"]:
             assert layer["sourceCrs"] == "EPSG:7856" and layer["crsOperation"] == operation
         assert profile.last_features == "5" and profile.last_validation == "OK"
+        report = extvalidate.check_3d_tiles(output)
+        print(f"    3d-tiles-validator on {output.name}: {extvalidate.summary(report)}")
         assert profile.last_triangles == "" and profile.last_tiles
 
         # The GeoPackage tiled: project CRS, offsets restored in binary64, the
@@ -265,6 +273,8 @@ def test_vector_publish_end_to_end_with_reuse() -> None:
         assert reuse["used"] is True, reuse
         assert reuse["report"]["previousTileset"] is True
         assert record["validation"]["ok"] is True
+        report = extvalidate.check_3d_tiles(output)
+        print(f"    3d-tiles-validator on the reused {output.name}: {extvalidate.summary(report)}")
         depth = gpkg.read_layer(gpkg_path, "dig").columns["depth"].values
         assert abs(depth.max() - 0.9) < 1e-6  # a FLOAT attribute is float32
 
