@@ -40,6 +40,7 @@ import bpy
 import numpy as np
 
 from ..core.layers import Domain
+from . import bake_device
 from .bake_texture import _deselect_all, _run_bake, _Saved, _show
 from .export import same_topology
 from .layers import apply_modifiers, layer_meshes
@@ -518,18 +519,22 @@ def build_sample_object(
 # --- running -------------------------------------------------------------------------------------
 
 
-def setup_cycles(saved: _Saved, scene: bpy.types.Scene) -> None:
-    """CPU, one sample, no denoising, EMIT: what every ray bake uses."""
+def setup_cycles(saved: _Saved, scene: bpy.types.Scene) -> bake_device.BakeDevice:
+    """The Bake Device, one sample, no denoising, EMIT: what every ray bake uses.
+
+    Returns the device (:mod:`.bake_device`); ``saved`` puts the user's back.
+    """
     scene.render.engine = "CYCLES"
     saved.capture_cycles(scene)
+    device = bake_device.use(scene)
     cycles = scene.cycles
-    cycles.device = "CPU"
     cycles.samples = 1
     cycles.use_adaptive_sampling = False
     cycles.use_denoising = False
     if hasattr(cycles, "time_limit"):
         cycles.time_limit = 0.0
     cycles.bake_type = "EMIT"
+    return device
 
 
 @dataclass

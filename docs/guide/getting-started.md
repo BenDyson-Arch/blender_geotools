@@ -71,7 +71,8 @@ Inside, About shows the GeoTools version and one line per library, such as
 says `not available` and why. **Check Dependencies** loads them again, and
 **Copy Details** copies the versions and PROJ's own text for any error it
 gave, for a bug report. The GeoTools preferences (**Edit > Preferences >
-Add-ons**, GeoTools) show the same, plus the PROJ data folder.
+Add-ons**, GeoTools) show the same, plus the PROJ data folder and the
+[Bake Device](analysis.md#bake-device).
 
 If a tool says "PROJ's database could not be read", restart Blender. If it
 still says so, reinstall GeoTools.

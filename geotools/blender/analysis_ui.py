@@ -247,6 +247,8 @@ def _draw_sun_hours_result(layout, context, props) -> None:
     if stats["group_tolerance_deg"] > 0:
         info_row(col, "Merged", f"within {stats['max_group_deviation_deg']:.2f}°")
     info_row(col, "Time", f"{result['seconds']:.1f} s, {result['bakes']} bake(s)")
+    if "device" in result:  # a result from before 0.4.0 has none
+        info_row(col, "Device", result["device_short"])
     for name, (low, high) in result["ranges"].items():
         if low and high:
             info_row(col, name, f"{float(low):,.2f} to {float(high):,.2f}")

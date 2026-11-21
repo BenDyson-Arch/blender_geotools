@@ -344,6 +344,7 @@ def _odd_settings(obj: bpy.types.Object) -> bpy.types.Object:
     """Settings unlike the bake's; returns another object, selected and active."""
     scene = bpy.context.scene
     scene.render.engine = "BLENDER_EEVEE"
+    scene.cycles.device = "GPU"
     scene.cycles.samples = 77
     scene.cycles.use_adaptive_sampling = True
     scene.cycles.use_denoising = True

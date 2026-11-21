@@ -38,6 +38,28 @@ mesh outside it works and shows, and the report says it is not published (see
 [Source](projects.md#source)). If no source collection is set, a tool sets it
 to the collection of the mesh it ran on, and the report says so.
 
+### Bake device
+
+Sun Hours, the horizon profile, the Fast Bake presets and
+[texture bakes](layers.md#texture-layers-and-the-bake-sub-panel) cast their
+rays with Cycles. **Bake Device** in the GeoTools preferences (**Edit >
+Preferences > Add-ons**, GeoTools) chooses where:
+
+- **Auto** (the default): the GPU when Cycles has one enabled under **Edit >
+  Preferences > System > Cycles Render Devices** (CUDA, OptiX, HIP, Metal or
+  oneAPI), otherwise the CPU. With **None** chosen there, bakes use the CPU.
+- **GPU**: the same, with a warning when it falls back to the CPU.
+- **CPU**: always the CPU.
+
+GeoTools only reads Cycles' device settings; it never changes them. The
+scene's own **Device** (Render Properties) is put back after each bake. The
+report says which device a bake used, and Sun Hours shows it in its result.
+Results agree between devices: the same rays hit, and sums differ at most in
+the last digits. The GPU speeds up casting rays; reading the mesh and saving
+images take as long as before, so a texture bake gains little. The first GPU bake after installing Blender or a new driver
+can take a minute or two while Cycles prepares its GPU code; later ones start
+at once.
+
 ## Sun
 
 Places a Blender Sun light where the sun is, for a date, time and place.
@@ -112,14 +134,16 @@ The options that matter:
   Diffuse Sky on, each sample also sees the sky through **Sky Rays** (64).
 - **Ray Offset**: how far rays start off the surface. 0 is automatic.
 
-The rays are cast by Cycles, in bakes of up to 1,024 directions each. The
-result shows the hours the sun is up, the samples and rays, the time taken
-and the range of each layer.
+The rays are cast by Cycles, in bakes of up to 1,024 directions each, on the
+[bake device](#bake-device). The result shows the hours the sun is up, the
+samples and rays, the time taken, the device and the range of each layer.
 
 **Limits.** Insolation is a clear-sky model (Ineichen–Perez, matching pvlib):
 no clouds and no weather. A year of sun hours per face on 10 million triangles
-takes about 2.5 minutes; a texture layer, or Merge Within 5°, brings it under
-a minute.
+takes about 2.5 minutes on the CPU; a texture layer, or Merge Within 5°, brings
+it under a minute. A GPU casts the rays several times faster: a year at
+hourly steps on 10 million faces took 23 s on an RTX 4080 SUPER against 145 s
+on the CPU.
 
 ## Shadow Study
 

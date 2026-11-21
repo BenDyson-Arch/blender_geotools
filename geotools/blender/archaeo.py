@@ -288,8 +288,10 @@ def _probe_material(name: str, image, origin, start: float) -> bpy.types.Materia
 
 def cast_rays(
     context: bpy.types.Context, origin: np.ndarray, directions: np.ndarray, start: float = 0.0
-) -> tuple[np.ndarray, np.ndarray]:
-    """Cast ``directions`` from ``origin`` in one Cycles bake; (hit, distance from origin).
+) -> tuple[np.ndarray, np.ndarray, str]:
+    """Cast ``directions`` from ``origin`` in one Cycles bake.
+
+    Returns (hit, distance from origin, the device's label).
 
     Rays begin ``start`` along their direction; the distance includes it.
     Everything that renders is an occluder, and the source objects are
@@ -302,7 +304,7 @@ def cast_rays(
     saved = _Saved.capture(context)
     run = Run()
     try:
-        setup_cycles(saved, scene)
+        device = setup_cycles(saved, scene)
         show(saved, source_objects(scene))
         # The triangles must be in the scene for Cycles to bake them, so they
         # are far below and close together: a ray would have to point almost
@@ -327,7 +329,7 @@ def cast_rays(
     if np.count_nonzero(baked[:, 2] <= 0.5):
         raise ArchaeoError("Some rays were not baked (texel layout).")
     hit = baked[:, 0] > 0.5
-    return hit, np.where(hit, baked[:, 1] + float(start), np.nan)
+    return hit, np.where(hit, baked[:, 1] + float(start), np.nan), device.label
 
 
 def _occluders(context: bpy.types.Context) -> list[bpy.types.Object]:
@@ -376,7 +378,7 @@ def compute_horizon(context: bpy.types.Context) -> horizon.HorizonProfile:
     start = float(props.ignore_within)
 
     coarse = horizon.coarse_elevations()
-    hit, distance = cast_rays(
+    hit, distance, device = cast_rays(
         context, eye, horizon.ray_directions(scene_az, coarse).astype(np.float32), start
     )
     shape = (len(true_az), len(coarse))
@@ -394,7 +396,7 @@ def compute_horizon(context: bpy.types.Context) -> horizon.HorizonProfile:
     fine_rays = 0
     if len(rows):
         fine = horizon.fine_elevations(base)
-        f_hit, f_distance = cast_rays(
+        f_hit, f_distance, device = cast_rays(
             context, eye, horizon.ray_directions(scene_az[rows], fine).astype(np.float32), start
         )
         refined = horizon.best_hits(
@@ -434,6 +436,7 @@ def compute_horizon(context: bpy.types.Context) -> horizon.HorizonProfile:
         "fine_brackets": len(rows),
         "seconds": seconds,
         "first_pass_seconds": first,
+        "device": device,
         "key": analysis.placement_key(context),
     }
     profile = horizon.make_profile(
@@ -900,8 +903,8 @@ class GEOTOOLS_OT_archaeo_horizon(bpy.types.Operator):
             peak = int(np.argmax(profile.elevation))
             return (
                 f"Horizon of {len(profile.azimuth)} azimuths in "
-                f"{profile.info['seconds']:.1f} s; highest {profile.elevation[peak]:.2f}° at "
-                f"{profile.azimuth[peak]:.1f}°"
+                f"{profile.info['seconds']:.1f} s on the {profile.info['device']}; "
+                f"highest {profile.elevation[peak]:.2f}° at {profile.azimuth[peak]:.1f}°"
             )
 
         try:
