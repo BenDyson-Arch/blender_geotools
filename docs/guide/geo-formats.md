@@ -147,7 +147,11 @@ paths, depressions) export the same way.
    - **DEM**: a height mesh from band 1, one vertex per pixel centre;
    - **Orthophoto**: the image on a plane over its footprint.
 3. For a DEM, set **Decimation**: use every *n*th pixel. The dialog shows the
-   resulting spacing and vertex count.
+   resulting spacing, vertex count and the memory the import needs. An import
+   or refresh that would need more than 80% of the free memory, or more
+   vertices than one Blender mesh holds, is refused with the smallest
+   **Decimation** that fits, so Blender is not killed mid-import. A large
+   LiDAR DEM (20,000 × 20,000 pixels) needs about 85 GiB at Decimation 1.
 4. Import.
 
 A DEM drops cells with no data, and gets UVs over the raster's extent, so an

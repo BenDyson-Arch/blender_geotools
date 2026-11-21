@@ -78,6 +78,11 @@ and the project follows semantic versioning where practical.
   is locked by another program, read-only or not a database, and **Preview
   in Browser** when the archive is not a zip, instead of showing a Python
   traceback.
+- A GeoTIFF DEM too big for the free memory is refused before it is read,
+  naming the smallest **Decimation** that fits, instead of getting Blender
+  killed; the import dialog shows the memory it needs. A grid of more than
+  about 536 million samples is refused too, where it used to overflow
+  Blender's loop count.
 ## [0.3.1] - 2026-11-15
 
 Two fixes for Blender 5.3. From 0.3.1, CI also runs the tests on Blender

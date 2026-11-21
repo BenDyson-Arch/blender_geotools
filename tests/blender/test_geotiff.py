@@ -191,6 +191,52 @@ def test_dem_import_reports_spacing_and_time() -> None:
     assert obj.geotools_link.kind == "GEOTIFF"
 
 
+def test_dem_that_would_not_fit_in_memory_is_refused() -> None:
+    """Import and Refresh estimate the memory first and name a Decimation that fits."""
+    _project()
+    sysmem = h.submodule("core.sysmem")
+    raster = h.submodule("core.raster")
+    original = sysmem.available_memory_bytes
+    z = gw.dem(64, 64)
+    with _tmpdir() as tmp:
+        path = _write(tmp / "big.tif", z)
+        grown = _write(tmp / "grown.tif", gw.dem(128, 128))
+        read_info = h.submodule("core.geotiff").read_info
+        small, large = read_info(str(path)), read_info(str(grown))
+
+        def need(info, step: int) -> int:
+            return raster.dem_import_bytes(info, step, "blender")
+
+        # Room for big.tif at Decimation 2 but not 1, and for the grown file at 3 but not 2.
+        allowed = max(need(small, 2), need(large, 3))
+        assert allowed < min(need(small, 1), need(large, 2))
+        free = int(allowed / raster.MEMORY_FRACTION) + 1
+        sysmem.available_memory_bytes = lambda: free
+        try:
+            meshes = len(bpy.data.meshes)
+            result, error, obj = _import(path, step=1)
+            assert result == {"ERROR_REPORTED"} and obj is None, error
+            assert "needs about" in error and "Use Decimation 2 or more" in error, error
+            assert len(bpy.data.meshes) == meshes and not any(i.filepath for i in bpy.data.images)
+            result, error, obj = _import(path, step=2)
+            assert result == {"FINISHED"}, error
+
+            # The file grows past what fits: the refresh is refused and nothing changes.
+            path.write_bytes(grown.read_bytes())
+            _bump_mtime(path)
+            mesh = obj.data
+            try:
+                _refresh(obj)
+            except _links().RefreshError as ex:
+                assert "Use Decimation 3 or more" in str(ex), ex
+            else:
+                raise AssertionError("refresh built a mesh that would not fit")
+            assert obj.data == mesh and len(mesh.vertices) == 32 * 32
+            assert obj.geotools_link.status == "ERROR"
+        finally:
+            sysmem.available_memory_bytes = original
+
+
 # --- orthophoto ---------------------------------------------------------------------------
 
 

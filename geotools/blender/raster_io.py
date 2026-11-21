@@ -27,11 +27,12 @@ import numpy as np
 from bpy.props import BoolProperty, EnumProperty, IntProperty, StringProperty
 from bpy_extras.io_utils import ImportHelper
 
-from ..core import crs_match, fingerprint
+from ..core import crs_match, fingerprint, sysmem
 from ..core import geotiff as core_geotiff
 from ..core import raster as core_raster
 from ..core.crs_match import DataCrs
 from ..core.data_origin import NeedsProjectOrigin
+from ..core.display import format_gib
 from ..core.geotiff import GeoTiffError, GeoTiffInfo
 from ..core.raster import RasterError
 from . import blend_paths, data_origin, links, texture_state
@@ -275,6 +276,12 @@ def ortho_material(name: str, image: bpy.types.Image, alpha: bool) -> bpy.types.
 def _dem_mesh(
     info: GeoTiffInfo, offset: tuple[float, float, float], step: int, name: str
 ) -> tuple[bpy.types.Mesh, str]:
+    """The DEM mesh and its report; RasterError first if it would not fit in memory."""
+    problem = core_raster.dem_size_problem(
+        info, step, core_geotiff.dem_route(info), sysmem.available_memory_bytes()
+    )
+    if problem is not None:
+        raise RasterError(problem)
     started = time.perf_counter()
     band = read_dem_band(info)
     read = time.perf_counter()
@@ -546,6 +553,14 @@ plane. Linked to the file, so it can be refreshed"""
             units = _units(info)
             dem.label(text=f"Spacing {sx:g}{units} x {sy:g}{units}", icon="MESH_GRID")
             dem.label(text=f"{cols:,} x {rows:,} vertices")
+            try:
+                need = core_raster.dem_import_bytes(info, self.step, core_geotiff.dem_route(info))
+            except GeoTiffError as ex:
+                col = dem.column()
+                col.alert = True
+                col.label(text=str(ex)[:80], icon="ERROR")
+            else:
+                dem.label(text=f"Needs about {format_gib(need)} of memory", icon="MEMORY")
         if info is not None:
             layout.label(text=f"{info.band_layout}, {info.compression_name}", icon="IMAGE_DATA")
             layout.label(text=f"CRS {info.crs.label() if info.crs else 'not stated'}")
