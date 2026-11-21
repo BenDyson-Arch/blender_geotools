@@ -59,6 +59,7 @@ from ..core.placement import PlacementMode
 from . import blend_paths
 from .common import extension_version, redraw_ui
 from .layers import ensure_layer, find_layer, refresh_layer, spec_from_props
+from .orientation import analysis_notes as normal_notes
 from .properties import FieldError, placement_from_props
 from .source import analysis_notes, default_source
 from .surface import SELECT_MESHES
@@ -892,6 +893,7 @@ class GEOTOOLS_OT_analysis_add(bpy.types.Operator):
         notes: list[str] = []
         try:
             objects = preset_targets(context, preset)
+            warnings = normal_warnings(context, preset, objects)
             observers = None
             if preset.id in fast.VIEWSHED:
                 fills, notes = fill_inputs(context, preset, objects)
@@ -913,6 +915,8 @@ class GEOTOOLS_OT_analysis_add(bpy.types.Operator):
         except (PresetError, ValueError, RuntimeError) as exc:
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
+        for warning in warnings:
+            self.report({"WARNING"}, warning)
         count = len(objects)
         message = (
             f"{preset.label} (fast) on {count} object{'s' * (count != 1)}, layer "
@@ -928,10 +932,13 @@ class GEOTOOLS_OT_analysis_add(bpy.types.Operator):
             return self._execute_fast(context, preset)
         try:
             objects = preset_targets(context, preset)
+            warnings = normal_warnings(context, preset, objects)
             name, notes = add_preset(context, preset, objects, name=self.name, north=self.north)
         except PresetError as exc:
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
+        for warning in warnings:
+            self.report({"WARNING"}, warning)
         count = len(objects)
         if preset.output is catalog.Output.OBJECT:
             message = f"{preset.label} on {objects[0].name}: new object {name}"
@@ -940,6 +947,16 @@ class GEOTOOLS_OT_analysis_add(bpy.types.Operator):
         self.report({"INFO"}, "; ".join([message, *notes]))
         redraw_ui(context)
         return {"FINISHED"}
+
+
+def normal_warnings(
+    context: bpy.types.Context, preset: catalog.Preset, objects: list[bpy.types.Object]
+) -> list[str]:
+    """Warnings about the normals of ``objects`` for the sky presets (Sky-View Factor and
+    Openness read the normal as pointing out of the surface); none for other presets."""
+    if preset.id not in fast.HORIZON:
+        return []
+    return normal_notes(context, objects)
 
 
 TOTALS = frozenset(

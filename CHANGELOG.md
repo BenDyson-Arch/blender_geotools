@@ -9,6 +9,12 @@ and the project follows semantic versioning where practical.
 
 ### Added
 
+- Run Checks tests each mesh's normals: faces wound against their neighbours
+  (`normals-inconsistent`), normals pointing into the surface
+  (`normals-inward`) and a mostly downward surface (`normals-down`), with the
+  Blender fix in the message. Hydrology, Sun Hours, Sky-View Factor and
+  Openness warn about the first and last in their report. See
+  [Normals](docs/guide/publish.md#normals).
 - **Least-Cost Routes** in the Analysis panel: the quickest route over one 3D
   surface with uphill and downhill costed apart, crossing faces at any angle
   (Steiner Points), and the travel time from Start to every face as a layer,
