@@ -1,9 +1,14 @@
 """Sidebar panels of the Analyses list mock-up (#157), and the Tools panel.
 
 - Analyses: the Add Analysis search field (``analyses.search_entries``), the
-  list of results (``GEOTOOLS_UL_analyses``) and, for the selected one:
-  - Inputs: a preset's modifier inputs, drawn from the modifier itself; a
-    tool's own settings with Compute; a plain layer's fields (and Bake).
+  Selected / All toggle, the list of results (``GEOTOOLS_UL_analyses``, which
+  shows the results on the selection, ``analyses.visible_flags``) and, for
+  the active row while the list shows it (``analyses.shown_item``):
+  - Inputs: Applies to (the result's meshes, active first) with Add Selected
+    and Remove Selected; a preset's modifier inputs, drawn from the active
+    mesh's modifier and kept in step on the others; a tool's own settings
+    with Compute, out of date once they change; a plain layer's fields (and
+    Bake).
   - Display: the layer's colours and Show in Viewport (``presentation``).
   - Outputs: the layers and objects it made, and Publish as Variant.
 - Tools: the interactive readings that are not layers: Measure, Sun (with
@@ -47,7 +52,8 @@ def _new_ui(context: bpy.types.Context) -> bool:
 
 
 def _item(context: bpy.types.Context):
-    return analyses.active_item(context.scene)
+    """The active result when the list shows it: what Inputs, Display and Outputs draw."""
+    return analyses.shown_item(context)
 
 
 def _error(layout, context, text: str) -> None:
@@ -86,10 +92,12 @@ class GEOTOOLS_PT_analyses(_Panel, bpy.types.Panel):
         if props.error:
             _error(layout, context, props.error)
 
+        _draw_filter(layout, context, props)
         row = layout.row()
         row.template_list("GEOTOOLS_UL_analyses", "", props, "items", props, "index", rows=4)
         col = row.column(align=True)
         col.operator("geotools.analyses_remove", text="", icon="REMOVE")
+        _draw_filter_note(layout, context, props)
 
         unlisted = analyses.unlisted_layers(scene)
         if unlisted:
@@ -106,15 +114,37 @@ class GEOTOOLS_PT_analyses(_Panel, bpy.types.Panel):
             )
 
 
-def _objects_row(layout, item) -> None:
-    objects = analyses.item_objects(item)
-    if objects:
-        more = f" +{len(objects) - 1}" if len(objects) > 1 else ""
-        text = f"{objects[0].name}{more}"
-    else:
-        text = "None"
-    value = info_row(layout, "Objects", text, icon="OBJECT_DATA" if objects else "ERROR")
-    value.operator("geotools.analyses_use_selected", text="", icon="RESTRICT_SELECT_OFF")
+def _draw_filter(layout, context, props) -> None:
+    """The list header: how many results it shows, and the Selected / All toggle."""
+    split = layout.split(factor=0.4, align=True)
+    label = split.row()
+    label.active = False
+    label.label(text=f"{sum(analyses.visible_flags(context))} of {len(props.items)}")
+    split.row(align=True).prop(props, "show", expand=True)
+
+
+def _draw_filter_note(layout, context, props) -> None:
+    """One muted line under the list when Selected shows everything."""
+    if props.show == "SELECTED" and len(props.items) and not analyses.selection_pointers(context):
+        row = layout.row()
+        row.active = False
+        row.label(text="Nothing selected: showing all", icon="INFO")
+
+
+def _applies_row(layout, context, item) -> None:
+    """``Applies to: hills (+2)``, and Add Selected / Remove Selected below it."""
+    meshes = analyses.applies_to(context.scene, item)
+    active = context.view_layer.objects.active if context.view_layer else None
+    if active in meshes:  # the active mesh first, as the modifier stack would show it
+        meshes = [active, *[o for o in meshes if o != active]]
+    col = layout.column(align=True)
+    icon = "OBJECT_DATA" if meshes else "ERROR"
+    col.label(text=f"Applies to: {analyses._summary(meshes)}", icon=icon)
+    if item.kind == "LAYER":
+        return
+    row = col.row(align=True)
+    row.operator("geotools.analyses_add_selected", icon="ADD")
+    row.operator("geotools.analyses_remove_selected", icon="REMOVE")
 
 
 class GEOTOOLS_PT_analyses_inputs(_Panel, bpy.types.Panel):
@@ -200,27 +230,24 @@ def draw_modifier_inputs(layout: bpy.types.UILayout, modifier: bpy.types.Modifie
 def _draw_preset(layout, context, item) -> None:
     preset = catalog.get(item.preset)
     if preset.output is catalog.Output.LAYER:
-        _objects_row(split_column(layout), item)
-    modifier, obj = preset_modifier(context, item)
+        _applies_row(layout, context, item)
+    modifier, _obj = preset_modifier(context, item)
     if modifier is None:
-        _error(layout, context, "The modifier is gone: Use Selected adds it again.")
+        _error(layout, context, "The modifier is gone: Add Selected puts it back.")
         return
-    if len(analyses.item_objects(item)) > 1:
-        wrapped(
-            layout,
-            context,
-            f"The modifier on {obj.name}; make another of its meshes active to edit that one.",
-            "MODIFIER",
-        )
+    count = len(analyses.item_objects(item))
+    if count > 1:
+        note = layout.row()
+        note.active = False
+        meshes = "both meshes" if count == 2 else f"all {count} meshes"
+        note.label(text=f"Edits apply to {meshes}", icon="LINKED")
     if not draw_modifier_inputs(layout, modifier):
         layout.label(text="No inputs to set", icon="INFO")
     if preset.north:
         north = "true north" if item.north == "TRUE" else "grid north (+Y)"
         layout.label(text=f"Measured from {north}", icon="ORIENTATION_GLOBAL")
-    row = layout.row(align=True)
-    row.prop(modifier, "show_viewport", text="Live", toggle=True, icon="MODIFIER")
     if preset.id in analysis_presets.TOTALS:
-        row.operator("geotools.analysis_totals", icon="INFO")
+        layout.operator("geotools.analysis_totals", icon="INFO")
 
 
 # --- a tool's settings -----------------------------------------------------------------
@@ -353,12 +380,14 @@ def result_lines(item) -> list[tuple[str, str]]:
 
 def _draw_tool(layout, context, item) -> None:
     props = analyses.tool_settings(item)
+    _applies_row(layout, context, item)
     if item.kind == "SUN_HOURS":
         wrapped(layout, context, "Date, time zone and site: Tools > Sun.", "LIGHT_SUN")
     col = split_column(layout)
-    _objects_row(col, item)
     _TOOL_DRAW[item.kind](col, context, props)
     text = "Recompute" if item.computed else "Compute"
+    if analyses.out_of_date(item):
+        wrapped(layout, context, "Inputs changed since the last run: out of date.", "FILE_REFRESH")
     big_button(layout).operator(
         "geotools.analyses_compute", text=text, icon=analyses.KIND_ICONS[item.kind]
     )
@@ -383,6 +412,7 @@ def _draw_layer(layout, context, item) -> None:
     if layer is None:
         _error(layout, context, f"Layer {item.layer!r} is gone.")
         return
+    _applies_row(layout, context, item)
     draw_layer_fields(layout, context, layer)
     if layer.domain == "TEXTURE":
         box = layout.box()

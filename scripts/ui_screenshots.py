@@ -16,9 +16,11 @@ It writes, in ``--out``:
 * ``montage_glb.png``: the same with the second build profile selected, a
   ``.glb`` profile (the metadata GLB, with the face table), exported once
   (after ``montage``, so it needs it);
-* ``analyses_preset.png``, ``analyses_tool.png``: the Analyses list (#157
-  mock-up) with Aspect, Hydrology and Contours added from its Add Analysis
-  field, Aspect and then Hydrology selected (after ``montage``);
+* ``analyses_preset.png``, ``analyses_tool.png``, ``analyses_hills.png``: the
+  Analyses list (#157 mock-up) following the selection: Aspect on the
+  terrain and a second mesh, Hills (one result), Hydrology on the terrain
+  (out of date) and Contours on Hills. The terrain active with Aspect and
+  then Hydrology selected, then Hills active (after ``montage``);
 * ``state_empty.png``, ``state_mid.png``, ``state_ready.png``: what a user
   sees with the default open and closed panels, for an empty project, one
   half set up (placed, a source, an empty layer) and the full demo scene.
@@ -1008,20 +1010,50 @@ def inner_main(argv: list[str]) -> None:
         bpy.ops.object.select_all(action="DESELECT")
         bpy.context.view_layer.objects.active = None
 
-    def build_analyses() -> None:
-        """Aspect, Hydrology and Contours added from the Add Analysis field, two computed."""
+    def hills() -> bpy.types.Object:
+        """A second, smaller synthetic mesh beside the terrain (not in the source)."""
+        mesh = bpy.data.meshes.new("Hills")
+        n = 40
+        xs = np.linspace(0.0, 80.0, n)
+        x, y = np.meshgrid(xs, xs)
+        z = 6 * np.sin(x / 13) * np.cos(y / 17)
+        verts = np.stack([x + 120.0, y - 40.0, z], -1).reshape(-1, 3)
+        i, j = np.meshgrid(np.arange(n - 1), np.arange(n - 1))
+        a = (j * n + i).ravel()
+        quads = np.stack([a, a + 1, a + n + 1, a + n], -1)
+        mesh.from_pydata(verts.tolist(), [], quads.tolist())
+        obj = bpy.data.objects.new("Hills", mesh)
+        bpy.context.scene.collection.objects.link(obj)
+        return obj
+
+    def select_only(*objects) -> None:
+        for obj in bpy.context.view_layer.objects:
+            obj.select_set(obj in objects)
+        bpy.context.view_layer.objects.active = objects[0] if objects else None
+
+    def add_analysis(text: str) -> None:
+        props = bpy.context.scene.geotools_analyses
+        props.add_search = text
+        if props.error:
+            print(f"UI-SHOTS add {text}: {props.error}", flush=True)
+        elif props.items[props.index].kind != "PRESET":
+            run_op(bpy.ops.geotools.analyses_compute)
+
+    def build_analyses():
+        """Aspect on the terrain and Hills (one result), Hydrology on the terrain (then out
+        of date), Contours on Hills: added from the Add Analysis field."""
         scene = bpy.context.scene
+        terrain_obj = scene.geotools.source_collection.objects[0]
+        hills_obj = hills()
+        select_only(terrain_obj, hills_obj)
+        add_analysis("Terrain > Aspect")
+        select_only(terrain_obj)
+        add_analysis("Water > Hydrology")
         props = scene.geotools_analyses
-        obj = scene.geotools.source_collection.objects[0]
-        obj.select_set(True)
-        bpy.context.view_layer.objects.active = obj
-        for text in ("Terrain > Aspect", "Water > Hydrology", "Lines > Contours"):
-            props.add_search = text
-            if props.error:
-                print(f"UI-SHOTS add {text}: {props.error}", flush=True)
-            if props.items[props.index].kind != "PRESET":
-                run_op(bpy.ops.geotools.analyses_compute)
-        bpy.ops.object.select_all(action="DESELECT")
+        props.items[props.index].hydrology.min_depth = 0.05  # out of date
+        select_only(hills_obj)
+        add_analysis("Lines > Contours")
+        return terrain_obj, hills_obj
 
     def select_analysis(name: str) -> None:
         props = bpy.context.scene.geotools_analyses
@@ -1148,9 +1180,18 @@ def inner_main(argv: list[str]) -> None:
         if "analyses" in states and "montage" in states:
             props = bpy.context.scene.geotools
             props.build_profile_index = 0
-            build_analyses()
-            for name, shot in (("Aspect", "analyses_preset"), ("Hydrology", "analyses_tool")):
-                select_analysis(name)
+            terrain_obj, hills_obj = build_analyses()
+            analyses = mod("blender.analyses")
+            for active, name, shot in (
+                (terrain_obj, "Aspect", "analyses_preset"),
+                (terrain_obj, "Hydrology", "analyses_tool"),
+                (hills_obj, None, "analyses_hills"),
+            ):
+                select_only(active)
+                if name is None:
+                    analyses.follow_active(bpy.context)  # as the msgbus watch does
+                else:
+                    select_analysis(name)
                 yield 1.0
                 yield from capture(shot)
 

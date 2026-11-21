@@ -165,3 +165,187 @@ def test_unlisted_layers_are_listed_and_removed() -> None:
     h.draw(_ui().GEOTOOLS_PT_analyses_inputs)
     assert bpy.ops.geotools.analyses_remove() == {"FINISHED"}
     assert not len(props.items) and "cover" not in h.project().layers
+
+
+# --- following the selection (Ben's feedback on the first mock-up) ---------------------
+
+
+def _only(*objects: bpy.types.Object) -> None:
+    """Select exactly ``objects``, the first active (as a click in the viewport does)."""
+    for obj in bpy.context.view_layer.objects:
+        obj.select_set(obj in objects)
+    bpy.context.view_layer.objects.active = objects[0] if objects else None
+
+
+def _add(text: str) -> object:
+    props = bpy.context.scene.geotools_analyses
+    props.add_search = text
+    assert not props.error, props.error
+    return props.items[props.index]
+
+
+def _value(modifier, name: str):
+    return h.submodule("blender.analysis_presets").get_input(modifier, name)
+
+
+def test_the_list_follows_the_selection() -> None:
+    _reset()
+    an = _an()
+    hills, other = _bowl("hills"), _bowl("other")
+    _only(hills)
+    slope = _add("Terrain > Slope")
+    _only(other)
+    hydro = _add("Water > Hydrology")
+    props = bpy.context.scene.geotools_analyses
+    names = [i.name for i in props.items]
+    assert names == ["Slope", "Hydrology"], names
+
+    _only(hills)
+    assert an.visible_flags(bpy.context) == [True, False]
+    _only(other)
+    assert an.visible_flags(bpy.context) == [False, True]
+    _only()  # nothing selected: everything, and the header says so
+    assert an.visible_flags(bpy.context) == [True, True]
+    labels = h.label_text(h.draw(_ui().GEOTOOLS_PT_analyses))
+    assert "Nothing selected" in labels, labels
+    _only(hills)
+    props.show = "ALL"
+    assert an.visible_flags(bpy.context) == [True, True]
+    props.show = "SELECTED"
+
+    # The panels below the list draw the active row only while the list shows it.
+    props.index = 1  # Hydrology, on other
+    assert an.shown_item(bpy.context) is None
+    assert not _ui().GEOTOOLS_PT_analyses_inputs.poll(bpy.context)
+    # The UIList filters the same way.
+    shown, _order = an.GEOTOOLS_UL_analyses.filter_items(
+        type("L", (), {"filter_name": "", "bitflag_filter_item": 1 << 30})(),
+        bpy.context,
+        props,
+        "items",
+    )
+    assert shown == [1 << 30, 0]
+    assert slope.kind == "PRESET" and hydro.kind == "HYDROLOGY"
+
+
+def test_the_active_row_follows_the_active_mesh() -> None:
+    _reset()
+    an = _an()
+    hills, other = _bowl("hills"), _bowl("other")
+    _only(hills)
+    _add("Terrain > Slope")
+    _add("Water > Hydrology")  # hydrology on hills
+    _only(other)
+    _add("Terrain > Aspect")
+    _add("Water > Hydrology")  # a second hydrology, on other
+    props = bpy.context.scene.geotools_analyses
+    names = [i.name for i in props.items]
+    assert names == ["Slope", "Hydrology", "Aspect", "Hydrology"], names
+
+    _only(hills)
+    props.index = 1  # hills' Hydrology
+    _only(other)
+    an.follow_active(bpy.context)
+    assert props.index == 3  # the same kind on the new mesh
+    props.index = 2  # Aspect, which hills does not have
+    _only(hills)
+    an.follow_active(bpy.context)
+    assert props.index == 0  # so hills' first
+    _only(hills)
+    an.follow_active(bpy.context)
+    assert props.index == 0  # unchanged while it applies
+
+
+def test_one_preset_result_on_several_meshes_stays_in_step() -> None:
+    _reset()
+    an = _an()
+    hills, other = _bowl("hills"), _bowl("other")
+    _only(hills)
+    aspect = _add("Terrain > Aspect")
+    ((_, first),) = an.preset_modifiers_of(aspect)
+    h.submodule("blender.analysis_presets").set_input(first, "Flat Slope", 2.5)
+
+    _only(other)  # another mesh: Add Selected puts it on with the result's inputs
+    props = bpy.context.scene.geotools_analyses
+    props.show = "ALL"  # the result is on hills, not the selection, until it is added
+    props.index = 0
+    assert bpy.ops.geotools.analyses_add_selected() == {"FINISHED"}
+    props.show = "SELECTED"
+    assert [o.object for o in aspect.objects] == [hills, other]
+    pairs = dict(an.preset_modifiers_of(aspect))
+    assert _value(pairs[other], "Flat Slope") == 2.5
+    labels = h.label_text(h.draw(_ui().GEOTOOLS_PT_analyses_inputs))
+    assert "Applies to: other (+1)" in labels, labels  # the active mesh first
+    assert "Edits apply to both meshes" in labels, labels
+
+    # An edit on the active mesh's modifier reaches the other one.
+    h.submodule("blender.analysis_presets").set_input(pairs[other], "Smoothing", 3)
+    assert an.sync_preset_inputs(bpy.context.scene, other, None) == 1
+    assert _value(pairs[hills], "Smoothing") == 3
+
+    assert bpy.ops.geotools.analyses_remove_selected() == {"FINISHED"}
+    assert [o.object for o in aspect.objects] == [hills]
+    assert not h.submodule("blender.analysis_presets").preset_modifiers(other)
+
+
+def test_a_tool_result_says_when_it_is_out_of_date() -> None:
+    _reset()
+    an = _an()
+    _only(_bowl())
+    item = _add("Water > Hydrology")
+    assert not an.out_of_date(item)  # not run yet: Not run, not out of date
+    assert bpy.ops.geotools.analyses_compute() == {"FINISHED"}
+    assert not an.out_of_date(item)
+    item.hydrology.min_depth = 0.2
+    assert an.out_of_date(item)
+    labels = h.label_text(h.draw(_ui().GEOTOOLS_PT_analyses_inputs))
+    assert "out of date" in labels, labels
+    assert bpy.ops.geotools.analyses_compute() == {"FINISHED"}
+    assert not an.out_of_date(item)
+
+
+def test_paths_fold_into_movement_and_water() -> None:
+    an = _an()
+    groups = {e.key: e.group for e in an.ENTRIES}
+    assert groups["preset:flow_path"] == "Water"
+    assert groups["preset:least_cost_path"] == "Movement"
+    assert "Paths" not in set(groups.values())
+    order = [an.GROUP_ORDER.index(e.group) for e in an.ENTRIES]
+    assert order == sorted(order)
+
+
+def test_removing_a_result_deletes_the_objects_it_made() -> None:
+    _reset()
+    _only(_bowl())
+    item = _add("Lines > Contours")
+    assert bpy.ops.geotools.analyses_compute() == {"FINISHED"}, item.contours.contour_error
+    made = [o.object.name for o in item.outputs]
+    assert made, "contours made no object"
+    assert bpy.ops.geotools.analyses_remove() == {"FINISHED"}
+    assert not any(name in bpy.data.objects for name in made)
+
+
+def test_the_list_filter_stays_cheap() -> None:
+    """A few hundred results on a few meshes each: well under a frame, uncached."""
+    import time
+
+    _reset()
+    an = _an()
+    meshes = [_bowl(f"m{i}", n=2) for i in range(30)]
+    props = bpy.context.scene.geotools_analyses
+    for i in range(300):
+        item = props.items.add()
+        item.kind, item.name = "HYDROLOGY", f"r{i}"
+        for obj in meshes[i % 30 : i % 30 + 3]:
+            item.objects.add().object = obj
+    _only(meshes[0])
+    an.invalidate()
+    start = time.perf_counter()
+    flags = an.visible_flags(bpy.context)
+    seconds = time.perf_counter() - start
+    print(f"VALIDATION analyses_filter {{'results': 300, 'seconds': {seconds:.4f}}}")
+    assert sum(flags) == 10
+    assert seconds < 0.05, seconds
+    start = time.perf_counter()
+    an.visible_flags(bpy.context)  # cached: same selection, list and depsgraph
+    assert time.perf_counter() - start < seconds
