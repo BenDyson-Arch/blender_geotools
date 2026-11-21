@@ -57,8 +57,9 @@ def cesium_problem(cesium_dir: str) -> str | None:
 def extract_archive(archive: Path, dest: Path) -> Path:
     """Extract a ``.3tz`` into ``dest`` (emptied first); return ``dest``.
 
-    Refuses absolute or parent-relative member names. The archive index member
-    is skipped: the extracted directory is a plain tileset.
+    Refuses absolute or parent-relative member names, and raises
+    :class:`PreviewError` for a file that is not a zip archive. The archive
+    index member is skipped: the extracted directory is a plain tileset.
     """
     archive = Path(archive)
     if not archive.is_file():
@@ -66,7 +67,16 @@ def extract_archive(archive: Path, dest: Path) -> Path:
     if dest.exists():
         shutil.rmtree(dest)
     dest.mkdir(parents=True)
-    root = dest.resolve()
+    try:
+        _extract_members(archive, dest.resolve())
+    except zipfile.BadZipFile as ex:
+        raise PreviewError(f"{archive.name} is not a readable .3tz archive ({ex})") from None
+    if not (dest / "tileset.json").is_file():
+        raise PreviewError(f"{archive.name} has no tileset.json")
+    return dest
+
+
+def _extract_members(archive: Path, root: Path) -> None:
     with zipfile.ZipFile(archive) as zf:
         for info in zf.infolist():
             name = info.filename
@@ -81,9 +91,6 @@ def extract_archive(archive: Path, dest: Path) -> Path:
             target.parent.mkdir(parents=True, exist_ok=True)
             with zf.open(info) as src, target.open("wb") as out:
                 shutil.copyfileobj(src, out, 1 << 20)
-    if not (dest / "tileset.json").is_file():
-        raise PreviewError(f"{archive.name} has no tileset.json")
-    return dest
 
 
 def free_port(host: str = "127.0.0.1") -> int:

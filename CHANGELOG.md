@@ -74,6 +74,10 @@ and the project follows semantic versioning where practical.
   Cleanup or painting), or replaces a mesh outside Object Mode or during a
   render or bake: it says why and changes nothing. **Auto** waits instead,
   and refreshes once you leave that state.
+- **Write Back** and **Export Vectors** say in plain words when a GeoPackage
+  is locked by another program, read-only or not a database, and **Preview
+  in Browser** when the archive is not a zip, instead of showing a Python
+  traceback.
 ## [0.3.1] - 2026-11-15
 
 Two fixes for Blender 5.3. From 0.3.1, CI also runs the tests on Blender

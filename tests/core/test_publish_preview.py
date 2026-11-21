@@ -54,6 +54,14 @@ def test_extract_needs_tileset(tmp_path: Path) -> None:
         pv.extract_archive(tmp_path / "missing.3tz", tmp_path / "out")
 
 
+def test_extract_refuses_a_file_that_is_not_a_zip(tmp_path: Path) -> None:
+    """Preview catches PreviewError; a raw BadZipFile would be a traceback popup."""
+    archive = tmp_path / "site.3tz"
+    archive.write_bytes(b"not a zip archive")
+    with pytest.raises(pv.PreviewError, match=r"site\.3tz is not a readable \.3tz archive"):
+        pv.extract_archive(archive, tmp_path / "out")
+
+
 def test_problems(tmp_path: Path) -> None:
     assert "preferences" in pv.cli_problem("")
     assert "does not exist" in pv.cli_problem(str(tmp_path / "nope"))
