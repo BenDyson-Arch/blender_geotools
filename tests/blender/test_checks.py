@@ -301,7 +301,7 @@ def test_panels_order_and_draw() -> None:
     assert children == {
         "GEOTOOLS_PT_project": ["CRS Details"],
         "GEOTOOLS_PT_analyses": ["Inputs", "Display", "Details", "Outputs"],
-        "GEOTOOLS_PT_analysis": ["Measure", "Sun", "Archaeoastronomy"],  # Tools
+        "GEOTOOLS_PT_analysis": ["Measure", "Sun", "Horizon and Sky Events"],  # Tools
         "GEOTOOLS_PT_analysis_sun": ["Shadow Study"],
         "GEOTOOLS_PT_textures": ["Paint", "Cleanup", "Balance"],
         "GEOTOOLS_PT_checks": ["Images"],
@@ -320,7 +320,7 @@ def test_panels_order_and_draw() -> None:
         "Tools",
         "Sun",
         "Shadow Study",
-        "Archaeoastronomy",
+        "Horizon and Sky Events",
         "Textures",
         "Cleanup",
         "Balance",

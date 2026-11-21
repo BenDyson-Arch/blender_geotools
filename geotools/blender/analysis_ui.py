@@ -9,7 +9,7 @@
   - Sun: date, time and time zone, site, Place Sun and Animate Day, and the
     last sun position with the convergence applied.
     - Shadow Study: Sun light keys at the equinoxes and solstices.
-  - Archaeoastronomy (``archaeo_ui``).
+  - Horizon and Sky Events (``archaeo_ui``).
 
 The analyses that make layers (presets, Fast Bakes, Hydrology, Sun Hours,
 Least-Cost Routes, Contours and Sections) are results in the Analyses list
@@ -53,7 +53,7 @@ def _copy_button(layout: bpy.types.UILayout, what: str) -> None:
 
 
 class GEOTOOLS_PT_analysis(_AnalysisPanel, bpy.types.Panel):
-    """Interactive readings that are not layers: Measure, Sun and Archaeoastronomy."""
+    """Interactive readings that are not layers: Measure, Sun and Horizon and Sky Events."""
 
     bl_idname = "GEOTOOLS_PT_analysis"  # kept from when it was the Analysis panel
     bl_label = "Tools"

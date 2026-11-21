@@ -1,10 +1,10 @@
-# Validation: archaeoastronomy
+# Validation: horizon and sky events
 
 Checked on 2026-11-14 in Blender 5.2.4 with rusty-tiles 0.4.1. Two bugs were
 found and fixed; four points were left for a decision, and all four are
 [resolved](#decisions-resolved).
 
-This covers the [Archaeoastronomy](../guide/analysis.md#archaeoastronomy)
+This covers the [Horizon and Sky Events](../guide/analysis.md#horizon-and-sky-events)
 sub-panel: the horizon
 profile (`geotools/analysis/horizon.py`, the Cycles bake in
 `geotools/blender/archaeo.py`), the Moon (`moon.py`, `_moon_tables.py`), and

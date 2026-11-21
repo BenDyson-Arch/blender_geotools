@@ -1,13 +1,13 @@
 """Where the sun is: NREL's Solar Position Algorithm, vectorised over time.
 
 bpy-free and numpy only, so it can be tested with plain pytest and reused by
-the other analysis tools (sun hours, insolation, archaeoastronomy), which need many
+the other analysis tools (sun hours, insolation, horizon and sky events), which need many
 time steps: a year at one-minute steps is about half a million positions and
 takes well under a second.
 
 SPA rather than NOAA's spreadsheet formulation (Meeus' low-precision method,
 good to about 0.01 degrees near the present): SPA is exact to the paper over
-the dates archaeoastronomy needs, and fast enough vectorised.
+the dates horizon and sky events need, and fast enough vectorised.
 
 Algorithm: Reda and Andreas, "Solar Position Algorithm for Solar Radiation
 Applications", NREL/TP-560-34302 (2003, revised 2008). The paper states an
@@ -22,7 +22,7 @@ is set by the inputs, not the algorithm:
 - Delta T (TT - UT) comes from the Espenak and Meeus (2006) polynomials unless
   given. A few seconds of error moves the sun by about 0.00005 degrees today;
   for ancient dates its uncertainty grows to minutes or hours of rotation, which
-  matters for archaeoastronomy, so pass a better value there.
+  matters for ancient rise and set events, so pass a better value there.
 - Refraction uses the paper's formula with the given pressure and temperature,
   and is only applied above the horizon (as in the paper). Near the horizon
   the real refraction varies by a fraction of a degree with the weather.
@@ -597,7 +597,7 @@ def mean_obliquity(jde: np.ndarray | float) -> np.ndarray:
     and Wallace 2011) it is within 1" from 1000 BCE to 6000 CE, 5.5" at
     3000 BCE, 17.5" at 5000 BCE and 42" at 8000 BCE (0.012°, about 0.02° in a
     solstice sunrise azimuth at 51° N), and 26" at 12000 CE
-    (docs/validation/archaeoastronomy.md). Raises ValueError beyond the
+    (docs/validation/horizon-and-sky-events.md). Raises ValueError beyond the
     10,000 years.
     """
     jde = np.atleast_1d(np.asarray(jde, dtype=np.float64))

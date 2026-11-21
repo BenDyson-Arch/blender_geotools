@@ -166,7 +166,7 @@ class AnalysesError(RuntimeError):
 
 GROUP_SHORT = {
     catalog.Category.TERRAIN: "Terrain",
-    catalog.Category.ARCHAEOLOGY: "Archaeology",
+    catalog.Category.ARCHAEOLOGY: "Relief and Sky",
     catalog.Category.VISIBILITY: "Visibility",
     catalog.Category.CHANGE: "Change",
     catalog.Category.VOLUMES: "Volumes",
@@ -179,7 +179,7 @@ PRESET_GROUP = {"flow_path": "Water", "least_cost_path": "Movement"}
 
 GROUP_ORDER = (
     "Terrain",
-    "Archaeology",
+    "Relief and Sky",
     "Visibility",
     "Change",
     "Volumes",

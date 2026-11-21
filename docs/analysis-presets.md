@@ -1,6 +1,6 @@
 # Analysis presets
 
-The presets cover terrain shape, archaeological visualisation, visibility,
+The presets cover terrain shape, relief and sky visualisation, visibility,
 change and distance, volumes, and paths and flow. Sky-view factor, openness
 and the cumulative viewshed also have a [fast (bake) path](#fast-bake-paths)
 for large meshes. For meshes with overhangs, [Sky Visibility, Sky View
@@ -226,7 +226,7 @@ the mesh and building the samples, which the GPU does not change.
   without writing the user's preferences (which would outlive the extension),
   so GeoTools appends from the bundled file directly. The presets are also
   marked as assets in one catalog per category (*GeoTools/Terrain Shape*,
-  *GeoTools/Archaeological Visualisation*, *GeoTools/Visibility*,
+  *GeoTools/Relief and Sky*, *GeoTools/Visibility*,
   *GeoTools/Change and Distance*, *GeoTools/Volumes* and *GeoTools/Paths and
   Flow*; `blender_assets.cats.txt` beside the file): add the extension's `assets` folder as an asset library in the
   preferences to drag them from the Asset Browser.
@@ -456,7 +456,7 @@ Riley et al. (1999), as `gdaldem TRI` computes it for land:
 Window (default 0.05 m). On a plane of slope β it is `w tan β √6`. No data
 within one window of the edge.
 
-## Archaeological visualisation
+## Relief and sky visualisation
 
 ### Local Relief Model (`local_relief`, CORNER, m)
 
@@ -538,7 +538,7 @@ sky, each standing for the same solid angle (the sky set sun hours' diffuse
 light uses). Only directions in front of the face are cast: the face itself
 hides the rest. Nothing is assumed about the surface, so overhangs, walls,
 ceilings and undercuts are counted as they are. Bake only (Add Analysis ▸
-*Archaeology > Sky Visibility* and so on), with the [fast path's](#fast-bake-paths) occluders and
+*Relief and Sky > Sky Visibility* and so on), with the [fast path's](#fast-bake-paths) occluders and
 provenance; display range 0–1, greys.
 
 - **Sky Visibility**: misses / Rays, the share of the sky's solid angle seen

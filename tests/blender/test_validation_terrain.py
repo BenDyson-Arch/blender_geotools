@@ -1,4 +1,4 @@
-"""Terrain validation: the terrain-shape and archaeological-visualisation presets.
+"""Terrain validation: the terrain-shape and relief and sky presets.
 
 Each preset runs (as a Geometry Nodes modifier, or its fast bake path) on
 synthetic meshes and is compared with closed-form answers and with GDAL 3.12,

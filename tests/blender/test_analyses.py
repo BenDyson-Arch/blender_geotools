@@ -127,7 +127,7 @@ def test_the_picker_lists_presets_fast_bakes_tools_and_layers() -> None:
     ):
         assert key in keys, key
     texts = [e.text for e in an.search_entries("sky")]
-    assert "Archaeology > Sky Visibility" in texts, texts
+    assert "Relief and Sky > Sky Visibility" in texts, texts
     assert next(e.key for e in an.search_entries("water hydro")) == "tool:HYDROLOGY"
     assert not an.search_entries("no such analysis")
     assert len({e.text for e in an.ENTRIES}) == len(an.ENTRIES)  # the field stores the text
@@ -294,7 +294,7 @@ def test_a_fast_bake_result_computes_with_its_own_inputs() -> None:
     _reset()
     an = _an()
     _only(_bowl("hills", n=6))
-    (item,) = _add("Archaeology > Sky Visibility")
+    (item,) = _add("Relief and Sky > Sky Visibility")
     assert (item.kind, item.preset, item.layer) == ("FAST", "sky_visibility", "sky_visibility")
     assert not item.computed
     item.fast.rays = 32
@@ -306,7 +306,7 @@ def test_a_fast_bake_result_computes_with_its_own_inputs() -> None:
     item.fast.rays = 64
     assert an.out_of_date(item)
 
-    (live,) = _add("Archaeology > Sky-View Factor (Fast Bake)")
+    (live,) = _add("Relief and Sky > Sky-View Factor (Fast Bake)")
     assert live.layer == "sky_view_factor_fast"
 
 
@@ -466,4 +466,42 @@ def test_a_file_from_before_the_list_is_migrated_on_open() -> None:
     contours = next(i for i in props.items if i.kind == "CONTOURS")
     assert contours.outputs and contours.computed
     assert not any(i.kind == "LAYER" and i.layer == "slope" for i in props.items), rows
+    h.reset_scene()
+
+
+def test_a_file_with_the_old_group_and_panel_names_still_loads() -> None:
+    """Relief and Sky was Archaeology (Archaeological Visualisation) and Horizon and Sky
+    Events was Archaeoastronomy. Only labels changed: the category member, preset ids,
+    operators and stored properties keep their names, so a file saved with a preset of
+    that group and the panel's settings opens with both, under the new names."""
+    _reset()
+    catalog = h.submodule("analysis.presets")
+    hills = _bowl("hills")
+    _only(hills)
+    assert bpy.ops.geotools.analysis_add(preset="sky_view_factor") == {"FINISHED"}
+    bpy.context.scene.geotools_analysis.archaeo.eye_height = 1.75
+    props = _props()
+    props.items.clear()  # saved before the list
+    props.version = 0
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "old_names.blend"
+        assert bpy.ops.wm.save_as_mainfile(filepath=str(path), copy=True) == {"FINISHED"}
+        assert bpy.ops.wm.open_mainfile(filepath=str(path), load_ui=False) == {"FINISHED"}
+    item = next(i for i in _props().items if i.preset == "sky_view_factor")
+    assert item.object.name == "hills" and item.kind == "PRESET"
+    preset = _an().preset_of(item)
+    assert preset.category is catalog.Category.ARCHAEOLOGY  # the stored member
+    assert catalog.CATEGORY_LABELS[preset.category] == "Relief and Sky"
+    assert "Relief and Sky > Sky-View Factor" in {e.text for e in _an().ENTRIES}
+    archaeo = bpy.context.scene.geotools_analysis.archaeo
+    assert abs(archaeo.eye_height - 1.75) < 1e-6
+    panel = h.submodule("blender.archaeo_ui").GEOTOOLS_PT_analysis_archaeo
+    assert panel.bl_idname == "GEOTOOLS_PT_analysis_archaeo"
+    assert (panel.bl_label, panel.bl_parent_id) == (
+        "Horizon and Sky Events",
+        "GEOTOOLS_PT_analysis",
+    )
+    assert "eye_height" in h.props_drawn(h.draw(panel))
+    for name in ("archaeo_horizon", "archaeo_events", "archaeo_sightlines"):
+        assert h.operator_available(f"geotools.{name}"), name
     h.reset_scene()

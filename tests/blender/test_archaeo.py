@@ -1,4 +1,4 @@
-"""Archaeoastronomy in Blender (``blender.archaeo``): horizon, events, sightlines, alignments.
+"""Horizon and Sky Events in Blender (``blender.archaeo``): horizon, events, sightlines, alignments.
 
 The terrain is synthetic and chosen so the horizon is known in closed form.
 An east-west ridge with a flat top at height H whose near face runs along

@@ -495,8 +495,8 @@ regression tests.
    the June day at 51° N is 4.0 minutes shorter than GeoTools counted. The
    clear-sky fixture now gives pvlib the site's pressure (only its 1,500 m
    site changes: DNI 8.8177 → 8.8119 kWh/m², which GeoTools matches to
-   10⁻⁸). The archaeoastronomy events do the same
-   ([archaeoastronomy.md, decision 4](archaeoastronomy.md#decisions-resolved)).
+   10⁻⁸). The rise and set events of Horizon and Sky Events do the same
+   ([horizon-and-sky-events.md, decision 4](horizon-and-sky-events.md#decisions-resolved)).
 3. **Over a Day strength between keys.** The strength was keyed LINEAR, so
    with a Frame Step of 4 the three frames between the last key with the sun
    up and the first with it down had 0.75, 1.5 and 2.25 of a strength of 3.

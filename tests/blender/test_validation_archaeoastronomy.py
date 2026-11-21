@@ -9,7 +9,7 @@
 * The dip of the horizon over a level plain: √(2 e (1 - k) / R).
 * A near crest just below a farther range that curvature lowers beneath it.
 
-See docs/validation/archaeoastronomy.md.
+See docs/validation/horizon-and-sky-events.md.
 """
 
 from __future__ import annotations

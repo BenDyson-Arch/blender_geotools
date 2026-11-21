@@ -270,7 +270,7 @@ def plan(context: bpy.types.Context) -> Plan:
     from .archaeo import sun_hours_horizon  # archaeo builds on this module
 
     profile = sun_hours_horizon(context)
-    if profile is not None:  # the far horizon from archaeoastronomy, raised to Horizon
+    if profile is not None:  # the far horizon from Horizon and Sky Events, raised to Horizon
         azimuths, elevations = profile.as_pair()
         horizon = (azimuths, np.maximum(elevations, float(props.horizon)))
     sun_steps = core.sun_steps(

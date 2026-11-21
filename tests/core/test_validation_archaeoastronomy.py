@@ -1,9 +1,9 @@
-"""Validation of the archaeoastronomy maths against independent references.
+"""Validation of the horizon and sky events maths against independent references.
 
 The reference values are in tests/data/validation/archaeoastronomy/, made by
 scripts/validation/archaeoastronomy/ (Skyfield 1.53 with JPL DE440s, JPL
 DE441 through jplephem 2.23 and ERFA 2.0.1.5, astropy 7.1.0); see
-docs/validation/archaeoastronomy.md for the cases, the tolerances and why.
+docs/validation/horizon-and-sky-events.md for the cases, the tolerances and why.
 The closed-form cases need no reference file. The Blender side (the horizon
 bake) is tests/blender/test_validation_archaeoastronomy.py.
 """

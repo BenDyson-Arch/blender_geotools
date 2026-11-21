@@ -22,7 +22,7 @@ What it does, in three stages (the same file runs in each):
      relief, since the 60 m demo is nearly flat) as the source collection, for
      the analyses: the Slope preset with contours, hydrology flow paths, Publish
      of the slope variant (``hills.slope.3tz``), solstice and lunar sightlines
-     from the hilltop enclosure (Archaeoastronomy) and a viewshed from the
+     from the hilltop enclosure (Horizon and Sky Events) and a viewshed from the
      ridge, lit by a low sun so the relief reads under the colours.
 
    Each shot shows only the GeoTools panels it is about, in a fresh workspace (a

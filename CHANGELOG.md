@@ -48,8 +48,11 @@ and the project follows semantic versioning where practical.
   stack, it lists the active mesh's analyses and layers, added from one
   searchable **Add Analysis** field (presets, Fast Bakes, tools, layers),
   each with its own inputs and **Recompute**. Measure, Sun and
-  Archaeoastronomy move to **Tools**. Older files are listed when opened.
-  See [Analysis](docs/guide/analysis.md).
+  Horizon and Sky Events move to **Tools**. Older files are listed when
+  opened. See [Analysis](docs/guide/analysis.md).
+
+- The Archaeology group is now **Relief and Sky**, and Archaeoastronomy is
+  **Horizon and Sky Events**.
 
 - Analysis acts on the selected meshes; the source collection only decides
   what is published, and is set from the first mesh you analyse if unset.

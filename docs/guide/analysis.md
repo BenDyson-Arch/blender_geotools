@@ -14,7 +14,7 @@ Nodes preset you can open and edit. They sit in two panels of the sidebar:
   as GeoPackage or GeoJSON.
 - **Tools**, closed by default, holds the readings that are not layers:
   [Measure](#measure), [Sun](#sun) (with [Shadow Study](#shadow-study)) and
-  [Archaeoastronomy](#archaeoastronomy).
+  [Horizon and Sky Events](#horizon-and-sky-events).
 
 **What the tools need:**
 
@@ -74,7 +74,7 @@ The entries are named *Group > Name*:
 | Group | Entries |
 |---|---|
 | Terrain | Slope, Slope (Percent), Aspect, Aspect (True North), Profile Curvature, Plan (Tangential) Curvature, Mean Curvature, Rugosity, Topographic Position (TPI), Ruggedness (TRI) |
-| Archaeology | Local Relief Model; Sky-View Factor, Positive Openness and Negative Openness, each also as a Fast Bake; Sky Visibility, Sky View (Cosine) and Openness (3D), which are only baked |
+| Relief and Sky | Local Relief Model; Sky-View Factor, Positive Openness and Negative Openness, each also as a Fast Bake; Sky Visibility, Sky View (Cosine) and Openness (3D), which are only baked |
 | Visibility | Viewshed, Cumulative Viewshed, Cumulative Viewshed (Fast Bake), Intervisibility, Line of Sight |
 | Change | Distance to Surface, Distance to Feature |
 | Volumes | Cut and Fill, Closed Volume |
@@ -277,7 +277,7 @@ The options that matter:
   faster.
 - **Horizon**: the elevation of the far horizon in every direction, for
   terrain beyond the scene. **Use Horizon Profile** uses the profile from
-  [Archaeoastronomy](#archaeoastronomy) instead, by azimuth.
+  [Horizon and Sky Events](#horizon-and-sky-events) instead, by azimuth.
 - **Linke Turbidity** (3) and **Diffuse Sky**: the clear-sky model. With
   Diffuse Sky on, each sample also sees the sky through **Sky Rays** (64).
 - **Ray Offset**: how far rays start off the surface. 0 is automatic.
@@ -417,7 +417,7 @@ contours of 10 million triangles take about 6 seconds.
 
 The **Tools** panel sits below Analyses and is closed by default. Its
 sub-panels are **Measure**, **Sun** (with **Shadow Study** inside it) and
-**Archaeoastronomy**.
+**Horizon and Sky Events**.
 
 ### Measure
 
@@ -501,7 +501,7 @@ Sun sub-panel's year, one frame per moment, with timeline markers.
 3. Press **Set Up Shadow Study**.
 4. Render the frames it lists.
 
-### Archaeoastronomy
+### Horizon and Sky Events
 
 Finds where the sun and Moon rise and set on the real skyline, for any epoch
 within 10,000 years of 2000, and checks alignments against them.
@@ -556,7 +556,7 @@ weather moves refraction at the horizon by several arc minutes either way.
   line of stones you drew, and gives its true azimuth both ways, the nearest
   events and the declination it implies. That declination is for the centre
   of the sun or a star with no parallax: the sun's 8.8″ is left out, as is
-  usual in archaeoastronomy. For the Moon, add its parallax (about 0.95°)
+  usual for rise and set azimuths. For the Moon, add its parallax (about 0.95°)
   yourself, or compare azimuths with the events, which include it.
 
 **Limits.** The horizon is only as good as the terrain in the scene. Beyond

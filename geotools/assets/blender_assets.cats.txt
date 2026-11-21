@@ -4,7 +4,7 @@
 VERSION 1
 
 7d1f6a52-3c1e-4f0b-9a57-2a8e5c4b6f01:GeoTools/Terrain Shape:GeoTools-Terrain Shape
-b3c9e2d4-8a7f-4e61-b5d0-6f1a2c3e4d02:GeoTools/Archaeological Visualisation:GeoTools-Archaeological Visualisation
+b3c9e2d4-8a7f-4e61-b5d0-6f1a2c3e4d02:GeoTools/Relief and Sky:GeoTools-Relief and Sky
 4e8a1c27-95d3-4b6f-8e02-7c5d9a1b3f03:GeoTools/Visibility:GeoTools-Visibility
 c2f7b9e1-3a4d-4c58-9f16-0d8e2b7a5c04:GeoTools/Change and Distance:GeoTools-Change and Distance
 9a3d5e82-1f6c-4e07-b4a9-5c2e8d1f7b05:GeoTools/Volumes:GeoTools-Volumes

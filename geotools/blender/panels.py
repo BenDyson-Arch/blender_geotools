@@ -38,7 +38,7 @@ Naming rules for everything the sidebar shows:
   - Details: no-data, origin, aggregation and the other rarely changed fields.
   - Outputs: the result's layers and objects, and Publish as Variant.
 - Tools (``analysis_ui``): Measure, Sun (with Shadow Study) and
-  Archaeoastronomy.
+  Horizon and Sky Events.
 - Textures (``texture_ui``): paint setup with UV-overlap stencil, and the M6
   cleanup tools (fill holes, remove masked objects, pad islands, balance pages).
 - Checks: preflight issues and their fixes.

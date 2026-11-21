@@ -4,8 +4,8 @@
 
 GeoTools brings GIS into Blender. Place a site in a real coordinate system,
 bring in GeoJSON, GeoPackage and GeoTIFF, and analyse the full 3D mesh, not a
-2.5D raster: terrain shape, archaeological visualisation, visibility, sun and
-shadow, archaeoastronomy, hydrology, least-cost routes, measurement, contours and
+2.5D raster: terrain shape, relief and sky visualisation, visibility, sun and
+shadow, horizon and sky events, hydrology, least-cost routes, measurement, contours and
 sections.
 Results are layers you can view, export as vectors or GLB metadata, and
 publish as OGC 3D Tiles with
@@ -45,11 +45,11 @@ least-cost paths. Editable Geometry Nodes presets.
 <a href="docs/guide/analysis.md#presets">Guide</a>
 </td>
 <td width="50%" valign="top">
-<a href="docs/guide/analysis.md#archaeoastronomy"><img src="docs/assets/readme/feature-sky.png" alt="The Archaeoastronomy panel with solstice and lunar standstill sightlines from a hilltop enclosure" width="380"></a><br>
+<a href="docs/guide/analysis.md#horizon-and-sky-events"><img src="docs/assets/readme/feature-sky.png" alt="The Horizon and Sky Events panel with solstice and lunar standstill sightlines from a hilltop enclosure" width="380"></a><br>
 <b>Sun and sky</b><br>
 Place the Sun for a date and place, map hours of sun, key a shadow study,
 and find solstice, equinox and lunar standstill events on the real horizon.
-<a href="docs/guide/analysis.md#archaeoastronomy">Guide</a>
+<a href="docs/guide/analysis.md#horizon-and-sky-events">Guide</a>
 </td>
 </tr>
 <tr>

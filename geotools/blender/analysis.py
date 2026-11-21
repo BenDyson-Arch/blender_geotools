@@ -301,7 +301,7 @@ class GeoToolsSunHoursSettings(bpy.types.PropertyGroup):
     )
     horizon_profile: BoolProperty(
         name="Use Horizon Profile",
-        description="Use the horizon profile from Archaeoastronomy as the far horizon, by "
+        description="Use the horizon profile from Horizon and Sky Events as the far horizon, by "
         "azimuth (raised to Horizon where that is higher)",
         default=False,
     )
