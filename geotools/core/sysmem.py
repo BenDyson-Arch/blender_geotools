@@ -4,6 +4,13 @@ rusty-tiles' own default budget is deliberately conservative: half the detected
 headroom, capped at 4 GiB. On a workstation that leaves its coarse-level stage
 running one job at a time, so GeoTools passes an explicit budget derived from
 the memory available when a publish starts, leaving room for Blender itself.
+
+Reading the memory is not free everywhere: on macOS it runs ``vm_stat`` in a
+subprocess. :func:`available_memory_bytes` always reads afresh (a publish's
+budget and the DEM size check need the value now) and records each result;
+:func:`last_reading` hands back that record without reading, which is what a
+panel's ``draw()`` uses. ``MemoryReading.expired`` tells the caller when to
+read again, off the draw path (``blender.publish.refresh_memory_reading``).
 """
 
 from __future__ import annotations
@@ -11,6 +18,8 @@ from __future__ import annotations
 import ctypes
 import subprocess
 import sys
+import time
+from dataclasses import dataclass
 from pathlib import Path
 
 GIB = 1 << 30
@@ -19,10 +28,50 @@ AUTO_FRACTION = 0.6  # of available memory
 AUTO_RESERVE_BYTES = 4 * GIB  # kept back for Blender and the rest of the system
 AUTO_FLOOR_BYTES = 2 * GIB  # never ask for less than rusty-tiles' undetected default
 AUTO_STEP_BYTES = 256 << 20  # round down so the value reads cleanly in the UI
+READING_MAX_AGE_SECONDS = 5.0  # how long a panel may show a reading before asking for another
+
+
+@dataclass(frozen=True)
+class MemoryReading:
+    """One :func:`available_memory_bytes` result and when it was taken."""
+
+    available: int | None
+    taken_at: float  # time.monotonic()
+
+    def expired(self, now: float | None = None, max_age: float = READING_MAX_AGE_SECONDS) -> bool:
+        """True once the reading is ``max_age`` seconds old (``now`` defaults to the clock)."""
+        return (time.monotonic() if now is None else now) - self.taken_at >= max_age
+
+
+class _Readings:
+    last: MemoryReading | None = None
+
+
+_readings = _Readings()
 
 
 def available_memory_bytes() -> int | None:
-    """Memory available to new allocations now, or None if it can't be read."""
+    """Memory available to new allocations now, or None if it can't be read.
+
+    Always reads (a subprocess on macOS), so never call it from ``draw()``;
+    the result is recorded for :func:`last_reading`.
+    """
+    available = _read_available()
+    _readings.last = MemoryReading(available, time.monotonic())
+    return available
+
+
+def last_reading() -> MemoryReading | None:
+    """The last :func:`available_memory_bytes` result, or None; never reads."""
+    return _readings.last
+
+
+def forget_reading() -> None:
+    """Drop the recorded reading, so the next :func:`last_reading` is None (tests)."""
+    _readings.last = None
+
+
+def _read_available() -> int | None:
     try:
         if sys.platform.startswith("linux"):
             return _linux_available()
