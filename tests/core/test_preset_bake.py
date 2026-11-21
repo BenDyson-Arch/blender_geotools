@@ -1,4 +1,5 @@
-"""Fast (bake) paths of the horizon and cumulative viewshed presets, without Blender.
+"""Fast (bake) paths of the horizon and cumulative viewshed presets and the bake-only
+direct-visibility entries, without Blender.
 
 The bisection model (``bisect_horizon``) is what the Geometry Nodes preset
 and the bake both run; here it is checked on analytic horizons: a level plane
@@ -14,7 +15,7 @@ import numpy as np
 import pytest
 
 from geotools.analysis import preset_bake as fast
-from geotools.analysis import presets
+from geotools.analysis import presets, sun_hours
 from geotools.core.layers import Domain, Origin, validate
 
 RESOLUTION = 90.0 / 2 ** (8 - 1)  # Steps 8
@@ -26,8 +27,18 @@ def test_fast_presets_and_their_inputs() -> None:
         "openness_positive",
         "openness_negative",
         "viewshed_cumulative",
+        "sky_visibility",
+        "sky_view_cosine",
+        "openness_3d",
     } == fast.FAST
     assert not fast.is_fast("slope") and fast.is_fast("viewshed_cumulative")
+    for preset in fast.DIRECT:
+        assert fast.input_names(preset) == ("Max Distance", "Rays", "Ray Offset")
+        assert fast.default_inputs(preset) == {
+            "Max Distance": 2.0,
+            "Rays": 256,
+            "Ray Offset": 0.002,
+        }
     for preset in fast.HORIZON:
         assert fast.input_names(preset) == ("Max Distance", "Directions", "Steps", "Ray Offset")
     assert fast.input_names("viewshed_cumulative") == (
@@ -57,6 +68,61 @@ def test_inputs_are_checked() -> None:
         fast.check_inputs("viewshed_cumulative", {"Observer Height": math.nan})
     with pytest.raises(ValueError, match="no input"):
         fast.check_inputs("sky_view_factor", {"Observers": 1})
+
+
+def test_bake_only_entries() -> None:
+    """The direct-visibility entries have no Geometry Nodes preset: not in the catalog
+    (whose every entry is a group in the library), but found by ``preset_bake.get``."""
+    assert {p.id for p in fast.BAKE_ONLY} == fast.DIRECT
+    catalog = {p.id for p in presets.PRESETS}
+    for entry in fast.BAKE_ONLY:
+        assert entry.id not in catalog and fast.is_bake_only(entry.id)
+        assert fast.get(entry.id) is entry and entry.group == ""
+        assert entry.domain is Domain.FACE and entry.units == "ratio"
+        assert fast.kind(entry.id) == "direct"
+        assert entry in fast.bake_only(entry.category)
+    assert fast.get("slope") is presets.get("slope") and not fast.is_bake_only("slope")
+    assert [fast.kind(p) for p in ("sky_view_factor", "viewshed_cumulative")] == [
+        "horizon",
+        "viewshed",
+    ]
+    with pytest.raises(ValueError, match="no fast path"):
+        fast.kind("slope")
+    with pytest.raises(KeyError):
+        fast.get("no_such_preset")
+    with pytest.raises(ValueError, match="at most 4096"):
+        fast.check_inputs("sky_visibility", {"Rays": 5000})
+    with pytest.raises(ValueError, match="not a direct"):
+        fast.visibility_search("sky_view_factor", {})
+
+
+def test_direct_directions_are_the_diffuse_set() -> None:
+    """The sky directions are sun hours' diffuse set; Openness (3D) adds their mirror images."""
+    sky = fast.visibility_search("sky_visibility", {"Rays": 64})
+    np.testing.assert_array_equal(sky.directions, sun_hours.sky_directions(64))
+    assert not sky.cosine and not sky.sphere
+    assert fast.visibility_search("sky_view_cosine", {}).cosine
+    sphere = fast.visibility_search("openness_3d", {"Rays": 64}).directions
+    assert sphere.shape == (128, 3)
+    np.testing.assert_array_equal(sphere[64:], sphere[:64] * (1, 1, -1))
+    np.testing.assert_allclose(np.linalg.norm(sphere, axis=1), 1.0)
+    assert np.all(sphere[:64, 2] > 0) and np.all(sphere[64:, 2] < 0)
+
+
+def test_direct_values_from_sums() -> None:
+    gains, front = np.array([0.0, 64.0, 32.0]), np.array([128.0, 128.0, 0.0])
+    np.testing.assert_allclose(
+        fast.visibility_values("sky_visibility", gains, front, 128), [0, 0.5, 0.25]
+    )
+    np.testing.assert_allclose(
+        fast.visibility_values("sky_view_cosine", gains, front, 128), [0, 1, 0.5]
+    )
+    # No ray in front (cannot happen with a unit normal): 0, not a division by zero.
+    np.testing.assert_allclose(
+        fast.visibility_values("openness_3d", gains, front, 128), [0, 0.5, 0]
+    )
+    with pytest.raises(ValueError):
+        fast.visibility_values("sky_view_factor", gains, front, 128)
 
 
 def test_azimuths_start_at_plus_y_and_turn_clockwise() -> None:
@@ -181,3 +247,10 @@ def test_the_layer_and_its_provenance() -> None:
     assert "Occluders" in viewshed.provenance["parameters"]["occluders"]
     with pytest.raises(ValueError, match="no fast path"):
         fast.layer_spec("slope")
+    direct = fast.layer_spec("openness_3d", inputs=fast.default_inputs("openness_3d"))
+    assert direct.label == "Openness (3D)" and direct.domain is Domain.FACE
+    parameters = direct.provenance["parameters"]
+    assert "node_group" not in parameters and parameters["preset"] == "openness_3d"
+    assert "Direct visibility" in parameters["method"] and parameters["domain_sampled"] == "face"
+    assert fast.fast_preset_of(direct.provenance) == "openness_3d"
+    assert not [i for i in validate(direct) if i.severity.name == "ERROR"]

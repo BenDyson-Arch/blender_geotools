@@ -778,9 +778,12 @@ class GEOTOOLS_PT_publish_settings(_GeoToolsPanel, bpy.types.Panel):
         col.prop(profile, "jobs")
         col.prop(profile, "memory_budget_gib", text="Memory GiB")
         if profile.memory_budget_gib <= 0:
-            available = sysmem.available_memory_bytes()
+            reading = publish.memory_reading()  # never reads memory: no vm_stat in draw
+            available = None if reading is None else reading.available
             budget = sysmem.auto_memory_budget(available)
-            if budget is None:
+            if reading is None:
+                text = "Auto memory: reading available memory"
+            elif budget is None:
                 text = "Auto memory: rusty-tiles default"
             else:
                 gib = format_gib(budget).removesuffix(" GiB")

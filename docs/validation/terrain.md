@@ -7,8 +7,9 @@ documented in analysis-presets.md.
 
 This covers the Geometry Nodes presets of
 [analysis-presets.md](../analysis-presets.md) under *Terrain shape* and
-*Archaeological visualisation*, and the fast (bake) paths of the sky-view
-factor and openness. For each tool it gives the definition followed, the
+*Archaeological visualisation*, the fast (bake) paths of the sky-view
+factor and openness, and the bake-only direct-visibility entries (Sky
+Visibility, Sky View (Cosine), Openness (3D)). For each tool it gives the definition followed, the
 reference tools, the cases, the tolerances, the results and a verdict.
 
 ## Verdicts
@@ -29,6 +30,7 @@ reference tools, the cases, the tolerances, the results and a verdict.
 | Sky-view factor | Zakšek et al. (2011) | **agrees** |
 | Positive / negative openness | Yokoyama et al. (2002) | **agrees** |
 | Fast (bake) paths | the same rays as the live presets | **agree** with the live presets |
+| Sky Visibility, Sky View (Cosine), Openness (3D) | direct visibility: misses over a fixed equal-solid-angle direction set, in front of the face | **agree** with closed forms on a cylinder overhang and a V-trench; with the bisection SVF on level and concave ground (a documented convention difference on convex ground) |
 
 No bugs were found. The [discrepancies](#decisions-resolved) were conventions
 or documentation; the decisions on them are implemented: one label and
@@ -49,6 +51,11 @@ All inputs are synthetic (`tests/blender/_terrain_surfaces.py`):
   (known curvature everywhere);
 - a **vertical-walled cylindrical pit** (radius 1 m, depth 0.5 m, a 256-gon;
   not a height field);
+- **extruded overhangs** (profiles in x-z, extruded 500 m each way along y,
+  so infinite for every ray that matters): a **cylinder overhang**, a
+  quarter-cylinder vault of radius 1 m (a 32-gon) over a level floor, open at
+  the front (not a height field); and an uneven **V-trench**, walls at 30°,
+  2 m and 1 m down the slope, 8 faces each;
 - **"waves"**: a sum of four plane waves (amplitudes 0.06–0.30 m,
   wavelengths 1.2–4 m, four directions), on which every quantity has a closed
   form: the derivatives, hence slope, aspect and the curvatures, and the mean
@@ -100,12 +107,12 @@ horizons (25 s).
 Checks (both run in normal CI):
 
 ```sh
-pytest tests/core/test_validation_terrain.py            # 16 tests, about 1 s
+pytest tests/core/test_validation_terrain.py            # 20 tests, about 5 s
 python3 scripts/run_blender_tests.py --expect available -k test_validation_
 ```
 
-The Blender tests (`tests/blender/test_validation_terrain.py`, 13 tests) take
-15–19 s in the full suite on a shared 16-thread machine (46 s at a load
+The Blender tests (`tests/blender/test_validation_terrain.py`, 14 tests) take
+25–30 s in the full suite on a shared 16-thread machine (46 s at a load
 average of 20). With
 `GEOTOOLS_TERRAIN_REPORT=/path/report.json` set they also run the report-only
 measurements (the grid cone, the fitted rugosity σ, larger samples) and write
@@ -474,7 +481,81 @@ existing `test_preset_bake.py` covers the level plane and the V-trench.
 
 **Verdict: agree** with the live presets.
 
+## Direct visibility: Sky Visibility, Sky View (Cosine), Openness (3D)
+
+**Definitions** ([analysis-presets.md](../analysis-presets.md#sky-visibility-sky-view-cosine-and-openness-3d-sky_visibility-sky_view_cosine-openness_3d-face-ratio)):
+from each face centre, moved Ray Offset along the face normal, Rays
+directions of `sun_hours.sky_directions` (a Fibonacci spiral, 2π/Rays sr
+each; Openness (3D) adds their mirror images below the horizon). A direction
+in front of the face that misses within Max Distance gains 1 (Sky Visibility,
+Openness (3D)) or its cosine to the normal (Sky View (Cosine)). Values:
+misses/Rays, 2/Rays × Σ cos, and misses/(directions in front).
+
+**Closed forms.** For a profile extruded along y, a direction's fate depends
+only on its angle ψ in the x-z plane, and directions are uniform in (ψ, y)
+(dω = dψ dy). With the visible interval of ψ seen from the ray origin and the
+normal at ψ_n: Sky Visibility = |visible ∩ front ∩ (0, π)|/π, Sky View
+(Cosine) = ½ ∫ cos(ψ − ψ_n) dψ over the same set, Openness (3D) =
+|visible ∩ front|/π. The interval's ends are angles to vertices of the mesh
+itself: a vault floor face sees from level up to the lip, a vault ceiling
+face sees out between the floor's front edge and the lip, and a trench face
+sees from the opposite rim to the top of its own wall. So the answers are
+exact for the mesh, and the 500 m extrusion leaves an error below 10⁻⁵.
+
+**Checks.** The numpy model of the bake (`preset_bake.visibility_sums`) with
+exact binary64 ray-mesh hits against the closed forms (core tests), and the
+bake against both (Blender tests), Rays 256, Max Distance 500 m:
+
+| Case (faces) | Entry | bake vs model, max | bake vs exact: RMS (max), bias |
+|---|---|---|---|
+| vault (48) | Sky Visibility | 0 | 0.0053 (0.015), +0.003 |
+| vault | Sky View (Cosine) | 1.8×10⁻⁷ | 0.0030 (0.0083), +0.0002 |
+| vault | Openness (3D) | 1.5×10⁻⁸ | 0.0065 (0.016), +0.004 |
+| V-trench (16) | Sky Visibility | 0 | 0.0054 (0.012), +0.002 |
+| V-trench | Sky View (Cosine) | 4.7×10⁻⁷ | 0.0035 (0.0056), −0.0002 |
+| V-trench | Openness (3D) | 1.9×10⁻⁸ | 0.0042 (0.0088), +0.002 |
+
+The bake casts exactly the model's rays (the differences are float32 sums);
+the rest is the direction set's quadrature error, which falls to under 0.006
+at 1,024 rays. On the open plane, faces tilted by β give 1 − β/π,
+(1 + cos β)/2 and 1 to 0.004, and a level face exactly 1, 1, 1.
+
+**Bisection under an overhang.** The bisection SVF (16 directions, Steps 8)
+at the six floor vertices under the vault is 0.21 too high on average (up to
+0.27) against the exact Sky Visibility from the same ray origins: level rays
+escape under the lip. On the V-trench, a height field, the same bisection
+from the faces' own origins is within 0.015 of the exact answer, and direct
+visibility (1,024 rays) within 0.015 of it.
+
+**Waves DEM** (3,200 faces more than Max Distance from the edge; Sky
+Visibility at 1,024 rays per face against the bisection SVF fast path, a
+face's value the mean of its three vertices'; split by the sign of the
+surface's mean curvature H at the face centre):
+
+| Faces | RMS (max), bias |
+|---|---|
+| concave, H < −0.05 m⁻¹ (1,586) | 0.0058 (0.026), −0.0016 |
+| nearly level, \|H\| ≤ 0.05 (151) | 0.012 (0.032), −0.009 |
+| convex, H > 0.05 (1,463) | 0.028 (0.067), −0.024 |
+| all | 0.019 (0.067), −0.012 |
+
+Where the ground curves up, the two agree to the bisection's bracket and the
+direction set's resolution. Where it curves down, the bisection's rays,
+starting Ray Offset above a vertex, see past the curve below the planes of
+the vertex's faces, and count that as sky; a face cannot see below its own
+plane, so direct visibility does not. This is a convention difference, not
+an error in either: the bisection's share depends on Ray Offset and the facet
+size, direct visibility's does not.
+
+**Verdict: agrees** with the closed forms, overhangs included; agrees with
+the bisection SVF where both are valid, with the documented convention
+difference on convex ground.
+
 ## Limits users should know
+
+- **Horizon presets need a height field.** Under an overhang the bisection
+  reports open sky (0.21 too much under the vault). Use Sky Visibility, Sky
+  View (Cosine) or Openness (3D) there.
 
 - **Facets are first order.** A face's slope and aspect are exact for that
   face, but on a fine mesh of curved ground a single triangle can differ from

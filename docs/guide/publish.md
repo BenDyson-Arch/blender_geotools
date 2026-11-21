@@ -116,7 +116,8 @@ The **Build Settings** sub-panel holds:
 - **Threads**: rusty-tiles' worker threads. 0 is automatic;
 - **Memory GiB**: rusty-tiles' memory budget. 0 is automatic: 60% of the
   memory available when you publish, minus 4 GiB for Blender. The panel shows
-  the number it will use.
+  the number it would use now, updated every few seconds; Publish reads the
+  memory again when it starts.
 
 ## Publish
 

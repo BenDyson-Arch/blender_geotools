@@ -15,19 +15,19 @@ and the project follows semantic versioning where practical.
   Blender fix in the message. Hydrology, Sun Hours, Sky-View Factor and
   Openness warn about the first and last in their report. See
   [Normals](docs/guide/publish.md#normals).
-- **Least-Cost Routes** in the Analysis panel: the quickest route over one 3D
-  surface with uphill and downhill costed apart, crossing faces at any angle
-  (Steiner Points), and the travel time from Start to every face as a layer,
-  with optional isochrones. Models: Tobler, Langmuir (GRASS r.walk's
-  coefficients), Naismith and a wheelchair model limited to 1:12. Checked
-  against networkx and r.walk on the
+- **Sky Visibility**, **Sky View (Cosine)** and **Openness (3D)** in Add
+  Analysis (Fast Bake only) count the sky directly from each face, so they
+  are right under overhangs, where the sky-view factor and openness presets
+  (which assume a height field) read open sky. See
+  [which to use](docs/analysis-presets.md#sky-visibility-sky-view-cosine-and-openness-3d-sky_visibility-sky_view_cosine-openness_3d-face-ratio).
+- **Least-Cost Routes** in the Analysis panel: the quickest route over a 3D
+  surface, uphill and downhill costed apart and crossing faces at any angle,
+  with travel time to every face as a layer. Tobler, Langmuir, Naismith and
+  wheelchair (1:12) models, checked on the
   [validation page](docs/validation/least-cost.md).
 - **Show in Viewport** in Layers > Display shows a layer in its variant
-  colours in the viewport and keeps them up to date as you change the palette,
-  range or no-data colour, or the Geometry Nodes that make the layer, also
-  when they change the topology. It adds a viewport-only `GeoTools View`
-  modifier and material built from stock nodes, switches Solid mode to the
-  Attribute colour, and takes it all away again when turned off. Texture
+  colours, live as the palette, range or Geometry Nodes change, with a
+  viewport-only modifier and material that turning it off removes. Texture
   layers show in Material Preview. Publishing ignores it.
 - **Coordinates: WGS84 (RFC 7946)** in GeoJSON export writes longitude and
   latitude that CesiumJS, MapLibre and geojson.io place correctly, beside
@@ -40,17 +40,11 @@ and the project follows semantic versioning where practical.
 
 ### Changed
 
-- Analysis acts on the selected meshes, in any collection; the source
-  collection only decides what is published. Sun Hours, Least-Cost Routes,
-  Hydrology, and Contours and Sections default to **Selected Objects** (Sun
-  Hours gets the **Surface** choice too), and with nothing selected their
-  buttons say "Select the meshes to analyse". A layer, its range and **Show
-  in Viewport** cover every object that carries it, and Show in Viewport says
-  so when none does instead of turning on to show nothing. While no source
-  collection is set, adding an analysis, showing a layer or importing a
-  GeoTIFF sets it to that object's collection and says so. Run Checks warns
-  about a layer on an object outside the source collection and offers **Add
-  to Source**.
+- Analysis acts on the selected meshes; the source collection only decides
+  what is published, and is set from the first mesh you analyse if unset.
+  Layers and **Show in Viewport** cover every object with the layer. Run
+  Checks flags a layer outside the source collection, with **Add to
+  Source**.
 - **Write Colours** is gone: Show in Viewport replaces it. Publishing still
   never writes the `gt_present` attribute it left on meshes.
 - GLBs with metadata name their `geotools:` XMP terms with a permanent
@@ -72,6 +66,8 @@ and the project follows semantic versioning where practical.
 
 ### Fixed
 
+- On macOS, Publish > Build Settings no longer runs `vm_stat` each time the
+  sidebar redraws. The Auto memory figure updates every few seconds instead.
 - A project origin on the antimeridian keeps its BlenderGIS latitude and
   longitude. A rounding error put its longitude just past -180°, so the
   position was refused and the two keys were deleted.
@@ -119,11 +115,10 @@ the [user guide](docs/guide/README.md) has a page per area.
 ### Added
 
 - **Projects and georeference.** Local, Anchor (a WGS84 point and heading)
-  and CRS projects. The CRS field is a searchable EPSG picker over the codes
-  rusty-tiles resolves, and Check shows the datum operation and its accuracy
-  before a publish. Offsets keep full double precision; offset files are read
-  beside an imported mesh, offered rather than applied when they would move
-  the scene, and **Verify Placement** shows where the site lands on Earth.
+  and CRS projects, with a searchable EPSG picker and the datum operation's
+  accuracy shown before a publish. Offsets keep full double precision, offset
+  files are offered rather than silently applied, and **Verify Placement**
+  shows where the site lands.
 - **BlenderGIS interop.** A CRS project reads and writes the scene's GeoScene
   keys, so data from either tool lands on the same coordinates; BlenderGIS is
   not needed. **Origin from Latitude/Longitude** fixes scenes that have only
@@ -137,12 +132,10 @@ the [user guide](docs/guide/README.md) has a page per area.
   Nodes outputs or stored attributes, with units, no-data and value ranges;
   texture-space bakes with a UV-overlap check; colour ramps and categories,
   and variant tilesets such as `site.slope.3tz`.
-- **Analysis.** The sun for a date and place, over a day, sun hours,
-  clear-sky insolation and shadow studies; archaeoastronomy (the horizon
-  profile, solstice, equinox and lunar standstill events at any epoch within
-  10,000 years, sightlines and an alignment check); points, distances and
-  areas on Earth; 3D surface hydrology (flow paths, accumulation and ponding
-  on the mesh itself); contours and sections.
+- **Analysis.** The sun, sun hours, clear-sky insolation and shadow studies;
+  archaeoastronomy (horizon profile, solar and lunar events within 10,000
+  years, sightlines, alignment checks); points, distances and areas on Earth;
+  3D surface hydrology; contours and sections.
 - **Analysis presets.** Editable Geometry Nodes presets from **Add
   Analysis**: slope, aspect, curvature, rugosity, TPI, TRI, local relief,
   sky-view factor, openness, viewsheds, intervisibility, line of sight,
