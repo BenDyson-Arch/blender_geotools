@@ -50,7 +50,7 @@ def draw_dependency_status(layout: bpy.types.UILayout, *, show_paths: bool = Fal
             col.label(text=line)
     row = layout.row(align=True)
     row.operator("geotools.check_dependencies", icon="FILE_REFRESH")
-    row.operator("geotools.copy_details", icon="COPYDOWN")
+    row.operator("geotools.copy_details", text="", icon="COPYDOWN")
 
 
 def _draw_one(
