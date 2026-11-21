@@ -65,6 +65,7 @@ from .layers import (
     spec_from_props,
     write_layer,
 )
+from .orientation import analysis_notes as normal_notes
 from .properties import FieldError
 from .ray_bake import (
     PROBE_UV,
@@ -456,7 +457,8 @@ def compute(context: bpy.types.Context) -> dict:
     the_plan = plan(context)
     timings["plan"] = time.perf_counter() - began
     rays = the_plan.rays
-    notes = list(the_plan.steps.notes)
+    notes = normal_notes(context, objects) + list(the_plan.steps.notes)
+    timings["normals"] = time.perf_counter() - began - sum(timings.values())
 
     # Register the layers first (validation errors stop here, before any bake).
     labels = {
@@ -519,7 +521,7 @@ def compute(context: bpy.types.Context) -> dict:
                 obj, width, height = build_sample_object(saved, context, points, normals)
                 image = _float_image(f"{TEMP_PREFIX} Samples", width, height)
                 run.images.append(image)
-                timings["samples"] = time.perf_counter() - began - timings["plan"]
+                timings["samples"] = time.perf_counter() - began - sum(timings.values())
                 totals = _bake_batches(
                     context,
                     saved,
@@ -530,9 +532,7 @@ def compute(context: bpy.types.Context) -> dict:
                     attributes=True,
                     margin=0,
                 )[obj.name][: len(points)]
-                timings["bakes"] = (
-                    time.perf_counter() - began - timings["plan"] - timings["samples"]
-                )
+                timings["bakes"] = time.perf_counter() - began - sum(timings.values())
                 missing = int(np.count_nonzero(totals[:, 2] <= 0.5))
                 if missing:
                     raise SunHoursError(f"{missing:,} samples were not baked (texel layout).")

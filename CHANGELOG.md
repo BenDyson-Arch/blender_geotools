@@ -9,6 +9,12 @@ and the project follows semantic versioning where practical.
 
 ### Added
 
+- Run Checks tests each mesh's normals: faces wound against their neighbours
+  (`normals-inconsistent`), normals pointing into the surface
+  (`normals-inward`) and a mostly downward surface (`normals-down`), with the
+  Blender fix in the message. Hydrology, Sun Hours, Sky-View Factor and
+  Openness warn about the first and last in their report. See
+  [Normals](docs/guide/publish.md#normals).
 - **Bake Device** in the GeoTools preferences: Sun Hours, the horizon
   profile, Fast Bake presets and texture bakes use the GPU when Cycles has
   one enabled (Auto), or always the GPU or CPU. Each report names the device.
