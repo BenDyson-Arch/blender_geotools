@@ -63,9 +63,10 @@ def _crs_project(crs: str, east: float, north: float) -> None:
 def _sun_date(day: str, offset: float) -> None:
     """The Sun panel's date, at a fixed UTC offset.
 
-    Fixed offsets, not the references' IANA zones: Blender on Windows has no
-    time zone database. None of the days used here has a daylight-saving
-    change, so the offset gives the same local day as the zone.
+    Fixed offsets, not the references' IANA zones: the suite also runs without
+    the bundled wheels, and Blender on Windows then has no time zone database.
+    None of the days used here has a daylight-saving change, so the offset
+    gives the same local day as the zone.
     """
     sun_props = bpy.context.scene.geotools_analysis.sun
     date = dt.date.fromisoformat(day)
@@ -244,7 +245,8 @@ def test_shadow_study_days_in_far_time_zones() -> None:
     """The equinox and solstice days, taken in UTC+14 and UTC-11, against Skyfield's moments.
 
     Kiritimati (UTC+14) and Pago Pago (UTC-11) as fixed offsets: neither has
-    daylight saving, and Blender on Windows has no time zone database.
+    daylight saving, and a build without the bundled tzdata on Windows has no
+    time zone database.
     """
     _reset()
     seasons = _load("seasons.json")

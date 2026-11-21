@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch the pinned wheels (rusty-tiles, pyproj, certifi) into geotools/wheels/.
+"""Fetch the pinned wheels (rusty-tiles, pyproj, certifi, tzdata) into geotools/wheels/.
 
 The pins and the target platforms come from ``[tool.geotools]`` and
 ``[tool.geotools.wheels]`` in pyproject.toml. Fetched wheels are never

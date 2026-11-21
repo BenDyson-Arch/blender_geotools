@@ -41,7 +41,7 @@ def wrap(angle) -> np.ndarray:
     return (np.asarray(angle) + 180.0) % 360.0 - 180.0
 
 
-NO_TZDB = not sun.time_zone_database_available()  # Python on Windows without tzdata
+NO_TZDB = not sun.time_zone_database_available()  # Windows without the bundled tzdata
 
 
 def needs_database(row: dict) -> bool:
@@ -282,6 +282,24 @@ def test_day_length_on_open_ground(case: dict) -> None:
         assert abs(hours - case["hours"]) * 60.0 <= step + 0.1, (step, hours, case["hours"])
         if case["hours"] in (0.0, 24.0):
             assert hours == pytest.approx(case["hours"], abs=1e-9)  # polar night and day
+
+
+@pytest.mark.parametrize(
+    "case",
+    [c for c in _open_cases() if c["first"] == c["last"] and not c["zone"].startswith("UTC")],
+    ids=lambda c: c["name"],
+)
+@pytest.mark.usefixtures("no_system_tz_database")
+def test_named_zone_days_from_the_bundled_tzdata(case: dict) -> None:
+    """The named-zone days again with no system database (Windows): zones come from tzdata.
+
+    The local day's length (23, 24, 24.5 or 25 h) must still be exact, and the
+    hours within one step.
+    """
+    pytest.importorskip("tzdata")
+    hours, period = sun_hours(case, 5, horizon=case["horizon"] or None)
+    assert period == pytest.approx(case["period_hours"], abs=1e-9)
+    assert abs(hours - case["hours"]) * 60.0 <= 5 + 0.1, (hours, case["hours"])
 
 
 @pytest.mark.parametrize(

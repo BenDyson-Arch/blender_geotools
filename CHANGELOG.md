@@ -53,6 +53,9 @@ and the project follows semantic versioning where practical.
   the texture cleanup page is now one page in the guide.
 - The publish record's `cleanup_diagnostics` and `rusty_tiles_version` come
   from rusty-tiles 0.4.1's API directly, with no fallback for older wheels.
+- Named time zones such as `Australia/Brisbane` work in the Sun panel on
+  Windows too: every zip bundles the `tzdata` time zone database, used where
+  the system has none.
 
 ### Fixed
 

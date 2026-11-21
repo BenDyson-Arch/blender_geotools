@@ -71,11 +71,6 @@ SITE_ITEMS = (
     ("CURSOR", "3D Cursor", "The sun as seen from the 3D cursor"),
 )
 
-TZ_NO_DATABASE_NOTE = (
-    "This Python has no time zone database (usual for Blender on Windows), so named zones "
-    "other than UTC cannot be used. Use a UTC offset; it has no daylight saving."
-)
-
 NON_CONFORMAL_NOTE = (
     "The project CRS is not conformal (Albers, Web Mercator): the sun is turned by the "
     "grid-to-ground map at the site; the convergence shown holds along the meridian."

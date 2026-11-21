@@ -137,7 +137,8 @@ stated accuracy of DE440. In practice the error a user sees is UT1 − UTC
 
 ## Time zones
 
-**Definition.** IANA names through `zoneinfo`, with daylight saving; "UTC"
+**Definition.** IANA names through `zoneinfo`, with daylight saving, from the
+system's database or, where there is none (Windows), the bundled `tzdata`; "UTC"
 always; a fixed UTC offset rounded to the minute. A wall-clock time that a
 daylight-saving change skips or repeats is read with the offset before the
 change (`fold=0`), with a note.
@@ -147,7 +148,8 @@ Europe/London on 29 March (23 h) and 25 October 2026 (25 h); Australia/Sydney
 on 5 April (25 h) and 4 October (23 h); Australia/Lord_Howe on 5 April (a
 30-minute change, 24.5 h); Asia/Kathmandu (UTC+05:45) and the same as a fixed
 offset (identical results); Pacific/Kiritimati (UTC+14); Pacific/Pago_Pago
-(UTC−11, Shadow Study). Every period length matched to 10⁻⁹ h.
+(UTC−11, Shadow Study). Every period length matched to 10⁻⁹ h, and the
+named-zone days match again with no system database, from `tzdata` alone.
 
 **Verdict: agrees.**
 

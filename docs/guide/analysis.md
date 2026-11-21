@@ -39,7 +39,8 @@ Shadows are then rendered or baked by Blender.
 1. Set the date and time (year, month, day; hour, minute, second).
 2. Choose the **Time**:
    - **Time Zone**: an IANA name such as `Australia/Brisbane`, with daylight
-     saving;
+     saving. Named zones work on every platform: GeoTools bundles the time
+     zone database;
    - **UTC Offset**: a fixed number of **Hours**, with no daylight saving.
 3. Choose the **Site**: the **Scene Origin** (the project offset) or the
    **3D Cursor**.
@@ -71,9 +72,6 @@ direction moves smoothly between keys.
 
 The sun's position is NREL's Solar Position Algorithm, within 0.00001° of the
 paper's own example.
-
-**Limits.** Blender on Windows usually has no time zone database. Then only
-`UTC` works as a zone name, and the panel says so: use a UTC offset instead.
 
 ## Sun Hours
 
