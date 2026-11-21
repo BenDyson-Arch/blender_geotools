@@ -79,6 +79,7 @@ def main() -> None:
     from geotools.blender import least_cost
 
     props = least_cost.settings(bpy.context)
+    props.surface = "SOURCE"  # the whole site, selected or not
     props.start = _empty("A", (-450.0, -450.0, 0.0))
     props.end = _empty("B", (450.0, 430.0, 0.0))
     props.model = args.model

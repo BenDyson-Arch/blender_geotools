@@ -73,6 +73,7 @@ def run(case: str, texture: int, tolerance: float | None = None) -> dict:
     for prop in props.bl_rna.properties:
         if prop.identifier not in {"rna_type", "name"}:
             props.property_unset(prop.identifier)
+    props.surface = "SOURCE"  # the whole site, selected or not
     sun_props.year, sun_props.month, sun_props.day = 2026, 6, 21
     sun_props.tz_mode, sun_props.utc_offset = "OFFSET", 10.0
     if case in {"day", "insolation"}:

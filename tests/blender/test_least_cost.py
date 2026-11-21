@@ -29,6 +29,7 @@ def _reset() -> None:
     for prop in props.bl_rna.properties:
         if prop.identifier not in {"rna_type", "name"}:
             props.property_unset(prop.identifier)
+    props.surface = "SOURCE"  # the whole site; Selected Objects (the default) is test_selection's
 
 
 def _plane(name: str = "ramp", offset=(0.0, 0.0, 0.0), n: int = 40, size: float = 20.0):

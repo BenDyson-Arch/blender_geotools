@@ -1,6 +1,7 @@
 """Run Checks (preflight) and Verify Placement (the rusty-tiles probe)."""
 
 import bpy
+from bpy.props import StringProperty
 
 from ..core import crs_catalog, deps, preflight, probe
 from ..core.issues import Issue, Severity
@@ -9,7 +10,7 @@ from . import scene_georef
 from .bake_texture import uv_overlap_issues
 from .common import redraw_ui
 from .crs_picker import migrate_scene
-from .layers import refresh_layers
+from .layers import OUTSIDE_SOURCE, outside_source, refresh_layers, stored_carriers
 from .properties import SEVERITY_ICONS, FieldError, field_issues, placement_from_props
 from .source import refresh_summary
 from .texture_state import check_issues as texture_issues
@@ -99,10 +100,41 @@ def run_checks(context: bpy.types.Context) -> list[Issue]:
         placement = placement_from_props(props)
         issues = preflight.check(summary, placement, profile=profile)
         issues += crs_issues(placement, issues)
+    issues += outside_source_issues(context.scene)
     issues += uv_overlap_issues(context)
     issues += texture_issues(context)
     issues += scene_georef.issues(context.scene)
     issues.sort(key=lambda i: _SEVERITY_ORDER[Severity(i.severity)])
+    return issues
+
+
+def outside_source_issues(scene: bpy.types.Scene) -> list[Issue]:
+    """One warning per object outside the source collection that carries layers.
+
+    Analysis acts on the selected meshes wherever they are, but only the source
+    collection is published, so those layers are not. Read from each layer's
+    stored carriers (``layers.refresh_layers`` finds them first). The subject
+    is the object, which :class:`GEOTOOLS_OT_add_to_source` adds.
+    """
+    collection = scene.geotools.source_collection
+    if collection is None:
+        return []
+    found: dict[str, list[str]] = {}
+    for item in scene.geotools.layers:
+        for obj in outside_source(scene, stored_carriers(item)):
+            found.setdefault(obj.name, []).append(item.name)
+    issues = []
+    for name, layers in sorted(found.items()):
+        which = f"layer {layers[0]}" if len(layers) == 1 else "layers " + ", ".join(layers)
+        issues.append(
+            Issue(
+                Severity.WARNING,
+                OUTSIDE_SOURCE,
+                f"{name} has {which} but is not in the source collection {collection.name}, "
+                "so it is not published. Add it to the source collection to publish it.",
+                name,
+            )
+        )
     return issues
 
 
@@ -216,6 +248,46 @@ class GEOTOOLS_OT_verify_placement(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class GEOTOOLS_OT_add_to_source(bpy.types.Operator):
+    """Add the object to the source collection, so its layers are published, and run the
+    checks again. It stays in its other collections too"""
+
+    bl_idname = "geotools.add_to_source"
+    bl_label = "Add to Source"
+    bl_options = {"REGISTER", "UNDO", "INTERNAL"}
+
+    object: StringProperty(name="Object", description="Name of the object to add")
+
+    @classmethod
+    def poll(cls, context: bpy.types.Context) -> bool:
+        if not _source_poll(cls, context):
+            return False
+        if context.scene.geotools.source_collection.library is not None:
+            cls.poll_message_set("The source collection is linked from a library")
+            return False
+        return True
+
+    def execute(self, context: bpy.types.Context) -> set[str]:
+        props = context.scene.geotools
+        collection = props.source_collection
+        obj = bpy.data.objects.get(self.object)
+        if obj is None:
+            self.report({"ERROR"}, f"There is no object {self.object}")
+            return {"CANCELLED"}
+        if collection not in obj.users_collection:
+            collection.objects.link(obj)
+        store_issues(props, run_checks(context))
+        self.report({"INFO"}, f"Added {obj.name} to the source collection {collection.name}")
+        redraw_ui(context)
+        return {"FINISHED"}
+
+
+def draw_remedy(layout: bpy.types.UILayout, code: str, subject: str) -> None:
+    """The button that fixes a layer issue of the Checks panel: Add to Source."""
+    if code == OUTSIDE_SOURCE and subject:
+        layout.operator(GEOTOOLS_OT_add_to_source.bl_idname, icon="ADD").object = subject
+
+
 class GEOTOOLS_UL_issues(bpy.types.UIList):
     """Issues found by Run Checks, with a severity icon."""
 
@@ -242,6 +314,7 @@ class GEOTOOLS_UL_issues(bpy.types.UIList):
 classes = (
     GEOTOOLS_OT_run_checks,
     GEOTOOLS_OT_verify_placement,
+    GEOTOOLS_OT_add_to_source,
     GEOTOOLS_UL_issues,
 )
 

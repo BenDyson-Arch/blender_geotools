@@ -38,6 +38,7 @@ from . import blend_paths, data_origin, links, texture_state
 from .common import redraw_ui
 from .links import RefreshError, RefreshResult
 from .properties import FieldError, placement_from_scene
+from .source import default_source
 
 MODE_ITEMS = (
     (
@@ -530,9 +531,16 @@ plane. Linked to the file, so it can be refreshed"""
         select_imported(context, obj)
         for warning in report.warnings:
             self.report({"WARNING"}, warning)
-        self.report({"INFO"}, report.message)
+        self.report(
+            {"INFO"}, "; ".join(n for n in (report.message, adopt_source(context, obj)) if n)
+        )
         redraw_ui(context)
         return {"FINISHED"}
+
+
+def adopt_source(context: bpy.types.Context, obj: bpy.types.Object) -> str | None:
+    """Set an unset source collection to the imported mesh's (``source.default_source``)."""
+    return default_source(context.scene, [obj]) if obj.type == "MESH" else None
 
 
 def select_imported(context: bpy.types.Context, obj: bpy.types.Object) -> None:

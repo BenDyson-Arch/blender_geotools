@@ -6,7 +6,9 @@ built from stock nodes the user can open, and GeoTools only keeps them in step
 with the layer's Display settings:
 
 * A Geometry Nodes group per layer, ``GeoTools View <layer>``, tagged with the
-  ID property :data:`TAG` (the layer's name). Each source object gets a
+  ID property :data:`TAG` (the layer's name). Each object that carries the
+  layer, in the source collection or not (:func:`view_objects`: its
+  ``carriers``, which ``layers.refresh_carriers`` finds and keeps), gets a
   ``GeoTools View`` modifier using it, pinned last in its stack, viewport only
   (``show_render`` off). For a FACE or CORNER layer the group reads the
   layer's attribute (Named Attribute), checks that it exists and is not NaN,
@@ -47,11 +49,17 @@ through property updates; an automatic range end uses the cached
 works out again. A range that cannot be resolved shows every face in the
 no-data colour, as the Display panel already flags it.
 
+Turning the view on finds the carriers again, and every layer refresh keeps
+them current (an analysis that adds the layer to another object extends the
+view). :class:`GEOTOOLS_OT_layer_show`, the Display panel's toggle, refuses
+a layer no object carries and says so, and sets an unset source collection
+(``source.default_source``).
+
 ``export.view_hidden`` takes the view off while the exporter evaluates the
 source, so a publish with the view on is byte-identical to one with it off. Turning the
 view off removes the modifiers, the groups and materials no longer used,
 the active colour change and the shading change. Only one layer is shown at
-a time per scene. A source object whose modifiers come from a library is
+a time per scene. A carrier whose modifiers come from a library is
 skipped. With the build profile's Apply Modifiers off a publish reads the
 original meshes, while the view shows the end of the modifier stack.
 """
@@ -72,8 +80,9 @@ from ..core.layers import DataType, Domain, effective_attribute_name, parse_numb
 from ..core.presentation import VIEW_ATTRIBUTE, Target
 from ..core.ramps import palette_stops, srgb_bytes_to_linear
 from .export import VIEW_ACTIVE_KEY, VIEW_NAME, is_view_modifier
-from .layers import source_objects, spec_from_props, update_value_range
+from .layers import refresh_carriers, spec_from_props, stored_carriers, update_value_range
 from .presentation import BOOLEAN_RANGE, category_colours, presentation_settings
+from .source import analysis_notes
 
 log = logging.getLogger(__name__)
 
@@ -726,6 +735,19 @@ def _remove_unused() -> None:
         bpy.data.batch_remove(unused)
 
 
+def view_objects(scene: bpy.types.Scene, item) -> list[bpy.types.Object]:
+    """The objects the view shows a layer on: its stored carriers, and for a FACE or
+    CORNER layer every mesh whose own data has the attribute (a name lookup, no mesh
+    read), so values written since the last refresh show at the next update."""
+    found = {o.as_pointer(): o for o in stored_carriers(item) if o.name in scene.objects}
+    if item.domain != Domain.TEXTURE.value:
+        name = effective_attribute_name(spec_from_props(item))
+        for obj in scene.objects:
+            if obj.type == "MESH" and name in obj.data.attributes:
+                found.setdefault(obj.as_pointer(), obj)
+    return sorted(found.values(), key=lambda o: o.name)
+
+
 def sync(scene: bpy.types.Scene) -> None:
     """Put the scene's view in step with its layers: the modifiers, groups,
     materials, active colours and shading. Idempotent; reads no mesh data."""
@@ -745,7 +767,7 @@ def _sync(scene: bpy.types.Scene) -> None:
     socket = ""
     if item is not None:
         params = view_params(item)
-        objects = [o for o in source_objects(scene) if o.library is None]
+        objects = [o for o in view_objects(scene, item) if o.library is None]
         group = _ensure_group(f"{VIEW_NAME} {item.name}", item.name, "GeometryNodeTree")
         _rebuild_if_changed(group, params.key(), lambda: _build_geometry(group, params))
         if params.domain == Domain.TEXTURE.value:
@@ -842,6 +864,7 @@ def show_changed(presentation: bpy.types.PropertyGroup, context: bpy.types.Conte
                     other.presentation.show_in_viewport = False
         finally:
             _busy["sync"] = False
+        refresh_carriers(scene, item, sync_view=False)
         refresh_auto_range(scene, item)
     sync(scene)
 
@@ -874,7 +897,7 @@ def refresh_auto_range(scene: bpy.types.Scene, item) -> None:
     if parse_number(p.range_min) is not None and parse_number(p.range_max) is not None:
         return
     try:
-        update_value_range(scene, item)
+        update_value_range(scene, item, objects=stored_carriers(item))
     except RuntimeError as ex:  # a source mesh in Edit Mode: keep the cached range
         log.info("view of %s keeps its automatic range: %s", item.name, ex)
 
@@ -891,12 +914,65 @@ def _on_undo(*_args: object) -> None:
         log.exception("restoring the viewport shading after undo failed")
 
 
-classes: tuple[type, ...] = ()  # handlers only; the toggle is a layer property
+# --- the toggle ---------------------------------------------------------------------------------
+
+
+class GEOTOOLS_OT_layer_show(bpy.types.Operator):
+    """Show the selected layer in the viewport in its Display colours, on every object that
+    carries it, kept up to date; or take the view off. Publishing ignores it. One layer at
+    a time"""
+
+    bl_idname = "geotools.layer_show"
+    bl_label = "Show in Viewport"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context: bpy.types.Context) -> bool:
+        props = context.scene.geotools if context.scene is not None else None
+        if props is None or not 0 <= props.layers_index < len(props.layers):
+            cls.poll_message_set("No layer selected")
+            return False
+        return True
+
+    def execute(self, context: bpy.types.Context) -> set[str]:
+        scene = context.scene
+        props = scene.geotools
+        item = props.layers[props.layers_index]
+        presentation = item.presentation
+        if presentation.show_in_viewport:
+            presentation.show_in_viewport = False
+            self.report({"INFO"}, f"Layer {item.name} is no longer shown")
+            return {"FINISHED"}
+        carriers = refresh_carriers(scene, item, sync_view=False)
+        if not carriers:
+            spec = spec_from_props(item)
+            if spec.domain is Domain.TEXTURE:
+                what = "No object has an image of this texture layer yet: bake it first"
+            else:
+                what = (
+                    f"No object carries {effective_attribute_name(spec)} after its modifiers: "
+                    "add an analysis, or create the attribute (Details)"
+                )
+            self.report({"WARNING"}, f"Layer {item.name} not shown. {what}")
+            return {"CANCELLED"}
+        notes = analysis_notes(context, carriers)
+        presentation.show_in_viewport = True
+        count = len(carriers)
+        message = f"Layer {item.name} shown on {count} object{'s' * (count != 1)}"
+        self.report({"INFO"}, "; ".join([message, *notes]))
+        return {"FINISHED"}
+
+
+classes: tuple[type, ...] = (GEOTOOLS_OT_layer_show,)
 
 _HANDLERS = (("undo_post", _on_undo), ("redo_post", _on_undo), ("load_post", _on_undo))
 
 
+_register_classes, _unregister_classes = bpy.utils.register_classes_factory(classes)
+
+
 def register() -> None:
+    _register_classes()
     for name, handler in _HANDLERS:
         handlers = getattr(bpy.app.handlers, name)
         if handler not in handlers:
@@ -908,3 +984,4 @@ def unregister() -> None:
         handlers = getattr(bpy.app.handlers, name)
         if handler in handlers:
             handlers.remove(handler)
+    _unregister_classes()
