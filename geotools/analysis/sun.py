@@ -37,11 +37,13 @@ north positive. Times are seconds since the Unix epoch, UTC, or Julian days
 proleptic Gregorian calendar of Python's ``datetime``.
 
 Time zones (:func:`zone`, :func:`to_utc`) use ``zoneinfo`` IANA names. Python
-on Windows has no system time zone database, and Blender's bundled Python does
-not ship the ``tzdata`` package, so a named zone may be unavailable there:
-:func:`zone` then raises :class:`TimeZoneUnavailable` and callers fall back to a
-fixed UTC offset (:func:`fixed_offset`), which has no daylight saving.
-Whether to bundle ``tzdata`` instead is issue #77.
+on Windows has no system time zone database and Blender's Python does not ship
+one, so the extension bundles the ``tzdata`` wheel (pinned in
+``[tool.geotools.wheels]``): ``zoneinfo`` reads a zone from the system database
+when it has it and from ``tzdata`` otherwise, on every platform. Only if both
+are missing (a build without the bundled wheels on Windows) does :func:`zone`
+raise :class:`TimeZoneUnavailable` for a named zone; a fixed UTC offset
+(:func:`fixed_offset`, no daylight saving) always works.
 
 The direction helpers (:func:`direction`, :func:`light_euler`) work in a
 scene frame whose +Y is "north" for the caller: true north, or grid north once
@@ -265,7 +267,7 @@ class TimeZoneUnavailable(LookupError):
 
 @lru_cache(maxsize=1)
 def time_zone_database_available() -> bool:
-    """True if ``zoneinfo`` can load named zones (the system database or ``tzdata``)."""
+    """True if ``zoneinfo`` can load named zones (the system database or bundled ``tzdata``)."""
     try:
         zoneinfo.ZoneInfo("Etc/GMT-1")
     except (zoneinfo.ZoneInfoNotFoundError, ValueError, OSError):
@@ -276,9 +278,11 @@ def time_zone_database_available() -> bool:
 def zone(name: str) -> _dt.tzinfo:
     """The IANA time zone ``name``, e.g. ``"Australia/Brisbane"``; ``"UTC"`` always works.
 
-    Raises :class:`TimeZoneUnavailable` for an unknown name, or for any name
-    other than UTC when this Python has no time zone database (Python on
-    Windows without the ``tzdata`` package, as in Blender).
+    ``zoneinfo`` looks the name up in the system database (``zoneinfo.TZPATH``)
+    and, when that is missing or lacks the zone, in the ``tzdata`` package that
+    the extension bundles. Raises :class:`TimeZoneUnavailable` for an unknown
+    name, or for any name other than UTC when neither is available (a build
+    without the bundled wheels on Windows).
     """
     text = (name or "").strip()
     if text.upper() in {"UTC", "Z", "ETC/UTC", "GMT"}:
@@ -291,8 +295,9 @@ def zone(name: str) -> _dt.tzinfo:
         pass
     if not time_zone_database_available():
         raise TimeZoneUnavailable(
-            f'Time zone "{text}" cannot be used: this Python has no time zone database '
-            "(usual for Blender on Windows). Use a fixed UTC offset instead.",
+            f'Time zone "{text}" cannot be used: this Python has no time zone database and '
+            "the tzdata package bundled with GeoTools did not load. Reinstall GeoTools, or "
+            "use a fixed UTC offset instead.",
             no_database=True,
         )
     raise TimeZoneUnavailable(

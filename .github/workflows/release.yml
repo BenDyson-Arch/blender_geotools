@@ -80,24 +80,41 @@ jobs:
         with:
           version: ${{ env.BLENDER_VERSION }}
           sha256: ${{ env.BLENDER_SHA256 }}
-      - name: Fetch the pinned wheels (rusty-tiles, pyproj, certifi; PyPI, every platform)
+      - name: Fetch the pinned wheels (rusty-tiles, pyproj, certifi, tzdata; PyPI, every platform)
         # Always for CPython 3.13 (Blender 5.2 LTS): no --python here.
         run: python scripts/fetch_wheels.py
       - name: Validate and build the split extension zips
         run: python scripts/build_extension.py --blender "$BLENDER" --out dist
-      - name: Check that every platform was built
+      - name: Check that every platform was built, with one wheel of every pin
+        # The pins are [tool.geotools.wheels] in pyproject.toml (rusty-tiles, pyproj,
+        # certifi, tzdata), so a new pin is checked here without editing this step.
         env:
           VERSION: ${{ needs.check.outputs.version }}
         run: |
-          set -eu
-          for platform in linux_x64 windows_x64 macos_arm64; do
-            zip="dist/geotools-${VERSION}-${platform}.zip"
-            test -f "$zip" || { echo "::error::missing $zip"; exit 1; }
-            for wheel in rusty_tiles pyproj certifi; do
-              python -c 'import sys, zipfile; names = zipfile.ZipFile(sys.argv[1]).namelist(); sys.exit(not any(n.startswith("wheels/" + sys.argv[2] + "-") for n in names))' "$zip" "$wheel" \
-                || { echo "::error::$zip has no $wheel wheel"; exit 1; }
-            done
-          done
+          python - <<'PY'
+          import os, sys, zipfile
+          sys.path.insert(0, "scripts")
+          from fetch_wheels import WheelName, normalize_version, read_config
+
+          pins = read_config().pins
+          failed = False
+          for platform in ("linux_x64", "windows_x64", "macos_arm64"):
+              path = f"dist/geotools-{os.environ['VERSION']}-{platform}.zip"
+              if not os.path.isfile(path):
+                  print(f"::error::missing {path}")
+                  failed = True
+                  continue
+              names = zipfile.ZipFile(path).namelist()
+              wheels = [WheelName.parse(n.rpartition("/")[2]) for n in names
+                        if n.startswith("wheels/") and n.endswith(".whl")]
+              for dist, pin in pins.items():
+                  found = [w.filename for w in wheels if w.name == dist
+                           and normalize_version(w.version) == normalize_version(pin)]
+                  if len(found) != 1:
+                      print(f"::error::{path} has {len(found)} {dist} {pin} wheels: {found}")
+                      failed = True
+          sys.exit(failed)
+          PY
       - name: Install and test in Blender (linux-x64, rusty-tiles and pyproj at the pins)
         env:
           VERSION: ${{ needs.check.outputs.version }}
