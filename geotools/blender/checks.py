@@ -11,6 +11,7 @@ from .bake_texture import uv_overlap_issues
 from .common import extension_version, redraw_ui
 from .crs_picker import migrate_scene
 from .layers import OUTSIDE_SOURCE, outside_source, refresh_layers, stored_carriers
+from .orientation import check_issues as orientation_issues
 from .properties import SEVERITY_ICONS, FieldError, field_issues, placement_from_props
 from .source import refresh_summary
 from .texture_state import check_issues as texture_issues
@@ -73,8 +74,9 @@ def run_checks(context: bpy.types.Context) -> list[Issue]:
     """Summarise the source collection and check it against the placement.
 
     Image rules see the active build profile, so a lossy image remedy warns in a
-    lossless build. Also refreshes every layer's cached range and status
-    (``layers.refresh_layers``), read from the evaluated meshes.
+    lossless build. Normal orientation (``orientation.check_issues``) reads every
+    source mesh and casts a few rays. Also refreshes every layer's cached range
+    and status (``layers.refresh_layers``), read from the evaluated meshes.
     """
     props = context.scene.geotools
     migrate_scene(context.scene)
@@ -102,6 +104,7 @@ def run_checks(context: bpy.types.Context) -> list[Issue]:
         issues += crs_issues(placement, issues)
     issues += outside_source_issues(context.scene)
     issues += uv_overlap_issues(context)
+    issues += orientation_issues(context)
     issues += texture_issues(context)
     issues += scene_georef.issues(context.scene)
     issues += update_issues()

@@ -42,6 +42,7 @@ from ..core.layers import (
 )
 from .common import extension_version, redraw_ui
 from .layers import ensure_layer, find_layer, refresh_layer, spec_from_props, write_layer
+from .orientation import analysis_notes as normal_notes
 from .properties import FieldError
 from .source import analysis_notes
 from .surface import (
@@ -234,8 +235,10 @@ def compute(context: bpy.types.Context) -> dict:
         timings[what] = round(time.perf_counter() - began - sum(timings.values()), 3)
 
     objects = run_objects(context, props.surface)
+    notes = normal_notes(context, objects)
+    lap("normals")
     arrays = read_surface(context, objects, topology=True)
-    notes = list(arrays.notes)
+    notes += arrays.notes
     lap("read")
     surface = hy.surface_from_mesh(
         arrays.positions,

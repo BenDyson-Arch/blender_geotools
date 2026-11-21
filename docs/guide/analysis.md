@@ -38,6 +38,11 @@ mesh outside it works and shows, and the report says it is not published (see
 [Source](projects.md#source)). If no source collection is set, a tool sets it
 to the collection of the mesh it ran on, and the report says so.
 
+Hydrology, Sun Hours, Sky-View Factor and Openness read each face's normal as
+pointing out of the surface. They check the normals first and warn in their
+report when faces are wound against their neighbours or most of the area
+faces down; they run anyway. See [Normals](publish.md#normals).
+
 ## Sun
 
 Places a Blender Sun light where the sun is, for a date, time and place.
