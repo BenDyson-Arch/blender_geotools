@@ -14,12 +14,10 @@ and the project follows semantic versioning where practical.
   are right under overhangs, where the sky-view factor and openness presets
   (which assume a height field) read open sky. See
   [which to use](docs/analysis-presets.md#sky-visibility-sky-view-cosine-and-openness-3d-sky_visibility-sky_view_cosine-openness_3d-face-ratio).
-- **Least-Cost Routes** in the Analysis panel: the quickest route over one 3D
-  surface with uphill and downhill costed apart, crossing faces at any angle
-  (Steiner Points), and the travel time from Start to every face as a layer,
-  with optional isochrones. Models: Tobler, Langmuir (GRASS r.walk's
-  coefficients), Naismith and a wheelchair model limited to 1:12. Checked
-  against networkx and r.walk on the
+- **Least-Cost Routes** in the Analysis panel: the quickest route over a 3D
+  surface, uphill and downhill costed apart and crossing faces at any angle,
+  with travel time to every face as a layer. Tobler, Langmuir, Naismith and
+  wheelchair (1:12) models, checked on the
   [validation page](docs/validation/least-cost.md).
 - **Show in Viewport** in Layers > Display shows a layer in its variant
   colours, live as the palette, range or Geometry Nodes change, with a
@@ -36,12 +34,11 @@ and the project follows semantic versioning where practical.
 
 ### Changed
 
-- Analysis acts on the selected meshes, in any collection; the source
-  collection only decides what is published. The analysis tools default to
-  **Selected Objects**, and layers and **Show in Viewport** cover every object
-  that carries the layer. An unset source collection is set from the first
-  object you analyse. Run Checks warns about a layer outside the source
-  collection and offers **Add to Source**.
+- Analysis acts on the selected meshes; the source collection only decides
+  what is published, and is set from the first mesh you analyse if unset.
+  Layers and **Show in Viewport** cover every object with the layer. Run
+  Checks flags a layer outside the source collection, with **Add to
+  Source**.
 - **Write Colours** is gone: Show in Viewport replaces it. Publishing still
   never writes the `gt_present` attribute it left on meshes.
 - GLBs with metadata name their `geotools:` XMP terms with a permanent
@@ -112,11 +109,10 @@ the [user guide](docs/guide/README.md) has a page per area.
 ### Added
 
 - **Projects and georeference.** Local, Anchor (a WGS84 point and heading)
-  and CRS projects. The CRS field is a searchable EPSG picker over the codes
-  rusty-tiles resolves, and Check shows the datum operation and its accuracy
-  before a publish. Offsets keep full double precision; offset files are read
-  beside an imported mesh, offered rather than applied when they would move
-  the scene, and **Verify Placement** shows where the site lands on Earth.
+  and CRS projects, with a searchable EPSG picker and the datum operation's
+  accuracy shown before a publish. Offsets keep full double precision, offset
+  files are offered rather than silently applied, and **Verify Placement**
+  shows where the site lands.
 - **BlenderGIS interop.** A CRS project reads and writes the scene's GeoScene
   keys, so data from either tool lands on the same coordinates; BlenderGIS is
   not needed. **Origin from Latitude/Longitude** fixes scenes that have only
@@ -130,12 +126,10 @@ the [user guide](docs/guide/README.md) has a page per area.
   Nodes outputs or stored attributes, with units, no-data and value ranges;
   texture-space bakes with a UV-overlap check; colour ramps and categories,
   and variant tilesets such as `site.slope.3tz`.
-- **Analysis.** The sun for a date and place, over a day, sun hours,
-  clear-sky insolation and shadow studies; archaeoastronomy (the horizon
-  profile, solstice, equinox and lunar standstill events at any epoch within
-  10,000 years, sightlines and an alignment check); points, distances and
-  areas on Earth; 3D surface hydrology (flow paths, accumulation and ponding
-  on the mesh itself); contours and sections.
+- **Analysis.** The sun, sun hours, clear-sky insolation and shadow studies;
+  archaeoastronomy (horizon profile, solar and lunar events within 10,000
+  years, sightlines, alignment checks); points, distances and areas on Earth;
+  3D surface hydrology; contours and sections.
 - **Analysis presets.** Editable Geometry Nodes presets from **Add
   Analysis**: slope, aspect, curvature, rugosity, TPI, TRI, local relief,
   sky-view factor, openness, viewsheds, intervisibility, line of sight,
