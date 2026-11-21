@@ -14,7 +14,9 @@ LOCAL or ANCHOR project is refused with the data's centre offered as the
 project origin (``data_origin``).
 
 Export: the evaluated mesh (modifiers applied, so a draped result keeps its
-heights) to GeoJSON or GeoPackage with Z, in the project CRS.
+heights) to GeoJSON or GeoPackage with Z, in the project CRS; or, for GeoJSON,
+in WGS84 longitude and latitude (RFC 7946, ``transform.to_rfc7946``), which
+needs pyproj and a project CRS.
 
 Geometry is never written back to a source. Parsing, writing and CRS logic
 live in ``core``; this module moves arrays in and out of Blender with
@@ -46,7 +48,7 @@ from ..core.vector.digest import diff, feature_digests
 from ..core.vector.model import Column, ColumnType, Kind, VectorData, concat
 from ..core.vector.options import VectorOptions, within_bbox
 from ..core.vector.transform import bounds as data_bounds
-from ..core.vector.transform import reproject_data
+from ..core.vector.transform import reproject_data, to_rfc7946
 from . import blend_paths, data_origin, links
 from .common import redraw_ui
 from .links import RefreshError, RefreshResult
@@ -217,12 +219,19 @@ def reproject_into(
             f"Cannot reproject {what} from {data.crs.describe()} to "
             f"{frame.project.describe()}: {ex}"
         ) from None
+    return data, offline_notes(report, allow_network, online)
+
+
+def offline_notes(
+    report: crs_match.ReprojectionReport | None, allow_network: bool, online: bool
+) -> crs_match.ReprojectionReport | None:
+    """``report`` with its grid advice reworded when Blender's online access is off."""
     if report is None or online:
-        return data, report
+        return report
     notes = [n.replace(core_reproject.GRID_ADVICE, OFFLINE_GRID_ADVICE) for n in report.notes]
     if allow_network:
         notes.append(GRID_DOWNLOADS_SKIPPED)
-    return data, replace(report, notes=tuple(notes))
+    return replace(report, notes=tuple(notes))
 
 
 def check_local(frame: Frame, loaded: list[tuple[str, VectorData]]) -> None:
@@ -820,6 +829,12 @@ def source_names(obj: bpy.types.Object, data: VectorData) -> VectorData:
     return data
 
 
+WGS84_NEEDS_CRS = (
+    "WGS84 (RFC 7946) needs a project CRS: a Local or Anchor project's coordinates are local metres"
+)
+WGS84_NEEDS_PYPROJ = "WGS84 (RFC 7946) needs pyproj, which did not load (see Check Dependencies)"
+
+
 def export_vectors(
     context: bpy.types.Context,
     objects: list[bpy.types.Object],
@@ -827,10 +842,24 @@ def export_vectors(
     file_format: str,
     layer: str,
     overwrite: bool,
-) -> tuple[dict[Kind, int], list[str]]:
-    """Export ``objects`` (evaluated) to ``path``; return features per kind and warnings."""
+    *,
+    coordinates: str = "PROJECT",
+    allow_network: bool = False,
+) -> tuple[dict[Kind, int], list[str], list[str]]:
+    """Export ``objects`` (evaluated) to ``path``; return features per kind, warnings and notes.
+
+    ``coordinates`` ``"WGS84"`` writes a GeoJSON in RFC 7946 longitude and
+    latitude; it is refused (ValueError) in a Local or Anchor project and
+    without pyproj. The notes are the reprojection report.
+    """
     frame = project_frame(context.scene)
+    wgs84 = file_format == "GEOJSON" and coordinates == "WGS84"
+    if wgs84 and frame.project is None:
+        raise ValueError(WGS84_NEEDS_CRS)
+    if wgs84 and not core_reproject.available():
+        raise ValueError(WGS84_NEEDS_PYPROJ)
     warnings = list(frame.warnings)
+    notes: list[str] = []
     if frame.project is None:
         warnings.append("The project is not in a CRS: coordinates are written as local metres")
     depsgraph = context.evaluated_depsgraph_get()
@@ -845,15 +874,28 @@ def export_vectors(
     merged = {kind: concat(datas, layer) for kind, datas in by_kind.items()}
     counts = {kind: merged[kind].n_rows for kind in merged}
     if file_format == "GEOJSON":
-        geojson.write(path, concat(list(merged.values()), layer), frame.project)
-        if frame.project is not None and frame.project.epsg != crs_match.WGS84:
-            warnings.append("Written with the legacy 'crs' member (projected, outside RFC 7946)")
-        return counts, warnings
+        data = concat(list(merged.values()), layer)
+        if not wgs84:
+            geojson.write(path, data, frame.project)
+            if frame.project is not None and frame.project.epsg != crs_match.WGS84:
+                warnings.append(
+                    "Written with the legacy 'crs' member (projected, outside RFC 7946)"
+                )
+            return counts, warnings, notes
+        assert frame.project is not None
+        online = online_access()
+        data, report = to_rfc7946(data, frame.project, allow_network=allow_network and online)
+        geojson.write(path, data, data.crs)
+        report = offline_notes(report, allow_network, online)
+        if report is not None:
+            notes.append(crs_match.report_text(report))
+            warnings.extend(report.notes)
+        return counts, warnings, notes
     kinds = [k for k in (Kind.POLYGONS, Kind.LINES, Kind.POINTS) if k in merged]
     for kind in kinds:
         table = layer if len(kinds) == 1 else f"{layer}{KIND_SUFFIX[kind].replace('.', '_')}"
         gpkg.write_layer(path, table, merged[kind], kind, frame.project, overwrite=overwrite)
-    return counts, warnings
+    return counts, warnings, notes
 
 
 # --- operators ------------------------------------------------------------------------
@@ -1179,16 +1221,32 @@ EXPORT_FORMAT_ITEMS = (
         "GEOJSON",
         "GeoJSON",
         (
-            "GeoJSON with Z. In a projected project CRS this is outside RFC 7946 (which is "
-            "WGS84 only): GeoTools writes the legacy crs member, which QGIS and GDAL read"
+            "GeoJSON with Z, in the coordinates chosen below. In a projected project CRS "
+            "this is outside RFC 7946 (which is WGS84 only): GeoTools writes the legacy crs "
+            "member, which QGIS and GDAL read"
         ),
     ),
 )
 EXTENSIONS = {"GPKG": ".gpkg", "GEOJSON": ".geojson"}
+COORDINATE_ITEMS = (
+    (
+        "PROJECT",
+        "Project CRS",
+        "The project CRS with the legacy crs member, which QGIS and GDAL read",
+    ),
+    (
+        "WGS84",
+        "WGS84 (RFC 7946)",
+        (
+            "Longitude and latitude in WGS84, as RFC 7946 and web viewers expect. "
+            "Needs pyproj and a project CRS"
+        ),
+    ),
+)
 
 
 class GEOTOOLS_OT_export_vector(bpy.types.Operator):
-    """Export meshes (evaluated: modifiers applied) to GeoPackage or GeoJSON with Z, in the project CRS. Faces become polygons, loose edges lines, loose vertices points"""
+    """Export meshes (evaluated: modifiers applied) to GeoPackage or GeoJSON with Z, in the project CRS (or WGS84 for GeoJSON). Faces become polygons, loose edges lines, loose vertices points"""
 
     bl_idname = "geotools.export_vector"
     bl_label = "Export Vectors"
@@ -1209,6 +1267,20 @@ class GEOTOOLS_OT_export_vector(bpy.types.Operator):
         name="Replace Table",
         description="Replace a GeoPackage table of the same name",
         default=True,
+    )
+    coordinates: EnumProperty(
+        name="Coordinates",
+        description="The coordinates of a GeoJSON",
+        items=COORDINATE_ITEMS,
+        default="PROJECT",
+    )
+    allow_grid_downloads: BoolProperty(
+        name="Allow Grid Downloads",
+        description=(
+            "Let PROJ download a transformation grid from cdn.proj.org when a more "
+            "accurate WGS84 conversion needs one"
+        ),
+        default=False,
     )
     object_name: StringProperty(options={"HIDDEN", "SKIP_SAVE"})
 
@@ -1234,6 +1306,18 @@ class GEOTOOLS_OT_export_vector(bpy.types.Operator):
         context.window_manager.fileselect_add(self)
         return {"RUNNING_MODAL"}
 
+    def draw(self, context: bpy.types.Context) -> None:
+        layout = self.layout
+        layout.use_property_split = True
+        layout.prop(self, "file_format")
+        layout.prop(self, "layer")
+        if self.file_format == "GPKG":
+            layout.prop(self, "overwrite")
+            return
+        layout.prop(self, "coordinates")
+        if self.coordinates == "WGS84":
+            draw_grid_downloads(layout, context, self)
+
     def check(self, context: bpy.types.Context) -> bool:
         path = Path(self.filepath)
         ext = EXTENSIONS[self.file_format]
@@ -1253,14 +1337,23 @@ class GEOTOOLS_OT_export_vector(bpy.types.Operator):
         path = Path(blend_paths.abspath(self.filepath))
         layer = self.layer.strip() or (objects[0].name if len(objects) == 1 else path.stem)
         try:
-            counts, warnings = export_vectors(
-                context, objects, path, self.file_format, layer, self.overwrite
+            counts, warnings, notes = export_vectors(
+                context,
+                objects,
+                path,
+                self.file_format,
+                layer,
+                self.overwrite,
+                coordinates=self.coordinates,
+                allow_network=self.allow_grid_downloads,
             )
         except (ImportRefused, ValueError, OSError) as ex:
             self.report({"ERROR"}, f"Export failed: {ex}")
             return {"CANCELLED"}
         parts = ", ".join(f"{n} {k.value}" for k, n in counts.items())
         text = f"Exported {parts} to {path.name}"
+        if notes:
+            self.report({"INFO"}, " ".join(notes))
         self.report({"WARNING"} if warnings else {"INFO"}, " ".join([text, *warnings]))
         return {"FINISHED"}
 

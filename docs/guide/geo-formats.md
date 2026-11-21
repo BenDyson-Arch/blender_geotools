@@ -102,11 +102,26 @@ the offset added back:
 - Z is the absolute height (Blender Z plus offset A);
 - attributes are written as columns.
 
-Options: **Format**, the **Layer** (table) name, and **Replace Table** for a
-GeoPackage table that already exists.
+Options: **Format**, the **Layer** (table) name, **Replace Table** for a
+GeoPackage table that already exists, and **Coordinates** for a GeoJSON:
 
-A GeoJSON in a projected CRS is outside RFC 7946, which allows only WGS84.
-GeoTools writes the legacy `crs` member, which QGIS and GDAL read.
+- **Project CRS** (the default) writes the project CRS with the legacy `crs`
+  member, which QGIS and GDAL read. A GeoJSON in a projected CRS is outside
+  RFC 7946, which allows only WGS84, so web viewers misplace or reject it.
+- **WGS84 (RFC 7946)** writes longitude and latitude, rounded to 1e-8 degrees
+  (about 1 mm), with no `crs` member and polygon rings wound as RFC 7946
+  asks. Use it for a GeoJSON that sits beside your tileset in CesiumJS,
+  MapLibre or geojson.io. It needs pyproj (see About) and a project CRS: it
+  is refused in a Local or Anchor project. The export report names the
+  conversion PROJ used and its accuracy, often a few metres: WGS84 is a
+  datum ensemble, not one fixed datum. **Allow Grid Downloads** works as on
+  import.
+
+RFC 7946 heights are WGS84 ellipsoidal heights. With a horizontal project
+CRS (the usual case) GeoTools keeps the project's heights, and the report
+says the file is not conformant on Z. With a compound project CRS (a vertical
+datum too) PROJ converts the heights when it has the geoid grid; without it
+the heights pass through, and the report says so.
 
 A GeoPackage records the CRS in its `gpkg_spatial_ref_sys` table: the EPSG
 code (organization and code) and, as the GeoPackage standard asks, the CRS as

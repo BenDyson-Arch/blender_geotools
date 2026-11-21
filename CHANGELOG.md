@@ -35,6 +35,10 @@ and the project follows semantic versioning where practical.
   modifier and material built from stock nodes, switches Solid mode to the
   Attribute colour, and takes it all away again when turned off. Texture
   layers show in Material Preview. Publishing ignores it.
+- **Coordinates: WGS84 (RFC 7946)** in GeoJSON export writes longitude and
+  latitude that CesiumJS, MapLibre and geojson.io place correctly, beside
+  your tileset. It needs pyproj and a project CRS; the project CRS stays
+  the default. See [Geo formats](docs/guide/geo-formats.md#export).
 
 ### Changed
 

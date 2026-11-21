@@ -593,3 +593,74 @@ def test_segment_indices() -> None:
         11,
     ]
     assert segment_indices(np.array([], dtype=np.int64), np.array([], dtype=np.int64)).size == 0
+
+
+# --- RFC 7946 (WGS84) export ---------------------------------------------------------
+
+
+def _signed_area(ring: list) -> float:
+    xy = np.asarray(ring)[:, :2] - ring[0][:2]
+    return float((xy[:-1, 0] * xy[1:, 1] - xy[1:, 0] * xy[:-1, 1]).sum())
+
+
+def _wound_wrong() -> list[dict]:
+    """A clockwise exterior with a counterclockwise 1 m hole, and a 3D line."""
+    polygon = {
+        "type": "Polygon",
+        "coordinates": [vf.square(E0, N0, 10.0, 31.5)[::-1], vf.square(E0 + 2, N0 + 2, 1.0, 31.5)],
+    }
+    line = {"type": "LineString", "coordinates": [[E0, N0, 1.0], [E0 + 3, N0 + 4, 2.0]]}
+    return [vf.feature(polygon, {"name": "pit"}, 1), vf.feature(line, {"name": "wall"}, 2)]
+
+
+def test_rfc7946_writes_wgs84_wound_and_rounded(tmp_path: Path) -> None:
+    pyproj = pytest.importorskip("pyproj")
+    from geotools.core.vector import transform
+
+    src = geojson.read(vf.write_geojson(tmp_path / "a.geojson", _wound_wrong()))
+    project = DataCrs(vf.MGA56, None, "project")
+    data, report = transform.to_rfc7946(src, project)
+    assert report is not None
+    assert (report.source, report.target) == (vf.MGA56, "EPSG:4326")
+    assert report.operation and report.accuracy_m is not None
+    assert transform.HEIGHTS_NOT_ELLIPSOIDAL in report.notes
+    assert not any(n.startswith("No vertical transform") for n in report.notes)
+    out = tmp_path / "wgs84.geojson"
+    geojson.write(out, data, data.crs)
+    raw = json.loads(out.read_text())
+    assert "crs" not in raw
+    polygon, line = (f["geometry"] for f in raw["features"])
+    exterior, hole = polygon["coordinates"]
+    assert _signed_area(exterior) > 0 > _signed_area(hole)  # RFC 7946 section 3.1.6
+    expected = pyproj.Transformer.from_crs(vf.MGA56, "EPSG:4326", always_xy=True)
+    lon, lat = expected.transform(E0 + 3, N0 + 4)
+    assert line["coordinates"][1] == [round(lon, 8), round(lat, 8), 2.0]
+    assert 152 < lon < 154 and -28 < lat < -27  # longitude first
+    back = geojson.read(out)
+    assert back.crs is not None and back.crs.epsg == "EPSG:4326"
+    assert back.columns["name"].values == ["pit", "wall"]
+
+
+def test_rfc7946_targets_ellipsoidal_heights_for_a_3d_project_crs(tmp_path: Path) -> None:
+    pytest.importorskip("pyproj")
+    from geotools.core.vector import transform
+
+    src = geojson.read(vf.write_geojson(tmp_path / "a.geojson", _wound_wrong()))
+    project = DataCrs(None, "EPSG:7856+5711", "project")  # MGA56 + AHD heights
+    _data, report = transform.to_rfc7946(src, project)
+    assert report is not None and report.target == transform.WGS84_3D
+    # Offline and without the AUSGeoid2020 grid PROJ falls back to a ballpark vertical step.
+    ballpark = "ballpark vertical" in report.operation.lower()
+    assert (transform.HEIGHTS_NOT_ELLIPSOIDAL in report.notes) == ballpark
+
+
+def test_rfc7946_refused_without_pyproj(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from geotools.core import deps
+    from geotools.core.crs_match import ReprojectionUnavailable
+    from geotools.core.vector import transform
+
+    missing = deps.DependencyStatus(False, error="pyproj is not installed", name="pyproj")
+    monkeypatch.setattr(deps, "probe_pyproj", lambda: missing)
+    src = geojson.read(vf.write_geojson(tmp_path / "a.geojson", _wound_wrong()))
+    with pytest.raises(ReprojectionUnavailable, match="pyproj"):
+        transform.to_rfc7946(src, DataCrs(vf.MGA56, None, "project"))
