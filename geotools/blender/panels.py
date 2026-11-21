@@ -795,9 +795,12 @@ class GEOTOOLS_PT_publish_settings(_GeoToolsPanel, bpy.types.Panel):
         col.prop(profile, "jobs")
         col.prop(profile, "memory_budget_gib", text="Memory GiB")
         if profile.memory_budget_gib <= 0:
-            available = sysmem.available_memory_bytes()
+            reading = publish.memory_reading()  # never reads memory: no vm_stat in draw
+            available = None if reading is None else reading.available
             budget = sysmem.auto_memory_budget(available)
-            if budget is None:
+            if reading is None:
+                text = "Auto memory: reading available memory"
+            elif budget is None:
                 text = "Auto memory: rusty-tiles default"
             else:
                 gib = format_gib(budget).removesuffix(" GiB")
@@ -844,7 +847,7 @@ class GEOTOOLS_PT_about(_GeoToolsPanel, bpy.types.Panel):
     def draw_header(self, context: bpy.types.Context) -> None:
         if not deps.probe_rusty_tiles().available:
             state = ERROR
-        elif not deps.probe_pyproj().available:
+        elif deps.update_pending() or not deps.probe_pyproj().available:
             state = WARNING  # everything but reprojecting imports still works
         else:
             state = DONE
@@ -852,7 +855,9 @@ class GEOTOOLS_PT_about(_GeoToolsPanel, bpy.types.Panel):
 
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
-        layout.label(text=f"Version {extension_version()}")
+        version = extension_version()
+        deps.check_for_update(version)  # a few os.stat calls, only while About is open
+        layout.label(text=f"Version {version}")
         draw_dependency_status(layout)
 
 

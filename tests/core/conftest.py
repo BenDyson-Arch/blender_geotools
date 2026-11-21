@@ -110,6 +110,19 @@ def allow_list(monkeypatch: pytest.MonkeyPatch):
     crs_catalog.reset_cache()
 
 
+# --- the process record of loaded libraries (core.deps) ----------------------------------
+
+from geotools.core import deps
+
+
+@pytest.fixture(autouse=True)
+def _fresh_session():
+    """Each test starts with no record of loaded libraries and no update seen."""
+    deps.reset_session()
+    yield
+    deps.reset_session()
+
+
 # --- time zones: no system database, as in Python on Windows --------------------------
 
 import zoneinfo

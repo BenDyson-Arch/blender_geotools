@@ -188,6 +188,8 @@ def draw_source_crs(
     name = crs_catalog.name(definition)
     if name:
         info_wrapped(col, context, "", name)
+    elif crs_catalog.names_error():
+        wrapped(col, context, f"No CRS names: {crs_catalog.names_error()}", icon="ERROR")
     if result is None:
         return
     box = layout.column(align=True)

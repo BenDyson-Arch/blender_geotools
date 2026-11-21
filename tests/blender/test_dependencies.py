@@ -145,6 +145,69 @@ def test_reprojection_in_blender() -> None:
     assert report.network is False
 
 
+# --- updated while Blender is running (issue 134) ---------------------------------------
+
+
+def test_register_recorded_what_this_blender_loaded() -> None:
+    deps = h.submodule("core.deps")
+    state = deps._session()
+    assert state["version"] == h.submodule("blender.common").extension_version(), state
+    manifest = str(h.submodule("core.manifest").MANIFEST_PATH)
+    assert [i[0] for i in state["files"]["geotools"]] == [manifest], state["files"]
+    if h.CONFIG.expect == "available":
+        native = [i[0] for i in state["files"]["rusty_tiles"]]
+        assert any("rusty_tiles" in p and h.is_within(p, h.extensions_root()) for p in native)
+    # Nothing changed on disk in this run: no restart notice.
+    assert not deps.check_for_update(h.submodule("blender.common").extension_version())
+    assert deps.RESTART_MESSAGE.split()[0] not in h.label_text(h.draw(h.panel_class()))
+
+
+def test_a_changed_library_shows_the_restart_notice() -> None:
+    """Fake a library whose file on disk is not the one loaded: every place says restart."""
+    import copy
+
+    deps = h.submodule("core.deps")
+    state = deps._session()
+    saved = copy.deepcopy(state)
+    manifest = str(h.submodule("core.manifest").MANIFEST_PATH)
+    try:
+        state["files"]["fakelib"] = [(manifest, -1, 0, 0)]  # another inode than the file's
+        assert not deps.update_pending()  # compared only by About, Check Dependencies, Checks
+
+        calls = h.draw(h.panel_class())  # About compares
+        text = h.label_text(calls)
+        assert deps.RESTART_MESSAGE in text, text
+        first = next(t for t, i in h.labels(calls) if t.startswith("GeoTools was updated"))
+        assert (first, "ERROR") in h.labels(calls), calls
+        assert h.operator_text("geotools.copy_details") is not None
+        if h.CONFIG.expect == "available":
+            assert (
+                h.draw_header(h.panel_class()) == h.submodule("blender.ui").STATUS_ICONS["WARNING"]
+            )
+
+        recorder = h.ReportRecorder()
+        assert h.operator_class().execute(recorder, bpy.context) == {"FINISHED"}
+        assert (frozenset({"WARNING"}), deps.RESTART_MESSAGE) in recorder.reports
+
+        checks = h.submodule("blender.checks").update_issues()
+        assert [(i.severity, i.code, i.message) for i in checks] == [
+            ("warning", "restart-after-update", deps.RESTART_MESSAGE)
+        ]
+
+        # PROJ's database errors now say restart, with PROJ's text only in Copy Details.
+        raw = "proj_create: SQLite error [ code = 10, msg = disk I/O error ] on SELECT"
+        assert deps.proj_error_message(raw) == deps.RESTART_MESSAGE
+        assert bpy.ops.geotools.copy_details() == {"FINISHED"}
+        details = deps.details_text(h.submodule("blender.common").extension_version())
+        assert f"Restart needed: fakelib: {manifest} changed on disk" in details, details
+        assert f"PROJ error: {raw}" in details, details
+    finally:
+        state.clear()
+        state.update(saved)
+    assert not deps.update_pending()
+    assert deps.RESTART_MESSAGE not in h.label_text(h.draw(h.panel_class()))
+
+
 # --- tzdata ---------------------------------------------------------------------------
 
 

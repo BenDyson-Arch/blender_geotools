@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -173,6 +174,46 @@ def test_panel_without_profile() -> None:
     assert not panels.GEOTOOLS_PT_publish_settings.poll(bpy.context)
     assert not panels.GEOTOOLS_PT_publish_last.poll(bpy.context)
     assert not bpy.ops.geotools.preview_output.poll()
+
+
+def test_drawing_publish_panels_starts_no_subprocess() -> None:
+    """Build Settings shows the auto memory budget without running vm_stat in draw()."""
+    h.reset_scene()
+    publish = _publish_mod()
+    panels = h.submodule("blender.panels")
+    sysmem = h.submodule("core.sysmem")
+    _add_profile(str(Path(tempfile.gettempdir()) / "geotools_memory.3tz"), memory_budget_gib=0)
+    started: list[object] = []
+
+    def no_subprocess(*args: object, **_kwargs: object) -> None:
+        started.append(args)
+        raise OSError("no subprocess in this test")
+
+    real_popen, real_sys = subprocess.Popen, sysmem.sys
+    subprocess.Popen = no_subprocess
+    sysmem.sys = SimpleNamespace(platform="darwin")  # read memory the macOS way: vm_stat
+    sysmem.forget_reading()
+    try:
+        for _ in range(2):
+            calls = h.draw(panels.GEOTOOLS_PT_publish)
+            calls += h.draw(panels.GEOTOOLS_PT_publish_settings)
+            assert "Auto memory: reading available memory" in h.label_text(calls), calls
+        assert started == []
+        # The first draw asked for a reading off the draw path; the timer reads once.
+        assert bpy.app.timers.is_registered(publish.refresh_memory_reading)
+        bpy.app.timers.unregister(publish.refresh_memory_reading)
+        publish.refresh_memory_reading()
+        assert len(started) == 1  # the vm_stat call really goes through Popen
+        calls = h.draw(panels.GEOTOOLS_PT_publish_settings)
+        assert "Auto memory: rusty-tiles default" in h.label_text(calls), calls
+        assert len(started) == 1
+        assert not bpy.app.timers.is_registered(publish.refresh_memory_reading)
+    finally:
+        subprocess.Popen, sysmem.sys = real_popen, real_sys
+    sysmem.forget_reading()
+    sysmem.available_memory_bytes()
+    calls = h.draw(panels.GEOTOOLS_PT_publish_settings)
+    assert any(t.startswith("Auto memory: ") and " of " in t for t, _i in h.labels(calls)), calls
 
 
 # --- refusals ----------------------------------------------------------------------------

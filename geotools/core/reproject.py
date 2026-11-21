@@ -22,6 +22,9 @@ Behaviour:
 - The report names the operation PROJ used, at the centre of the data, and its
   accuracy; ballpark operations and points outside the operation's area of use
   are noted.
+- A failure to read PROJ's database (an in-place update, see
+  :mod:`geotools.core.deps`) raises :class:`ReprojectionError` with
+  ``deps.proj_error_message``'s plain sentence; the raw text goes to the log.
 """
 
 from __future__ import annotations
@@ -113,7 +116,8 @@ def reproject_points(
             transformer = pyproj.Transformer.from_crs(source_crs, target_crs, always_xy=True)
         except pyproj.exceptions.ProjError as exc:
             raise ReprojectionError(
-                f"no coordinate operation from {_short(source)} to {_short(target)}: {exc}"
+                _plain(exc)
+                or f"no coordinate operation from {_short(source)} to {_short(target)}: {exc}"
             ) from exc
 
         three_d = points.shape[1] == 3
@@ -130,7 +134,7 @@ def reproject_points(
                 tx, ty = transformer.transform(x, y, errcheck=False)
         except pyproj.exceptions.ProjError as exc:
             raise ReprojectionError(
-                f"transform from {_short(source)} to {_short(target)} failed: {exc}"
+                _plain(exc) or f"transform from {_short(source)} to {_short(target)} failed: {exc}"
             ) from exc
         out[:, 0] = tx
         out[:, 1] = ty
@@ -214,7 +218,12 @@ def _crs(pyproj: Any, text: str, role: str) -> Any:
     try:
         return pyproj.CRS.from_user_input(text)
     except pyproj.exceptions.CRSError as exc:
-        raise ReprojectionError(f"unknown {role} CRS {_short(text)}: {exc}") from exc
+        raise ReprojectionError(_plain(exc) or f"unknown {role} CRS {_short(text)}: {exc}") from exc
+
+
+def _plain(exc: Exception) -> str | None:
+    """The plain message for a PROJ database error (raw text logged), else None."""
+    return deps.proj_error_message(exc)
 
 
 def _short(text: str, limit: int = 80) -> str:

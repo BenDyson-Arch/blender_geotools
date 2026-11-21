@@ -78,7 +78,10 @@ For the selected link:
 - **Refresh** reads the file again and replaces only the mesh data. Modifiers,
   materials, transform and parent stay, so a draping modifier re-drapes the
   new geometry. The report lists features added, removed and changed by fid.
-- **Auto** refreshes by itself: GeoTools checks the file every 2 seconds.
+  It is refused outside Object Mode, while a render or bake runs, and when an
+  orthophoto's image has unsaved edits, which a reload would discard.
+- **Auto** refreshes by itself: GeoTools checks the file every 2 seconds. In
+  those states it waits, and refreshes once you leave them.
 - **Filters** changes the import filters and refreshes.
 - **Write Back** writes the attributes you tick back to the file: a GeoPackage
   by `UPDATE` on each feature's fid (only those columns), a GeoJSON by
@@ -144,7 +147,11 @@ paths, depressions) export the same way.
    - **DEM**: a height mesh from band 1, one vertex per pixel centre;
    - **Orthophoto**: the image on a plane over its footprint.
 3. For a DEM, set **Decimation**: use every *n*th pixel. The dialog shows the
-   resulting spacing and vertex count.
+   resulting spacing, vertex count and the memory the import needs. An import
+   or refresh that would need more than 80% of the free memory, or more
+   vertices than one Blender mesh holds, is refused with the smallest
+   **Decimation** that fits, so Blender is not killed mid-import. A large
+   LiDAR DEM (20,000 × 20,000 pixels) needs about 85 GiB at Decimation 1.
 4. Import.
 
 A DEM drops cells with no data, and gets UVs over the raster's extent, so an
@@ -155,7 +162,8 @@ If you painted or cleaned the orthophoto, Publish saves the edits to a copy
 in `textures/` and the image uses it. **Refresh** then moves the plane but
 keeps the copy, and warns; if the file's width or height in pixels changed,
 it refuses instead, so the copy is never stretched. Point the Image Texture
-back at the `.tif` to reload the file. See [Texture cleanup](textures.md).
+back at the `.tif` to reload the file. Unsaved edits block **Refresh**:
+Publish to save them to the copy, or discard them with **Image > Reload**. See [Texture cleanup](textures.md).
 
 GeoTools reads the georeference, the GeoKeys and the nodata value itself.
 Pixels go through Blender's image loader where it is exact (float32, int16,

@@ -560,10 +560,50 @@ def test_update_attributes_rolls_back(tmp_path: Path) -> None:
     con.execute("CREATE TRIGGER fail BEFORE UPDATE ON t BEGIN SELECT RAISE(ABORT, 'no'); END")
     con.commit()
     con.close()
-    with pytest.raises(sqlite3.Error):
+    with pytest.raises(gpkg.GpkgError, match=r"cannot write a\.gpkg: no"):
         gpkg.update_attributes(path, "t", np.array([1]), {"w": (ColumnType.INT, [5])})
     # The ADD COLUMN was rolled back with the failed UPDATE.
     assert [r[1] for r in vf.rows(path, "PRAGMA table_info(t)")] == ["fid", "geom", "v"]
+
+
+def test_writes_to_a_locked_file_say_so(tmp_path: Path) -> None:
+    """QGIS holding a write lock: a plain GpkgError after the 5 s busy timeout, not a traceback."""
+    path = vf.write_gpkg(
+        tmp_path / "a.gpkg", "t", [(1, GEOMETRIES["point2"], {"v": 1.0})], {"v": "REAL"}
+    )
+    other = sqlite3.connect(path, isolation_level=None)
+    try:
+        other.execute("BEGIN IMMEDIATE")
+        with pytest.raises(gpkg.GpkgError, match=r"a\.gpkg is locked by another program"):
+            gpkg.update_attributes(path, "t", np.array([1]), {"v": (ColumnType.FLOAT, [2.0])})
+    finally:
+        other.execute("ROLLBACK")
+        other.close()
+    assert vf.rows(path, "SELECT v FROM t") == [(1.0,)]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
+def test_writes_to_a_read_only_file_say_so(tmp_path: Path) -> None:
+    path = vf.write_gpkg(
+        tmp_path / "a.gpkg", "t", [(1, GEOMETRIES["point2"], {"v": 1.0})], {"v": "REAL"}
+    )
+    path.chmod(0o444)
+    try:
+        with pytest.raises(gpkg.GpkgError, match=r"a\.gpkg is read-only"):
+            gpkg.update_attributes(path, "t", np.array([1]), {"v": (ColumnType.FLOAT, [2.0])})
+    finally:
+        path.chmod(0o644)
+
+
+def test_writes_to_a_file_that_is_not_a_database_say_so(tmp_path: Path) -> None:
+    path = tmp_path / "notes.gpkg"
+    path.write_text("not a database, just text " * 100)
+    with pytest.raises(gpkg.GpkgError, match=r"notes\.gpkg is not a GeoPackage"):
+        gpkg.update_attributes(path, "t", np.array([1]), {"v": (ColumnType.FLOAT, [2.0])})
+    with pytest.raises(gpkg.GpkgError, match=r"cannot open x\.gpkg for writing"):
+        gpkg.update_attributes(
+            tmp_path / "missing" / "x.gpkg", "t", np.array([1]), {"v": (ColumnType.FLOAT, [2.0])}
+        )
 
 
 def test_options_and_site_filter(tmp_path: Path) -> None:
