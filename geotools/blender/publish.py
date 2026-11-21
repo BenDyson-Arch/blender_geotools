@@ -215,6 +215,7 @@ def _store_result(session: _Session) -> None:
         summary = {**summary, "triangles": ""}
     profile.last_output = blend_paths.portable(result.output)
     profile.last_record = blend_paths.portable(result.record_path)
+    profile.last_legend = blend_paths.portable(result.legend) if result.legend else ""
     profile.last_build_utc = _utc_now()
     profile.last_seconds = result.seconds
     profile.last_validation = {True: "OK", False: "FAILED", None: "NONE"}[result.validation_ok]
@@ -763,6 +764,32 @@ class GEOTOOLS_OT_open_build_record(bpy.types.Operator):
         return bpy.ops.wm.path_open(filepath=str(_last_record(context)))
 
 
+def _last_legend(context: bpy.types.Context) -> Path | None:
+    profile = active_profile(context.scene) if context.scene is not None else None
+    if profile is None or not profile.last_legend:
+        return None
+    return Path(blend_paths.abspath(profile.last_legend))
+
+
+class GEOTOOLS_OT_open_legend(bpy.types.Operator):
+    """Open the SVG legend of the last published variant: its palette, range and units, or its categories"""
+
+    bl_idname = "geotools.open_legend"
+    bl_label = "Open Legend"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context: bpy.types.Context) -> bool:
+        path = _last_legend(context)
+        if path is None or not path.is_file():
+            cls.poll_message_set("Publish a variant with this build profile first")
+            return False
+        return True
+
+    def execute(self, context: bpy.types.Context) -> set[str]:
+        return bpy.ops.wm.path_open(filepath=str(_last_legend(context)))
+
+
 def _web_dir(context: bpy.types.Context) -> Path | None:
     """Where Extract for Web writes the last published archive, or None for a ``.glb``."""
     output = _last_output(context)
@@ -1004,6 +1031,8 @@ def draw_last_build(
     row = layout.row(align=True)
     row.operator("geotools.open_output_folder", text="Folder", icon="FILE_FOLDER")
     row.operator("geotools.open_build_record", text="Record", icon="TEXT")
+    if profile.last_legend:
+        row.operator("geotools.open_legend", text="Legend", icon="IMAGE_DATA")
     if glb:
         return
     validation = {
@@ -1057,6 +1086,7 @@ classes = (
     GEOTOOLS_OT_cancel_publish,
     GEOTOOLS_OT_open_output_folder,
     GEOTOOLS_OT_open_build_record,
+    GEOTOOLS_OT_open_legend,
     GEOTOOLS_OT_extract_for_web,
     GEOTOOLS_OT_open_web_folder,
     GEOTOOLS_OT_preview_output,

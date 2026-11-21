@@ -39,6 +39,10 @@ and the project follows semantic versioning where practical.
   latitude that CesiumJS, MapLibre and geojson.io place correctly, beside
   your tileset. It needs pyproj and a project CRS; the project CRS stays
   the default. See [Geo formats](docs/guide/geo-formats.md#export).
+- A variant tileset gets an SVG legend beside it, such as
+  `site.slope.legend.svg`: the layer's label and units, the palette over the
+  published range, or the category colours, and the no-data colour.
+  **Legend** in Last Build opens it. See [Layers](docs/guide/layers.md#legend).
 
 ### Changed
 

@@ -413,6 +413,12 @@ class GeoToolsBuildProfile(bpy.types.PropertyGroup):
     last_record: StringProperty(
         name="Last Build Record", subtype="FILE_PATH", options={"PATH_SUPPORTS_BLEND_RELATIVE"}
     )
+    last_legend: StringProperty(
+        name="Last Legend",
+        description="The SVG legend the last variant publish wrote beside its archive",
+        subtype="FILE_PATH",
+        options={"PATH_SUPPORTS_BLEND_RELATIVE"},
+    )
     last_build_utc: StringProperty(name="Last Build Time")
     last_seconds: FloatProperty(name="Last Build Seconds", default=0.0)
     last_validation: EnumProperty(
