@@ -11,6 +11,7 @@ parses back to exactly the same float.
 these properties.
 """
 
+import logging
 import math
 from dataclasses import dataclass
 
@@ -311,6 +312,21 @@ def _output_type_changed(self, _context) -> None:
             return
 
 
+log = logging.getLogger(__name__)
+
+
+def _variant_search(self, _context, edit_text: str):
+    """Publish's Variant field: the layers of the Analyses list, with their results."""
+    from . import analyses  # it imports this module
+
+    try:
+        query = "" if edit_text == self.variant_layer else edit_text  # just clicked: all
+        return analyses.variant_choices(self.id_data, query)
+    except Exception:  # a search callback must never raise into the UI
+        log.exception("Variant search failed")
+        return []
+
+
 class GeoToolsBuildProfile(bpy.types.PropertyGroup):
     """Settings for one build, and a summary of its last publish."""
 
@@ -380,8 +396,11 @@ class GeoToolsBuildProfile(bpy.types.PropertyGroup):
     variant_layer: StringProperty(
         name="Variant",
         description="Layer to publish as a variant tileset, <output>.<layer>.3tz, coloured "
-        "as set in the layer's Display panel. Empty for the plain tileset",
+        "as set in its Display panel: search the layers of the Analyses list (each shows the "
+        "results that make it). Empty for the plain tileset",
         default="",
+        search=_variant_search,
+        search_options={"SUGGESTION"},
     )
     # Vector builds (format Vectors, M8).
     vector_collection: PointerProperty(

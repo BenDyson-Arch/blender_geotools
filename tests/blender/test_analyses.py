@@ -1,13 +1,19 @@
-"""The Analyses list mock-up (#157): the Add Analysis search, items, Compute and panels.
+"""The Analyses list: one result per mesh, listed for the active mesh like its modifiers.
 
-Cheap checks only, while the design is a mock-up: the picker lists every
-preset and tool, adding a preset makes a list item whose Inputs are the
-modifier's own inputs, a tool item keeps its own settings and runs its
-operator on its meshes, other layers can be listed, and the classic panels
-are hidden by default.
+Adding from the search field makes one result per selected mesh, each with
+its own inputs; the list and the panels below it show the active mesh's
+results; tool and Fast Bake results run on their own mesh (or their Surface)
+and say when they are out of date; plain layers get a row on each mesh that
+carries them; removing a result takes its modifier, values and objects with
+it; and a file saved before the list (built here with the operators develop
+used, then saved and opened again) has its analyses listed.
 """
 
 from __future__ import annotations
+
+import tempfile
+import time
+from pathlib import Path
 
 import _harness as h
 import bpy
@@ -22,12 +28,21 @@ def _ui():
     return h.submodule("blender.analyses_ui")
 
 
+def _ap():
+    return h.submodule("blender.analysis_presets")
+
+
+def _props():
+    return bpy.context.scene.geotools_analyses
+
+
 def _reset() -> None:
     h.reset_scene()
-    props = bpy.context.scene.geotools_analyses
+    props = _props()
     props.items.clear()
     props.index = 0
     props.error = props.note = ""
+    props.version = _an().MIGRATED
     for tree in list(bpy.data.node_groups):
         bpy.data.node_groups.remove(tree)
     collection = bpy.data.collections.new("Site")
@@ -35,12 +50,12 @@ def _reset() -> None:
     h.project().source_collection = collection
 
 
-def _bowl(name: str = "Bowl", n: int = 12) -> bpy.types.Object:
-    """A small quad grid with a dip in the middle, selected and active."""
+def _bowl(name: str = "Bowl", n: int = 12, x: float = 0.0) -> bpy.types.Object:
+    """A small quad grid with a dip in the middle, in the source collection."""
     axis = np.linspace(-10.0, 10.0, n + 1)
     xs, ys = np.meshgrid(axis, axis)
     zs = 0.02 * (xs**2 + ys**2) + 0.1 * xs
-    co = np.stack([xs.ravel(), ys.ravel(), zs.ravel()], axis=1)
+    co = np.stack([xs.ravel() + x, ys.ravel(), zs.ravel()], axis=1)
     i = np.arange(n)
     a = (i[None, :] + (n + 1) * i[:, None]).ravel()
     quads = np.stack([a, a + 1, a + n + 2, a + n + 1], axis=1).astype(np.int32)
@@ -54,298 +69,401 @@ def _bowl(name: str = "Bowl", n: int = 12) -> bpy.types.Object:
     mesh.update()
     obj = bpy.data.objects.new(name, mesh)
     h.project().source_collection.objects.link(obj)
-    obj.select_set(True)
-    bpy.context.view_layer.objects.active = obj
     return obj
 
 
-def test_the_picker_lists_every_preset_and_tool() -> None:
+def _only(*objects: bpy.types.Object) -> None:
+    """Select exactly ``objects``, the first active (a click in the viewport)."""
+    bpy.context.view_layer.update()
+    for obj in bpy.context.view_layer.objects:
+        if obj is not None:
+            obj.select_set(obj in objects)
+    bpy.context.view_layer.objects.active = objects[0] if objects else None
+
+
+def _add(text: str) -> list:
+    """Choose ``text`` in the Add Analysis field; the results it added."""
+    props = _props()
+    before = len(props.items)
+    props.add_search = text
+    assert props.add_search == ""
+    assert not props.error, props.error
+    return list(props.items)[before:]
+
+
+def _rows() -> list[str]:
+    """The names the list shows for the active mesh (through the UIList's filter)."""
+    props = _props()
+    fake = type("L", (), {"filter_name": "", "bitflag_filter_item": 1 << 30})()
+    flags, _order = _an().GEOTOOLS_UL_analyses.filter_items(fake, bpy.context, props, "items")
+    return [item.name for item, flag in zip(props.items, flags, strict=True) if flag]
+
+
+def _value(modifier, name: str):
+    return _ap().get_input(modifier, name)
+
+
+# --- the picker ------------------------------------------------------------------------
+
+
+def test_the_picker_lists_presets_fast_bakes_tools_and_layers() -> None:
     an = _an()
     catalog = h.submodule("analysis.presets")
     keys = {e.key for e in an.ENTRIES}
     assert {f"preset:{p.id}" for p in catalog.PRESETS} <= keys
-    for key in ("tool:HYDROLOGY", "tool:SUN_HOURS", "tool:LEAST_COST", "tool:CONTOURS"):
+    for key in (
+        "fast:sky_visibility",
+        "fast:sky_view_cosine",
+        "fast:openness_3d",
+        "fast:sky_view_factor",
+        "fast:viewshed_cumulative",
+        "tool:HYDROLOGY",
+        "tool:SUN_HOURS",
+        "tool:LEAST_COST",
+        "tool:CONTOURS",
+        "tool:SECTIONS",
+        "layer:ATTRIBUTE",
+        "layer:TEXTURE",
+    ):
         assert key in keys, key
-    assert "layer:ATTRIBUTE" in keys
-    texts = [e.text for e in an.search_entries("slope")]
-    assert "Terrain > Slope" in texts, texts
+    texts = [e.text for e in an.search_entries("sky")]
+    assert "Archaeology > Sky Visibility" in texts, texts
     assert next(e.key for e in an.search_entries("water hydro")) == "tool:HYDROLOGY"
     assert not an.search_entries("no such analysis")
     assert len({e.text for e in an.ENTRIES}) == len(an.ENTRIES)  # the field stores the text
+    groups = {e.key: e.group for e in an.ENTRIES}
+    assert groups["preset:flow_path"] == "Water"
+    assert groups["preset:least_cost_path"] == "Movement"
+    order = [an.GROUP_ORDER.index(e.group) for e in an.ENTRIES]
+    assert order == sorted(order)
 
 
-def test_classic_panels_are_hidden_by_default() -> None:
-    panels = h.submodule("blender.panels")
-    assert not panels.GEOTOOLS_PT_layers.poll(bpy.context)
-    assert not h.submodule("blender.analysis_ui").GEOTOOLS_PT_analysis.poll(bpy.context)
-    assert _ui().GEOTOOLS_PT_analyses.poll(bpy.context)
-    assert _ui().GEOTOOLS_PT_tools.poll(bpy.context)
+def test_the_classic_panels_are_gone() -> None:
+    for name in (
+        "GEOTOOLS_PT_layers",
+        "GEOTOOLS_PT_analysis_presets",
+        "GEOTOOLS_PT_analysis_hydrology",
+        "GEOTOOLS_PT_analysis_sun_hours",
+        "GEOTOOLS_MT_analysis_presets",
+        "GEOTOOLS_UL_layers",
+    ):
+        assert not hasattr(bpy.types, name), name
+    prefs = h.preferences_class()
+    assert "use_classic_analysis_panels" not in prefs.bl_rna.properties
+    assert bpy.types.GEOTOOLS_PT_analysis.bl_label == "Tools"
 
 
-def test_adding_a_preset_lists_it_with_the_modifier_inputs() -> None:
+# --- one result per mesh ---------------------------------------------------------------
+
+
+def test_each_selected_mesh_gets_its_own_result() -> None:
     _reset()
-    obj = _bowl()
-    props = bpy.context.scene.geotools_analyses
-    props.add_search = "Terrain > Slope"  # what choosing the entry stores
-    assert props.add_search == ""
-    assert not props.error, props.error
-    assert len(props.items) == 1
-    item = props.items[0]
-    assert (item.kind, item.preset, item.layer) == ("PRESET", "slope", "slope")
-    assert [o.object for o in item.objects] == [obj]
-    assert h.project().layers["slope"]
-    modifier, carrier = _ui().preset_modifier(bpy.context, item)
-    assert carrier == obj and modifier is not None
-    calls = h.draw(_ui().GEOTOOLS_PT_analyses_inputs)
-    assert "value" in h.props_drawn(calls)  # the modifier's own inputs
-    h.draw(_ui().GEOTOOLS_PT_analyses)
-    h.draw(_ui().GEOTOOLS_PT_analyses_display)
-    h.draw(_ui().GEOTOOLS_PT_analyses_outputs)
-    h.draw_list_item(_an().GEOTOOLS_UL_analyses, props, item)
-    # The list's eye goes through Show in Viewport (#155: it refuses a layer nobody carries).
-    assert bpy.ops.geotools.analyses_show(layer="slope") == {"FINISHED"}
-    assert h.project().layers["slope"].presentation.show_in_viewport
-    assert bpy.ops.geotools.analyses_show(layer="slope") == {"FINISHED"}
-    assert not h.project().layers["slope"].presentation.show_in_viewport
-    # Adding it again on the same mesh reuses the item.
-    props.add_search = "Terrain > Slope"
-    assert len(props.items) == 1
+    hills, other = _bowl("hills"), _bowl("other", x=30.0)
+    _only(hills, other)
+    added = _add("Terrain > Aspect")
+    assert [(i.object.name, i.layer) for i in added] == [("hills", "aspect"), ("other", "aspect")]
+    first, second = (_an().item_modifier(i) for i in added)
+    assert first is not None and second is not None and first != second
+    _ap().set_input(first, "Flat Slope", 2.5)  # an edit on hills' result
+    assert _value(second, "Flat Slope") != 2.5  # does not touch other's
+    assert _props().items[_props().index].object == hills  # the active mesh's row
 
-
-def test_a_preset_needs_a_selection() -> None:
-    _reset()
-    props = bpy.context.scene.geotools_analyses
-    props.add_search = "Terrain > Slope"
-    assert "Select" in props.error, props.error
-    assert not len(props.items)
-
-
-def test_a_tool_item_keeps_its_settings_and_computes() -> None:
-    _reset()
-    obj = _bowl()
-    props = bpy.context.scene.geotools_analyses
-    props.add_search = "Water > Hydrology"
-    item = props.items[props.index]
-    assert item.kind == "HYDROLOGY" and not item.computed
-    assert item.hydrology.surface == "SELECTED"
-    assert [o.object for o in item.objects] == [obj]
-    item.hydrology.min_depth = 0.05
-    h.draw(_ui().GEOTOOLS_PT_analyses_inputs)
-    obj.select_set(False)  # Compute uses the item's meshes, not the selection
-    assert bpy.ops.geotools.analyses_compute() == {"FINISHED"}, item.hydrology.error
-    assert item.computed and item.hydrology.result
-    assert abs(item.hydrology.min_depth - 0.05) < 1e-6  # copied back, not reset by the run
-    assert item.layer == "flow_accumulation"
-    assert {e.name for e in item.layers} == {"flow_accumulation", "ponded_depth", "depression"}
-    assert not obj.select_get()  # the selection is put back
     labels = h.label_text(h.draw(_ui().GEOTOOLS_PT_analyses_inputs))
-    assert "Depressions" in labels, labels
-    # A second Hydrology item gets layer names of its own.
-    obj.select_set(True)
-    props.add_search = "Water > Hydrology"
-    second = props.items[props.index]
-    assert second.hydrology.accumulation_layer == "flow_accumulation_2"
+    assert "Applies to" not in labels and "Edits apply" not in labels, labels
+    assert "value" in h.props_drawn(h.draw(_ui().GEOTOOLS_PT_analyses_inputs))
+
+    # Adding it again on hills makes a second result with a layer of its own.
+    _only(hills)
+    (again,) = _add("Terrain > Aspect")
+    assert again.layer == "aspect_2"
 
 
-def test_unlisted_layers_are_listed_and_removed() -> None:
+def test_the_list_shows_the_active_mesh_only() -> None:
     _reset()
-    _bowl()
-    layers = h.submodule("blender.layers")
-    core = h.submodule("core.layers")
-    layers.ensure_layer(
-        bpy.context.scene, core.LayerSpec("cover", core.Domain.FACE, core.DataType.FLOAT)
-    )
-    an = _an()
-    assert an.unlisted_layers(bpy.context.scene) == ["cover"]
-    assert an.list_unlisted_layers(bpy.context.scene) == 1
-    props = bpy.context.scene.geotools_analyses
-    assert props.items[0].kind == "LAYER"
-    assert an.unlisted_layers(bpy.context.scene) == []
-    props.index = 0
-    h.draw(_ui().GEOTOOLS_PT_analyses_inputs)
-    assert bpy.ops.geotools.analyses_remove() == {"FINISHED"}
-    assert not len(props.items) and "cover" not in h.project().layers
-
-
-# --- following the selection (Ben's feedback on the first mock-up) ---------------------
-
-
-def _only(*objects: bpy.types.Object) -> None:
-    """Select exactly ``objects``, the first active (as a click in the viewport does)."""
-    for obj in bpy.context.view_layer.objects:
-        obj.select_set(obj in objects)
-    bpy.context.view_layer.objects.active = objects[0] if objects else None
-
-
-def _add(text: str) -> object:
-    props = bpy.context.scene.geotools_analyses
-    props.add_search = text
-    assert not props.error, props.error
-    return props.items[props.index]
-
-
-def _value(modifier, name: str):
-    return h.submodule("blender.analysis_presets").get_input(modifier, name)
-
-
-def test_the_list_follows_the_selection() -> None:
-    _reset()
-    an = _an()
-    hills, other = _bowl("hills"), _bowl("other")
+    hills, other = _bowl("hills"), _bowl("other", x=30.0)
     _only(hills)
-    slope = _add("Terrain > Slope")
+    _add("Terrain > Slope")
+    _add("Water > Hydrology")
     _only(other)
-    hydro = _add("Water > Hydrology")
-    props = bpy.context.scene.geotools_analyses
-    names = [i.name for i in props.items]
-    assert names == ["Slope", "Hydrology"], names
-
+    _add("Terrain > Slope")
     _only(hills)
-    assert an.visible_flags(bpy.context) == [True, False]
+    assert _rows() == ["Slope", "Hydrology"]
     _only(other)
-    assert an.visible_flags(bpy.context) == [False, True]
-    _only()  # nothing selected: everything, and the header says so
-    assert an.visible_flags(bpy.context) == [True, True]
-    labels = h.label_text(h.draw(_ui().GEOTOOLS_PT_analyses))
-    assert "Nothing selected" in labels, labels
-    _only(hills)
-    props.show = "ALL"
-    assert an.visible_flags(bpy.context) == [True, True]
-    props.show = "SELECTED"
+    assert _rows() == ["Slope"]
 
-    # The panels below the list draw the active row only while the list shows it.
-    props.index = 1  # Hydrology, on other
-    assert an.shown_item(bpy.context) is None
+    _only()  # no active mesh: one muted line, and nothing below the list
+    calls = h.draw(_ui().GEOTOOLS_PT_analyses)
+    assert "Select a mesh to see its analyses" in h.label_text(calls)
+    assert not any(kind == "template_list" for kind, _t, _i in calls)
+    assert _rows() == []
     assert not _ui().GEOTOOLS_PT_analyses_inputs.poll(bpy.context)
-    # The UIList filters the same way.
-    shown, _order = an.GEOTOOLS_UL_analyses.filter_items(
-        type("L", (), {"filter_name": "", "bitflag_filter_item": 1 << 30})(),
-        bpy.context,
-        props,
-        "items",
-    )
-    assert shown == [1 << 30, 0]
-    assert slope.kind == "PRESET" and hydro.kind == "HYDROLOGY"
+    assert "Selected" not in h.label_text(calls) and " of " not in h.label_text(calls)
 
 
 def test_the_active_row_follows_the_active_mesh() -> None:
     _reset()
     an = _an()
-    hills, other = _bowl("hills"), _bowl("other")
+    hills, other = _bowl("hills"), _bowl("other", x=30.0)
     _only(hills)
     _add("Terrain > Slope")
-    _add("Water > Hydrology")  # hydrology on hills
+    _add("Terrain > Aspect")
     _only(other)
     _add("Terrain > Aspect")
-    _add("Water > Hydrology")  # a second hydrology, on other
-    props = bpy.context.scene.geotools_analyses
-    names = [i.name for i in props.items]
-    assert names == ["Slope", "Hydrology", "Aspect", "Hydrology"], names
-
+    _add("Terrain > Slope")
+    props = _props()
+    names = [(i.object.name, i.name) for i in props.items]
+    assert names == [
+        ("hills", "Slope"),
+        ("hills", "Aspect"),
+        ("other", "Aspect"),
+        ("other", "Slope"),
+    ]
     _only(hills)
-    props.index = 1  # hills' Hydrology
+    props.index = 0  # hills' Slope
     _only(other)
     an.follow_active(bpy.context)
-    assert props.index == 3  # the same kind on the new mesh
-    props.index = 2  # Aspect, which hills does not have
+    assert props.index == 3  # other's Slope, not its first row
+    _only(hills)
+    props.index = 1  # hills' Aspect
     _only(hills)
     an.follow_active(bpy.context)
-    assert props.index == 0  # so hills' first
-    _only(hills)
-    an.follow_active(bpy.context)
-    assert props.index == 0  # unchanged while it applies
+    assert props.index == 1  # unchanged while it is the mesh's
 
 
-def test_one_preset_result_on_several_meshes_stays_in_step() -> None:
+def test_a_preset_needs_a_selection() -> None:
+    _reset()
+    _only()
+    props = _props()
+    props.add_search = "Terrain > Slope"
+    assert "Select" in props.error, props.error
+    assert not len(props.items)
+
+
+# --- tools and Fast Bakes --------------------------------------------------------------
+
+
+def test_tool_results_run_on_their_own_mesh() -> None:
     _reset()
     an = _an()
-    hills, other = _bowl("hills"), _bowl("other")
+    hills, other = _bowl("hills"), _bowl("other", x=30.0)
+    _only(hills, other)
+    one, two = _add("Water > Hydrology")
+    assert (one.object, two.object) == (hills, other)
+    assert one.layer == two.layer == "flow_accumulation"  # one layer, values per mesh
+    assert not one.computed and two.kind == "HYDROLOGY"
+    one.hydrology.min_depth = 0.05
+    h.draw(_ui().GEOTOOLS_PT_analyses_inputs)
+    _only(other)  # Compute uses the result's mesh, not the selection
+    _props().index = 0
     _only(hills)
-    aspect = _add("Terrain > Aspect")
-    ((_, first),) = an.preset_modifiers_of(aspect)
-    h.submodule("blender.analysis_presets").set_input(first, "Flat Slope", 2.5)
-
-    _only(other)  # another mesh: Add Selected puts it on with the result's inputs
-    props = bpy.context.scene.geotools_analyses
-    props.show = "ALL"  # the result is on hills, not the selection, until it is added
-    props.index = 0
-    assert bpy.ops.geotools.analyses_add_selected() == {"FINISHED"}
-    props.show = "SELECTED"
-    assert [o.object for o in aspect.objects] == [hills, other]
-    pairs = dict(an.preset_modifiers_of(aspect))
-    assert _value(pairs[other], "Flat Slope") == 2.5
+    assert bpy.ops.geotools.analyses_compute() == {"FINISHED"}, one.hydrology.error
+    assert one.computed and not two.computed
+    assert abs(one.hydrology.min_depth - 0.05) < 1e-6  # copied back, not reset by the run
+    assert "gt_flow_accumulation" in hills.data.attributes
+    assert "gt_flow_accumulation" not in other.data.attributes
+    assert not an.out_of_date(one)
+    one.hydrology.min_depth = 0.2
+    assert an.out_of_date(one) and not an.out_of_date(two)
+    assert "out of date" in h.label_text(h.draw(_ui().GEOTOOLS_PT_analyses_inputs))
     labels = h.label_text(h.draw(_ui().GEOTOOLS_PT_analyses_inputs))
-    assert "Applies to: other (+1)" in labels, labels  # the active mesh first
-    assert "Edits apply to both meshes" in labels, labels
+    assert "Depressions" in labels, labels
 
-    # An edit on the active mesh's modifier reaches the other one.
-    h.submodule("blender.analysis_presets").set_input(pairs[other], "Smoothing", 3)
-    assert an.sync_preset_inputs(bpy.context.scene, other, None) == 1
-    assert _value(pairs[hills], "Smoothing") == 3
-
-    assert bpy.ops.geotools.analyses_remove_selected() == {"FINISHED"}
-    assert [o.object for o in aspect.objects] == [hills]
-    assert not h.submodule("blender.analysis_presets").preset_modifiers(other)
+    # Source Collection: one run over both meshes, owned by hills.
+    one.extent = "SOURCE"
+    assert bpy.ops.geotools.analyses_compute() == {"FINISHED"}, one.hydrology.error
+    assert "gt_flow_accumulation" in other.data.attributes
+    assert one.object == hills and not an.out_of_date(one)
 
 
-def test_a_tool_result_says_when_it_is_out_of_date() -> None:
+def test_sun_hours_keeps_its_own_date() -> None:
+    _reset()
+    sun = bpy.context.scene.geotools_analysis.sun
+    sun.year, sun.month, sun.day = 2026, 3, 20
+    _only(_bowl())
+    (item,) = _add("Sun > Sun Hours")
+    assert (item.sun_year, item.sun_month, item.sun_day) == (2026, 3, 20)  # from Sun
+    item.sun_month, item.sun_day = 12, 21
+    an = _an()
+    with an._sun_date(bpy.context, item):
+        assert (sun.month, sun.day) == (12, 21)
+    assert (sun.month, sun.day) == (3, 20)  # put back
+    h.draw(_ui().GEOTOOLS_PT_analyses_inputs)
+
+
+def test_a_fast_bake_result_computes_with_its_own_inputs() -> None:
     _reset()
     an = _an()
-    _only(_bowl())
-    item = _add("Water > Hydrology")
-    assert not an.out_of_date(item)  # not run yet: Not run, not out of date
-    assert bpy.ops.geotools.analyses_compute() == {"FINISHED"}
+    _only(_bowl("hills", n=6))
+    (item,) = _add("Archaeology > Sky Visibility")
+    assert (item.kind, item.preset, item.layer) == ("FAST", "sky_visibility", "sky_visibility")
+    assert not item.computed
+    item.fast.rays = 32
+    h.draw(_ui().GEOTOOLS_PT_analyses_inputs)
+    assert bpy.ops.geotools.analyses_compute() == {"FINISHED"}, item.fast.error
+    assert item.computed and item.fast.result
+    assert h.project().layers["sky_visibility"]
     assert not an.out_of_date(item)
-    item.hydrology.min_depth = 0.2
+    item.fast.rays = 64
     assert an.out_of_date(item)
-    labels = h.label_text(h.draw(_ui().GEOTOOLS_PT_analyses_inputs))
-    assert "out of date" in labels, labels
-    assert bpy.ops.geotools.analyses_compute() == {"FINISHED"}
-    assert not an.out_of_date(item)
+
+    (live,) = _add("Archaeology > Sky-View Factor (Fast Bake)")
+    assert live.layer == "sky_view_factor_fast"
 
 
-def test_paths_fold_into_movement_and_water() -> None:
-    an = _an()
-    groups = {e.key: e.group for e in an.ENTRIES}
-    assert groups["preset:flow_path"] == "Water"
-    assert groups["preset:least_cost_path"] == "Movement"
-    assert "Paths" not in set(groups.values())
-    order = [an.GROUP_ORDER.index(e.group) for e in an.ENTRIES]
-    assert order == sorted(order)
+# --- plain layers ----------------------------------------------------------------------
 
 
-def test_removing_a_result_deletes_the_objects_it_made() -> None:
+def test_a_plain_layer_gets_a_row_on_each_mesh_that_carries_it() -> None:
     _reset()
-    _only(_bowl())
-    item = _add("Lines > Contours")
-    assert bpy.ops.geotools.analyses_compute() == {"FINISHED"}, item.contours.contour_error
-    made = [o.object.name for o in item.outputs]
+    an = _an()
+    layers = h.submodule("blender.layers")
+    core = h.submodule("core.layers")
+    hills, other, bare = _bowl("hills"), _bowl("other", x=30.0), _bowl("bare", x=60.0)
+    spec = core.LayerSpec("cover", core.Domain.FACE, core.DataType.FLOAT)
+    item = layers.ensure_layer(bpy.context.scene, spec)
+    for obj in (hills, other):
+        values = np.ones(len(obj.data.polygons), np.float32)
+        layers.write_layer(obj.data, spec, values)
+    layers.refresh_carriers(bpy.context.scene, item, sync_view=False)
+    an.sync(bpy.context.scene)
+    _only(hills)
+    assert _rows() == ["cover"]
+    _only(other)
+    assert _rows() == ["cover"]
+    _only(bare)
+    assert _rows() == []
+    _only(other)
+    an.follow_active(bpy.context)
+    h.draw(_ui().GEOTOOLS_PT_analyses_inputs)
+    h.draw(_ui().GEOTOOLS_PT_analyses_details)
+    assert bpy.ops.geotools.analyses_remove() == {"FINISHED"}
+    assert "gt_cover" not in other.data.attributes  # its values on this mesh only
+    assert "gt_cover" in hills.data.attributes and "cover" in h.project().layers
+
+
+# --- removing and the scene ------------------------------------------------------------
+
+
+def test_removing_a_result_takes_its_modifier_and_objects() -> None:
+    _reset()
+    hills, other = _bowl("hills"), _bowl("other", x=30.0)
+    _only(hills, other)
+    _add("Terrain > Slope")
+    _only(hills)
+    _an().follow_active(bpy.context)
+    plan = _an().removal_plan(bpy.context.scene, _an().shown_item(bpy.context))
+    assert plan == ["Its modifier on hills"], plan
+    assert bpy.ops.geotools.analyses_remove() == {"FINISHED"}
+    assert not _ap().preset_modifiers(hills) and _ap().preset_modifiers(other)
+    assert "slope" in h.project().layers  # other's result still stores it
+    _only(other)
+    _an().follow_active(bpy.context)
+    assert bpy.ops.geotools.analyses_remove() == {"FINISHED"}
+    assert "slope" not in h.project().layers  # no result, no carrier: gone
+
+    _only(hills)
+    (contours,) = _add("Lines > Contours")
+    assert bpy.ops.geotools.analyses_compute() == {"FINISHED"}, contours.contours.contour_error
+    made = [o.object.name for o in contours.outputs]
     assert made, "contours made no object"
+    assert any(made[0] in line for line in _an().removal_plan(bpy.context.scene, contours))
     assert bpy.ops.geotools.analyses_remove() == {"FINISHED"}
     assert not any(name in bpy.data.objects for name in made)
 
 
-def test_the_list_filter_stays_cheap() -> None:
-    """A few hundred results on a few meshes each: well under a frame, uncached."""
-    import time
-
+def test_the_list_follows_the_modifier_stack() -> None:
     _reset()
     an = _an()
-    meshes = [_bowl(f"m{i}", n=2) for i in range(30)]
-    props = bpy.context.scene.geotools_analyses
+    hills = _bowl("hills")
+    _only(hills)
+    _add("Terrain > Slope")
+    (modifier, _preset), = _ap().preset_modifiers(hills)
+    hills.modifiers.remove(modifier)  # deleted in the modifier stack
+    bpy.context.view_layer.update()  # the depsgraph handler syncs
+    an.sync(bpy.context.scene)
+    assert _rows() == [], _rows()
+    # A preset a script adds (the old operator) is listed.
+    assert bpy.ops.geotools.analysis_add(preset="slope") == {"FINISHED"}
+    an.sync(bpy.context.scene)
+    assert _rows() == ["Slope"]
+
+
+def test_publish_picks_its_variant_from_the_results() -> None:
+    _reset()
+    hills, other = _bowl("hills"), _bowl("other", x=30.0)
+    _only(hills, other)
+    _add("Terrain > Slope")
+    choices = dict(_an().variant_choices(bpy.context.scene, ""))
+    assert "Slope on hills" in choices["slope"] and "Slope on other" in choices["slope"]
+    assert bpy.ops.geotools.build_profile_add() == {"FINISHED"}
+    _only(hills)
+    _an().follow_active(bpy.context)
+    assert bpy.ops.geotools.analyses_publish_variant() == {"FINISHED"}
+    assert h.project().build_profiles[0].variant_layer == "slope"
+
+
+def test_the_sync_stays_cheap() -> None:
+    """Hundreds of results on tens of meshes: the key check is well under a frame."""
+    _reset()
+    an = _an()
+    meshes = [_bowl(f"m{i}", n=2, x=30.0 * i) for i in range(30)]
+    props = _props()
     for i in range(300):
         item = props.items.add()
-        item.kind, item.name = "HYDROLOGY", f"r{i}"
-        for obj in meshes[i % 30 : i % 30 + 3]:
-            item.objects.add().object = obj
+        item.kind, item.name, item.object = "HYDROLOGY", f"r{i}", meshes[i % 30]
+    scene = bpy.context.scene
+    an.sync_if_changed(scene)
+    start = time.perf_counter()
+    an.sync_if_changed(scene)  # nothing changed: the key only
+    key_seconds = time.perf_counter() - start
+    start = time.perf_counter()
+    an.sync(scene)
+    sync_seconds = time.perf_counter() - start
+    print(f"VALIDATION analyses_sync {{'key': {key_seconds:.4f}, 'sync': {sync_seconds:.4f}}}")
+    assert key_seconds < 0.01, key_seconds
+    assert sync_seconds < 0.25, sync_seconds
     _only(meshes[0])
-    an.invalidate()
-    start = time.perf_counter()
-    flags = an.visible_flags(bpy.context)
-    seconds = time.perf_counter() - start
-    print(f"VALIDATION analyses_filter {{'results': 300, 'seconds': {seconds:.4f}}}")
-    assert sum(flags) == 10
-    assert seconds < 0.05, seconds
-    start = time.perf_counter()
-    an.visible_flags(bpy.context)  # cached: same selection, list and depsgraph
-    assert time.perf_counter() - start < seconds
+    assert len(_rows()) == 10
+
+
+# --- a file from before the list ---------------------------------------------------------
+
+
+def test_a_file_from_before_the_list_is_migrated_on_open() -> None:
+    """Build develop's layout with the operators develop used, save it with no list,
+    open it again: its preset modifiers, tool layers and lines, and plain layers show."""
+    _reset()
+    layers = h.submodule("blender.layers")
+    core = h.submodule("core.layers")
+    hills, other = _bowl("hills"), _bowl("other", x=30.0)
+    _only(hills, other)
+    assert bpy.ops.geotools.analysis_add(preset="slope") == {"FINISHED"}  # both meshes
+    _only(hills)
+    assert bpy.ops.geotools.hydrology() == {"FINISHED"}
+    assert bpy.ops.geotools.contours() == {"FINISHED"}
+    spec = core.LayerSpec("cover", core.Domain.FACE, core.DataType.FLOAT)
+    cover = layers.ensure_layer(bpy.context.scene, spec)
+    layers.write_layer(other.data, spec, np.ones(len(other.data.polygons), np.float32))
+    layers.refresh_carriers(bpy.context.scene, cover, sync_view=False)
+    for layer in h.project().layers:
+        layer.carriers.clear()  # develop stored carriers only for the live view
+    props = _props()
+    props.items.clear()  # develop had no list
+    props.version = 0
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "develop_layout.blend"
+        assert bpy.ops.wm.save_as_mainfile(filepath=str(path), copy=True) == {"FINISHED"}
+        assert bpy.ops.wm.open_mainfile(filepath=str(path), load_ui=False) == {"FINISHED"}
+    props = _props()
+    assert props.version == _an().MIGRATED
+    rows = sorted((i.object.name, i.kind, i.name) for i in props.items)
+    assert ("hills", "PRESET", "Slope") in rows and ("other", "PRESET", "Slope") in rows, rows
+    assert ("hills", "HYDROLOGY", "Hydrology") in rows, rows
+    assert ("other", "LAYER", "cover") in rows, rows
+    hydro = next(i for i in props.items if i.kind == "HYDROLOGY")
+    assert {e.name for e in hydro.layers} == {"flow_accumulation", "ponded_depth", "depression"}
+    assert hydro.computed and not _an().out_of_date(hydro)
+    contours = next(i for i in props.items if i.kind == "CONTOURS")
+    assert contours.outputs and contours.computed
+    assert not any(i.kind == "LAYER" and i.layer == "slope" for i in props.items), rows
+    h.reset_scene()

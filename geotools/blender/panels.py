@@ -70,27 +70,16 @@ from __future__ import annotations
 import bpy
 
 from ..core import crs_catalog, deps, paths, sysmem
-from ..core.display import format_count, format_gib, format_range, format_size
+from ..core.display import format_count, format_gib, format_size
 from ..core.display import plural as plural_text
 from ..core.issues import Severity
-from ..core.layers import (
-    DataType,
-    Domain,
-    attribute_name,
-    default_aggregation,
-    parse_number,
-    validate,
-)
 from . import (
     analyses_ui,
     analysis_ui,
-    bake_texture,
     checks,
     crs_picker,
     inspect_ui,
     links_ui,
-    preferences,
-    presentation,
     publish,
     scene_georef,
     source,
@@ -99,18 +88,8 @@ from . import (
     vector_publish,
 )
 from .common import draw_dependency_status, extension_version
-from .layers import (
-    ATTRIBUTE_MISSING,
-    DOMAIN_ICONS,
-    IMAGE_MISSING,
-    NOT_CHECKED,
-    cached_status,
-    other_layer_names,
-    spec_from_props,
-)
 from .properties import (
     ANCHOR_FIELDS,
-    LAYER_AGGREGATION_DEFAULT,
     SEVERITY_ICONS,
     SOURCE_CRS_FIELDS,
     FieldError,
@@ -129,10 +108,9 @@ from .ui import (
     header_status,
     info_row,
     split_column,
+    worst_state,
     wrapped,
 )
-
-_SEVERITY_ORDER = {Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2}
 
 
 class _GeoToolsPanel:
@@ -153,47 +131,6 @@ def _number_rows(
         row = col.row(align=True)
         row.alert = not number_is_valid(props, field.attr)
         row.prop(props, field.attr, text=label)
-
-
-def _active_layer(context: bpy.types.Context):
-    props = context.scene.geotools if context.scene is not None else None
-    if props is not None and 0 <= props.layers_index < len(props.layers):
-        return props.layers[props.layers_index]
-    return None
-
-
-_NOT_FILLED = {ATTRIBUTE_MISSING, IMAGE_MISSING}
-
-
-def layer_state(scene: bpy.types.Scene, item) -> str:
-    """A layer's header state from its cached status: ERROR, WARNING, TODO (no
-    values yet, or not checked yet) or DONE."""
-    issues = cached_status(scene, item)
-    state = _worst(issues)
-    if state == ERROR:
-        return state
-    if any(i.code == NOT_CHECKED for i in issues):
-        return TODO
-    if state == WARNING and all(
-        i.code in _NOT_FILLED for i in issues if _severity(i) is Severity.WARNING
-    ):
-        return TODO
-    return state
-
-
-def _severity(issue) -> Severity:
-    """An issue's severity: a ``Severity``, or its name as stored on ``GeoToolsIssue``."""
-    value = issue.severity
-    return value if isinstance(value, Severity) else Severity[value]
-
-
-def _worst(issues) -> str:
-    severities = {_severity(i) for i in issues}
-    if Severity.ERROR in severities:
-        return ERROR
-    if Severity.WARNING in severities:
-        return WARNING
-    return DONE
 
 
 # --- Project -------------------------------------------------------------------------
@@ -356,218 +293,13 @@ class GEOTOOLS_PT_source(_GeoToolsPanel, bpy.types.Panel):
             col.label(text="No meshes", icon="ERROR")
 
 
-# --- Layers --------------------------------------------------------------------------
-
-LAYER_STATUS_ROWS = 3
-"""Issues the Layers panel lists before summarising the rest."""
-
-
-def _values_text(item) -> str:
-    low, high = parse_number(item.value_min), parse_number(item.value_max)
-    if item.data_type == DataType.BOOLEAN.value and low is not None and high is not None:
-        return {(0.0, 0.0): "all false", (1.0, 1.0): "all true"}.get((low, high), "false, true")
-    return format_range(low, high, item.units.strip()) or "Not known"
-
-
-def _draw_layer_status(layout: bpy.types.UILayout, context: bpy.types.Context, issues) -> None:
-    issues = sorted(issues, key=lambda i: _SEVERITY_ORDER[Severity(i.severity)])
-    if not issues:
-        layout.label(text="Stored on every source object", icon="CHECKMARK")
-        return
-    col = layout.column(align=True)
-    for issue in issues[:LAYER_STATUS_ROWS]:
-        sub = col.column(align=True)
-        sub.alert = issue.severity is Severity.ERROR
-        wrapped(sub, context, issue.message, icon=SEVERITY_ICONS[Severity(issue.severity).name])
-    if len(issues) > LAYER_STATUS_ROWS:
-        col.label(text=f"... and {len(issues) - LAYER_STATUS_ROWS} more", icon="BLANK1")
-
-
-class GEOTOOLS_PT_layers(_GeoToolsPanel, bpy.types.Panel):
-    """The layer registry: named values per face, corner or texel of the source."""
-
-    bl_idname = "GEOTOOLS_PT_layers"
-    bl_label = "Layers"
-
-    @classmethod
-    def poll(cls, context: bpy.types.Context) -> bool:
-        return preferences.classic_panels(context)  # the Analyses list replaces it
-
-    def draw_header(self, context: bpy.types.Context) -> None:
-        item = _active_layer(context)
-        if item is not None:
-            header_status(self.layout, layer_state(context.scene, item))
-
-    def draw(self, context: bpy.types.Context) -> None:
-        layout = self.layout
-        props = context.scene.geotools
-        row = layout.row()
-        row.template_list("GEOTOOLS_UL_layers", "", props, "layers", props, "layers_index", rows=3)
-        col = row.column(align=True)
-        col.operator("geotools.layer_add", text="", icon="ADD")
-        col.operator("geotools.layer_remove", text="", icon="REMOVE")
-        col.separator()
-        col.operator("geotools.layer_rename", text="", icon="GREASEPENCIL")
-
-        item = _active_layer(context)
-        if item is None:
-            if not len(props.layers):
-                wrapped(
-                    layout,
-                    context,
-                    "No layers yet. Add one to publish values per face, corner or texel.",
-                    "INFO",
-                )
-            return
-        draw_layer_fields(layout, context, item)
-
-
-def draw_layer_fields(layout: bpy.types.UILayout, context: bpy.types.Context, item) -> None:
-    """The layer at a glance: label, units, attribute, values and status (Layers, Analyses)."""
-    col = split_column(layout)
-    col.prop(item, "label", placeholder=item.name)
-    col.prop(item, "units", placeholder="None")
-    if item.domain != Domain.TEXTURE.value:
-        row = col.row()
-        row.alert = "layer-attribute-invalid" in {
-            i.code for i in validate(spec_from_props(item), ())
-        }
-        row.prop(item, "source_attribute", placeholder=attribute_name(item.name))
-    if item.data_type == DataType.CATEGORY.value:
-        count = len(spec_from_props(item).categories)
-        row = col.row()
-        row.alert = not count
-        value = info_row(row, "Categories", f"{count}" if count else "None set")
-        value.operator("geotools.layer_set_categories", text="", icon="GREASEPENCIL")
-    else:
-        value = info_row(col, "Values", _values_text(item))
-        value.operator("geotools.layer_update_range", text="", icon="FILE_REFRESH")
-    _draw_layer_status(layout, context, cached_status(context.scene, item))
-
-
-def _bake_state(context: bpy.types.Context, item) -> str:
-    if context.scene.geotools.source_collection is None:
-        return TODO
-    issues = cached_status(context.scene, item)
-    return TODO if any(i.code in _NOT_FILLED | {NOT_CHECKED} for i in issues) else DONE
-
-
-class GEOTOOLS_PT_layers_bake(_GeoToolsPanel, bpy.types.Panel):
-    """Fill the selected texture layer with a Cycles bake. Face and corner layers need no
-    bake: they read their attribute from the evaluated mesh."""
-
-    bl_idname = "GEOTOOLS_PT_layers_bake"
-    bl_label = "Bake"
-    bl_parent_id = "GEOTOOLS_PT_layers"
-
-    @classmethod
-    def poll(cls, context: bpy.types.Context) -> bool:
-        item = _active_layer(context)
-        return item is not None and item.domain == Domain.TEXTURE.value
-
-    def draw_header(self, context: bpy.types.Context) -> None:
-        item = _active_layer(context)
-        if item is not None:
-            header_status(self.layout, _bake_state(context, item))
-
-    def draw(self, context: bpy.types.Context) -> None:
-        item = _active_layer(context)
-        if item is None:
-            return
-        if context.scene.geotools.source_collection is None:
-            wrapped(self.layout, context, "Choose a source collection first.", "INFO")
-            return
-        bake_texture.draw_bake(self.layout, context, item)
-
-
-class GEOTOOLS_PT_layers_display(_GeoToolsPanel, bpy.types.Panel):
-    """How the selected layer is coloured in its variant tileset."""
-
-    bl_idname = "GEOTOOLS_PT_layers_display"
-    bl_label = "Display"
-    bl_parent_id = "GEOTOOLS_PT_layers"
-    bl_options = {"DEFAULT_CLOSED"}
-
-    @classmethod
-    def poll(cls, context: bpy.types.Context) -> bool:
-        return _active_layer(context) is not None
-
-    def draw_header(self, context: bpy.types.Context) -> None:
-        item = _active_layer(context)
-        if item is not None and presentation.display_issue_codes(item):
-            header_status(self.layout, ERROR)
-
-    def draw(self, context: bpy.types.Context) -> None:
-        item = _active_layer(context)
-        if item is not None:
-            presentation.draw_display(self.layout, context, item)
-
-
-def _aggregation_label(item, data_type: str) -> str:
-    value = default_aggregation(data_type).value
-    return item.bl_rna.properties["aggregation"].enum_items[value].name
-
-
-class GEOTOOLS_PT_layers_details(_GeoToolsPanel, bpy.types.Panel):
-    """The selected layer's rarely changed fields."""
-
-    bl_idname = "GEOTOOLS_PT_layers_details"
-    bl_label = "Details"
-    bl_parent_id = "GEOTOOLS_PT_layers"
-    bl_options = {"DEFAULT_CLOSED"}
-
-    @classmethod
-    def poll(cls, context: bpy.types.Context) -> bool:
-        return _active_layer(context) is not None
-
-    def draw(self, context: bpy.types.Context) -> None:
-        layout = self.layout
-        item = _active_layer(context)
-        if item is None:
-            return
-        spec = spec_from_props(item)
-        codes = {i.code for i in validate(spec, other_layer_names(context.scene, item))}
-        col = split_column(layout)
-        info_row(col, "Identifier", item.name, icon=DOMAIN_ICONS.get(item.domain, "NONE"))
-        col.prop(item, "domain")
-        col.prop(item, "data_type")
-        row = col.row()
-        row.alert = "layer-nodata-invalid" in codes
-        row.prop(item, "nodata", placeholder="None")
-        col.prop(item, "origin")
-        row = col.row()
-        row.alert = "layer-aggregation-invalid" in codes
-        row.prop(item, "aggregation")
-        if item.aggregation == LAYER_AGGREGATION_DEFAULT:
-            info_row(col, "", f"{_aggregation_label(item, spec.data_type)}", icon="INFO")
-        # Full width: a description is longer than the value column.
-        col.label(text="Description")
-        col.prop(item, "description", text="")
-
-        if "layer-range-invalid" in codes:
-            # The range is worked out by Update Range; show the stored text only to fix it.
-            values = col.column(align=True)
-            values.alert = True
-            values.prop(item, "value_min", text="Range Min")
-            values.prop(item, "value_max", text="Max")
-
-        provenance = spec.provenance
-        if "layer-provenance-invalid" in codes:
-            layout.label(text="Provenance is not valid JSON", icon="ERROR")
-        elif provenance is not None:
-            version = provenance.get("geotools_version") or "unknown version"
-            wrapped(layout, context, f"Made by {provenance['tool']} (GeoTools {version})", "INFO")
-        if item.domain != Domain.TEXTURE.value:
-            layout.operator("geotools.layer_create_attributes")
-
-
 # --- Checks --------------------------------------------------------------------------
 
 
 def checks_state(props: bpy.types.PropertyGroup) -> str:
     if not props.checks_run:
         return TODO
-    return _worst(props.issues)
+    return worst_state(props.issues)
 
 
 class GEOTOOLS_PT_checks(_GeoToolsPanel, bpy.types.Panel):
@@ -728,7 +460,7 @@ class GEOTOOLS_PT_publish(_GeoToolsPanel, bpy.types.Panel):
             row = col.row()
             variant = profile.variant_layer.strip()
             row.alert = bool(variant) and props.layers.get(variant) is None
-            row.prop_search(profile, "variant_layer", props, "layers", icon="RNA")
+            row.prop(profile, "variant_layer", icon="RNA", placeholder="None: the plain tileset")
         row = layout.row(align=True)
         row.prop(profile, "overwrite")
         if glb:
@@ -869,10 +601,6 @@ classes = (
     *links_ui.classes,
     *analyses_ui.classes,
     *analysis_ui.classes,
-    GEOTOOLS_PT_layers,
-    GEOTOOLS_PT_layers_bake,
-    GEOTOOLS_PT_layers_display,
-    GEOTOOLS_PT_layers_details,
     *texture_ui.classes,
     GEOTOOLS_PT_checks,
     GEOTOOLS_PT_checks_images,

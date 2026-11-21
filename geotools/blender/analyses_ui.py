@@ -1,22 +1,21 @@
-"""Sidebar panels of the Analyses list mock-up (#157), and the Tools panel.
+"""Sidebar panels of the Analyses list (``analyses``): a mesh's analyses and layers.
 
-- Analyses: the Add Analysis search field (``analyses.search_entries``), the
-  Selected / All toggle, the list of results (``GEOTOOLS_UL_analyses``, which
-  shows the results on the selection, ``analyses.visible_flags``) and, for
-  the active row while the list shows it (``analyses.shown_item``):
-  - Inputs: Applies to (the result's meshes, active first) with Add Selected
-    and Remove Selected; a preset's modifier inputs, drawn from the active
-    mesh's modifier and kept in step on the others; a tool's own settings
-    with Compute, out of date once they change; a plain layer's fields (and
-    Bake).
+- Analyses: the Add Analysis search field (``analyses.search_entries``; it
+  adds one result to each selected mesh) and the active object's results
+  (``GEOTOOLS_UL_analyses``), like its modifier stack. With no active mesh,
+  one muted line and the Add field, greyed out until a mesh is selected.
+  The header shows the active row's layer state. For the active row:
+  - Inputs: a preset's modifier inputs, drawn from the modifier itself; a
+    Fast Bake's or a tool's own inputs, its Surface, and Compute (out of date
+    once they change); a plain layer's label, units, attribute and values,
+    and the Bake box for a texture layer.
   - Display: the layer's colours and Show in Viewport (``presentation``).
-  - Outputs: the layers and objects it made, and Publish as Variant.
-- Tools: the interactive readings that are not layers: Measure, Sun (with
-  Shadow Study) and Archaeoastronomy, drawn by the classic panels' code.
+  - Details: the layer's rarely changed fields, Rename Layer and Create
+    Empty Attributes.
+  - Outputs: the layers and objects the result made, and Publish as Variant.
 
-The classic Analysis and Layers panels are shown instead when the
-``Use Classic Analysis Panels`` preference is on. Panels draw stored state
-only: the modifier inputs are RNA reads, never an evaluation.
+Panels draw stored state only: the modifier inputs and the layer status are
+RNA reads (``layers.cached_status``), never an evaluation.
 """
 
 from __future__ import annotations
@@ -25,20 +24,43 @@ import json
 
 import bpy
 
+from ..analysis import preset_bake as fast
 from ..analysis import presets as catalog
-from ..core.layers import attribute_name
-from . import (
-    analyses,
-    analysis,
-    analysis_presets,
-    analysis_ui,
-    archaeo_ui,
-    bake_texture,
-    preferences,
+from ..core.display import format_range
+from ..core.issues import Severity
+from ..core.layers import (
+    DataType,
+    Domain,
+    attribute_name,
+    default_aggregation,
+    parse_number,
+    validate,
 )
-from .layers import DOMAIN_ICONS, find_layer
-from .presentation import draw_display
-from .ui import big_button, header_status, info_row, split_column, wrapped
+from . import analyses, analysis_presets, bake_texture
+from .layers import (
+    ATTRIBUTE_MISSING,
+    DOMAIN_ICONS,
+    IMAGE_MISSING,
+    NOT_CHECKED,
+    cached_status,
+    find_layer,
+    other_layer_names,
+    spec_from_props,
+)
+from .presentation import display_issue_codes, draw_display
+from .properties import LAYER_AGGREGATION_DEFAULT, SEVERITY_ICONS
+from .ui import (
+    ERROR,
+    TODO,
+    WARNING,
+    big_button,
+    header_status,
+    info_row,
+    issue_severity,
+    split_column,
+    worst_state,
+    wrapped,
+)
 
 
 class _Panel:
@@ -47,12 +69,8 @@ class _Panel:
     bl_category = "GeoTools"
 
 
-def _new_ui(context: bpy.types.Context) -> bool:
-    return not preferences.classic_panels(context)
-
-
 def _item(context: bpy.types.Context):
-    """The active result when the list shows it: what Inputs, Display and Outputs draw."""
+    """The active row when it belongs to the active mesh: what the sub-panels draw."""
     return analyses.shown_item(context)
 
 
@@ -62,22 +80,132 @@ def _error(layout, context, text: str) -> None:
     wrapped(col, context, text, "ERROR")
 
 
+def _muted(layout, text: str, icon: str = "NONE") -> None:
+    row = layout.row()
+    row.active = False
+    row.label(text=text, icon=icon)
+
+
+# --- a layer at a glance ---------------------------------------------------------------
+
+
+_NOT_FILLED = {ATTRIBUTE_MISSING, IMAGE_MISSING}
+_SEVERITY_ORDER = {Severity.ERROR: 0, Severity.WARNING: 1, Severity.INFO: 2}
+
+LAYER_STATUS_ROWS = 3
+"""Issues the Inputs panel lists before summarising the rest."""
+
+
+def layer_state(scene: bpy.types.Scene, item) -> str:
+    """A layer's header state from its cached status: ERROR, WARNING, TODO (no values
+    yet, or not checked yet) or DONE."""
+    issues = cached_status(scene, item)
+    state = worst_state(issues)
+    if state == ERROR:
+        return state
+    if any(i.code == NOT_CHECKED for i in issues):
+        return TODO
+    if state == WARNING and all(
+        i.code in _NOT_FILLED for i in issues if issue_severity(i) is Severity.WARNING
+    ):
+        return TODO
+    return state
+
+
+def _values_text(item) -> str:
+    low, high = parse_number(item.value_min), parse_number(item.value_max)
+    if item.data_type == DataType.BOOLEAN.value and low is not None and high is not None:
+        return {(0.0, 0.0): "all false", (1.0, 1.0): "all true"}.get((low, high), "false, true")
+    return format_range(low, high, item.units.strip()) or "Not known"
+
+
+def _draw_layer_status(layout, context, issues) -> None:
+    issues = sorted(issues, key=lambda i: _SEVERITY_ORDER[Severity(i.severity)])
+    if not issues:
+        layout.label(text="Stored on every source object", icon="CHECKMARK")
+        return
+    col = layout.column(align=True)
+    for issue in issues[:LAYER_STATUS_ROWS]:
+        sub = col.column(align=True)
+        sub.alert = issue.severity is Severity.ERROR
+        wrapped(sub, context, issue.message, icon=SEVERITY_ICONS[Severity(issue.severity).name])
+    if len(issues) > LAYER_STATUS_ROWS:
+        col.label(text=f"... and {len(issues) - LAYER_STATUS_ROWS} more", icon="BLANK1")
+
+
+def draw_layer_fields(layout: bpy.types.UILayout, context: bpy.types.Context, item) -> None:
+    """A layer at a glance: label, units, attribute, values and status."""
+    col = split_column(layout)
+    col.prop(item, "label", placeholder=item.name)
+    col.prop(item, "units", placeholder="None")
+    if item.domain != Domain.TEXTURE.value:
+        row = col.row()
+        row.alert = "layer-attribute-invalid" in {
+            i.code for i in validate(spec_from_props(item), ())
+        }
+        row.prop(item, "source_attribute", placeholder=attribute_name(item.name))
+    if item.data_type == DataType.CATEGORY.value:
+        count = len(spec_from_props(item).categories)
+        row = col.row()
+        row.alert = not count
+        value = info_row(row, "Categories", f"{count}" if count else "None set")
+        value.operator("geotools.layer_set_categories", text="", icon="GREASEPENCIL")
+    else:
+        value = info_row(col, "Values", _values_text(item))
+        value.operator("geotools.layer_update_range", text="", icon="FILE_REFRESH")
+    _draw_layer_status(layout, context, cached_status(context.scene, item))
+
+
+def _aggregation_label(item, data_type: str) -> str:
+    value = default_aggregation(data_type).value
+    return item.bl_rna.properties["aggregation"].enum_items[value].name
+
+
+def draw_layer_details(layout: bpy.types.UILayout, context: bpy.types.Context, item) -> None:
+    """A layer's rarely changed fields: identifier, domain, type, no-data, origin, ..."""
+    spec = spec_from_props(item)
+    codes = {i.code for i in validate(spec, other_layer_names(context.scene, item))}
+    col = split_column(layout)
+    value = info_row(col, "Identifier", item.name, icon=DOMAIN_ICONS.get(item.domain, "NONE"))
+    value.operator("geotools.layer_rename", text="", icon="GREASEPENCIL")
+    col.prop(item, "domain")
+    col.prop(item, "data_type")
+    row = col.row()
+    row.alert = "layer-nodata-invalid" in codes
+    row.prop(item, "nodata", placeholder="None")
+    col.prop(item, "origin")
+    row = col.row()
+    row.alert = "layer-aggregation-invalid" in codes
+    row.prop(item, "aggregation")
+    if item.aggregation == LAYER_AGGREGATION_DEFAULT:
+        info_row(col, "", f"{_aggregation_label(item, spec.data_type)}", icon="INFO")
+    col.label(text="Description")  # full width: a description is longer than a value
+    col.prop(item, "description", text="")
+    if "layer-range-invalid" in codes:
+        values = col.column(align=True)  # worked out by Update Range; shown only to fix it
+        values.alert = True
+        values.prop(item, "value_min", text="Range Min")
+        values.prop(item, "value_max", text="Max")
+    provenance = spec.provenance
+    if "layer-provenance-invalid" in codes:
+        layout.label(text="Provenance is not valid JSON", icon="ERROR")
+    elif provenance is not None:
+        version = provenance.get("geotools_version") or "unknown version"
+        wrapped(layout, context, f"Made by {provenance['tool']} (GeoTools {version})", "INFO")
+    if item.domain != Domain.TEXTURE.value:
+        layout.operator("geotools.layer_create_attributes")
+
+
 # --- Analyses ---------------------------------------------------------------------------
 
 
 class GEOTOOLS_PT_analyses(_Panel, bpy.types.Panel):
-    """Every analysis result in one list, with a searchable Add Analysis field."""
+    """The active mesh's analyses and layers, and Add Analysis."""
 
     bl_idname = "GEOTOOLS_PT_analyses"
     bl_label = "Analyses"
 
-    @classmethod
-    def poll(cls, context: bpy.types.Context) -> bool:
-        return _new_ui(context)
-
     def draw_header(self, context: bpy.types.Context) -> None:
-        from .panels import layer_state  # panels imports this module
-
         layer = analyses.item_layer(context.scene, _item(context))
         if layer is not None:
             header_status(self.layout, layer_state(context.scene, layer))
@@ -88,67 +216,24 @@ class GEOTOOLS_PT_analyses(_Panel, bpy.types.Panel):
         props = analyses.settings(scene)
         row = layout.row(align=True)
         row.scale_y = 1.2
+        row.enabled = bool(analysis_presets.target_objects(context))
         row.prop(props, "add_search", text="", icon="ADD", placeholder="Add Analysis (search)")
         if props.error:
             _error(layout, context, props.error)
-
-        _draw_filter(layout, context, props)
+        mesh = analyses.active_mesh(context)
+        if mesh is None:
+            _muted(layout, "Select a mesh to see its analyses", "INFO")
+            return
         row = layout.row()
         row.template_list("GEOTOOLS_UL_analyses", "", props, "items", props, "index", rows=4)
         col = row.column(align=True)
         col.operator("geotools.analyses_remove", text="", icon="REMOVE")
-        _draw_filter_note(layout, context, props)
-
-        unlisted = analyses.unlisted_layers(scene)
-        if unlisted:
-            row = layout.row(align=True)
-            count = len(unlisted)
-            row.label(text=f"{count} layer{'s' * (count != 1)} not listed", icon="INFO")
-            row.operator("geotools.analyses_list_layers")
-        if not len(props.items):
-            wrapped(
-                layout,
-                context,
-                "Select the meshes to analyse, then search for an analysis to add.",
-                "INFO",
-            )
-
-
-def _draw_filter(layout, context, props) -> None:
-    """The list header: how many results it shows, and the Selected / All toggle."""
-    split = layout.split(factor=0.4, align=True)
-    label = split.row()
-    label.active = False
-    label.label(text=f"{sum(analyses.visible_flags(context))} of {len(props.items)}")
-    split.row(align=True).prop(props, "show", expand=True)
-
-
-def _draw_filter_note(layout, context, props) -> None:
-    """One muted line under the list when Selected shows everything."""
-    if props.show == "SELECTED" and len(props.items) and not analyses.selection_pointers(context):
-        row = layout.row()
-        row.active = False
-        row.label(text="Nothing selected: showing all", icon="INFO")
-
-
-def _applies_row(layout, context, item) -> None:
-    """``Applies to: hills (+2)``, and Add Selected / Remove Selected below it."""
-    meshes = analyses.applies_to(context.scene, item)
-    active = context.view_layer.objects.active if context.view_layer else None
-    if active in meshes:  # the active mesh first, as the modifier stack would show it
-        meshes = [active, *[o for o in meshes if o != active]]
-    col = layout.column(align=True)
-    icon = "OBJECT_DATA" if meshes else "ERROR"
-    col.label(text=f"Applies to: {analyses._summary(meshes)}", icon=icon)
-    if item.kind == "LAYER":
-        return
-    row = col.row(align=True)
-    row.operator("geotools.analyses_add_selected", icon="ADD")
-    row.operator("geotools.analyses_remove_selected", icon="REMOVE")
+        if not analyses.results_of(scene, mesh):
+            _muted(layout, f"No analyses on {mesh.name} yet", "INFO")
 
 
 class GEOTOOLS_PT_analyses_inputs(_Panel, bpy.types.Panel):
-    """The selected analysis' inputs: its modifier, its settings or its layer."""
+    """The active result's inputs: its modifier's, its own, or its layer's fields."""
 
     bl_idname = "GEOTOOLS_PT_analyses_inputs"
     bl_label = "Inputs"
@@ -165,6 +250,8 @@ class GEOTOOLS_PT_analyses_inputs(_Panel, bpy.types.Panel):
             return
         if item.kind == "PRESET":
             _draw_preset(layout, context, item)
+        elif item.kind == "FAST":
+            _draw_fast(layout, context, item)
         elif item.kind in analyses.TOOL_KINDS:
             _draw_tool(layout, context, item)
         else:
@@ -174,43 +261,12 @@ class GEOTOOLS_PT_analyses_inputs(_Panel, bpy.types.Panel):
 # --- a preset's modifier ---------------------------------------------------------------
 
 
-def preset_modifier(context: bpy.types.Context, item):
-    """The modifier whose inputs the sidebar shows, and the object it is on.
-
-    A layer preset's modifier on the active object when that is one of the
-    item's meshes, else on the first; an object preset's on its new object.
-    """
-    try:
-        preset = catalog.get(item.preset)
-    except KeyError:
-        return None, None
-    group = analysis_presets.find_group(preset.id, preset.version)
-    if group is None:
-        return None, None
-    if preset.output is catalog.Output.OBJECT:
-        for obj in analyses.output_objects(item):
-            for modifier in obj.modifiers:
-                if modifier.type == "NODES" and modifier.node_group == group:
-                    return modifier, obj
-        return None, None
-    objects = analyses.item_objects(item)
-    active = context.active_object
-    if active in objects:
-        objects = [active, *[o for o in objects if o != active]]
-    attribute = attribute_name(item.layer)
-    for obj in objects:
-        modifier = analysis_presets.find_modifier(obj, group, attribute)
-        if modifier is not None:
-            return modifier, obj
-    return None, None
-
-
 HIDDEN_INPUTS = frozenset({catalog.ATTRIBUTE_INPUT, catalog.CONVERGENCE_INPUT})
 """Inputs GeoTools fills and the user never edits (north is shown as a line instead)."""
 
 
 def draw_modifier_inputs(layout: bpy.types.UILayout, modifier: bpy.types.Modifier) -> int:
-    """The modifier's group inputs as properties of the modifier itself; returns how many."""
+    """The modifier's group inputs, as properties of the modifier itself; returns how many."""
     col = split_column(layout)
     inputs = modifier.properties.inputs
     drawn = 0
@@ -228,19 +284,11 @@ def draw_modifier_inputs(layout: bpy.types.UILayout, modifier: bpy.types.Modifie
 
 
 def _draw_preset(layout, context, item) -> None:
-    preset = catalog.get(item.preset)
-    if preset.output is catalog.Output.LAYER:
-        _applies_row(layout, context, item)
-    modifier, _obj = preset_modifier(context, item)
-    if modifier is None:
-        _error(layout, context, "The modifier is gone: Add Selected puts it back.")
+    preset = analyses.preset_of(item)
+    modifier = analyses.item_modifier(item)
+    if preset is None or modifier is None:
+        _error(layout, context, "Its modifier is gone: remove the result and add it again.")
         return
-    count = len(analyses.item_objects(item))
-    if count > 1:
-        note = layout.row()
-        note.active = False
-        meshes = "both meshes" if count == 2 else f"all {count} meshes"
-        note.label(text=f"Edits apply to {meshes}", icon="LINKED")
     if not draw_modifier_inputs(layout, modifier):
         layout.label(text="No inputs to set", icon="INFO")
     if preset.north:
@@ -250,10 +298,41 @@ def _draw_preset(layout, context, item) -> None:
         layout.operator("geotools.analysis_totals", icon="INFO")
 
 
-# --- a tool's settings -----------------------------------------------------------------
+# --- what runs: Fast Bakes and the tools ------------------------------------------------
 
 
-def _draw_hydrology(col, _context, props) -> None:
+def _draw_run(layout, context, item, rows: list[tuple[str, str]]) -> None:
+    """Out of date, Compute or Recompute, and the error or the result's summary."""
+    if analyses.out_of_date(item):
+        wrapped(layout, context, "Inputs changed since the last run: out of date.", "FILE_REFRESH")
+    text = "Recompute" if item.computed else "Compute"
+    icon = analyses.KIND_ICONS[item.kind]
+    big_button(layout).operator("geotools.analyses_compute", text=text, icon=icon)
+    error = analyses.run_error(item)
+    if error:
+        _error(layout, context, error)
+        return
+    if rows:
+        col = layout.box().column(align=True)
+        for label, value in rows:
+            info_row(col, label, value)
+
+
+def _draw_fast(layout, context, item) -> None:
+    group = item.fast
+    col = split_column(layout)
+    col.prop(item, "extent")
+    for name in fast.input_names(item.preset):
+        col.prop(group, analyses.FAST_FIELDS[name])
+    if item.preset in fast.VIEWSHED:
+        col.prop(group, "observers")
+        col.prop(group, "occluders")
+    _draw_run(layout, context, item, [])
+    if group.result and not group.error:
+        wrapped(layout, context, group.result, "TIME")
+
+
+def _draw_hydrology(col, _context, _item, props) -> None:
     col.prop(props, "area")
     col.prop(props, "min_depth")
     layers = col.column(align=True)
@@ -269,7 +348,7 @@ def _draw_hydrology(col, _context, props) -> None:
     col.prop(props, "offset")
 
 
-def _draw_least_cost(col, context, props) -> None:
+def _draw_least_cost(col, context, _item, props) -> None:
     col.prop(props, "start", text="Start")
     col.prop(props, "end", text="End")
     col.prop(props, "model")
@@ -290,9 +369,20 @@ def _draw_least_cost(col, context, props) -> None:
     row.prop(props, "band_layer")
 
 
-def _draw_sun_hours(col, context, props) -> None:
-    sun = analysis.settings(context).sun
-    analysis_ui._draw_period(col, props, sun)
+def _draw_sun_hours(col, _context, item, props) -> None:
+    col.prop(props, "period")
+    row = col.row(align=True)
+    if props.period == "YEAR":
+        row.prop(item, "sun_year", text="Year")
+    else:
+        row.prop(item, "sun_year", text="From" if props.period == "RANGE" else "Date")
+        row.prop(item, "sun_month", text="")
+        row.prop(item, "sun_day", text="")
+    if props.period == "RANGE":
+        row = col.row(align=True)
+        row.prop(props, "end_year", text="To")
+        row.prop(props, "end_month", text="")
+        row.prop(props, "end_day", text="")
     col.prop(props, "step_minutes", text="Step (min)")
     col.prop(props, "tolerance")
     col.prop(props, "horizon")
@@ -313,14 +403,14 @@ def _draw_sun_hours(col, context, props) -> None:
     col.prop(props, "offset")
 
 
-def _draw_contours(col, _context, props) -> None:
+def _draw_contours(col, _context, _item, props) -> None:
     col.prop(props, "interval")
     col.prop(props, "base")
     col.prop(props, "major_every")
     col.prop(props, "contour_name")
 
 
-def _draw_sections(col, _context, props) -> None:
+def _draw_sections(col, _context, _item, props) -> None:
     col.prop(props, "line")
     col.row(heading="Edges").prop(props, "selected_edges", text="Selected Only")
     col.prop(props, "section_name")
@@ -342,7 +432,7 @@ def _duration(seconds: float) -> str:
 
 
 def result_lines(item) -> list[tuple[str, str]]:
-    """A few ``(label, value)`` rows of the item's last result (stored JSON, no mesh read)."""
+    """A few ``(label, value)`` rows of a tool result's last run (stored JSON, no mesh read)."""
     props = analyses.tool_settings(item)
     if item.kind == "CONTOURS":
         text = props.contour_result
@@ -380,41 +470,24 @@ def result_lines(item) -> list[tuple[str, str]]:
 
 def _draw_tool(layout, context, item) -> None:
     props = analyses.tool_settings(item)
-    _applies_row(layout, context, item)
     if item.kind == "SUN_HOURS":
-        wrapped(layout, context, "Date, time zone and site: Tools > Sun.", "LIGHT_SUN")
+        wrapped(layout, context, "Time zone and site: Tools > Sun.", "LIGHT_SUN")
     col = split_column(layout)
-    _TOOL_DRAW[item.kind](col, context, props)
-    text = "Recompute" if item.computed else "Compute"
-    if analyses.out_of_date(item):
-        wrapped(layout, context, "Inputs changed since the last run: out of date.", "FILE_REFRESH")
-    big_button(layout).operator(
-        "geotools.analyses_compute", text=text, icon=analyses.KIND_ICONS[item.kind]
-    )
-    error = analyses.tool_error(item)
-    if error:
-        _error(layout, context, error)
-        return
-    rows = result_lines(item)
-    if rows:
-        col = layout.box().column(align=True)
-        for label, value in rows:
-            info_row(col, label, value)
+    col.prop(item, "extent")
+    _TOOL_DRAW[item.kind](col, context, item, props)
+    _draw_run(layout, context, item, result_lines(item))
 
 
 # --- a plain layer ---------------------------------------------------------------------
 
 
 def _draw_layer(layout, context, item) -> None:
-    from .panels import draw_layer_fields  # panels imports this module
-
     layer = analyses.item_layer(context.scene, item)
     if layer is None:
         _error(layout, context, f"Layer {item.layer!r} is gone.")
         return
-    _applies_row(layout, context, item)
     draw_layer_fields(layout, context, layer)
-    if layer.domain == "TEXTURE":
+    if layer.domain == Domain.TEXTURE.value:
         box = layout.box()
         box.label(text="Bake", icon="RENDER_STILL")
         if context.scene.geotools.source_collection is None:
@@ -423,11 +496,15 @@ def _draw_layer(layout, context, item) -> None:
             bake_texture.draw_bake(box, context, layer)
 
 
-# --- Display and Outputs ---------------------------------------------------------------
+# --- Display, Details and Outputs -------------------------------------------------------
+
+
+def _shown_layer(context: bpy.types.Context):
+    return analyses.item_layer(context.scene, _item(context))
 
 
 class GEOTOOLS_PT_analyses_display(_Panel, bpy.types.Panel):
-    """How the selected analysis' layer is coloured, in the viewport and its variant."""
+    """How the active result's layer is coloured, in the viewport and its variant."""
 
     bl_idname = "GEOTOOLS_PT_analyses_display"
     bl_label = "Display"
@@ -435,16 +512,39 @@ class GEOTOOLS_PT_analyses_display(_Panel, bpy.types.Panel):
 
     @classmethod
     def poll(cls, context: bpy.types.Context) -> bool:
-        return analyses.item_layer(context.scene, _item(context)) is not None
+        return _shown_layer(context) is not None
+
+    def draw_header(self, context: bpy.types.Context) -> None:
+        layer = _shown_layer(context)
+        if layer is not None and display_issue_codes(layer):
+            header_status(self.layout, ERROR)
 
     def draw(self, context: bpy.types.Context) -> None:
-        layer = analyses.item_layer(context.scene, _item(context))
+        layer = _shown_layer(context)
         if layer is not None:
             draw_display(self.layout, context, layer)
 
 
+class GEOTOOLS_PT_analyses_details(_Panel, bpy.types.Panel):
+    """The active result's layer: its rarely changed fields."""
+
+    bl_idname = "GEOTOOLS_PT_analyses_details"
+    bl_label = "Details"
+    bl_parent_id = "GEOTOOLS_PT_analyses"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, context: bpy.types.Context) -> bool:
+        return _shown_layer(context) is not None
+
+    def draw(self, context: bpy.types.Context) -> None:
+        layer = _shown_layer(context)
+        if layer is not None:
+            draw_layer_details(self.layout, context, layer)
+
+
 class GEOTOOLS_PT_analyses_outputs(_Panel, bpy.types.Panel):
-    """The layers and objects the selected analysis made."""
+    """The layers and objects the active result made, and Publish as Variant."""
 
     bl_idname = "GEOTOOLS_PT_analyses_outputs"
     bl_label = "Outputs"
@@ -457,28 +557,26 @@ class GEOTOOLS_PT_analyses_outputs(_Panel, bpy.types.Panel):
 
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
-        scene = context.scene
         item = _item(context)
         if item is None:
             return
-        layers = [find_layer(scene, entry.name) for entry in item.layers]
+        layers = [find_layer(context.scene, entry.name) for entry in item.layers]
         layers = [layer for layer in layers if layer is not None]
         objects = analyses.output_objects(item)
         if not layers and not objects:
-            text = "Nothing yet: Compute first." if not item.computed else "No outputs."
+            text = "Nothing yet: Compute first" if not item.computed else "No outputs"
             layout.label(text=text, icon="INFO")
             return
         col = layout.column(align=True)
         for layer in layers:
             row = col.row(align=True)
             shown = layer.name == item.layer
-            op = row.operator(
+            row.operator(
                 "geotools.analyses_show_layer",
                 text="",
                 icon="RADIOBUT_ON" if shown else "RADIOBUT_OFF",
                 emboss=False,
-            )
-            op.layer = layer.name
+            ).layer = layer.name
             row.label(text=layer.name, icon=DOMAIN_ICONS.get(layer.domain, "NONE"))
             eye = layer.presentation.show_in_viewport
             row.operator(
@@ -499,75 +597,11 @@ class GEOTOOLS_PT_analyses_outputs(_Panel, bpy.types.Panel):
             layout.label(text="Export: File > Export > GeoPackage", icon="EXPORT")
 
 
-# --- Tools -----------------------------------------------------------------------------
-
-
-class GEOTOOLS_PT_tools(_Panel, bpy.types.Panel):
-    """Interactive readings that are not layers: Measure, Sun and Archaeoastronomy."""
-
-    bl_idname = "GEOTOOLS_PT_tools"
-    bl_label = "Tools"
-    bl_options = {"DEFAULT_CLOSED"}
-
-    @classmethod
-    def poll(cls, context: bpy.types.Context) -> bool:
-        return _new_ui(context)
-
-    draw = analysis_ui.GEOTOOLS_PT_analysis.draw
-
-
-class GEOTOOLS_PT_tools_measure(_Panel, bpy.types.Panel):
-    """Points on Earth, the distance between them and the area of selected faces."""
-
-    bl_idname = "GEOTOOLS_PT_tools_measure"
-    bl_label = "Measure"
-    bl_parent_id = "GEOTOOLS_PT_tools"
-
-    draw = analysis_ui.GEOTOOLS_PT_analysis_coordinates.draw
-
-
-class GEOTOOLS_PT_tools_sun(_Panel, bpy.types.Panel):
-    """The sun at a moment or over a day, on a Blender Sun light."""
-
-    bl_idname = "GEOTOOLS_PT_tools_sun"
-    bl_label = "Sun"
-    bl_parent_id = "GEOTOOLS_PT_tools"
-    bl_options = {"DEFAULT_CLOSED"}
-
-    draw = analysis_ui.GEOTOOLS_PT_analysis_sun.draw
-
-
-class GEOTOOLS_PT_tools_shadow_study(_Panel, bpy.types.Panel):
-    """Sun light keys at the equinoxes and solstices, one frame per moment."""
-
-    bl_idname = "GEOTOOLS_PT_tools_shadow_study"
-    bl_label = "Shadow Study"
-    bl_parent_id = "GEOTOOLS_PT_tools_sun"
-    bl_options = {"DEFAULT_CLOSED"}
-
-    draw = analysis_ui.GEOTOOLS_PT_analysis_shadow_study.draw
-
-
-class GEOTOOLS_PT_tools_archaeo(_Panel, bpy.types.Panel):
-    """Horizon, solar and lunar events at an epoch, sightlines and alignments."""
-
-    bl_idname = "GEOTOOLS_PT_tools_archaeo"
-    bl_label = "Archaeoastronomy"
-    bl_parent_id = "GEOTOOLS_PT_tools"
-    bl_options = {"DEFAULT_CLOSED"}
-
-    draw = archaeo_ui.GEOTOOLS_PT_analysis_archaeo.draw
-
-
 # Registration order is the sidebar order (a parent before its children).
 classes = (
     GEOTOOLS_PT_analyses,
     GEOTOOLS_PT_analyses_inputs,
     GEOTOOLS_PT_analyses_display,
+    GEOTOOLS_PT_analyses_details,
     GEOTOOLS_PT_analyses_outputs,
-    GEOTOOLS_PT_tools,
-    GEOTOOLS_PT_tools_measure,
-    GEOTOOLS_PT_tools_sun,
-    GEOTOOLS_PT_tools_shadow_study,
-    GEOTOOLS_PT_tools_archaeo,
 )

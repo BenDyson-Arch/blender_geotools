@@ -1,51 +1,52 @@
-"""The Analyses list (a mock-up, #157): every analysis result in one list.
+"""The Analyses list: every analysis result and layer of a mesh, like its modifier stack.
 
-``scene.geotools_analyses`` holds one item per analysis the user added with
-the searchable **Add Analysis** field (:func:`search_entries`, the CRS
-picker's pattern: a ``StringProperty`` with a search callback whose update
-runs the add). Each item is one of:
+``scene.geotools_analyses.items`` holds one **result** per mesh: each item
+belongs to exactly one mesh object (``item.object``), as a modifier belongs to
+one object. The Analyses panel (``analyses_ui``) lists the active object's
+results only, and the panels below the list draw the active row. Kinds:
 
 * ``PRESET``: a Geometry Nodes preset (``analysis_presets.add_preset``). A
-  layer preset's item names its layer and the meshes that carry the modifier;
-  an object preset's item lists the new object of lines in ``outputs``. The
-  sidebar draws the inputs of the modifier itself (``analyses_ui``), so
-  nothing is copied: the modifier stays the single place the inputs live.
-* ``HYDROLOGY``, ``SUN_HOURS``, ``LEAST_COST``, ``CONTOURS``, ``SECTIONS``:
-  a Python tool. The item keeps its own copy of the tool's settings group
-  (the same ``PropertyGroup`` type the classic panels use on the scene) and
-  the meshes it runs on. **Compute** (:class:`GEOTOOLS_OT_analyses_compute`)
-  copies the item's settings onto the scene's group, selects the item's
-  meshes, runs the tool's existing operator, and copies the settings (with
-  the result or error) back, so every result can be edited and run again.
-* ``LAYER``: a plain layer (From Attribute, Texture Bake, or a layer that was
-  already in the registry, listed by :func:`list_unlisted_layers`).
+  layer preset is one modifier on the mesh, storing the layer ``item.layer``;
+  the sidebar draws that modifier's own inputs, so they live in one place.
+  Two meshes with Slope have two results and two modifiers, each with its own
+  inputs, storing the same layer. An object preset (lines) belongs to the
+  surface it was added to; the new object is in ``outputs``.
+* ``FAST``: a Fast Bake (``preset_bake.compute``), including the bake-only
+  Sky Visibility, Sky View (Cosine) and Openness (3D). Its inputs are the
+  item's own (:class:`GeoToolsFastSettings`).
+* ``HYDROLOGY``, ``SUN_HOURS``, ``LEAST_COST``, ``CONTOURS``, ``SECTIONS``: a
+  Python tool, with its own copy of the tool's settings group (the type the
+  tool's operator reads from the scene). **Compute** (:func:`compute`) copies
+  the item's settings onto the scene's group, runs the tool's operator and
+  copies them back with the result.
+* ``LAYER``: a plain layer (From Attribute, Texture Bake, a GeoTIFF, values
+  written by a script): one row per mesh that carries it.
 
-Selecting an item makes its layer the registry's active layer
-(``scene.geotools.layers_index``), so the existing layer, bake and display
-operators act on it.
+FAST and tool results run on their own mesh unless their **Surface**
+(``item.extent``) says Selected Objects or Source Collection: hydrology and
+least-cost routes need a connected surface, and a sky bake's other meshes
+occlude. The result still belongs to its mesh; the values the run writes on
+the other meshes show there as plain layer rows. Each such result remembers
+a signature of its inputs at its last run, so the panel can say it is out of
+date (:func:`out_of_date`). Sun Hours keeps its own start date; the time zone
+and site stay the project's (Tools > Sun), as they describe the place.
 
-**The list follows the selection**, as Blender's modifier stack follows the
-active object. A result's meshes (:func:`result_meshes`) are the meshes it
-applies to and the objects it made; a plain layer's are its carriers
-(``layers.stored_carriers``). With **Selected** on (the default), the list
-shows the results whose meshes include the active object or a selected one
-(:func:`visible_flags`, cached per selection and depsgraph update); with
-nothing selected it shows all. When the active object changes (a msgbus
-subscription), the active row moves to that mesh's result of the same kind,
-else its first (:func:`follow_active`).
+:func:`sync` keeps the list in step with the scene: it drops results whose
+mesh, modifier or layer is gone, lists a preset modifier or object added by
+a script, and adds a plain layer row for each mesh a layer's stored carriers
+(``layers.stored_carriers``) name. A depsgraph handler runs it when a cheap
+key of the scene changes (:func:`scene_key`). Files from before the list are
+migrated once on load (:func:`migrate`): their Fast Bake and tool layers
+(with the scene's last tool settings) and their tool line objects become
+results; :func:`sync` lists the rest.
 
-**One result per analysis.** A preset result has one modifier on each of its
-meshes; the sidebar draws the active mesh's (else the first's) inputs, and a
-depsgraph handler copies them to the result's other modifiers
-(:func:`sync_preset_inputs`). A tool result remembers a signature of its
-settings and meshes at its last run, so the panel can say it is out of date.
-
-This is a mock-up for the maintainer to try; the classic Analysis and
-Layers panels stay, behind the ``Use Classic Analysis Panels`` preference.
+When the active object changes (a msgbus subscription), the active row moves
+to that mesh's result of the same kind, else to its first (:func:`follow_active`).
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -57,11 +58,13 @@ from bpy.props import (
     BoolProperty,
     CollectionProperty,
     EnumProperty,
+    FloatProperty,
     IntProperty,
     PointerProperty,
     StringProperty,
 )
 
+from ..analysis import preset_bake as fast
 from ..analysis import presets as catalog
 from ..core.layers import DataType, Domain, LayerSpec, attribute_name
 from . import analysis, analysis_presets, contours, hydrology, least_cost
@@ -71,27 +74,33 @@ from .layers import (
     ensure_layer,
     find_layer,
     refresh_carriers,
-    remove_layer_data,
+    remove_attribute,
+    source_objects,
     spec_from_props,
     stored_carriers,
 )
+from .surface import OUTPUT_TOOL_PROP
 
 log = logging.getLogger(__name__)
 
 KIND_ITEMS = (
     ("PRESET", "Preset", "A Geometry Nodes analysis preset: live, edited on its modifier"),
+    ("FAST", "Fast Bake", "Values computed once by a Cycles bake into a layer"),
     ("HYDROLOGY", "Hydrology", "Flow accumulation, ponding and depressions"),
     ("SUN_HOURS", "Sun Hours", "Hours of direct sun and clear-sky insolation"),
     ("LEAST_COST", "Least-Cost Routes", "Least-cost routes and travel times"),
     ("CONTOURS", "Contours", "Contour lines"),
     ("SECTIONS", "Sections", "Section lines"),
-    ("LAYER", "Layer", "A plain layer: an attribute, a texture bake or values written by hand"),
+    ("LAYER", "Layer", "A plain layer: an attribute, a texture bake or imported values"),
 )
 
 TOOL_KINDS = frozenset({"HYDROLOGY", "SUN_HOURS", "LEAST_COST", "CONTOURS", "SECTIONS"})
+RUN_KINDS = TOOL_KINDS | {"FAST"}
+"""Kinds that run when asked (Compute), rather than updating by themselves."""
 
 KIND_ICONS = {
     "PRESET": "GEOMETRY_NODES",
+    "FAST": "RENDER_STILL",
     "HYDROLOGY": "MOD_FLUIDSIM",
     "SUN_HOURS": "LIGHT_SUN",
     "LEAST_COST": "TRACKING",
@@ -105,12 +114,51 @@ SETTINGS_ATTR = {
     "LEAST_COST": "least_cost",
     "CONTOURS": "contours",
     "SECTIONS": "contours",
+    "FAST": "fast",
 }
-"""The item's own settings group for each tool kind."""
+"""The item's own settings group for each kind that runs."""
+
+TOOL_PROVENANCE = {
+    hydrology.TOOL: "HYDROLOGY",
+    "sun_hours": "SUN_HOURS",
+    least_cost.TOOL: "LEAST_COST",
+}
+"""Provenance tools whose layers :func:`migrate` turns into tool results."""
+
+OUTPUT_KINDS = {
+    contours.CONTOUR_TOOL: "CONTOURS",
+    contours.SECTION_TOOL: "SECTIONS",
+    hydrology.TOOL: "HYDROLOGY",
+    least_cost.TOOL: "LEAST_COST",
+}
+"""``surface.OUTPUT_TOOL_PROP`` values of the tools' line and point objects."""
+
+EXTENT_ITEMS = (
+    ("MESH", "This Mesh", "Run on this result's mesh only"),
+    (
+        "SELECTED",
+        "Selected Objects",
+        (
+            "Run on this mesh and the meshes selected when you compute, as one surface (they "
+            "get the values too); the result stays this mesh's"
+        ),
+    ),
+    (
+        "SOURCE",
+        "Source Collection",
+        (
+            "Run on every mesh of the source collection, as one surface (the whole site); the "
+            "result stays this mesh's"
+        ),
+    ),
+)
+
+MIGRATED = 1
+"""``GeoToolsAnalyses.version`` once a file's older layers have been migrated."""
 
 
 class AnalysesError(RuntimeError):
-    """The analysis could not be added or run; the message says why."""
+    """The analysis could not be added, run or removed; the message says why."""
 
 
 # --- the Add Analysis catalog ----------------------------------------------------------
@@ -148,7 +196,7 @@ GROUP_ORDER = (
 class Entry:
     """One choice of the Add Analysis search field."""
 
-    key: str  # "preset:<id>", "preset:<id>:true", "tool:<KIND>", "layer:ATTRIBUTE"
+    key: str  # "preset:<id>[:true]", "fast:<id>", "tool:<KIND>", "layer:ATTRIBUTE|TEXTURE"
     group: str
     label: str
     description: str
@@ -159,21 +207,35 @@ class Entry:
         return f"{self.group} > {self.label}"
 
 
+def _group(preset: catalog.Preset) -> str:
+    return PRESET_GROUP.get(preset.id, GROUP_SHORT[preset.category])
+
+
 def _entries() -> tuple[Entry, ...]:
     found: list[Entry] = []
-    for category in catalog.Category:
-        for preset in catalog.by_category(category):
-            group = PRESET_GROUP.get(preset.id, GROUP_SHORT[category])
-            found.append(Entry(f"preset:{preset.id}", group, preset.label, preset.description))
-            if preset.north:
-                found.append(
-                    Entry(
-                        f"preset:{preset.id}:true",
-                        group,
-                        f"{preset.label} (True North)",
-                        f"{preset.description}, from true north",
-                    )
+    for preset in catalog.PRESETS:
+        group = _group(preset)
+        found.append(Entry(f"preset:{preset.id}", group, preset.label, preset.description))
+        if preset.north:
+            found.append(
+                Entry(
+                    f"preset:{preset.id}:true",
+                    group,
+                    f"{preset.label} (True North)",
+                    f"{preset.description}, from true north",
                 )
+            )
+        if fast.is_fast(preset.id):
+            found.append(
+                Entry(
+                    f"fast:{preset.id}",
+                    group,
+                    f"{preset.label} (Fast Bake)",
+                    f"{preset.description}, computed once by a Cycles bake",
+                )
+            )
+    for preset in fast.BAKE_ONLY:
+        found.append(Entry(f"fast:{preset.id}", _group(preset), preset.label, preset.description))
     found += [
         Entry(
             "tool:HYDROLOGY",
@@ -202,19 +264,13 @@ def _entries() -> tuple[Entry, ...]:
             "From Attribute",
             "A layer read from a mesh attribute (a Geometry Nodes output, an import)",
         ),
-        Entry(
-            "layer:TEXTURE",
-            "Layers",
-            "Texture Bake",
-            "A texture layer filled by a Cycles bake",
-        ),
+        Entry("layer:TEXTURE", "Layers", "Texture Bake", "A texture layer filled by a Cycles bake"),
     ]
     return tuple(sorted(found, key=lambda e: GROUP_ORDER.index(e.group)))
 
 
 ENTRIES = _entries()
 _BY_TEXT = {e.text: e for e in ENTRIES}
-_BY_KEY = {e.key: e for e in ENTRIES}
 
 
 def search_entries(query: str) -> list[Entry]:
@@ -248,12 +304,13 @@ def _picked(self, context: bpy.types.Context) -> None:
         self.error = f"No analysis called {text!r}."
         return
     try:
-        item = add_entry(context, entry.key)
+        added = add_entry(context, entry.key)
     except (AnalysesError, analysis_presets.PresetError) as exc:
         self.error = str(exc)
         return
     self.error = ""
-    self.note = f"Added {item.name}"
+    count = len(added)
+    self.note = f"Added {added[0].name} to {count} mesh{'es' * (count != 1)}"
     redraw_ui(context)
 
 
@@ -261,7 +318,7 @@ def _picked(self, context: bpy.types.Context) -> None:
 
 
 class GeoToolsAnalysisObject(bpy.types.PropertyGroup):
-    """An object an analysis runs on or made."""
+    """An object an analysis made."""
 
     object: PointerProperty(name="Object", description="The object", type=bpy.types.Object)
 
@@ -270,21 +327,96 @@ class GeoToolsAnalysisLayer(bpy.types.PropertyGroup):
     """A layer an analysis writes (``name`` is the layer's name)."""
 
 
+class GeoToolsFastSettings(bpy.types.PropertyGroup):
+    """A Fast Bake result's inputs (the preset's own, by ``FAST_FIELDS``)."""
+
+    max_distance: FloatProperty(
+        name="Max Distance",
+        description="How far the horizon is searched along each direction (direct visibility: "
+        "the length of each ray; the viewshed: the horizontal reach of the view)",
+        min=0.0,
+        subtype="DISTANCE",
+    )
+    directions: IntProperty(
+        name="Directions", description="Azimuths searched, evenly spaced from +Y", min=1, max=64
+    )
+    steps: IntProperty(
+        name="Steps", description="Rays per direction that bisect the horizon angle", min=1, max=16
+    )
+    ray_offset: FloatProperty(
+        name="Ray Offset",
+        description="Rays start this far from the surface",
+        min=0.0,
+        subtype="DISTANCE",
+        precision=4,
+    )
+    rays: IntProperty(
+        name="Rays",
+        description="Sky directions cast from each face, evenly spread (equal solid angle)",
+        min=16,
+        max=4096,
+    )
+    observer_height: FloatProperty(
+        name="Observer Height",
+        description="Eye height above each observer point",
+        min=0.0,
+        subtype="DISTANCE",
+    )
+    target_height: FloatProperty(
+        name="Target Height",
+        description="Height above the surface that must be seen (0: the surface itself, seen "
+        "from the front only)",
+        min=0.0,
+        subtype="DISTANCE",
+    )
+    drape: BoolProperty(
+        name="Drape",
+        description="Drop the observer points vertically onto the topmost surface first",
+    )
+    observers: PointerProperty(
+        name="Observers",
+        description="The object whose vertices (or origin) are the observer points",
+        type=bpy.types.Object,
+    )
+    occluders: PointerProperty(
+        name="Occluders",
+        description="A collection of other objects that block sight as well (optional)",
+        type=bpy.types.Collection,
+    )
+    result: StringProperty(default="")
+    error: StringProperty(default="")
+
+
+FAST_FIELDS = {
+    "Max Distance": "max_distance",
+    "Directions": "directions",
+    "Steps": "steps",
+    "Ray Offset": "ray_offset",
+    "Rays": "rays",
+    "Observer Height": "observer_height",
+    "Target Height": "target_height",
+    "Drape": "drape",
+}
+"""The fast path's input names and the :class:`GeoToolsFastSettings` property of each."""
+
+
 def _index_changed(self, context: bpy.types.Context) -> None:
     item = active_item(context.scene)
     if item is None or not item.layer:
         return
-    layers = context.scene.geotools.layers
-    index = layers.find(item.layer)
+    index = context.scene.geotools.layers.find(item.layer)
     if index >= 0:
         context.scene.geotools.layers_index = index
 
 
 class GeoToolsAnalysisItem(bpy.types.PropertyGroup):
-    """One analysis of the Analyses list (``name`` is what the list shows)."""
+    """One result of the Analyses list (``name`` is what the list shows)."""
 
+    object: PointerProperty(
+        name="Mesh", description="The mesh this result belongs to", type=bpy.types.Object
+    )
     kind: EnumProperty(name="Kind", description="What made this result", items=KIND_ITEMS)
-    preset: StringProperty(name="Preset", description="The preset's id (presets only)")
+    preset: StringProperty(name="Preset", description="The preset's id (presets, Fast Bake)")
     north: StringProperty(
         name="North", description="TRUE when the preset's aspect is from true north"
     )
@@ -292,24 +424,36 @@ class GeoToolsAnalysisItem(bpy.types.PropertyGroup):
         name="Layer", description="The layer shown in Display and published as a variant"
     )
     layers: CollectionProperty(type=GeoToolsAnalysisLayer)
-    objects: CollectionProperty(type=GeoToolsAnalysisObject)
     outputs: CollectionProperty(type=GeoToolsAnalysisObject)
+    auto: BoolProperty(
+        name="Listed Automatically",
+        description="A plain layer row listed because the mesh carries the layer",
+    )
+    extent: EnumProperty(
+        name="Surface",
+        description="The meshes the run covers",
+        items=EXTENT_ITEMS,
+        default="MESH",
+    )
     computed: BoolProperty(
-        name="Computed", description="Whether the tool has run since it was added"
+        name="Computed", description="Whether the result has run since it was added"
     )
     signature: StringProperty(
         name="Signature",
-        description="The tool's settings and meshes at its last run (out of date when they differ)",
+        description="The inputs at the last run (out of date when they differ)",
     )
+    sun_year: IntProperty(
+        name="Year", description="Year of the first day", default=2026, min=1, max=9999
+    )
+    sun_month: IntProperty(
+        name="Month", description="Month of the first day", default=6, min=1, max=12
+    )
+    sun_day: IntProperty(name="Day", description="The first day", default=21, min=1, max=31)
     hydrology: PointerProperty(type=hydrology.GeoToolsHydrologySettings)
     sun_hours: PointerProperty(type=analysis.GeoToolsSunHoursSettings)
     least_cost: PointerProperty(type=least_cost.GeoToolsLeastCostSettings)
     contours: PointerProperty(type=contours.GeoToolsContourSettings)
-
-
-def _redraw(_self, context: bpy.types.Context) -> None:
-    invalidate()
-    redraw_ui(context)
+    fast: PointerProperty(type=GeoToolsFastSettings)
 
 
 class GeoToolsAnalyses(bpy.types.PropertyGroup):
@@ -318,36 +462,20 @@ class GeoToolsAnalyses(bpy.types.PropertyGroup):
     items: CollectionProperty(type=GeoToolsAnalysisItem)
     index: IntProperty(
         name="Active Analysis",
-        description="The analysis whose inputs, display and outputs the panel shows",
+        description="The result whose inputs, display and outputs the panel shows",
         default=0,
         update=_index_changed,
     )
     add_search: StringProperty(
         name="Add Analysis",
-        description="Search the analyses (presets, tools and layers) and add one to the "
-        "selected meshes",
+        description="Search the analyses (presets, Fast Bakes, tools and layers) and add one "
+        "to each selected mesh",
         search=_search,
         search_options=set(),
         update=_picked,
         options={"SKIP_SAVE"},
     )
-    show: EnumProperty(
-        name="Show",
-        description="Which results the list shows",
-        items=(
-            (
-                "SELECTED",
-                "Selected",
-                (
-                    "The results on the active object or the selected meshes (all of them when "
-                    "nothing is selected)"
-                ),
-            ),
-            ("ALL", "All", "Every result in the file"),
-        ),
-        default="SELECTED",
-        update=_redraw,
-    )
+    version: IntProperty(default=0)
     error: StringProperty(default="")
     note: StringProperty(default="")
 
@@ -365,8 +493,26 @@ def active_item(scene: bpy.types.Scene | None) -> GeoToolsAnalysisItem | None:
     return None
 
 
-def item_objects(item: GeoToolsAnalysisItem) -> list[bpy.types.Object]:
-    return [o.object for o in item.objects if o.object is not None]
+def active_mesh(context: bpy.types.Context) -> bpy.types.Object | None:
+    """The active object when it is a mesh: whose results the list shows."""
+    obj = getattr(context, "active_object", None)
+    return obj if obj is not None and obj.type == "MESH" else None
+
+
+def shown_item(context: bpy.types.Context) -> GeoToolsAnalysisItem | None:
+    """The active row when it belongs to the active mesh (what Inputs, Display, Outputs draw)."""
+    item = active_item(context.scene)
+    mesh = active_mesh(context)
+    if item is None or mesh is None or item.object != mesh:
+        return None
+    return item
+
+
+def results_of(scene: bpy.types.Scene, obj: bpy.types.Object | None) -> list[int]:
+    """The indices of ``obj``'s results, in list order."""
+    if obj is None:
+        return []
+    return [i for i, item in enumerate(scene.geotools_analyses.items) if item.object == obj]
 
 
 def output_objects(item: GeoToolsAnalysisItem) -> list[bpy.types.Object]:
@@ -385,98 +531,48 @@ def tool_settings(item: GeoToolsAnalysisItem):
     return getattr(item, attr) if attr else None
 
 
-# --- following the selection -----------------------------------------------------------
-
-
-def applies_to(scene: bpy.types.Scene, item: GeoToolsAnalysisItem) -> list[bpy.types.Object]:
-    """The meshes the result applies to: its own, and a plain layer's carriers too."""
-    own = item_objects(item)
-    if item.kind != "LAYER":
-        return own
-    layer = item_layer(scene, item)
-    known = {o.as_pointer() for o in own}
-    carriers = stored_carriers(layer) if layer is not None else []
-    return own + [o for o in carriers if o.as_pointer() not in known]
-
-
-def result_meshes(scene: bpy.types.Scene, item: GeoToolsAnalysisItem) -> list[bpy.types.Object]:
-    """The objects that show the result in the list: its meshes and the objects it made."""
-    return applies_to(scene, item) + output_objects(item)
-
-
-def selection_pointers(context: bpy.types.Context) -> frozenset[int]:
-    """The active object and the selected objects, as pointers (empty: nothing selected)."""
-    view_layer = getattr(context, "view_layer", None)
-    if view_layer is None:
-        return frozenset()
-    found = {o.as_pointer() for o in view_layer.objects if o.select_get()}
-    if view_layer.objects.active is not None:
-        found.add(view_layer.objects.active.as_pointer())
-    return frozenset(found)
-
-
-_cache: dict[str, object] = {"key": None, "flags": None}
-_generation = [0]
-
-
-def invalidate() -> None:
-    """Forget the cached list filter (results or their meshes changed)."""
-    _generation[0] += 1
-
-
-def visible_flags(context: bpy.types.Context) -> list[bool]:
-    """Which items the list shows, cached per selection, list and depsgraph update.
-
-    Cheap enough for ``draw()``: pointers only, no mesh is read. With nothing
-    selected, or Show set to All, every item shows.
-    """
-    scene = context.scene
-    props = scene.geotools_analyses
-    selection = selection_pointers(context)
-    key = (scene.as_pointer(), props.show, len(props.items), selection, _generation[0])
-    if _cache["key"] == key:
-        return _cache["flags"]  # type: ignore[return-value]
-    if props.show == "ALL" or not selection:
-        flags = [True] * len(props.items)
-    else:
-        flags = [
-            any(o.as_pointer() in selection for o in result_meshes(scene, item))
-            for item in props.items
-        ]
-    _cache["key"], _cache["flags"] = key, flags
-    return flags
-
-
-def shown_item(context: bpy.types.Context) -> GeoToolsAnalysisItem | None:
-    """The active item when the list shows it (the panels below the list draw it)."""
-    props = context.scene.geotools_analyses
-    item = active_item(context.scene)
-    if item is None:
+def preset_of(item: GeoToolsAnalysisItem) -> catalog.Preset | None:
+    try:
+        return fast.get(item.preset) if item.preset else None
+    except KeyError:
         return None
-    flags = visible_flags(context)
-    return item if props.index < len(flags) and flags[props.index] else None
+
+
+def item_modifier(item: GeoToolsAnalysisItem) -> bpy.types.Modifier | None:
+    """A preset result's modifier: on its mesh (a layer preset) or its new object."""
+    preset = preset_of(item)
+    if preset is None or item.kind != "PRESET":
+        return None
+    group = analysis_presets.find_group(preset.id, preset.version)
+    if group is None:
+        return None
+    if preset.output is catalog.Output.OBJECT:
+        for obj in output_objects(item):
+            for modifier in obj.modifiers:
+                if modifier.type == "NODES" and modifier.node_group == group:
+                    return modifier
+        return None
+    if item.object is None:
+        return None
+    return analysis_presets.find_modifier(item.object, group, attribute_name(item.layer))
+
+
+# --- following the active object -------------------------------------------------------
 
 
 def _kind_key(item: GeoToolsAnalysisItem | None) -> tuple[str, str]:
-    return ("", "") if item is None else (item.kind, item.preset)
+    if item is None:
+        return ("", "")
+    return (item.kind, item.layer if item.kind == "LAYER" else item.preset)
 
 
 def follow_active(context: bpy.types.Context) -> None:
-    """Keep the active row on the active object's result of the same kind, else its first."""
-    scene = context.scene
-    view_layer = getattr(context, "view_layer", None)
-    if scene is None or view_layer is None or not hasattr(scene, "geotools_analyses"):
+    """Move the active row to the active mesh's result of the same kind, else its first."""
+    scene = getattr(context, "scene", None)
+    if scene is None or not hasattr(scene, "geotools_analyses"):
         return
-    active = view_layer.objects.active
-    if active is None:
-        return
+    mine = results_of(scene, active_mesh(context))
     props = scene.geotools_analyses
-    pointer = active.as_pointer()
-    mine = [
-        i
-        for i, item in enumerate(props.items)
-        if any(o.as_pointer() == pointer for o in result_meshes(scene, item))
-    ]
     if not mine or props.index in mine:
         return
     key = _kind_key(active_item(scene))
@@ -505,138 +601,7 @@ def _subscribe() -> None:
     )
 
 
-# --- keeping a preset's modifiers in step ----------------------------------------------
-
-
-SYNC_SKIP = frozenset({catalog.ATTRIBUTE_INPUT, catalog.CONVERGENCE_INPUT})
-"""Inputs that differ per mesh by design (the attribute name, true north's angle)."""
-
-
-def preset_modifiers_of(item: GeoToolsAnalysisItem) -> list[tuple[bpy.types.Object, object]]:
-    """``(mesh, modifier)`` of a layer preset result on each of its meshes."""
-    try:
-        preset = catalog.get(item.preset)
-    except KeyError:
-        return []
-    group = analysis_presets.find_group(preset.id, preset.version)
-    if group is None or preset.output is not catalog.Output.LAYER:
-        return []
-    attribute = attribute_name(item.layer)
-    found = []
-    for obj in item_objects(item):
-        modifier = analysis_presets.find_modifier(obj, group, attribute)
-        if modifier is not None:
-            found.append((obj, modifier))
-    return found
-
-
-def sync_inputs(source, targets) -> int:
-    """Copy ``source``'s group inputs (but :data:`SYNC_SKIP`) to ``targets``; return changes."""
-    sockets = [
-        s
-        for s in source.node_group.interface.items_tree
-        if s.item_type == "SOCKET"
-        and s.in_out == "INPUT"
-        and s.socket_type != "NodeSocketGeometry"
-        and s.name not in SYNC_SKIP
-    ]
-    changed = 0
-    for target in targets:
-        touched = False
-        for socket in sockets:
-            want = getattr(source.properties.inputs, socket.identifier, None)
-            have = getattr(target.properties.inputs, socket.identifier, None)
-            if want is None or have is None or have.value == want.value:
-                continue
-            have.value = want.value
-            touched = True
-            changed += 1
-        if touched:
-            target.id_data.update_tag()
-    return changed
-
-
-def sync_preset_inputs(
-    scene: bpy.types.Scene, active: bpy.types.Object | None, updated: frozenset[int] | None
-) -> int:
-    """Bring every preset result's modifiers in step with the one the sidebar edits.
-
-    That is the active mesh's modifier, else the first mesh's. ``updated``
-    limits the work to results with an updated mesh (None: all of them).
-    """
-    changed = 0
-    for item in scene.geotools_analyses.items:
-        if item.kind != "PRESET" or len(item.objects) < 2:
-            continue
-        if updated is not None and not any(o.as_pointer() in updated for o in item_objects(item)):
-            continue
-        pairs = preset_modifiers_of(item)
-        if len(pairs) < 2:
-            continue
-        source = next((m for o, m in pairs if o == active), pairs[0][1])
-        changed += sync_inputs(source, [m for _o, m in pairs if m != source])
-    return changed
-
-
-@persistent
-def _on_depsgraph_update(scene: bpy.types.Scene, depsgraph: bpy.types.Depsgraph) -> None:
-    invalidate()
-    if not hasattr(scene, "geotools_analyses") or not len(scene.geotools_analyses.items):
-        return
-    try:
-        updated = frozenset(
-            u.id.original.as_pointer()
-            for u in depsgraph.updates
-            if isinstance(u.id, bpy.types.Object)
-        )
-        if updated:
-            sync_preset_inputs(scene, depsgraph.view_layer.objects.active, updated)
-    except Exception:  # never break the depsgraph
-        log.exception("Keeping the preset inputs in step failed")
-
-
-# --- out of date -----------------------------------------------------------------------
-
-
-_NOT_SETTINGS = frozenset(
-    {"result", "error", "contour_result", "contour_error", "section_result", "section_error"}
-)
-
-
-def tool_signature(item: GeoToolsAnalysisItem) -> str:
-    """The tool's settings and meshes as text (cheap: a few RNA reads, no mesh)."""
-    group = tool_settings(item)
-    if group is None:
-        return ""
-    parts = []
-    for prop in group.bl_rna.properties:
-        name = prop.identifier
-        if name in {"rna_type", "name"} or name in _NOT_SETTINGS or prop.type == "COLLECTION":
-            continue
-        value = getattr(group, name)
-        parts.append(f"{name}={getattr(value, 'name', value)!r}")
-    parts.append("objects=" + ",".join(o.name for o in item_objects(item)))
-    return ";".join(parts)
-
-
-def out_of_date(item: GeoToolsAnalysisItem) -> bool:
-    """Whether a computed tool's settings or meshes changed since its last run."""
-    return item.kind in TOOL_KINDS and item.computed and item.signature != tool_signature(item)
-
-
 # --- naming ----------------------------------------------------------------------------
-
-
-def _claimed(scene: bpy.types.Scene) -> set[str]:
-    names = {layer.name for layer in scene.geotools.layers}
-    for item in scene.geotools_analyses.items:
-        names.add(item.layer)
-        names.update(entry.name for entry in item.layers)
-        group = tool_settings(item)
-        if group is not None:
-            names.update(_planned_layers(item.kind, group))
-    names.discard("")
-    return names
 
 
 def _free(base: str, taken: set[str]) -> str:
@@ -657,7 +622,23 @@ def _free_object_name(base: str) -> str:
     return f"{base} {n}"
 
 
-def _planned_layers(kind: str, group) -> list[str]:
+def _layers_of(scene: bpy.types.Scene, obj: bpy.types.Object, kind: str = "") -> set[str]:
+    """The layers ``obj``'s results write (of one kind, or of all)."""
+    names: set[str] = set()
+    for i in results_of(scene, obj):
+        item = scene.geotools_analyses.items[i]
+        if kind and item.kind != kind:
+            continue
+        names.add(item.layer)
+        names.update(entry.name for entry in item.layers)
+        group = tool_settings(item)
+        if group is not None and item.kind in TOOL_KINDS:
+            names.update(planned_layers(item.kind, group))
+    names.discard("")
+    return names
+
+
+def planned_layers(kind: str, group) -> list[str]:
     """The layers a tool writes with these settings, the display layer first."""
     if kind == "HYDROLOGY":
         return [group.accumulation_layer, group.depth_layer, group.depression_layer]
@@ -679,86 +660,120 @@ def _selected_meshes(context: bpy.types.Context) -> list[bpy.types.Object]:
     return analysis_presets.target_objects(context)
 
 
-def _new_item(scene: bpy.types.Scene, kind: str, label: str) -> GeoToolsAnalysisItem:
-    props = scene.geotools_analyses
-    item = props.items.add()
-    item.kind, item.name = kind, label
+def _new_item(scene, obj, kind: str, label: str) -> GeoToolsAnalysisItem:
+    item = scene.geotools_analyses.items.add()
+    item.object, item.kind, item.name = obj, kind, label
     return item
 
 
+def _set_layers(item: GeoToolsAnalysisItem, names: list[str]) -> None:
+    item.layers.clear()
+    for name in names:
+        item.layers.add().name = name
+    item.layer = names[0] if names else ""
+
+
+def _set_outputs(item: GeoToolsAnalysisItem, objects) -> None:
+    item.outputs.clear()
+    for obj in objects:
+        item.outputs.add().object = obj
+
+
 def _select(scene: bpy.types.Scene, item: GeoToolsAnalysisItem) -> None:
-    invalidate()
     props = scene.geotools_analyses
     props.index = next(i for i, other in enumerate(props.items) if other == item)
 
 
-def _set_objects(collection, objects) -> None:
-    collection.clear()
-    for obj in objects:
-        collection.add().object = obj
-
-
-def _find_preset_item(scene, preset_id: str, layer: str) -> GeoToolsAnalysisItem | None:
-    for item in scene.geotools_analyses.items:
-        if item.kind == "PRESET" and item.preset == preset_id and item.layer == layer:
-            return item
-    return None
-
-
-def add_entry(context: bpy.types.Context, key: str) -> GeoToolsAnalysisItem:
-    """Add the picker entry ``key``; returns the (new or existing) item, made active."""
+def add_entry(context: bpy.types.Context, key: str) -> list[GeoToolsAnalysisItem]:
+    """Add the picker entry ``key``: one result per selected mesh. Returns them; the active
+    mesh's (else the first) becomes the active row."""
     scene = context.scene
     kind, _, rest = key.partition(":")
-    if kind == "preset":
-        preset_id, _, north = rest.partition(":")
-        item = _add_preset(context, catalog.get(preset_id), "TRUE" if north else "GRID")
-    elif kind == "tool":
-        item = _add_tool(context, rest)
-    elif kind == "layer":
-        item = _add_layer(scene, rest)
-        _set_objects(item.objects, _selected_meshes(context))
-    else:
-        raise AnalysesError(f"Unknown analysis {key!r}")
-    _select(scene, item)
-    return item
+    with _quiet(scene):
+        if kind == "preset":
+            preset_id, _, north = rest.partition(":")
+            added = _add_preset(context, catalog.get(preset_id), "TRUE" if north else "GRID")
+        elif kind == "fast":
+            added = _add_fast(context, fast.get(rest))
+        elif kind == "tool":
+            added = _add_tool(context, rest)
+        elif kind == "layer":
+            added = _add_layer(context, rest)
+        else:
+            raise AnalysesError(f"Unknown analysis {key!r}")
+    mesh = active_mesh(context)
+    _select(scene, next((i for i in added if i.object == mesh), added[0]))
+    return added
 
 
-def _add_preset(context, preset: catalog.Preset, north: str) -> GeoToolsAnalysisItem:
+def _targets(context: bpy.types.Context) -> list[bpy.types.Object]:
+    objects = _selected_meshes(context)
+    if not objects:
+        raise AnalysesError("Select the meshes to analyse.")
+    return objects
+
+
+def _preset_layer(scene, obj, preset: catalog.Preset) -> str:
+    """The layer a new preset result on ``obj`` stores: the preset's, or ``_2``... when the
+    mesh already has it or the name belongs to another kind of layer."""
+    mine = _layers_of(scene, obj)
+    n, name = 1, preset.layer
+    while True:
+        layer = find_layer(scene, name)
+        foreign = (
+            layer is not None and catalog.preset_of(spec_from_props(layer).provenance) != preset.id
+        )
+        if name not in mine and not foreign:
+            return name
+        n += 1
+        name = f"{preset.layer}_{n}"
+
+
+def _add_preset(context, preset: catalog.Preset, north: str) -> list[GeoToolsAnalysisItem]:
     scene = context.scene
     objects = analysis_presets.preset_targets(context, preset)
     if not objects:
         raise AnalysesError("Select the meshes to analyse.")
-    before = {o.as_pointer() for o in bpy.data.objects}
-    name, _notes = analysis_presets.add_preset(context, preset, objects, north=north)
+    added = []
     if preset.output is catalog.Output.OBJECT:
-        item = _new_item(scene, "PRESET", preset.label)
-        item.preset = preset.id
-        _set_objects(item.objects, objects)
+        before = {o.as_pointer() for o in bpy.data.objects}
+        name, _notes = analysis_presets.add_preset(context, preset, objects, north=north)
+        item = _new_item(scene, objects[0], "PRESET", preset.label)
+        item.preset, item.computed = preset.id, True
         made = [o for o in bpy.data.objects if o.as_pointer() not in before]
-        _set_objects(item.outputs, [o for o in made if o.name == name] or made)
-        item.computed = True
-        return item
-    item = _find_preset_item(scene, preset.id, name)
-    if item is None:
-        item = _new_item(scene, "PRESET", preset.label)
-        item.preset, item.layer, item.north = preset.id, name, north
-        item.layers.add().name = name
-    _extend(item, objects)
-    item.computed = True
-    return item
-
-
-def _extend(item: GeoToolsAnalysisItem, objects: list[bpy.types.Object]) -> None:
-    """Add ``objects`` to a preset result; new modifiers take the result's current inputs."""
-    known = {o.as_pointer() for o in item_objects(item)}
+        _set_outputs(item, [o for o in made if o.name == name] or made)
+        return [item]
     for obj in objects:
-        if obj.as_pointer() not in known:
-            item.objects.add().object = obj
-    pairs = preset_modifiers_of(item)
-    source = next((m for o, m in pairs if o.as_pointer() in known), None)
-    if source is not None:
-        sync_inputs(source, [m for o, m in pairs if o.as_pointer() not in known])
-    invalidate()
+        name = _preset_layer(scene, obj, preset)
+        analysis_presets.add_preset(context, preset, [obj], name=name, north=north)
+        item = _new_item(scene, obj, "PRESET", preset.label)
+        item.preset, item.north, item.computed = preset.id, north, True
+        _set_layers(item, [name])
+        added.append(item)
+    return added
+
+
+def _add_fast(context, preset: catalog.Preset) -> list[GeoToolsAnalysisItem]:
+    scene = context.scene
+    objects = analysis_presets.preset_targets(context, preset)
+    if not objects:
+        raise AnalysesError("Select the meshes to analyse.")
+    base = preset.layer if fast.is_bake_only(preset.id) else f"{preset.layer}_fast"
+    observers = None
+    if preset.id in fast.VIEWSHED:
+        fills, _notes = analysis_presets.fill_inputs(context, preset, objects)
+        observers = fills.get("Observers")
+    label = preset.label if fast.is_bake_only(preset.id) else f"{preset.label} (Fast)"
+    added = []
+    for obj in objects:
+        item = _new_item(scene, obj, "FAST", label)
+        item.preset = preset.id
+        for name, value in fast.default_inputs(preset.id).items():
+            setattr(item.fast, FAST_FIELDS[name], value)
+        item.fast.observers = observers
+        _set_layers(item, [_free(base, _layers_of(scene, obj))])
+        added.append(item)
+    return added
 
 
 _TOOL_LABELS = {
@@ -770,48 +785,47 @@ _TOOL_LABELS = {
     "SECTIONS": "Sections",
 }
 
+_LAYER_FIELDS = {
+    "HYDROLOGY": ("accumulation_layer", "depth_layer", "depression_layer"),
+    "SUN_HOURS": ("hours_layer", "insolation_layer"),
+    "LEAST_COST": ("time_layer", "band_layer"),
+}
 
-def _add_tool(context, which: str) -> GeoToolsAnalysisItem:
+
+def _add_tool(context, which: str) -> list[GeoToolsAnalysisItem]:
     scene = context.scene
     kind = "SUN_HOURS" if which == "INSOLATION" else which
-    taken = _claimed(scene)
-    objects = _selected_meshes(context)
-    item = _new_item(scene, kind, _TOOL_LABELS[which])
-    group = tool_settings(item)
-    if kind == "HYDROLOGY":
-        group.surface = "SELECTED"
-        for attr in ("accumulation_layer", "depth_layer", "depression_layer"):
-            setattr(group, attr, _free(getattr(group, attr), taken))
-    elif kind == "SUN_HOURS":
-        group.surface = "SELECTED"
-        group.insolation = which == "INSOLATION"
-        group.hours_layer = _free(group.hours_layer, taken)
-        group.insolation_layer = _free(group.insolation_layer, taken)
-    elif kind == "LEAST_COST":
-        group.surface = "SELECTED"
-        group.time_layer = _free(group.time_layer, taken)
-        group.band_layer = _free(group.band_layer, taken)
-        objects = objects[:1]
-    elif kind == "CONTOURS":
-        group.surface = "SELECTED"
-        group.contour_name = _free_object_name(group.contour_name)
-    elif kind == "SECTIONS":
-        group.surface = "SELECTED"
-        group.section_name = _free_object_name(group.section_name)
-        active = context.active_object
-        if active is not None and active.type == "MESH" and len(objects) > 1:
-            group.line = active
-            objects = [o for o in objects if o != active]
-    _set_objects(item.objects, objects)
-    planned = _planned_layers(kind, group)
-    item.layer = planned[0] if planned else ""
-    for name in planned:
-        item.layers.add().name = name
-    return item
+    objects = _targets(context)
+    line = None
+    if kind == "SECTIONS":  # a selected mesh without faces is the section line
+        lines = [o for o in objects if not len(o.data.polygons)]
+        line = lines[0] if lines else None
+        objects = [o for o in objects if o not in lines] or objects
+    sun = analysis.settings(context).sun
+    added = []
+    for obj in objects:
+        mine = _layers_of(scene, obj, kind)
+        item = _new_item(scene, obj, kind, _TOOL_LABELS[which])
+        group = tool_settings(item)
+        for attr in _LAYER_FIELDS.get(kind, ()):
+            setattr(group, attr, _free(getattr(group, attr), mine))
+        if kind == "SUN_HOURS":
+            group.insolation = which == "INSOLATION"
+            item.sun_year, item.sun_month, item.sun_day = sun.year, sun.month, sun.day
+        elif kind == "CONTOURS":
+            group.contour_name = _free_object_name(f"Contours {obj.name}")
+        elif kind == "SECTIONS":
+            group.section_name = _free_object_name(f"Sections {obj.name}")
+            group.line = line
+        _set_layers(item, planned_layers(kind, group))
+        added.append(item)
+    return added
 
 
-def _add_layer(scene: bpy.types.Scene, which: str) -> GeoToolsAnalysisItem:
-    taken = _claimed(scene)
+def _add_layer(context, which: str) -> list[GeoToolsAnalysisItem]:
+    scene = context.scene
+    objects = _targets(context)
+    taken = {layer.name for layer in scene.geotools.layers}
     if which == "TEXTURE":
         spec = LayerSpec(_free("bake", taken), Domain.TEXTURE, DataType.FLOAT, label="Bake")
         label = "Texture Bake"
@@ -819,104 +833,16 @@ def _add_layer(scene: bpy.types.Scene, which: str) -> GeoToolsAnalysisItem:
         spec = LayerSpec(_free("layer", taken), Domain.FACE, DataType.FLOAT)
         label = "From Attribute"
     ensure_layer(scene, spec)
-    item = _new_item(scene, "LAYER", label)
-    item.layer = spec.name
-    item.layers.add().name = spec.name
-    item.computed = True
-    return item
-
-
-# --- the registry's other layers -------------------------------------------------------
-
-
-def unlisted_layers(scene: bpy.types.Scene) -> list[str]:
-    """Registry layers no item names (cheap enough for ``draw()``: names only)."""
-    listed = set()
-    for item in scene.geotools_analyses.items:
-        listed.add(item.layer)
-        listed.update(entry.name for entry in item.layers)
-    return [layer.name for layer in scene.geotools.layers if layer.name not in listed]
-
-
-def _carriers(preset: catalog.Preset, layer: str) -> list[bpy.types.Object]:
-    group = analysis_presets.find_group(preset.id, preset.version)
-    if group is None:
-        return []
-    attribute = attribute_name(layer)
-    return [
-        o
-        for o in bpy.data.objects
-        if o.type == "MESH" and analysis_presets.find_modifier(o, group, attribute) is not None
-    ]
-
-
-def list_unlisted_layers(scene: bpy.types.Scene) -> int:
-    """Add an item for every unlisted registry layer; return how many were added.
-
-    A preset's layer becomes a PRESET item with the meshes carrying its
-    modifier; any other layer (a tool's too, for now) a plain LAYER item.
-    """
-    added = 0
-    for name in unlisted_layers(scene):
-        layer = find_layer(scene, name)
-        provenance = spec_from_props(layer).provenance
-        preset_id = catalog.preset_of(provenance)
-        try:
-            preset = catalog.get(preset_id) if preset_id else None
-        except KeyError:
-            preset = None
-        label = layer.label.strip() or name
-        if preset is not None:
-            item = _new_item(scene, "PRESET", label)
-            item.preset = preset.id
-            north = (provenance or {}).get("parameters", {}).get("north")
-            item.north = "TRUE" if north == "true" else "GRID"
-            _set_objects(item.objects, _carriers(preset, name))
-        else:
-            item = _new_item(scene, "LAYER", label)
-            try:
-                refresh_carriers(scene, layer, sync_view=False)
-            except (RuntimeError, ValueError, KeyError):
-                log.exception("could not find the carriers of layer %s", name)
-        item.layer = name
-        item.layers.add().name = name
+    added = []
+    for obj in objects:
+        item = _new_item(scene, obj, "LAYER", label)
         item.computed = True
-        added += 1
-    if added:
-        invalidate()
+        _set_layers(item, [spec.name])
+        added.append(item)
     return added
 
 
-def list_all_scenes() -> None:
-    for scene in bpy.data.scenes:
-        try:
-            if getattr(scene, "geotools_analyses", None) is not None:
-                list_unlisted_layers(scene)
-        except Exception:  # never break file loading
-            log.exception("Listing the layers of scene %s failed", scene.name)
-
-
-@persistent
-def _on_load_post(*_args: object) -> None:
-    invalidate()
-    _subscribe()  # a file load drops msgbus subscriptions
-    list_all_scenes()
-
-
-def _after_register() -> None:
-    list_all_scenes()
-
-
-# --- running a tool --------------------------------------------------------------------
-
-
-def copy_settings(source: bpy.types.PropertyGroup, target: bpy.types.PropertyGroup) -> None:
-    """Copy every writable property of one settings group onto another of the same type."""
-    for prop in source.bl_rna.properties:
-        name = prop.identifier
-        if name in {"rna_type", "name"} or prop.is_readonly or prop.type == "COLLECTION":
-            continue
-        setattr(target, name, getattr(source, name))
+# --- running ---------------------------------------------------------------------------
 
 
 _SCENE_SETTINGS = {
@@ -936,26 +862,51 @@ _OPERATORS = {
 }
 """The ``geotools.*`` operator each tool kind runs."""
 
-
-@contextmanager
-def _selected(context: bpy.types.Context, objects: list[bpy.types.Object]) -> Iterator[None]:
-    """Select exactly ``objects`` (the first active) for the run, then put things back."""
-    view_layer = context.view_layer
-    before = [o for o in view_layer.objects if o.select_get()]
-    active = view_layer.objects.active
-    try:
-        for obj in view_layer.objects:
-            obj.select_set(obj in objects)
-        if objects:
-            view_layer.objects.active = objects[0]
-        yield
-    finally:
-        for obj in view_layer.objects:
-            obj.select_set(obj in before)
-        view_layer.objects.active = active
+_NOT_INPUTS = frozenset(
+    {
+        "result",
+        "error",
+        "contour_result",
+        "contour_error",
+        "section_result",
+        "section_error",
+        "surface",
+    }
+)
 
 
-def tool_error(item: GeoToolsAnalysisItem) -> str:
+def copy_settings(source: bpy.types.PropertyGroup, target: bpy.types.PropertyGroup) -> None:
+    """Copy every writable property of one settings group onto another of the same type."""
+    for prop in source.bl_rna.properties:
+        name = prop.identifier
+        if name in {"rna_type", "name"} or prop.is_readonly or prop.type == "COLLECTION":
+            continue
+        setattr(target, name, getattr(source, name))
+
+
+def signature(item: GeoToolsAnalysisItem) -> str:
+    """A result's inputs as text (cheap: a few RNA reads, no mesh)."""
+    group = tool_settings(item)
+    if group is None:
+        return ""
+    parts = [f"extent={item.extent}"]
+    for prop in group.bl_rna.properties:
+        name = prop.identifier
+        if name in {"rna_type", "name"} or name in _NOT_INPUTS or prop.type == "COLLECTION":
+            continue
+        value = getattr(group, name)
+        parts.append(f"{name}={getattr(value, 'name', value)!r}")
+    if item.kind == "SUN_HOURS":
+        parts.append(f"date={item.sun_year}-{item.sun_month}-{item.sun_day}")
+    return ";".join(parts)
+
+
+def out_of_date(item: GeoToolsAnalysisItem) -> bool:
+    """Whether a computed result's inputs changed since its last run."""
+    return item.kind in RUN_KINDS and item.computed and item.signature != signature(item)
+
+
+def run_error(item: GeoToolsAnalysisItem) -> str:
     group = tool_settings(item)
     if group is None:
         return ""
@@ -966,54 +917,507 @@ def tool_error(item: GeoToolsAnalysisItem) -> str:
     return group.error
 
 
+@contextmanager
+def _selected(context: bpy.types.Context, objects: list[bpy.types.Object]) -> Iterator[None]:
+    """Select exactly ``objects`` (the first active) for the run, then put things back."""
+    view_layer = context.view_layer
+    view_layer.update()  # an object removed just now can leave a stale entry
+    everything = [o for o in view_layer.objects if o is not None]
+    before = [o for o in everything if o.select_get()]
+    active = view_layer.objects.active
+    try:
+        for obj in everything:
+            obj.select_set(obj in objects)
+        if objects:
+            view_layer.objects.active = objects[0]
+        yield
+    finally:
+        for obj in everything:
+            if obj.name in view_layer.objects:
+                obj.select_set(obj in before)
+        if active is None or active.name in view_layer.objects:
+            view_layer.objects.active = active
+
+
+@contextmanager
+def _sun_date(context: bpy.types.Context, item: GeoToolsAnalysisItem) -> Iterator[None]:
+    """The Sun settings' date set to the result's own for the run, then put back."""
+    sun = analysis.settings(context).sun
+    before = (sun.year, sun.month, sun.day)
+    try:
+        if item.kind == "SUN_HOURS":
+            sun.year, sun.month, sun.day = item.sun_year, item.sun_month, item.sun_day
+        yield
+    finally:
+        sun.year, sun.month, sun.day = before
+
+
+def run_objects(context: bpy.types.Context, item: GeoToolsAnalysisItem) -> list[bpy.types.Object]:
+    """The meshes a run covers: the result's mesh, then (Surface) the others."""
+    owner = item.object
+    if owner is None or owner.name not in context.view_layer.objects:
+        raise AnalysesError("This result's mesh is not in the view layer.")
+    if item.extent == "SELECTED":
+        return [owner, *[o for o in _selected_meshes(context) if o != owner]]
+    if item.extent == "SOURCE":
+        return [owner, *[o for o in source_objects(context.scene) if o != owner]]
+    return [owner]
+
+
 def compute(context: bpy.types.Context, item: GeoToolsAnalysisItem) -> str:
-    """Run the item's tool with its settings on its meshes; return the error, if any."""
-    if item.kind not in TOOL_KINDS:
+    """Run a tool or Fast Bake result with its inputs; return the error, if any."""
+    if item.kind not in RUN_KINDS:
         raise AnalysesError(f"{item.name} has nothing to compute: it updates by itself.")
-    objects = [o for o in item_objects(item) if o.name in context.view_layer.objects]
-    if not objects:
-        raise AnalysesError("It applies to no mesh: select the meshes, then Add Selected.")
+    objects = run_objects(context, item)
+    before = {o.as_pointer() for o in bpy.data.objects}
+    with _quiet(context.scene):
+        if item.kind == "FAST":
+            error = _compute_fast(context, item, objects)
+        else:
+            error = _compute_tool(context, item, objects)
+    item.computed = True
+    item.signature = signature(item)
+    keep = [o for o in output_objects(item) if o.name in bpy.data.objects]
+    made = [o for o in bpy.data.objects if o.as_pointer() not in before]
+    _set_outputs(item, keep + [o for o in made if o not in keep])
+    _index_changed(context.scene.geotools_analyses, context)
+    return error
+
+
+def _compute_tool(context, item, objects) -> str:
     group = tool_settings(item)
     scene_group = _SCENE_SETTINGS[item.kind](context)
-    name = _OPERATORS[item.kind]
-    before = {o.as_pointer() for o in bpy.data.objects}
     copy_settings(group, scene_group)
+    scene_group.surface = "SOURCE" if item.extent == "SOURCE" else "SELECTED"
     failed = ""
     try:
-        with _selected(context, objects):
-            getattr(bpy.ops.geotools, name)()
+        with _selected(context, objects), _sun_date(context, item):
+            getattr(bpy.ops.geotools, _OPERATORS[item.kind])()
     except RuntimeError as exc:  # an error report (also in the settings) or a failed poll
         failed = str(exc).removeprefix("Error: ").strip()
     finally:
+        surface = group.surface
         copy_settings(scene_group, group)
-    item.computed = True
-    planned = _planned_layers(item.kind, group)
-    item.layers.clear()
-    for layer in planned:
-        if find_layer(context.scene, layer) is not None:
-            item.layers.add().name = layer
-    item.layer = planned[0] if planned else ""
-    keep = [o for o in output_objects(item) if o.name in bpy.data.objects]
-    made = [o for o in bpy.data.objects if o.as_pointer() not in before]
-    _set_objects(item.outputs, keep + [o for o in made if o not in keep])
-    item.signature = tool_signature(item)
-    invalidate()
-    _index_changed(context.scene.geotools_analyses, context)
-    return tool_error(item) or failed
+        group.surface = surface
+    names = planned_layers(item.kind, group)
+    _set_layers(item, [n for n in names if find_layer(context.scene, n) is not None] or names)
+    return run_error(item) or failed
+
+
+def fast_inputs(item: GeoToolsAnalysisItem) -> dict[str, object]:
+    """A Fast Bake result's inputs by the preset's input names (floats as typed)."""
+    values = {}
+    for name in fast.input_names(item.preset):
+        value = getattr(item.fast, FAST_FIELDS[name])
+        values[name] = analysis_presets._typed(value) if isinstance(value, float) else value
+    return values
+
+
+def _compute_fast(context, item, objects) -> str:
+    from . import preset_bake  # it imports analysis_presets, which this module imports
+
+    group = item.fast
+    try:
+        result = preset_bake.compute(
+            context,
+            item.preset,
+            objects,
+            name=item.layer,
+            inputs=fast_inputs(item),
+            observers=group.observers,
+            occluders=group.occluders,
+        )
+    except (preset_bake.FastPathError, ValueError, RuntimeError) as exc:
+        group.error, group.result = str(exc), ""
+        return group.error
+    group.error = ""
+    group.result = preset_bake.fast_summary(result)
+    return ""
+
+
+# --- removing --------------------------------------------------------------------------
+
+
+def removal_plan(scene: bpy.types.Scene, item: GeoToolsAnalysisItem) -> list[str]:
+    """What removing the result deletes, one line each (the confirmation lists them)."""
+    mesh = item.object.name if item.object is not None else "its mesh"
+    lines = []
+    if item.layer and item_modifier(item) is not None:
+        lines.append(f"Its modifier on {mesh}")
+    elif item.kind != "PRESET":
+        for entry in item.layers:
+            layer = find_layer(scene, entry.name)
+            if layer is None:
+                continue
+            what = "images" if layer.domain == Domain.TEXTURE.value else "values"
+            lines.append(f"Layer {entry.name}: its {what} on {mesh}")
+    lines += [f"Object {o.name}" for o in output_objects(item)]
+    return lines
+
+
+def _remove_data(layer, obj: bpy.types.Object) -> None:
+    """Delete a layer's attribute or image on one mesh."""
+    if layer.domain == Domain.TEXTURE.value:
+        for index, entry in enumerate(layer.images):
+            if entry.object == obj:
+                if entry.image is not None:
+                    bpy.data.images.remove(entry.image)
+                layer.images.remove(index)
+                break
+        return
+    if obj.data.library is None:
+        remove_attribute(obj.data, spec_from_props(layer))
+
+
+def remove_result(context: bpy.types.Context, item: GeoToolsAnalysisItem) -> str:
+    """Remove a result: its modifier, its layer values on its mesh, the objects it made.
+
+    A layer no other result names, which no mesh carries any more, leaves the
+    registry. Returns the result's name.
+    """
+    with _quiet(context.scene):
+        return _remove(context, item)
+
+
+def _remove(context: bpy.types.Context, item: GeoToolsAnalysisItem) -> str:
+    scene = context.scene
+    props = scene.geotools_analyses
+    name, owner = item.name, item.object
+    modifier = item_modifier(item)
+    if modifier is not None and item.layer and owner is not None:
+        owner.modifiers.remove(modifier)
+    layer_names = [entry.name for entry in item.layers]
+    if owner is not None and item.kind != "PRESET":
+        for layer_name in layer_names:
+            layer = find_layer(scene, layer_name)
+            if layer is not None:
+                _remove_data(layer, owner)
+    for obj in output_objects(item):
+        bpy.data.objects.remove(obj)
+    index = next(i for i, other in enumerate(props.items) if other == item)
+    props.items.remove(index)
+    context.view_layer.update()
+    for layer_name in layer_names:
+        _drop_if_unused(scene, layer_name)
+    mine = results_of(scene, owner)
+    props.index = mine[0] if mine else min(index, max(len(props.items) - 1, 0))
+    return name
+
+
+def _drop_if_unused(scene: bpy.types.Scene, layer_name: str) -> None:
+    """Find the layer's carriers again; drop it from the registry when no result names
+    it and no mesh carries it (its plain rows go with the next :func:`sync`)."""
+    layer = find_layer(scene, layer_name)
+    if layer is None:
+        return
+    carriers = refresh_carriers(scene, layer, sync_view=False)
+    if carriers or any(
+        e.name == layer_name
+        for item in scene.geotools_analyses.items
+        if not item.auto
+        for e in item.layers
+    ):
+        return
+    layer.presentation.show_in_viewport = False
+    layers = scene.geotools.layers
+    layers.remove(layers.find(layer_name))
+    scene.geotools.layers_index = min(scene.geotools.layers_index, max(len(layers) - 1, 0))
+
+
+# --- keeping the list in step with the scene -------------------------------------------
+
+
+def _object_preset(obj: bpy.types.Object) -> str | None:
+    """The preset an object preset's new object was made by, if it is one."""
+    text = obj.get(catalog.PROVENANCE_KEY)
+    if not isinstance(text, str):
+        return None
+    try:
+        return catalog.preset_of(json.loads(text))
+    except ValueError:
+        return None
+
+
+def _layer_for(modifier) -> str:
+    try:
+        attribute = str(analysis_presets.get_input(modifier, catalog.ATTRIBUTE_INPUT))
+    except KeyError:
+        return ""
+    return attribute.removeprefix("gt_")
+
+
+def sync(scene: bpy.types.Scene) -> int:
+    """Bring the list in step with the scene; return how many rows it added or removed.
+
+    Drops the results whose mesh is gone, whose preset modifier or object was
+    deleted, or (a plain layer) whose layer is gone or, listed automatically,
+    no longer carried by the mesh. Adds a result for a preset modifier or
+    object with none (added by a script), and a plain layer row for each mesh
+    a layer's stored carriers name that no result of the mesh covers.
+    """
+    props = scene.geotools_analyses
+    layers = {layer.name: layer for layer in scene.geotools.layers}
+    changes = 0
+    stale: set[str] = set()
+    for index in reversed(range(len(props.items))):
+        item = props.items[index]
+        gone = item.object is None or item.object.name not in scene.objects
+        if not gone and item.kind == "PRESET":
+            gone = preset_of(item) is None or item_modifier(item) is None
+            if gone:
+                stale.update(e.name for e in item.layers)
+        if not gone and item.kind == "LAYER":
+            layer = layers.get(item.layer)
+            gone = layer is None or (item.auto and item.object not in stored_carriers(layer))
+        if gone:
+            props.items.remove(index)
+            changes += 1
+    for name in stale & set(layers):  # its modifier went: who carries the layer now?
+        try:
+            refresh_carriers(scene, layers[name], sync_view=False)
+        except (RuntimeError, ValueError, KeyError):
+            log.exception("could not find the carriers of layer %s", name)
+    covered = {
+        (item.object.as_pointer(), e.name)
+        for item in props.items
+        if item.object is not None
+        for e in item.layers
+    }
+    made = {o.as_pointer() for item in props.items for o in output_objects(item)}
+    for obj in scene.objects:
+        if obj.type != "MESH":
+            continue
+        preset_id = _object_preset(obj)
+        if preset_id is not None:
+            if obj.as_pointer() not in made:
+                changes += _list_object_preset(scene, obj, preset_id)
+            continue
+        for modifier, preset in analysis_presets.preset_modifiers(obj):
+            name = _layer_for(modifier)
+            if preset.output is not catalog.Output.LAYER or not name:
+                continue
+            if (obj.as_pointer(), name) in covered:
+                continue
+            item = _new_item(scene, obj, "PRESET", preset.label)
+            item.preset, item.computed = preset.id, True
+            north = preset.north and analysis_presets.get_input(modifier, catalog.CONVERGENCE_INPUT)
+            item.north = "TRUE" if north else "GRID"
+            _set_layers(item, [name])
+            covered.add((obj.as_pointer(), name))
+            changes += 1
+    for name, layer in layers.items():
+        for obj in stored_carriers(layer):
+            if obj.type != "MESH" or (obj.as_pointer(), name) in covered:
+                continue
+            item = _new_item(scene, obj, "LAYER", layer.label.strip() or name)
+            item.auto = item.computed = True
+            _set_layers(item, [name])
+            covered.add((obj.as_pointer(), name))
+            changes += 1
+    if changes:
+        props.index = min(props.index, max(len(props.items) - 1, 0))
+    return changes
+
+
+def _list_object_preset(scene, obj: bpy.types.Object, preset_id: str) -> int:
+    try:
+        preset = catalog.get(preset_id)
+    except KeyError:
+        return 0
+    try:
+        surfaces = json.loads(obj[catalog.PROVENANCE_KEY])["parameters"]["objects"]
+    except (KeyError, TypeError, ValueError):
+        surfaces = []
+    surface = next((bpy.data.objects[n] for n in surfaces if n in bpy.data.objects), None)
+    item = _new_item(scene, surface or obj, "PRESET", preset.label)
+    item.preset, item.computed = preset.id, True
+    _set_outputs(item, [obj])
+    return 1
+
+
+def scene_key(scene: bpy.types.Scene) -> tuple:
+    """What :func:`sync` depends on, cheaply: object, modifier, layer and carrier counts."""
+    layers = scene.geotools.layers
+    return (
+        len(scene.objects),
+        sum(len(o.modifiers) for o in scene.objects),
+        len(layers),
+        sum(len(layer.carriers) for layer in layers),
+        len(scene.geotools_analyses.items),
+    )
+
+
+_synced: dict[int, tuple] = {}
+_busy = [0]
+"""Above 0 while this module changes the scene itself (the handler leaves it alone)."""
+
+
+@contextmanager
+def _quiet(scene: bpy.types.Scene) -> Iterator[None]:
+    """Hold the depsgraph handler's sync while adding, running or removing; sync after."""
+    _busy[0] += 1
+    try:
+        yield
+    finally:
+        _busy[0] -= 1
+        if not _busy[0]:
+            sync(scene)
+            _synced[scene.as_pointer()] = scene_key(scene)
+
+
+def sync_if_changed(scene: bpy.types.Scene) -> None:
+    """:func:`sync` when :func:`scene_key` changed since the last time."""
+    if _synced.get(scene.as_pointer()) == scene_key(scene):
+        return
+    sync(scene)
+    _synced[scene.as_pointer()] = scene_key(scene)
+
+
+@persistent
+def _on_depsgraph_update(scene: bpy.types.Scene, _depsgraph: bpy.types.Depsgraph) -> None:
+    if not hasattr(scene, "geotools_analyses") or _busy[0]:
+        return
+    try:
+        if scene.geotools_analyses.version < MIGRATED:
+            migrate(scene)
+        sync_if_changed(scene)
+    except Exception:  # never break the depsgraph
+        log.exception("Keeping the Analyses list in step failed")
+
+
+# --- files from before the list ---------------------------------------------------------
+
+
+def _fast_from(item: GeoToolsAnalysisItem, provenance) -> None:
+    inputs = (provenance or {}).get("parameters", {}).get("inputs", {})
+    for name, value in fast.default_inputs(item.preset).items():
+        setattr(item.fast, FAST_FIELDS[name], inputs.get(name, value))
+
+
+def migrate(scene: bpy.types.Scene) -> int:
+    """List a file's older analyses once; return how many results it added.
+
+    Fast Bake layers become a FAST result on each carrier, with the inputs
+    their provenance records. A hydrology, sun-hours or least-cost run's
+    layers (one provenance) become one result per carrier, with the scene's
+    last settings of that tool. Tool line and point objects join their
+    tool's result, else a result on the first source mesh. Preset modifiers
+    and objects and every other layer are listed by :func:`sync`, run last.
+    """
+    props = scene.geotools_analyses
+    context = bpy.context
+    runs: dict[tuple[int, str], GeoToolsAnalysisItem] = {}
+    for layer in list(scene.geotools.layers):
+        if not len(layer.carriers):
+            try:
+                refresh_carriers(scene, layer, sync_view=False)
+            except (RuntimeError, ValueError, KeyError):
+                log.exception("could not find the carriers of layer %s", layer.name)
+        provenance = spec_from_props(layer).provenance
+        fast_id = fast.fast_preset_of(provenance)
+        kind = "FAST" if fast_id else TOOL_PROVENANCE.get(str((provenance or {}).get("tool")))
+        if kind is None:
+            continue
+        for obj in stored_carriers(layer):
+            if obj.type != "MESH":
+                continue
+            run = (obj.as_pointer(), layer.provenance)
+            item = runs.get(run)
+            if item is None:
+                label = (
+                    (layer.label.strip() or layer.name) if kind == "FAST" else _TOOL_LABELS[kind]
+                )
+                item = _new_item(scene, obj, kind, label)
+                if kind == "FAST":
+                    item.preset = fast_id
+                    _fast_from(item, provenance)
+                else:
+                    copy_settings(_SCENE_SETTINGS[kind](context), tool_settings(item))
+                item.computed = True
+                runs[run] = item
+            item.layers.add().name = layer.name
+            if not item.layer:
+                item.layer = layer.name
+    for item in runs.values():
+        item.signature = signature(item)
+    sources = source_objects(scene)
+    for obj in scene.objects:
+        kind = OUTPUT_KINDS.get(str(obj.get(OUTPUT_TOOL_PROP, "")))
+        if kind is None:
+            continue
+        owner = next((i for i in runs.values() if i.kind == kind), None)
+        if owner is None:
+            if not sources:
+                continue
+            owner = _new_item(scene, sources[0], kind, _TOOL_LABELS[kind])
+            copy_settings(_SCENE_SETTINGS[kind](context), tool_settings(owner))
+            owner.computed = True
+            owner.signature = signature(owner)
+            runs[(sources[0].as_pointer(), kind)] = owner
+        owner.outputs.add().object = obj
+    props.version = MIGRATED
+    sync(scene)
+    return len(runs)
+
+
+def migrate_all() -> None:
+    for scene in bpy.data.scenes:
+        try:
+            if getattr(scene, "geotools_analyses", None) is None:
+                continue
+            if scene.geotools_analyses.version < MIGRATED:
+                migrate(scene)
+            else:
+                sync(scene)
+        except Exception:  # never break file loading
+            log.exception("Listing the analyses of scene %s failed", scene.name)
+
+
+@persistent
+def _on_load_post(*_args: object) -> None:
+    _synced.clear()
+    _subscribe()  # a file load drops msgbus subscriptions
+    migrate_all()
+
+
+def _after_register() -> None:
+    migrate_all()
+
+
+# --- Publish -----------------------------------------------------------------------------
+
+
+def variant_choices(scene: bpy.types.Scene, edit_text: str) -> list[tuple[str, str]]:
+    """Publish's Variant search: each layer of the results, with the results that make it."""
+    query = edit_text.strip().lower()
+    found: dict[str, list[str]] = {layer.name: [] for layer in scene.geotools.layers}
+    for item in scene.geotools_analyses.items:
+        mesh = item.object.name if item.object is not None else "?"
+        for entry in item.layers:
+            if entry.name in found:
+                found[entry.name].append(f"{item.name} on {mesh}")
+    choices = []
+    for name, users in found.items():
+        more = f" and {len(users) - 3} more" if len(users) > 3 else ""
+        text = "; ".join(users[:3]) + more
+        if query and query not in f"{name} {text}".lower():
+            continue
+        choices.append((name, text or "On no mesh's list"))
+    return choices
 
 
 # --- operators -------------------------------------------------------------------------
 
 
-def _active_poll(cls, context: bpy.types.Context) -> bool:
-    if active_item(context.scene) is None:
-        cls.poll_message_set("Select an analysis in the list")
+def _shown_poll(cls, context: bpy.types.Context) -> bool:
+    if shown_item(context) is None:
+        cls.poll_message_set("Select a mesh and one of its analyses")
         return False
     return True
 
 
 class GEOTOOLS_OT_analyses_compute(bpy.types.Operator):
-    """Run the selected analysis again with its inputs, on its meshes"""
+    """Run the selected result with its inputs (a tool or a Fast Bake)"""
 
     bl_idname = "geotools.analyses_compute"
     bl_label = "Compute"
@@ -1021,15 +1425,15 @@ class GEOTOOLS_OT_analyses_compute(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context: bpy.types.Context) -> bool:
-        if not _active_poll(cls, context):
+        if not _shown_poll(cls, context):
             return False
         if context.mode != "OBJECT":
             cls.poll_message_set("Switch to Object Mode first")
             return False
-        return active_item(context.scene).kind in TOOL_KINDS
+        return shown_item(context).kind in RUN_KINDS
 
     def execute(self, context: bpy.types.Context) -> set[str]:
-        item = active_item(context.scene)
+        item = shown_item(context)
         try:
             error = compute(context, item)
         except AnalysesError as exc:
@@ -1039,215 +1443,55 @@ class GEOTOOLS_OT_analyses_compute(bpy.types.Operator):
         if error:
             self.report({"ERROR"}, error)
             return {"CANCELLED"}
-        self.report({"INFO"}, f"{item.name}: computed")
+        self.report({"INFO"}, f"{item.name} on {item.object.name}: computed")
         return {"FINISHED"}
-
-
-def _selection_poll(cls, context: bpy.types.Context) -> bool:
-    if not _active_poll(cls, context):
-        return False
-    item = active_item(context.scene)
-    if item.kind == "LAYER":
-        cls.poll_message_set("A plain layer applies to every mesh that carries its attribute")
-        return False
-    if item.kind == "PRESET" and catalog.get(item.preset).output is catalog.Output.OBJECT:
-        cls.poll_message_set("A preset that makes lines works on one surface: add it again")
-        return False
-    if not _selected_meshes(context):
-        cls.poll_message_set("Select the meshes first")
-        return False
-    return True
-
-
-class GEOTOOLS_OT_analyses_add_selected(bpy.types.Operator):
-    """Apply the selected result to the selected meshes as well (a preset: its modifier, with the result's inputs)"""
-
-    bl_idname = "geotools.analyses_add_selected"
-    bl_label = "Add Selected"
-    bl_options = {"REGISTER", "UNDO"}
-
-    @classmethod
-    def poll(cls, context: bpy.types.Context) -> bool:
-        return _selection_poll(cls, context)
-
-    def execute(self, context: bpy.types.Context) -> set[str]:
-        item = active_item(context.scene)
-        objects = _selected_meshes(context)
-        if item.kind == "PRESET":
-            try:
-                analysis_presets.add_preset(
-                    context,
-                    catalog.get(item.preset),
-                    objects,
-                    name=item.layer,
-                    north=item.north or "GRID",
-                )
-            except analysis_presets.PresetError as exc:
-                self.report({"ERROR"}, str(exc))
-                return {"CANCELLED"}
-            _extend(item, objects)
-        elif item.kind == "LEAST_COST":  # one surface
-            _set_objects(item.objects, objects[:1])
-        else:
-            known = {o.as_pointer() for o in item_objects(item)}
-            for obj in objects:
-                if obj.as_pointer() not in known:
-                    item.objects.add().object = obj
-        invalidate()
-        self.report({"INFO"}, f"{item.name} applies to {_summary(item_objects(item))}")
-        redraw_ui(context)
-        return {"FINISHED"}
-
-
-class GEOTOOLS_OT_analyses_remove_selected(bpy.types.Operator):
-    """Stop applying the selected result to the selected meshes (a preset: remove its modifier from them)"""
-
-    bl_idname = "geotools.analyses_remove_selected"
-    bl_label = "Remove Selected"
-    bl_options = {"REGISTER", "UNDO"}
-
-    @classmethod
-    def poll(cls, context: bpy.types.Context) -> bool:
-        if not _selection_poll(cls, context):
-            return False
-        mine = {o.as_pointer() for o in item_objects(active_item(context.scene))}
-        if not any(o.as_pointer() in mine for o in _selected_meshes(context)):
-            cls.poll_message_set("None of the selected meshes has this result")
-            return False
-        return True
-
-    def execute(self, context: bpy.types.Context) -> set[str]:
-        item = active_item(context.scene)
-        gone = {o.as_pointer() for o in _selected_meshes(context)}
-        if item.kind == "PRESET":
-            for obj, modifier in preset_modifiers_of(item):
-                if obj.as_pointer() in gone:
-                    obj.modifiers.remove(modifier)
-        _set_objects(item.objects, [o for o in item_objects(item) if o.as_pointer() not in gone])
-        invalidate()
-        self.report({"INFO"}, f"{item.name} applies to {_summary(item_objects(item))}")
-        redraw_ui(context)
-        return {"FINISHED"}
-
-
-def _summary(objects: list[bpy.types.Object]) -> str:
-    """``hills (+2)``, or ``no mesh``."""
-    if not objects:
-        return "no mesh"
-    more = f" (+{len(objects) - 1})" if len(objects) > 1 else ""
-    return f"{objects[0].name}{more}"
 
 
 class GEOTOOLS_OT_analyses_remove(bpy.types.Operator):
-    """Remove the selected analysis: its list entry, its modifiers and its layers"""
+    """Remove the selected result from its mesh: its modifier, its layer values there and the objects it made"""
 
     bl_idname = "geotools.analyses_remove"
     bl_label = "Remove Analysis"
     bl_options = {"REGISTER", "UNDO"}
-
-    delete_data: BoolProperty(
-        name="Delete Attributes and Images",
-        description="Also delete the layers' attributes and images (attributes made by "
-        "modifiers go with the modifier)",
-        default=False,
-        options={"SKIP_SAVE"},
-    )
-    delete_objects: BoolProperty(
-        name="Delete These Objects",
-        description="Also delete the objects the analysis made (lines, routes, points), "
-        "listed above",
-        default=True,
-        options={"SKIP_SAVE"},
-    )
 
     @classmethod
     def poll(cls, context: bpy.types.Context) -> bool:
         if context.mode != "OBJECT":
             cls.poll_message_set("Switch to Object Mode first")
             return False
-        return _active_poll(cls, context)
+        return _shown_poll(cls, context)
 
     def invoke(self, context: bpy.types.Context, event: bpy.types.Event) -> set[str]:
         return context.window_manager.invoke_props_dialog(self, confirm_text="Remove")
 
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
-        item = active_item(context.scene)
+        item = shown_item(context)
         if item is None:
             return
-        layout.label(text=f"Remove {item.name}?")
-        meshes = applies_to(context.scene, item)
-        if item.kind == "PRESET" and meshes:
-            layout.label(text=f"Its modifier on {_summary(meshes)}", icon="MODIFIER")
-        for entry in item.layers:
-            layout.label(text=f"Layer {entry.name}", icon="RNA")
-        made = output_objects(item)
-        if made:
+        layout.label(text=f"Remove {item.name} from {item.object.name}?")
+        plan = removal_plan(context.scene, item)
+        if plan:
             col = layout.column(align=True)
-            col.label(text="It made these objects:")
-            for obj in made[:8]:
-                col.label(text=obj.name, icon="OUTLINER_OB_MESH")
-            if len(made) > 8:
-                col.label(text=f"... and {len(made) - 8} more")
-            layout.prop(self, "delete_objects")
-        layout.prop(self, "delete_data")
+            col.label(text="This deletes:")
+            for line in plan[:10]:
+                col.label(text=line, icon="TRASH")
+            if len(plan) > 10:
+                col.label(text=f"... and {len(plan) - 10} more")
 
     def execute(self, context: bpy.types.Context) -> set[str]:
-        scene = context.scene
-        props = scene.geotools_analyses
-        item = active_item(scene)
-        name = item.name
-        if item.kind == "PRESET" and item.layer:
-            preset = catalog.get(item.preset)
-            group = analysis_presets.find_group(preset.id, preset.version)
-            attribute = attribute_name(item.layer)
-            for obj in item_objects(item):
-                modifier = analysis_presets.find_modifier(obj, group, attribute) if group else None
-                if modifier is not None:
-                    obj.modifiers.remove(modifier)
-        for entry in item.layers:
-            layer = find_layer(scene, entry.name)
-            if layer is None:
-                continue
-            if self.delete_data:
-                try:
-                    remove_layer_data(scene, layer)
-                except RuntimeError as ex:
-                    self.report({"ERROR"}, f"Cannot delete the data of {entry.name}: {ex}")
-                    return {"CANCELLED"}
-            layer.presentation.show_in_viewport = False
-            scene.geotools.layers.remove(scene.geotools.layers.find(entry.name))
-        if self.delete_objects:
-            for obj in output_objects(item):
-                bpy.data.objects.remove(obj)
-        index = props.index
-        props.items.remove(index)
-        invalidate()
-        props.index = min(index, len(props.items) - 1) if index else 0
-        scene.geotools.layers_index = min(
-            scene.geotools.layers_index, max(len(scene.geotools.layers) - 1, 0)
-        )
+        try:
+            name = remove_result(context, shown_item(context))
+        except (RuntimeError, AnalysesError) as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
         self.report({"INFO"}, f"Removed {name}")
         redraw_ui(context)
         return {"FINISHED"}
 
 
-class GEOTOOLS_OT_analyses_list_layers(bpy.types.Operator):
-    """Add the registry's layers that are not in the Analyses list to it"""
-
-    bl_idname = "geotools.analyses_list_layers"
-    bl_label = "List Them"
-    bl_options = {"REGISTER", "UNDO"}
-
-    def execute(self, context: bpy.types.Context) -> set[str]:
-        count = list_unlisted_layers(context.scene)
-        self.report({"INFO"}, f"Listed {count} layer{'s' * (count != 1)}")
-        redraw_ui(context)
-        return {"FINISHED"}
-
-
 class GEOTOOLS_OT_analyses_show_layer(bpy.types.Operator):
-    """Show this layer in Display and as the analysis' variant"""
+    """Show this layer in Display and as the result's variant"""
 
     bl_idname = "geotools.analyses_show_layer"
     bl_label = "Display This Layer"
@@ -1256,7 +1500,7 @@ class GEOTOOLS_OT_analyses_show_layer(bpy.types.Operator):
     layer: StringProperty(name="Layer", description="The layer to display")
 
     def execute(self, context: bpy.types.Context) -> set[str]:
-        item = active_item(context.scene)
+        item = shown_item(context)
         if item is None or find_layer(context.scene, self.layer) is None:
             return {"CANCELLED"}
         item.layer = self.layer
@@ -1275,8 +1519,7 @@ class GEOTOOLS_OT_analyses_show(bpy.types.Operator):
     layer: StringProperty(name="Layer", description="The layer to show or hide")
 
     def execute(self, context: bpy.types.Context) -> set[str]:
-        layers = context.scene.geotools.layers
-        index = layers.find(self.layer)
+        index = context.scene.geotools.layers.find(self.layer)
         if index < 0:
             return {"CANCELLED"}
         context.scene.geotools.layers_index = index
@@ -1301,13 +1544,14 @@ class GEOTOOLS_OT_analyses_select_object(bpy.types.Operator):
         if obj is None or obj.name not in context.view_layer.objects:
             return {"CANCELLED"}
         for other in context.view_layer.objects:
-            other.select_set(other == obj)
+            if other is not None:
+                other.select_set(other == obj)
         context.view_layer.objects.active = obj
         return {"FINISHED"}
 
 
 class GEOTOOLS_OT_analyses_publish_variant(bpy.types.Operator):
-    """Publish the selected analysis' layer as the active build profile's variant"""
+    """Publish the selected result's layer as the active build profile's variant"""
 
     bl_idname = "geotools.analyses_publish_variant"
     bl_label = "Publish as Variant"
@@ -1315,21 +1559,21 @@ class GEOTOOLS_OT_analyses_publish_variant(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context: bpy.types.Context) -> bool:
-        if not _active_poll(cls, context):
+        if not _shown_poll(cls, context):
             return False
         props = context.scene.geotools
         if not 0 <= props.build_profile_index < len(props.build_profiles):
             cls.poll_message_set("Add a build profile in Publish first")
             return False
-        if item_layer(context.scene, active_item(context.scene)) is None:
-            cls.poll_message_set("This analysis has no layer")
+        if item_layer(context.scene, shown_item(context)) is None:
+            cls.poll_message_set("This result has no layer")
             return False
         return True
 
     def execute(self, context: bpy.types.Context) -> set[str]:
         props = context.scene.geotools
         profile = props.build_profiles[props.build_profile_index]
-        item = active_item(context.scene)
+        item = shown_item(context)
         profile.variant_layer = item.layer
         self.report({"INFO"}, f"{profile.name}: variant {item.layer}")
         redraw_ui(context)
@@ -1337,7 +1581,7 @@ class GEOTOOLS_OT_analyses_publish_variant(bpy.types.Operator):
 
 
 class GEOTOOLS_UL_analyses(bpy.types.UIList):
-    """Analyses: kind icon, name, units (or Not Run) and Show in Viewport."""
+    """The active mesh's results: kind icon, name, units (or state) and Show in Viewport."""
 
     bl_idname = "GEOTOOLS_UL_analyses"
 
@@ -1361,7 +1605,7 @@ class GEOTOOLS_UL_analyses(bpy.types.UIList):
         row.label(text=item.name, icon=icon)
         right = row.row(align=True)
         right.alignment = "RIGHT"
-        if item.kind in TOOL_KINDS and not item.computed:
+        if item.kind in RUN_KINDS and not item.computed:
             sub = right.row()
             sub.active = False
             sub.label(text="Not run")
@@ -1381,31 +1625,31 @@ class GEOTOOLS_UL_analyses(bpy.types.UIList):
             right.label(text="", icon="BLANK1")
 
     def filter_items(self, context: bpy.types.Context, data, propname: str):
-        """Show the results on the selection (:func:`visible_flags`), then the name filter."""
+        """The active mesh's results only, like its modifier stack (then the name filter)."""
         items = getattr(data, propname)
-        flags = visible_flags(context)
+        mesh = active_mesh(context)
+        pointer = mesh.as_pointer() if mesh is not None else 0
         if self.filter_name:
             named = bpy.types.UI_UL_list.filter_items_by_name(
                 self.filter_name, self.bitflag_filter_item, items, "name"
             )
         else:
             named = [self.bitflag_filter_item] * len(items)
-        shown = [
-            self.bitflag_filter_item if flags[i] and named[i] else 0 for i in range(len(items))
-        ]
-        return shown, []
+        flags = []
+        for i, item in enumerate(items):
+            mine = item.object is not None and item.object.as_pointer() == pointer
+            flags.append(self.bitflag_filter_item if mine and named[i] else 0)
+        return flags, []
 
 
 classes = (
     GeoToolsAnalysisObject,
     GeoToolsAnalysisLayer,
+    GeoToolsFastSettings,
     GeoToolsAnalysisItem,
     GeoToolsAnalyses,
     GEOTOOLS_OT_analyses_compute,
-    GEOTOOLS_OT_analyses_add_selected,
-    GEOTOOLS_OT_analyses_remove_selected,
     GEOTOOLS_OT_analyses_remove,
-    GEOTOOLS_OT_analyses_list_layers,
     GEOTOOLS_OT_analyses_show_layer,
     GEOTOOLS_OT_analyses_show,
     GEOTOOLS_OT_analyses_select_object,
@@ -1436,6 +1680,7 @@ def unregister() -> None:
     if _on_depsgraph_update in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(_on_depsgraph_update)
     bpy.msgbus.clear_by_owner(_OWNER)
+    _synced.clear()
     if hasattr(bpy.types.Scene, "geotools_analyses"):
         del bpy.types.Scene.geotools_analyses
     _unregister_classes()

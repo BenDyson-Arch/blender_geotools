@@ -8,6 +8,11 @@ preferences, so ``geotools.analysis_add`` appends the group from the bundled
 file directly. The file's groups are also marked as assets in two catalogs, so
 a user can add its folder as an asset library by hand.
 
+The Analyses panel's Add Analysis field (``analyses``) calls
+:func:`add_preset` once per selected mesh, so each mesh's result has its own
+modifier; ``geotools.analysis_add`` does the same for scripts, on all the
+selected meshes at once, and the list picks its modifiers up (``analyses.sync``).
+
 ``geotools.analysis_add``:
 
 1. appends the preset's node group, unless the file already has it (found by
@@ -54,7 +59,7 @@ from ..analysis import preset_bake as fast
 from ..analysis import presets as catalog
 from ..analysis import site
 from ..core.issues import Severity
-from ..core.layers import attribute_name, display_name, format_number, validate
+from ..core.layers import attribute_name, format_number, validate
 from ..core.placement import PlacementMode
 from . import blend_paths
 from .common import extension_version, redraw_ui
@@ -63,7 +68,6 @@ from .orientation import analysis_notes as normal_notes
 from .properties import FieldError, placement_from_props
 from .source import analysis_notes, default_source
 from .surface import SELECT_MESHES
-from .ui import wrapped
 
 log = logging.getLogger(__name__)
 
@@ -1013,79 +1017,7 @@ class GEOTOOLS_OT_analysis_totals(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class GEOTOOLS_MT_analysis_presets(bpy.types.Menu):
-    """The bundled Geometry Nodes analysis presets"""
-
-    bl_idname = "GEOTOOLS_MT_analysis_presets"
-    bl_label = "Add Analysis"
-
-    def draw(self, _context: bpy.types.Context) -> None:
-        layout = self.layout
-        layout.operator_context = "EXEC_DEFAULT"
-        for index, category in enumerate(catalog.Category):
-            if index:
-                layout.separator()
-            layout.label(text=catalog.CATEGORY_LABELS[category])
-            for preset in catalog.by_category(category):
-                icon = "TIME" if preset.cost == "heavy" else "NONE"
-                layout.operator(
-                    GEOTOOLS_OT_analysis_add.bl_idname, text=preset.label, icon=icon
-                ).preset = preset.id
-                if preset.north:
-                    op = layout.operator(
-                        GEOTOOLS_OT_analysis_add.bl_idname, text=f"{preset.label} (True North)"
-                    )
-                    op.preset = preset.id
-                    op.north = "TRUE"
-                if fast.is_fast(preset.id):
-                    op = layout.operator(
-                        GEOTOOLS_OT_analysis_add.bl_idname,
-                        text=f"{preset.label} (Fast Bake)",
-                        icon="RENDER_STILL",
-                    )
-                    op.preset = preset.id
-                    op.engine = "BAKE"
-            for preset in fast.bake_only(category):  # no live preset: Fast Bake only
-                op = layout.operator(
-                    GEOTOOLS_OT_analysis_add.bl_idname,
-                    text=f"{preset.label} (Fast Bake)",
-                    icon="RENDER_STILL",
-                )
-                op.preset = preset.id
-                op.engine = "BAKE"
-
-
-def draw_panel(layout: bpy.types.UILayout, context: bpy.types.Context) -> None:
-    """The Presets sub-panel: the Add Analysis menu and the active object's presets."""
-    row = layout.row()
-    row.scale_y = 1.4
-    row.menu(GEOTOOLS_MT_analysis_presets.bl_idname, text="Add Analysis", icon="ADD")
-    obj = context.active_object
-    found = preset_modifiers(obj) if obj is not None and obj.type == "MESH" else []
-    if not found:
-        wrapped(layout, context, "Adds a Geometry Nodes modifier and a layer.", "INFO")
-        return
-    col = layout.column(align=True)
-    for modifier, preset in found:
-        icon = "MODIFIER_ON" if modifier.show_viewport else "MODIFIER_OFF"
-        if preset.output is catalog.Output.OBJECT:
-            names = ", ".join(a.name for a in preset.attributes)
-            col.label(text=f"{preset.label}: lines ({names})", icon=icon)
-            continue
-        try:
-            attribute = str(get_input(modifier, catalog.ATTRIBUTE_INPUT))
-        except KeyError:
-            attribute = "?"
-        layer_name = attribute.removeprefix("gt_")
-        item = find_layer(context.scene, layer_name)
-        label = display_name(spec_from_props(item)) if item is not None else preset.label
-        col.label(text=f"{label}: {attribute}", icon=icon)
-    if any(p.id in TOTALS for _m, p in found):
-        layout.operator(GEOTOOLS_OT_analysis_totals.bl_idname, icon="INFO")
-    layout.label(text="Edit inputs on the modifier", icon="MODIFIER")
-
-
-classes = (GEOTOOLS_OT_analysis_add, GEOTOOLS_OT_analysis_totals, GEOTOOLS_MT_analysis_presets)
+classes = (GEOTOOLS_OT_analysis_add, GEOTOOLS_OT_analysis_totals)
 
 _register_classes, _unregister_classes = bpy.utils.register_classes_factory(classes)
 
