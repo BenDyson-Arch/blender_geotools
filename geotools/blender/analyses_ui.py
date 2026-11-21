@@ -166,8 +166,7 @@ def draw_layer_details(layout: bpy.types.UILayout, context: bpy.types.Context, i
     spec = spec_from_props(item)
     codes = {i.code for i in validate(spec, other_layer_names(context.scene, item))}
     col = split_column(layout)
-    value = info_row(col, "Identifier", item.name, icon=DOMAIN_ICONS.get(item.domain, "NONE"))
-    value.operator("geotools.layer_rename", text="", icon="GREASEPENCIL")
+    info_row(col, "Identifier", item.name)  # no icon or button: long names must fit
     col.prop(item, "domain")
     col.prop(item, "data_type")
     row = col.row()
@@ -192,8 +191,10 @@ def draw_layer_details(layout: bpy.types.UILayout, context: bpy.types.Context, i
     elif provenance is not None:
         version = provenance.get("geotools_version") or "unknown version"
         wrapped(layout, context, f"Made by {provenance['tool']} (GeoTools {version})", "INFO")
+    col = layout.column(align=True)
+    col.operator("geotools.layer_rename", icon="GREASEPENCIL")
     if item.domain != Domain.TEXTURE.value:
-        layout.operator("geotools.layer_create_attributes")
+        col.operator("geotools.layer_create_attributes")
 
 
 # --- Analyses ---------------------------------------------------------------------------
