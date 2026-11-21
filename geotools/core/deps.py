@@ -6,6 +6,23 @@ registration, so :func:`probe_rusty_tiles` and :func:`probe_pyproj` turn every
 load failure into a :class:`DependencyStatus`. Without rusty-tiles nothing can
 be published; without pyproj imports cannot reproject (see
 :mod:`geotools.core.reproject`).
+
+Updating GeoTools in place, without restarting Blender, replaces these
+libraries on disk while the running process keeps the ones it loaded: on
+macOS PROJ then fails every CRS lookup with "SQLite error ... disk I/O
+error", as its proj.db is gone. So the process records what it loaded
+(:func:`record_session`, at register, and :func:`_import`, when a library is
+first imported): the extension version and the identity (path, inode, mtime,
+size) of each library's native files and PROJ's ``proj.db``. Only ``os.stat``,
+never a hash. About, Check Dependencies and Run Checks compare them with the
+files on disk (:func:`check_for_update`) and say :data:`RESTART_MESSAGE`; the
+result is sticky, as only a restart clears it. The record lives in
+``sys.modules[SESSION_KEY]``, outside the package, so it survives Blender
+reloading the extension's modules.
+
+:func:`proj_error_message` turns PROJ's database errors into one plain
+sentence for the UI. The raw text goes to the log and to
+:func:`details_text` (About's Copy Details), never into a panel.
 """
 
 from __future__ import annotations
@@ -13,8 +30,11 @@ from __future__ import annotations
 import importlib
 import importlib.metadata
 import logging
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -114,9 +134,15 @@ def reset_cache() -> None:
 
 
 def _import(module_name: str) -> ModuleType | str:
-    """The imported module, or why it could not be imported."""
+    """The imported module, or why it could not be imported.
+
+    Records the identity of the library's files (:func:`_record_library`): of
+    the files just loaded when this call imports it, else (loaded earlier in
+    this process) only when nothing recorded it yet.
+    """
+    fresh = module_name not in sys.modules
     try:
-        return importlib.import_module(module_name)
+        module = importlib.import_module(module_name)
     except ModuleNotFoundError as exc:
         if exc.name == module_name:
             return f"{module_name} is not installed"
@@ -126,6 +152,8 @@ def _import(module_name: str) -> ModuleType | str:
     except Exception as exc:  # a broken native wheel can raise anything
         log.debug("%s load failure", module_name, exc_info=True)
         return f"{module_name} failed to load: {type(exc).__name__}: {exc}"
+    _record_library(module, fresh=fresh)
+    return module
 
 
 def _probe() -> DependencyStatus:
@@ -196,3 +224,230 @@ def _version(module: ModuleType, dist_name: str = DIST_NAME) -> str | None:
         if isinstance(version, str):
             return version
     return None
+
+
+# --- updated while Blender is running ------------------------------------------------------
+
+RESTART_MESSAGE = (
+    "GeoTools was updated while Blender was running. Restart Blender to finish the update."
+)
+"""The one notice for a library or the extension changed on disk under the running process."""
+
+UPDATE_ISSUE_CODE = "restart-after-update"
+"""Run Checks' issue code for :data:`RESTART_MESSAGE`."""
+
+PROJ_DATABASE_MESSAGE = (
+    "PROJ's database could not be read. Restart Blender; if that does not help, reinstall GeoTools."
+)
+"""The plain message for a PROJ database error when no update was detected."""
+
+PROJ_DATABASE_MARKERS = (
+    "sqlite error",
+    "disk i/o error",
+    "no database context",
+    "unable to open database",
+    "database disk image is malformed",
+)
+"""Lower-case text that marks a PROJ error as a failure to read proj.db.
+
+A bare ``proj_create`` is not one: PROJ prefixes ordinary refusals with it too
+("proj_create: crs not found", "proj_create: unrecognized format"), and those
+must still name the CRS the user typed. The real database failure reads
+"proj_create: SQLite error [ code = 10, msg = disk I/O error ]".
+"""
+
+SESSION_KEY = "_geotools_session"
+"""The ``sys.modules`` entry holding what this Blender process loaded."""
+
+LIBRARY_DISTS = {MODULE_NAME: DIST_NAME, PYPROJ_MODULE: PYPROJ_DIST}
+"""The bundled libraries whose files are recorded, by import name."""
+
+_NATIVE_SUFFIXES = (".so", ".pyd", ".dylib", ".dll")
+_KEPT_PROJ_ERRORS = 5
+
+Identity = tuple[str, int, int, int]
+"""``(path, inode, mtime_ns, size)``; plain tuples, so a reloaded module compares them."""
+
+
+def _session() -> dict[str, Any]:
+    """The process-wide record: ``version``, ``files`` (name -> identities),
+    ``changed`` (why a restart is needed) and ``proj_errors`` (raw texts)."""
+    holder = sys.modules.get(SESSION_KEY)
+    state = getattr(holder, "state", None)
+    if not isinstance(state, dict):
+        holder = ModuleType(
+            SESSION_KEY, "What GeoTools loaded in this process (geotools.core.deps)."
+        )
+        state = {"version": None, "files": {}, "changed": [], "proj_errors": []}
+        setattr(holder, "state", state)  # noqa: B010 (a plain module has no declared attribute)
+        sys.modules[SESSION_KEY] = holder
+    return state
+
+
+def reset_session() -> None:
+    """Forget the process record (tests only: a real process keeps it until Blender exits)."""
+    sys.modules.pop(SESSION_KEY, None)
+
+
+def _identity(path: str) -> Identity | None:
+    try:
+        info = Path(path).stat()
+    except OSError:
+        return None
+    return (path, info.st_ino, info.st_mtime_ns, info.st_size)
+
+
+def _native_files(folder: Path) -> list[str]:
+    try:
+        names = sorted(p.name for p in folder.iterdir() if p.is_file())
+    except OSError:
+        return []
+    return [str(folder / n) for n in names if any(s in n for s in _NATIVE_SUFFIXES)]
+
+
+def library_files(module: ModuleType) -> list[str]:
+    """The files a running process holds for a library, found without hashing anything.
+
+    The package's ``__init__``, its native extension modules, the shared
+    libraries a wheel repair tool put beside it (``<name>.libs``, macOS
+    ``.dylibs``) and, for pyproj, PROJ's ``proj.db``. Empty for a module with
+    no file (a test double).
+    """
+    init = getattr(module, "__file__", None)
+    if not isinstance(init, str):
+        return []
+    package = Path(init).parent
+    files = [init]
+    for folder in (package, package / ".dylibs", package.parent / f"{package.name}.libs"):
+        files += _native_files(folder)
+    if module.__name__ == PYPROJ_MODULE:
+        try:
+            files.append(str(Path(module.datadir.get_data_dir()) / "proj.db"))
+        except Exception:  # no data directory: probe_pyproj reports it
+            log.debug("no PROJ data directory to record", exc_info=True)
+    return files
+
+
+def _record_library(module: ModuleType, *, fresh: bool) -> None:
+    """Record a library's files; ``fresh`` when this process has just loaded them.
+
+    A library loaded before anything recorded it (by a GeoTools from before
+    this record) is compared by version instead: its ``__version__`` in memory
+    against the wheel metadata on disk.
+    """
+    name = module.__name__
+    files = [i for i in map(_identity, library_files(module)) if i is not None]
+    if not files:
+        return
+    recorded = _session()["files"]
+    if not fresh and name in recorded:
+        return
+    recorded[name] = files
+    if fresh:
+        return
+    loaded = getattr(module, "__version__", None)
+    try:
+        installed = importlib.metadata.version(LIBRARY_DISTS.get(name, name))
+    except Exception:  # no or corrupt metadata: nothing to compare
+        log.debug("no %s metadata to compare", name, exc_info=True)
+        return
+    if isinstance(loaded, str) and loaded != installed:
+        _changed(f"{name} {loaded} is loaded but {installed} is installed")
+
+
+def _changed(reason: str) -> None:
+    changed = _session()["changed"]
+    if reason not in changed:
+        log.warning("restart needed: %s", reason)
+        changed.append(reason)
+
+
+def record_session(version: str, own_files: tuple[str, ...] = ()) -> None:
+    """Record, at register, the extension version and the files this process holds.
+
+    The first register in the process wins: a later one, after an in-place
+    update, keeps the old record so :func:`check_for_update` sees the change.
+    ``own_files`` are the extension's own (its manifest). Libraries already
+    imported are recorded here; the rest when :func:`_import` loads them. Only
+    ``os.stat``: cheap enough for register.
+    """
+    state = _session()
+    if state["version"] is None and version and version != "unknown":
+        state["version"] = version
+    files = [i for i in map(_identity, own_files) if i is not None]
+    if files:
+        state["files"].setdefault("geotools", files)
+    for module_name in LIBRARY_DISTS:
+        module = sys.modules.get(module_name)
+        if module is not None:
+            _record_library(module, fresh=False)
+
+
+def check_for_update(version: str | None = None) -> bool:
+    """Compare the record with what is on disk now; True when Blender must restart.
+
+    ``version`` is the extension version installed now. A handful of
+    ``os.stat`` calls: About, Check Dependencies and Run Checks call it, never
+    a panel's header or another panel's ``draw``.
+    """
+    state = _session()
+    if state["changed"]:
+        return True
+    first = state["version"]
+    if first and version and version != "unknown" and version != first:
+        _changed(f"GeoTools {first} was loaded but {version} is installed")
+    for name, files in state["files"].items():
+        for identity in files:
+            if _identity(identity[0]) != identity:
+                _changed(f"{name}: {identity[0]} changed on disk")
+                break
+    return bool(state["changed"])
+
+
+def update_pending() -> bool:
+    """The last :func:`check_for_update` verdict, without touching the disk."""
+    return bool(_session()["changed"])
+
+
+def is_proj_database_error(error: BaseException | str) -> bool:
+    """True when PROJ failed to read its database (:data:`PROJ_DATABASE_MARKERS`)."""
+    text = str(error).lower()
+    return any(marker in text for marker in PROJ_DATABASE_MARKERS)
+
+
+def proj_error_message(error: BaseException | str) -> str | None:
+    """The plain UI message for a PROJ database error; None for any other error.
+
+    :data:`RESTART_MESSAGE` once an update was detected, else
+    :data:`PROJ_DATABASE_MESSAGE`. The raw text is logged and kept for
+    :func:`details_text`.
+    """
+    if not is_proj_database_error(error):
+        return None
+    text = str(error)
+    errors = _session()["proj_errors"]
+    if text not in errors:
+        log.warning("PROJ could not read its database: %s", text)
+        errors.append(text)
+        del errors[:-_KEPT_PROJ_ERRORS]
+    return RESTART_MESSAGE if update_pending() else PROJ_DATABASE_MESSAGE
+
+
+def is_plain_proj_message(text: str) -> bool:
+    """True for a message :func:`proj_error_message` gave."""
+    return text in (RESTART_MESSAGE, PROJ_DATABASE_MESSAGE)
+
+
+def details_text(version: str) -> str:
+    """Copy Details: the version, each library's status, any restart reason, raw PROJ errors."""
+    lines = [f"GeoTools {version}"]
+    for status in _cache.values():
+        lines.append(status.summary)
+        if status.data_dir:
+            lines.append(f"PROJ data: {status.data_dir}")
+    state = _session()
+    if state["version"] and state["version"] != version:
+        lines.append(f"Loaded at start: GeoTools {state['version']}")
+    lines += [f"Restart needed: {reason}" for reason in state["changed"]]
+    lines += [f"PROJ error: {text}" for text in state["proj_errors"]]
+    return "\n".join(lines)

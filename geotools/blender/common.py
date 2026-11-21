@@ -31,17 +31,26 @@ def extension_version() -> str:
 
 
 def draw_dependency_status(layout: bpy.types.UILayout, *, show_paths: bool = False) -> None:
-    """Draw the rusty-tiles and pyproj status and a re-check button.
+    """Draw the restart notice, the rusty-tiles and pyproj status, and the buttons.
 
     ``show_paths`` adds the PROJ data directory (for the wider preferences).
+    The notice is the last ``deps.check_for_update`` verdict; this never stats
+    a file (About's ``draw`` compares first).
     """
+    if deps.update_pending():
+        box = layout.column(align=True)
+        box.alert = True
+        for i, line in enumerate(textwrap.wrap(deps.RESTART_MESSAGE, 48)):
+            box.label(text=line, icon="ERROR" if i == 0 else "NONE")
     _draw_one(layout, deps.probe_rusty_tiles(), consequence=None)
     pyproj = deps.probe_pyproj()
     col = _draw_one(layout, pyproj, consequence="Imports cannot reproject")
     if show_paths and pyproj.available and pyproj.data_dir:
         for line in textwrap.wrap(f"PROJ data: {pyproj.data_dir}", 72)[:3]:
             col.label(text=line)
-    layout.operator("geotools.check_dependencies", icon="FILE_REFRESH")
+    row = layout.row(align=True)
+    row.operator("geotools.check_dependencies", icon="FILE_REFRESH")
+    row.operator("geotools.copy_details", text="", icon="COPYDOWN")
 
 
 def _draw_one(

@@ -58,8 +58,10 @@ from ..core.layers import attribute_name, display_name, format_number, validate
 from ..core.placement import PlacementMode
 from . import blend_paths
 from .common import extension_version, redraw_ui
-from .layers import ensure_layer, find_layer, refresh_layer, source_objects, spec_from_props
+from .layers import ensure_layer, find_layer, refresh_layer, spec_from_props
 from .properties import FieldError, placement_from_props
+from .source import analysis_notes, default_source
+from .surface import SELECT_MESHES
 from .ui import wrapped
 
 log = logging.getLogger(__name__)
@@ -521,10 +523,7 @@ def add_preset(
         spread = ", ".join(f"{angles[o.name]:+.4f}°" for o in objects[:3])
         notes.append(f"Convergence {spread} ({north_label})")
         notes.extend(notes_north)
-    sources = {o.as_pointer() for o in source_objects(scene)}
-    outside = [o.name for o in objects if o.as_pointer() not in sources]
-    if outside:
-        notes.append("Not in the source collection, so not published: " + ", ".join(outside[:3]))
+    notes.extend(analysis_notes(context, objects))  # before the refresh: it may set Source
     if added == 0:
         notes.append("Every object already had it")
     try:
@@ -567,6 +566,8 @@ def _add_object_preset(
     obj.select_set(True)
     context.view_layer.objects.active = obj
     notes.append(f"in {ANALYSIS_COLLECTION}")
+    if source := default_source(scene, [surface]):
+        notes.append(source)
     notes.extend(totals(context, obj))
     return obj.name, notes
 
@@ -840,7 +841,7 @@ class GEOTOOLS_OT_analysis_add(bpy.types.Operator):
             cls.poll_message_set("Switch to Object Mode first")
             return False
         if not target_objects(context):
-            cls.poll_message_set("Select a mesh object")
+            cls.poll_message_set(SELECT_MESHES)
             return False
         return True
 

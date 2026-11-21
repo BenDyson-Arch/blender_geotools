@@ -16,7 +16,8 @@ freeze a result.
 
 ## Using a preset
 
-1. Select one or more meshes (in the source collection, so they publish).
+1. Select one or more meshes, in any collection. Only those in the source
+   collection publish; the report names the others.
 2. **Add Analysis**, then pick a preset. One click adds it with the defaults
    below; the Adjust Last Operation panel changes the layer name and, for
    aspect, the north.

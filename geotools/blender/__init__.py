@@ -10,6 +10,7 @@ import logging
 from types import ModuleType
 
 from ..core import deps
+from ..core.manifest import MANIFEST_PATH
 from . import (
     analysis,
     analysis_presets,
@@ -17,6 +18,7 @@ from . import (
     bake_texture,
     blend_paths,
     checks,
+    common,
     contours,
     crs_picker,
     data_origin,
@@ -98,6 +100,8 @@ def register() -> None:
     # Probe once at enable time so the status is logged and cached for the UI.
     # The probe never raises, so a broken wheel cannot block registration.
     deps.probe_rusty_tiles()
+    # What this process holds, to tell an in-place update later (os.stat only).
+    deps.record_session(common.extension_version(), (str(MANIFEST_PATH),))
 
 
 def unregister() -> None:

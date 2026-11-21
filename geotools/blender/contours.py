@@ -35,11 +35,23 @@ from bpy.props import BoolProperty, EnumProperty, IntProperty, PointerProperty, 
 from ..analysis import polylines, slicing
 from .common import redraw_ui
 from .properties import FieldError
-from .surface import SURFACE_ITEMS, SurfaceError, datum, read_surface, surface_objects, write_lines
+from .source import default_source
+from .surface import (
+    SURFACE_ITEMS,
+    SurfaceError,
+    datum,
+    read_surface,
+    run_objects,
+    surface_problem,
+    write_lines,
+)
 from .vectors import MEASURE_PROP
 
 CONTOUR_TOOL = "contours"
 SECTION_TOOL = "sections"
+
+
+SELECT_TO_CUT = "Select the meshes to cut, besides the section line"
 
 
 def _is_line_object(_self, obj: bpy.types.Object) -> bool:
@@ -53,7 +65,7 @@ class GeoToolsContourSettings(bpy.types.PropertyGroup):
         name="Surface",
         description="The meshes the contours and sections cut",
         items=SURFACE_ITEMS,
-        default="SOURCE",
+        default="SELECTED",
     )
     # Text, so the full binary64 value is kept (a FloatProperty is single precision).
     interval: StringProperty(
@@ -118,9 +130,8 @@ def make_contours(context: bpy.types.Context) -> dict:
     base = _number(props.base, "Base")
     name = props.contour_name.strip() or "Contours"
     began = time.perf_counter()
-    arrays = read_surface(
-        context, surface_objects(context, props.surface), topology=False, triangles=True
-    )
+    objects = run_objects(context, props.surface)
+    arrays = read_surface(context, objects, topology=False, triangles=True)
     a_datum, height_name = datum(context.scene)
     lines = slicing.contours(
         arrays.positions,
@@ -161,6 +172,7 @@ def make_contours(context: bpy.types.Context) -> dict:
         "triangles": len(arrays.triangles),
         "seconds": time.perf_counter() - began,
         "notes": [],
+        "source_notes": [n for n in [default_source(context.scene, objects)] if n],
     }
     props.contour_result = json.dumps(result)
     props.contour_error = ""
@@ -211,12 +223,8 @@ def make_sections(context: bpy.types.Context) -> dict:
     path, offsets = section_path(context, line, props.selected_edges)
     made = bpy.data.objects.get(name)
     exclude = {line} | ({made} if made is not None else set())
-    arrays = read_surface(
-        context,
-        surface_objects(context, props.surface, exclude=exclude),
-        topology=False,
-        triangles=True,
-    )
+    objects = run_objects(context, props.surface, exclude, select=SELECT_TO_CUT)
+    arrays = read_surface(context, objects, topology=False, triangles=True)
     lines = slicing.sections(arrays.positions, arrays.triangles, path, offsets)
     e = lines.edge_line
     values = lines.line_values
@@ -249,6 +257,7 @@ def make_sections(context: bpy.types.Context) -> dict:
         "datum": height_name,
         "seconds": time.perf_counter() - began,
         "notes": [],
+        "source_notes": [n for n in [default_source(context.scene, objects)] if n],
     }
     props.section_result = json.dumps(result)
     props.section_error = ""
@@ -263,7 +272,15 @@ class _Run:
         if context.mode != "OBJECT":
             cls.poll_message_set("Switch to Object Mode")
             return False
+        problem = cls.surface_problem(context)
+        if problem is not None:
+            cls.poll_message_set(problem)
+            return False
         return True
+
+    @classmethod
+    def surface_problem(cls, context: bpy.types.Context) -> str | None:
+        return surface_problem(context, settings(context).surface)
 
     def _run(self, context, work, result_attr: str, error_attr: str, done) -> set[str]:
         props = settings(context)
@@ -275,7 +292,7 @@ class _Run:
             self.report({"ERROR"}, str(exc))
             redraw_ui(context)
             return {"CANCELLED"}
-        self.report({"INFO"}, done(result))
+        self.report({"INFO"}, "; ".join([done(result), *result["source_notes"]]))
         redraw_ui(context)
         return {"FINISHED"}
 
@@ -305,6 +322,12 @@ class GEOTOOLS_OT_sections(_Run, bpy.types.Operator):
 
     bl_idname = "geotools.sections"
     bl_label = "Create Sections"
+
+    @classmethod
+    def surface_problem(cls, context: bpy.types.Context) -> str | None:
+        props = settings(context)
+        line = props.line or context.active_object
+        return surface_problem(context, props.surface, {line}, select=SELECT_TO_CUT)
 
     def execute(self, context: bpy.types.Context) -> set[str]:
         return self._run(

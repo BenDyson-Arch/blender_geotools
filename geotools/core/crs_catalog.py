@@ -208,16 +208,34 @@ def _code_number(code: str) -> int:
     return int(code.partition(":")[2] or 0)
 
 
+_names_error: list[str] = []
+"""The plain message when PROJ could not read its database for the names (one at most)."""
+
+
+def names_error() -> str:
+    """Why the catalogue has no names: ``deps.proj_error_message``'s plain sentence, or empty.
+
+    Set when :func:`catalog` is read, so the picker shows it once it has asked
+    for a name. PROJ's own text is only in the log and Copy Details.
+    """
+    return _names_error[0] if _names_error else ""
+
+
 def _pyproj_info() -> dict[str, Any]:
     """EPSG code number -> pyproj ``CRSInfo``; empty when pyproj is not available."""
+    _names_error.clear()
     if not deps.probe_pyproj().available:
         return {}
     try:
         from pyproj.database import query_crs_info
 
         return {info.code: info for info in query_crs_info(auth_name="EPSG")}
-    except Exception:  # names are a convenience; codes still list without them
-        log.warning("pyproj CRS names unavailable", exc_info=True)
+    except Exception as exc:  # names are a convenience; codes still list without them
+        plain = deps.proj_error_message(exc)
+        if plain:
+            _names_error.append(plain)
+        else:
+            log.warning("pyproj CRS names unavailable", exc_info=True)
         return {}
 
 
@@ -391,8 +409,9 @@ def lon_lat_of(definition: str, easting: float, northing: float) -> LonLat | Non
         lon, lat = pyproj.Transformer.from_crs(crs, "EPSG:4326", always_xy=True).transform(
             easting, northing
         )
-    except Exception:  # advisory: the picker then lists in code order
-        log.debug("locating %r failed", definition, exc_info=True)
+    except Exception as exc:  # advisory: the picker then lists in code order
+        if deps.proj_error_message(exc) is None:  # a database error is logged there
+            log.debug("locating %r failed", definition, exc_info=True)
         return None
     if not (math.isfinite(lon) and math.isfinite(lat)) or abs(lat) > 90.0:
         return None
@@ -405,5 +424,6 @@ def reset_cache() -> None:
     catalog.cache_clear()
     _haystacks.cache_clear()
     lon_lat_of.cache_clear()
+    _names_error.clear()
     _resolutions.clear()
     _BY_CODE.clear()

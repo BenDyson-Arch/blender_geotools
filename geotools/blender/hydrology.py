@@ -43,6 +43,7 @@ from ..core.layers import (
 from .common import extension_version, redraw_ui
 from .layers import ensure_layer, find_layer, refresh_layer, spec_from_props, write_layer
 from .properties import FieldError
+from .source import analysis_notes
 from .surface import (
     SURFACE_ITEMS,
     SurfaceError,
@@ -51,7 +52,8 @@ from .surface import (
     ground_scale,
     read_surface,
     remove_output,
-    surface_objects,
+    run_objects,
+    surface_problem,
     write_lines,
     write_points,
 )
@@ -86,7 +88,7 @@ class GeoToolsHydrologySettings(bpy.types.PropertyGroup):
         name="Surface",
         description="The meshes water runs over",
         items=SURFACE_ITEMS,
-        default="SOURCE",
+        default="SELECTED",
     )
     area: EnumProperty(
         name="Area",
@@ -231,7 +233,7 @@ def compute(context: bpy.types.Context) -> dict:
     def lap(what: str) -> None:
         timings[what] = round(time.perf_counter() - began - sum(timings.values()), 3)
 
-    objects = surface_objects(context, props.surface)
+    objects = run_objects(context, props.surface)
     arrays = read_surface(context, objects, topology=True)
     notes = list(arrays.notes)
     lap("read")
@@ -319,6 +321,8 @@ def compute(context: bpy.types.Context) -> dict:
         window = slice(part.face_start, part.face_start + part.face_count)
         for name, array in zip(names, values, strict=True):
             write_layer(part.obj.data, spec_from_props(find_layer(scene, name)), array[window])
+    # Before the refresh: it may set Source, which the layer status reads.
+    source_notes = analysis_notes(context, [p.obj for p in arrays.parts if p.writable])
     for name in names:
         item = find_layer(scene, name)
         item.provenance = format_provenance(provenance)
@@ -360,6 +364,7 @@ def compute(context: bpy.types.Context) -> dict:
         "max_accumulation": float(accumulation.max()),
         "flow_lines": lines,
         "notes": notes,
+        "source_notes": source_notes,
     }
     props.result = json.dumps(out)
     props.error = ""
@@ -449,6 +454,10 @@ class GEOTOOLS_OT_hydrology(bpy.types.Operator):
         if context.mode != "OBJECT":
             cls.poll_message_set("Switch to Object Mode")
             return False
+        problem = surface_problem(context, settings(context).surface)
+        if problem is not None:
+            cls.poll_message_set(problem)
+            return False
         return True
 
     def execute(self, context: bpy.types.Context) -> set[str]:
@@ -471,11 +480,11 @@ class GEOTOOLS_OT_hydrology(bpy.types.Operator):
             return {"CANCELLED"}
         for note in result["notes"]:
             self.report({"WARNING"}, note)
-        self.report(
-            {"INFO"},
+        message = (
             f"Hydrology on {result['faces']:,} faces: {result['depressions']:,} depressions, "
-            f"{result['seconds']:.1f} s",
+            f"{result['seconds']:.1f} s"
         )
+        self.report({"INFO"}, "; ".join([message, *result["source_notes"]]))
         redraw_ui(context)
         return {"FINISHED"}
 
