@@ -465,6 +465,7 @@ def _add_tool(context, which: str) -> GeoToolsAnalysisItem:
         for attr in ("accumulation_layer", "depth_layer", "depression_layer"):
             setattr(group, attr, _free(getattr(group, attr), taken))
     elif kind == "SUN_HOURS":
+        group.surface = "SELECTED"
         group.insolation = which == "INSOLATION"
         group.hours_layer = _free(group.hours_layer, taken)
         group.insolation_layer = _free(group.insolation_layer, taken)
@@ -644,7 +645,7 @@ def compute(context: bpy.types.Context, item: GeoToolsAnalysisItem) -> str:
     if item.kind not in TOOL_KINDS:
         raise AnalysesError(f"{item.name} has nothing to compute: it updates by itself.")
     objects = [o for o in item_objects(item) if o.name in context.view_layer.objects]
-    if not objects and item.kind != "SUN_HOURS":
+    if not objects:
         raise AnalysesError("Select the meshes to analyse, then Use Selected.")
     group = tool_settings(item)
     scene_group = _SCENE_SETTINGS[item.kind](context)
@@ -872,6 +873,28 @@ class GEOTOOLS_OT_analyses_show_layer(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class GEOTOOLS_OT_analyses_show(bpy.types.Operator):
+    """Show this layer in the viewport in its Display colours, or take the view off (Show in Viewport)"""
+
+    bl_idname = "geotools.analyses_show"
+    bl_label = "Show in Viewport"
+    bl_options = {"REGISTER", "UNDO"}
+
+    layer: StringProperty(name="Layer", description="The layer to show or hide")
+
+    def execute(self, context: bpy.types.Context) -> set[str]:
+        layers = context.scene.geotools.layers
+        index = layers.find(self.layer)
+        if index < 0:
+            return {"CANCELLED"}
+        context.scene.geotools.layers_index = index
+        try:
+            return bpy.ops.geotools.layer_show()
+        except RuntimeError as exc:  # its report, raised by bpy.ops from Python
+            self.report({"WARNING"}, str(exc).removeprefix("Error: ").strip())
+            return {"CANCELLED"}
+
+
 class GEOTOOLS_OT_analyses_select_object(bpy.types.Operator):
     """Select this object and make it active"""
 
@@ -954,13 +977,12 @@ class GEOTOOLS_UL_analyses(bpy.types.UIList):
             right.label(text=layer.units.strip())
         if layer is not None:
             shown = layer.presentation.show_in_viewport
-            right.prop(
-                layer.presentation,
-                "show_in_viewport",
+            right.operator(
+                "geotools.analyses_show",
                 text="",
                 icon="HIDE_OFF" if shown else "HIDE_ON",
                 emboss=False,
-            )
+            ).layer = layer.name
         else:
             right.label(text="", icon="BLANK1")
 
@@ -975,6 +997,7 @@ classes = (
     GEOTOOLS_OT_analyses_remove,
     GEOTOOLS_OT_analyses_list_layers,
     GEOTOOLS_OT_analyses_show_layer,
+    GEOTOOLS_OT_analyses_show,
     GEOTOOLS_OT_analyses_select_object,
     GEOTOOLS_OT_analyses_publish_variant,
     GEOTOOLS_UL_analyses,

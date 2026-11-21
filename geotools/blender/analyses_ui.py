@@ -353,16 +353,10 @@ def result_lines(item) -> list[tuple[str, str]]:
 
 def _draw_tool(layout, context, item) -> None:
     props = analyses.tool_settings(item)
-    col = split_column(layout)
     if item.kind == "SUN_HOURS":
-        wrapped(
-            layout,
-            context,
-            "Runs on the source collection (until #155); date, time zone and site: Tools > Sun.",
-            "LIGHT_SUN",
-        )
-    else:
-        _objects_row(col, item)
+        wrapped(layout, context, "Date, time zone and site: Tools > Sun.", "LIGHT_SUN")
+    col = split_column(layout)
+    _objects_row(col, item)
     _TOOL_DRAW[item.kind](col, context, props)
     text = "Recompute" if item.computed else "Compute"
     big_button(layout).operator(
@@ -457,13 +451,12 @@ class GEOTOOLS_PT_analyses_outputs(_Panel, bpy.types.Panel):
             op.layer = layer.name
             row.label(text=layer.name, icon=DOMAIN_ICONS.get(layer.domain, "NONE"))
             eye = layer.presentation.show_in_viewport
-            row.prop(
-                layer.presentation,
-                "show_in_viewport",
+            row.operator(
+                "geotools.analyses_show",
                 text="",
                 icon="HIDE_OFF" if eye else "HIDE_ON",
                 emboss=False,
-            )
+            ).layer = layer.name
         for obj in objects:
             row = col.row(align=True)
             row.label(text=obj.name, icon="OUTLINER_OB_MESH")

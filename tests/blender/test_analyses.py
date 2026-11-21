@@ -102,6 +102,11 @@ def test_adding_a_preset_lists_it_with_the_modifier_inputs() -> None:
     h.draw(_ui().GEOTOOLS_PT_analyses_display)
     h.draw(_ui().GEOTOOLS_PT_analyses_outputs)
     h.draw_list_item(_an().GEOTOOLS_UL_analyses, props, item)
+    # The list's eye goes through Show in Viewport (#155: it refuses a layer nobody carries).
+    assert bpy.ops.geotools.analyses_show(layer="slope") == {"FINISHED"}
+    assert h.project().layers["slope"].presentation.show_in_viewport
+    assert bpy.ops.geotools.analyses_show(layer="slope") == {"FINISHED"}
+    assert not h.project().layers["slope"].presentation.show_in_viewport
     # Adding it again on the same mesh reuses the item.
     props.add_search = "Terrain > Slope"
     assert len(props.items) == 1
