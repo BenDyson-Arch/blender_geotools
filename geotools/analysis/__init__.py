@@ -19,6 +19,8 @@
   polylines.
 - :mod:`.neighbourhood`: balls on the 3D surface (a voxel hash), area-weighted
   plane and quadric fits, and the resolution rule for a scale.
+- :mod:`.surface_metrics`: per-face roughness, normals and geometry quality at
+  stated scales, each with its resolution status.
 
 Scope: GeoTools computes only what needs the georeference (where the sun is
 from this site at this moment, where a scene point is on Earth) or what
