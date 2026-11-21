@@ -61,6 +61,7 @@ from .layers import (
     write_layer,
 )
 from .properties import FieldError
+from .source import analysis_notes, default_source
 from .surface import (
     SURFACE_ITEMS,
     SurfaceError,
@@ -68,7 +69,8 @@ from .surface import (
     output_collection,
     read_surface,
     remove_output,
-    surface_objects,
+    run_objects,
+    surface_problem,
     write_lines,
 )
 
@@ -114,7 +116,7 @@ class GeoToolsLeastCostSettings(bpy.types.PropertyGroup):
         name="Surface",
         description="The mesh walked on: one object, a single connected surface",
         items=SURFACE_ITEMS,
-        default="SOURCE",
+        default="SELECTED",
     )
     start: PointerProperty(
         name="Start",
@@ -265,16 +267,29 @@ def _check(scene: bpy.types.Scene, props: GeoToolsLeastCostSettings) -> None:
             raise LeastCostRunError("The cost layer cannot also receive the results.")
 
 
+SELECT_SURFACE = "Select the mesh to route over"
+
+
+def surface_issue(context: bpy.types.Context, props) -> str | None:
+    """The operator's poll message when there is no surface to route over, or None."""
+    exclude = [o for o in (props.start, props.end) if o is not None]
+    return surface_problem(context, props.surface, exclude, select=SELECT_SURFACE)
+
+
 def _surface(context: bpy.types.Context, props) -> bpy.types.Object:
     exclude = [o for o in (props.start, props.end) if o is not None]
-    objects = surface_objects(context, props.surface, exclude=exclude)
+    try:
+        objects = run_objects(context, props.surface, exclude, select=SELECT_SURFACE)
+    except SurfaceError as ex:
+        raise LeastCostRunError(str(ex)) from None
     if not objects:
-        raise LeastCostRunError("There is no mesh to route over.")
+        raise LeastCostRunError("The source collection has no mesh to route over.")
     if len(objects) > 1:
+        which = "selected" if props.surface == "SELECTED" else "in the source collection"
         raise LeastCostRunError(
-            f"Least-cost routes work on one connected surface, and there are {len(objects)} "
-            "meshes. Join them into one object (Object > Join), or choose Selected Objects "
-            "with one mesh selected. Routes across objects are issue #109."
+            f"Least-cost routes work on one connected surface, and {len(objects)} meshes are "
+            f"{which}. Select one mesh, or join them into one object (Object > Join). Routes "
+            "across objects are issue #109."
         )
     return objects[0]
 
@@ -482,6 +497,11 @@ def finish(context: bpy.types.Context, run: _Run, found: lc.Search) -> dict:
     props = settings(context)
     scene = context.scene
     run.lap("search")
+    # Before the layers' refresh: it may set Source, which the layer status reads.
+    if props.make_layer:
+        source_notes = analysis_notes(context, [run.obj])
+    else:
+        source_notes = [n for n in [default_source(scene, [run.obj])] if n]
     provenance = make_provenance(TOOL, run.parameters, extension_version())
     out: dict = {
         "faces": run.graph.n_faces,
@@ -535,6 +555,7 @@ def finish(context: bpy.types.Context, run: _Run, found: lc.Search) -> dict:
     out["seconds"] = time.perf_counter() - run.began
     out["timings"] = run.timings
     out["notes"] = run.notes
+    out["source_notes"] = source_notes
     props.result = json.dumps(out)
     props.error = ""
     return out
@@ -583,6 +604,10 @@ class GEOTOOLS_OT_least_cost(bpy.types.Operator):
         if context.mode != "OBJECT":
             cls.poll_message_set("Switch to Object Mode")
             return False
+        problem = surface_issue(context, settings(context))
+        if problem is not None:
+            cls.poll_message_set(problem)
+            return False
         return True
 
     def _fail(self, context, exc: BaseException) -> set[str]:
@@ -602,7 +627,8 @@ class GEOTOOLS_OT_least_cost(bpy.types.Operator):
             if route
             else f"{result.get('reached', 0):,} faces reached"
         )
-        self.report({"INFO"}, f"Least-cost: {what}, {result['seconds']:.1f} s")
+        message = f"Least-cost: {what}, {result['seconds']:.1f} s"
+        self.report({"INFO"}, "; ".join([message, *result["source_notes"]]))
         redraw_ui(context)
         return {"FINISHED"}
 

@@ -230,7 +230,7 @@ def test_presentation_panel_draws() -> None:
     props = h.props_drawn(calls)
     assert {"blend", "palette", "range_min", "range_max", "nodata_color"} <= set(props)
     assert "target" not in props  # a face layer has one target, so it is not shown
-    assert "show_in_viewport" in props  # the live view (test_live_view)
+    assert h.operator_text("geotools.layer_show") == "Show in Viewport"  # test_live_view
     assert ("operator", "geotools.publish", "EXPORT") not in calls  # variants: Publish only
     assert ("label", "Publish: choose it as Variant", "INFO") in calls
     assert h.draw_header(_display()) is None

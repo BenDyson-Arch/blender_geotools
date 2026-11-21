@@ -29,6 +29,7 @@ from ..core.data_origin import (
 from ..core.preflight import ImageSummary, SceneSummary
 from . import blend_paths, data_origin, scene_georef
 from .common import redraw_ui
+from .layers import outside_source
 from .properties import FieldError, apply_source_offset, format_vec, parse_vec, read_number
 from .summarise import summarise_collection
 from .ui import wrapped
@@ -66,6 +67,51 @@ def ensure_source_collection(scene: bpy.types.Scene) -> bpy.types.Collection:
     if collection not in scene.collection.children_recursive:
         scene.collection.children.link(collection)
     return collection
+
+
+OUTPUT_COLLECTIONS = frozenset(("GeoTools Analysis", "GeoTools Output"))
+"""GeoTools' own collections of results and opened tiles: never a source collection."""
+
+
+def default_source(scene: bpy.types.Scene, objects: list[bpy.types.Object]) -> str | None:
+    """Set an unset source collection to the collection of the first of ``objects``.
+
+    Analysis acts on the selected meshes wherever they are, and the source
+    collection only decides what is published; so that it is never a dead end,
+    importing a mesh, adding an analysis or showing a layer sets it when it is
+    unset. Returns the report note ("Source set to Collection"), or None if the
+    source was set already, or no object is in a collection of this scene
+    other than the scene's own and :data:`OUTPUT_COLLECTIONS`.
+    """
+    props = scene.geotools
+    if props.source_collection is not None:
+        return None
+    candidates = set(scene.collection.children_recursive)
+    for obj in objects:
+        for collection in obj.users_collection:
+            if collection in candidates and collection.name not in OUTPUT_COLLECTIONS:
+                props.source_collection = collection
+                return f"Source set to {collection.name}"
+    return None
+
+
+def analysis_notes(context: bpy.types.Context, objects: list[bpy.types.Object]) -> list[str]:
+    """The report notes of an analysis that wrote layers on ``objects``.
+
+    Sets an unset source collection (:func:`default_source`, from the active
+    object first), then names the objects outside it, whose layers are not
+    published.
+    """
+    scene = context.scene
+    active = context.active_object
+    ordered = sorted(objects, key=lambda o: o != active)
+    notes = [note] if (note := default_source(scene, ordered)) else []
+    if scene.geotools.source_collection is None:
+        return [*notes, "No source collection, so nothing is published: set one in Source"]
+    outside = [o.name for o in outside_source(scene, objects)]
+    if outside:
+        notes.append("Not in the source collection, so not published: " + ", ".join(outside[:3]))
+    return notes
 
 
 def move_into(objects: list[bpy.types.Object], collection: bpy.types.Collection) -> None:

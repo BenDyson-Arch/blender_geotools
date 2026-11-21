@@ -1,9 +1,12 @@
 """Shared by hydrology, contours and least-cost routes: surfaces as numpy arrays in, line and point objects out.
 
-* :func:`read_surface` reads the evaluated meshes of a set of objects (the
-  source collection, or the selected objects) into one world-space mesh of
-  numpy arrays, with each object's place in it and whether face values can be
-  written back to its original mesh.
+* :func:`surface_objects` picks the meshes a tool runs on: the selected ones
+  by default, wherever they are, or the whole source collection; the source
+  collection only decides what is published. :func:`surface_problem` is the
+  operators' poll message when there are none.
+* :func:`read_surface` reads the evaluated meshes of a set of objects into one
+  world-space mesh of numpy arrays, with each object's place in it and whether
+  face values can be written back to its original mesh.
 * :func:`cast_vertical` casts vertical rays with a Geometry Nodes Raycast (a
   temporary target and query object), for hydrology's drops.
 * :func:`write_lines` and :func:`write_points` make mesh objects of loose edges
@@ -35,10 +38,14 @@ OUTPUT_COLLECTION = "GeoTools Analysis"
 OUTPUT_TOOL_PROP = "geotools_output"
 TEMP_PREFIX = "GeoTools Raycast"
 
+# Numbered: files store the number, and SOURCE was 0 before SELECTED became the default.
 SURFACE_ITEMS = (
-    ("SOURCE", "Source Collection", "The meshes of the project's source collection"),
-    ("SELECTED", "Selected Objects", "The selected mesh objects"),
+    ("SELECTED", "Selected Objects", "The selected mesh objects, in any collection", 1),
+    ("SOURCE", "Source Collection", "Every mesh of the source collection: the whole site", 0),
 )
+SELECT_MESHES = "Select the meshes to analyse"
+"""The poll message of a tool on the selected meshes when none is selected."""
+NO_SOURCE = "Set or import a source collection first"
 
 
 class SurfaceError(RuntimeError):
@@ -86,12 +93,44 @@ class SurfaceArrays:
         return len(self.face_starts) - 1
 
 
+def selected_meshes(context: bpy.types.Context, exclude=()) -> list[bpy.types.Object]:
+    """The selected mesh objects but ``exclude``, sorted by name."""
+    selected = getattr(context, "selected_objects", None) or []
+    return sorted(
+        (o for o in selected if o.type == "MESH" and o not in exclude), key=lambda o: o.name
+    )
+
+
 def surface_objects(context: bpy.types.Context, which: str, exclude=()) -> list[bpy.types.Object]:
-    """The source collection's meshes, or the selected mesh objects (sorted by name)."""
+    """The selected mesh objects (``which`` SELECTED), or the source collection's meshes
+    (SOURCE), sorted by name."""
     if which == "SELECTED":
-        objects = [o for o in context.selected_objects if o.type == "MESH" and o not in exclude]
-        return sorted(objects, key=lambda o: o.name)
+        return selected_meshes(context, exclude)
     return [o for o in source_objects(context.scene) if o not in exclude]
+
+
+def surface_problem(
+    context: bpy.types.Context, which: str, exclude=(), *, select: str = SELECT_MESHES
+) -> str | None:
+    """Why :func:`surface_objects` has nothing to run on (a poll message), or None.
+
+    ``select`` is the message when nothing is selected. Cheap: for polls.
+    """
+    if which == "SELECTED":
+        return None if selected_meshes(context, exclude) else select
+    if context.scene.geotools.source_collection is None:
+        return NO_SOURCE
+    return None
+
+
+def run_objects(
+    context: bpy.types.Context, which: str, exclude=(), *, select: str = SELECT_MESHES
+) -> list[bpy.types.Object]:
+    """:func:`surface_objects`, raising :class:`SurfaceError` with the poll message if none."""
+    problem = surface_problem(context, which, exclude, select=select)
+    if problem is not None:
+        raise SurfaceError(f"{problem}.")
+    return surface_objects(context, which, exclude)
 
 
 def read_surface(

@@ -213,7 +213,8 @@ def _run_import(context: bpy.types.Context, request: dict[str, object]) -> list[
             context, str(path), str(request.get("mode", "AUTO")), int(request.get("step", 1))
         )
         raster_io.select_imported(context, obj)
-        return [*report.warnings, report.message]
+        source = raster_io.adopt_source(context, obj)
+        return [*report.warnings, report.message, *([source] if source else [])]
     from . import vectors
 
     layers = [x for x in str(request.get("layer", "")).split(",") if x] if kind == "GPKG" else [""]

@@ -88,6 +88,7 @@ UV_MAP_MISSING = "layer-uv-map-missing"
 NO_SOURCE = "layer-no-source"
 EDIT_MODE = "layer-edit-mode"
 NOT_CHECKED = "layer-not-checked"
+OUTSIDE_SOURCE = "layer-outside-source"
 
 _ATTRIBUTE_TYPES: dict[DataType, str] = {
     DataType.FLOAT: "FLOAT",
@@ -297,6 +298,96 @@ def layer_meshes(
         yield obj, obj.evaluated_get(depsgraph).data
 
 
+# --- carriers ----------------------------------------------------------------------------
+
+
+def carrier_objects(
+    scene: bpy.types.Scene,
+    item: GeoToolsLayer,
+    *,
+    depsgraph: bpy.types.Depsgraph | None = None,
+) -> list[bpy.types.Object]:
+    """The scene's mesh objects that carry the layer, in the source collection or not.
+
+    Analysis runs on the selected meshes wherever they are, so a layer's values
+    can be on objects outside the source collection (which only decides what is
+    published). A FACE or CORNER layer is carried by every mesh object whose
+    layer mesh (:func:`layer_meshes`: evaluated, after its modifiers, unless
+    Apply Modifiers is off) has the layer's attribute, of any domain or type; an
+    object in Edit Mode when its original mesh has it. A TEXTURE layer by the
+    objects it has an image for. Sorted by name. Loops over objects, never over
+    mesh elements, but evaluates the depsgraph: panels read
+    :func:`stored_carriers` instead.
+    """
+    if Domain(item.domain) is Domain.TEXTURE:
+        found = {
+            e.object.as_pointer(): e.object
+            for e in item.images
+            if e.object is not None and e.image is not None and e.object.name in scene.objects
+        }
+        return sorted(found.values(), key=lambda o: o.name)
+    name = effective_attribute_name(spec_from_props(item))
+    meshes = [o for o in scene.objects if o.type == "MESH"]
+    found = [o for o in meshes if o.data.is_editmode and name in o.data.attributes]
+    readable = [o for o in meshes if not o.data.is_editmode]
+    found += [
+        o
+        for o, mesh in layer_meshes(scene, readable, depsgraph=depsgraph)
+        if name in mesh.attributes
+    ]
+    return sorted(found, key=lambda o: o.name)
+
+
+def stored_carriers(item: GeoToolsLayer) -> list[bpy.types.Object]:
+    """The carriers the last :func:`refresh_carriers` found (cheap: reads no mesh)."""
+    return [c.object for c in item.carriers if c.object is not None]
+
+
+def refresh_carriers(
+    scene: bpy.types.Scene,
+    item: GeoToolsLayer,
+    *,
+    depsgraph: bpy.types.Depsgraph | None = None,
+    sync_view: bool = True,
+) -> list[bpy.types.Object]:
+    """Find the layer's carriers (:func:`carrier_objects`) and store them on the layer.
+
+    If the layer is shown in the viewport and its carriers changed, the live
+    view follows them (``live_view.sync``), unless ``sync_view`` is False.
+    """
+    found = carrier_objects(scene, item, depsgraph=depsgraph)
+    if [o.as_pointer() for o in found] == [o.as_pointer() for o in stored_carriers(item)]:
+        return found
+    item.carriers.clear()
+    for obj in found:
+        item.carriers.add().object = obj
+    if sync_view and item.presentation.show_in_viewport:
+        from . import live_view  # it imports this module
+
+        live_view.sync(scene)
+    return found
+
+
+def outside_source(
+    scene: bpy.types.Scene, objects: Iterable[bpy.types.Object]
+) -> list[bpy.types.Object]:
+    """Those of ``objects`` that are not in the source collection, so are not published."""
+    sources = {o.as_pointer() for o in source_objects(scene)}
+    return [o for o in objects if o.as_pointer() not in sources]
+
+
+def _editable_meshes(scene: bpy.types.Scene, item: GeoToolsLayer) -> list[bpy.types.Mesh]:
+    """The distinct original meshes of the source objects and the layer's stored carriers."""
+    seen: set[int] = set()
+    meshes = []
+    carriers = [o for o in stored_carriers(item) if o.data.library is None]
+    for obj in [*source_objects(scene), *carriers]:
+        if obj.type == "MESH" and obj.data.as_pointer() not in seen:
+            seen.add(obj.data.as_pointer())
+            meshes.append(obj.data)
+    return meshes
+
+
 # --- attributes ----------------------------------------------------------------------------
 
 
@@ -455,14 +546,16 @@ def update_value_range(
     item: GeoToolsLayer,
     *,
     depsgraph: bpy.types.Depsgraph | None = None,
+    objects: list[bpy.types.Object] | None = None,
 ) -> tuple[float | None, float | None]:
     """Work out the range of the values present and store it in ``value_min``/``value_max``.
 
-    Reads the layer's attribute from the mesh of every source object that holds
-    it, evaluated unless Apply Modifiers is off (:func:`layer_meshes`), or, for
-    a TEXTURE layer, the first channel of its images, ignoring NaN, inf and
+    Reads the layer's attribute from the mesh of every object that carries it
+    (``objects``, default :func:`carrier_objects`: in the source collection or
+    not), evaluated unless Apply Modifiers is off (:func:`layer_meshes`), or,
+    for a TEXTURE layer, the first channel of its images, ignoring NaN, inf and
     no-data. Both are None (stored as "") if no value is left. Raises
-    ``RuntimeError`` if a source mesh is in Edit Mode.
+    ``RuntimeError`` if a source mesh or a carrier is in Edit Mode.
 
     Also caches the automatic ramp range (``core.ramps.auto_range`` of the same
     values) in ``auto_min``/``auto_max``, for the Display panel to show.
@@ -481,8 +574,9 @@ def update_value_range(
             values.append(pixels[:: image.channels])
             ranges.append(_finite_range(values[-1], nodata))
     else:
-        objects = source_objects(scene)
-        for obj in objects:
+        if objects is None:
+            objects = carrier_objects(scene, item, depsgraph=depsgraph)
+        for obj in [*source_objects(scene), *objects]:
             _check_object_mode(obj.data)
         seen: set[int] = set()
         for _obj, mesh in layer_meshes(scene, objects, depsgraph=depsgraph):
@@ -610,14 +704,17 @@ def image_is_saved(image: bpy.types.Image) -> bool:
 
 
 def remove_layer_data(scene: bpy.types.Scene, item: GeoToolsLayer) -> tuple[int, int]:
-    """Delete a layer's attributes from the original source meshes, and its images.
+    """Delete a layer's attributes from the original meshes, and its images.
+
+    The meshes are those of the source objects and of the layer's stored
+    carriers (:func:`stored_carriers`).
 
     Image files on disk are kept. Returns the number of attributes and images removed.
     """
     attributes = 0
     if item.domain != Domain.TEXTURE.value:
         spec = spec_from_props(item)
-        attributes = sum(remove_attribute(mesh, spec) for mesh in source_meshes(scene))
+        attributes = sum(remove_attribute(mesh, spec) for mesh in _editable_meshes(scene, item))
     images = {e.image.as_pointer(): e.image for e in item.images if e.image is not None}
     item.images.clear()
     for image in images.values():
@@ -644,20 +741,41 @@ def _missing_message(obj: bpy.types.Object, spec: LayerSpec, name: str, apply: b
     )
 
 
+def _outside_issues(
+    scene: bpy.types.Scene, spec: LayerSpec, carriers: list[bpy.types.Object]
+) -> list[Issue]:
+    collection = scene.geotools.source_collection.name
+    return [
+        Issue(
+            Severity.WARNING,
+            OUTSIDE_SOURCE,
+            f"{obj.name} carries layer {spec.name} but is not in the source collection "
+            f"{collection}, so it is not published.",
+            obj.name,
+        )
+        for obj in outside_source(scene, carriers)
+    ]
+
+
 def _data_status(
     scene: bpy.types.Scene,
     item: GeoToolsLayer,
     spec: LayerSpec,
     depsgraph: bpy.types.Depsgraph | None = None,
+    carriers: list[bpy.types.Object] | None = None,
 ) -> list[Issue]:
-    """The issues of :func:`layer_status` that need the source's data."""
+    """The issues of :func:`layer_status` that need the source's data.
+
+    ``carriers`` defaults to the stored ones (:func:`stored_carriers`).
+    """
     if scene.geotools.source_collection is None:
         return [
             Issue(Severity.INFO, NO_SOURCE, "Set a source collection to hold the layer's data.")
         ]
     objects = source_objects(scene)
+    outside = _outside_issues(scene, spec, stored_carriers(item) if carriers is None else carriers)
     if Domain(spec.domain) is Domain.TEXTURE:
-        return _image_status(item, spec, objects)
+        return _image_status(item, spec, objects) + outside
 
     issues: list[Issue] = []
     name = effective_attribute_name(spec)
@@ -700,7 +818,7 @@ def _data_status(
                     obj.name,
                 )
             )
-    return issues
+    return issues + outside
 
 
 def layer_status(
@@ -719,12 +837,16 @@ def layer_status(
     in Edit Mode (``layer-edit-mode``, warning: not checked); for TEXTURE
     layers a missing image (``layer-image-missing``), an image that would be
     lost on reopening (``layer-image-unsaved``), or a missing UV map
-    (``layer-uv-map-missing``). Loops over objects, never over mesh elements,
-    but evaluates the depsgraph: panels use :func:`cached_status` instead.
+    (``layer-uv-map-missing``). Then each object that carries the layer
+    (:func:`carrier_objects`) outside the source collection
+    (``layer-outside-source``, warning: not published). Loops over objects,
+    never over mesh elements, but evaluates the depsgraph: panels use
+    :func:`cached_status` instead.
     """
     spec = spec_from_props(item)
     issues = validate(spec, other_layer_names(scene, item))
-    return issues + _data_status(scene, item, spec, depsgraph)
+    carriers = carrier_objects(scene, item, depsgraph=depsgraph)
+    return issues + _data_status(scene, item, spec, depsgraph, carriers)
 
 
 def status_key(scene: bpy.types.Scene, item: GeoToolsLayer) -> str:
@@ -765,7 +887,8 @@ def refresh_status(
     *,
     depsgraph: bpy.types.Depsgraph | None = None,
 ) -> list[Issue]:
-    """:func:`layer_status`, caching its data issues on the layer for :func:`cached_status`."""
+    """:func:`layer_status` with the stored carriers, caching its data issues on the layer
+    for :func:`cached_status`."""
     spec = spec_from_props(item)
     data = _data_status(scene, item, spec, depsgraph)
     _store_status(item, status_key(scene, item), data)
@@ -778,15 +901,17 @@ def refresh_layer(
     *,
     depsgraph: bpy.types.Depsgraph | None = None,
 ) -> list[Issue]:
-    """Refresh a layer's cached range and status from the source; returns its status.
+    """Refresh a layer's cached carriers, range and status; returns its status.
 
-    The range (:func:`update_value_range`) is kept as it was while a source
-    mesh is in Edit Mode; the status then says so.
+    The carriers (:func:`refresh_carriers`) are found first, and the range
+    (:func:`update_value_range`) read from them. The range is kept as it was
+    while a source mesh or a carrier is in Edit Mode; the status then says so.
     """
     if depsgraph is None and apply_modifiers(scene):
         depsgraph = evaluated_depsgraph(scene)
-    if not any(o.data.is_editmode for o in source_objects(scene)):
-        update_value_range(scene, item, depsgraph=depsgraph)
+    carriers = refresh_carriers(scene, item, depsgraph=depsgraph)
+    if not any(o.data.is_editmode for o in [*source_objects(scene), *carriers]):
+        update_value_range(scene, item, depsgraph=depsgraph, objects=carriers)
     return refresh_status(scene, item, depsgraph=depsgraph)
 
 
@@ -969,8 +1094,8 @@ class GEOTOOLS_OT_layer_remove(bpy.types.Operator):
     delete_data: BoolProperty(
         name="Delete Attributes and Images",
         description="Also delete the layer's attribute (gt_<name>, or its source attribute) "
-        "from the source meshes, and its images. Image files on disk are kept. Attributes "
-        "made by modifiers are not touched",
+        "from the source meshes and the other meshes that carry it, and its images. Image "
+        "files on disk are kept. Attributes made by modifiers are not touched",
         default=False,
         options={"SKIP_SAVE"},
     )
@@ -1016,7 +1141,7 @@ class GEOTOOLS_OT_layer_remove(bpy.types.Operator):
 
 
 class GEOTOOLS_OT_layer_rename(bpy.types.Operator):
-    """Rename the selected layer and its gt_<name> attributes on the source meshes.
+    """Rename the selected layer and its gt_<name> attributes on the meshes that carry it.
     A layer with its own source attribute keeps that attribute"""
 
     bl_idname = "geotools.layer_rename"
@@ -1047,7 +1172,7 @@ class GEOTOOLS_OT_layer_rename(bpy.types.Operator):
         if errors:
             self.report({"ERROR"}, errors[0].message)
             return {"CANCELLED"}
-        meshes = source_meshes(scene) if not item.source_attribute.strip() else []
+        meshes = _editable_meshes(scene, item) if not item.source_attribute.strip() else []
         old_attr, new_attr = attribute_name(old), attribute_name(new)
         taken = [m.name for m in meshes if new_attr in m.attributes]
         if taken:
@@ -1062,6 +1187,7 @@ class GEOTOOLS_OT_layer_rename(bpy.types.Operator):
             attr = mesh.attributes.get(old_attr)
             if attr is not None:
                 attr.name = new_attr
+                mesh.update_tag()  # the evaluated mesh, which carriers are read from, follows
                 renamed += 1
         item.name = new
         _refresh_quietly(scene, item)
@@ -1164,9 +1290,9 @@ class GEOTOOLS_OT_layer_set_categories(bpy.types.Operator):
 
 
 class GEOTOOLS_OT_layer_update_range(bpy.types.Operator):
-    """Read the selected layer's values from the source (with modifiers applied, unless the
-    build profile says otherwise): work out their range, ignoring no-data, and check where
-    they are missing"""
+    """Read the selected layer's values from every mesh that carries it (with modifiers
+    applied, unless the build profile says otherwise): work out their range, ignoring
+    no-data, and check where they are missing"""
 
     bl_idname = "geotools.layer_update_range"
     bl_label = "Update Range"
@@ -1179,7 +1305,8 @@ class GEOTOOLS_OT_layer_update_range(bpy.types.Operator):
     def execute(self, context: bpy.types.Context) -> set[str]:
         item = _active_layer(context)
         try:
-            low, high = update_value_range(context.scene, item)
+            carriers = refresh_carriers(context.scene, item)
+            low, high = update_value_range(context.scene, item, objects=carriers)
         except RuntimeError as ex:
             self.report({"ERROR"}, f"Cannot work out the range: {ex}")
             return {"CANCELLED"}

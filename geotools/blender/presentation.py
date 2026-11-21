@@ -666,7 +666,12 @@ def draw_display(
     spec = spec_from_props(item)
     codes = display_issue_codes(item)
     shown = p.show_in_viewport
-    layout.prop(p, "show_in_viewport", toggle=True, icon="HIDE_OFF" if shown else "HIDE_ON")
+    layout.operator(
+        "geotools.layer_show",
+        text="Show in Viewport",
+        icon="HIDE_OFF" if shown else "HIDE_ON",
+        depress=shown,
+    )
     if shown and spec.domain is Domain.TEXTURE:
         wrapped(layout, context, "Texture layers show in Material Preview.", "INFO")
     col = split_column(layout)

@@ -168,12 +168,12 @@ def test_view_registered_and_drawn() -> None:
     assert "show_in_viewport" in item.presentation.bl_rna.properties
     assert not h.operator_available("geotools.layer_write_presentation")  # retired
     calls = h.draw(h.submodule("blender.panels").GEOTOOLS_PT_layers_display)
-    assert ("prop", "show_in_viewport", "HIDE_ON") in [c[:3] for c in calls], calls
+    assert ("operator", "geotools.layer_show", "HIDE_ON") in [c[:3] for c in calls], calls
     modules = [m.__name__.rpartition(".")[2] for m in h.submodule("blender").MODULES]
     assert modules.index("presentation") < modules.index("live_view")
     _show(item)
     calls = h.draw(h.submodule("blender.panels").GEOTOOLS_PT_layers_display)
-    assert ("prop", "show_in_viewport", "HIDE_OFF") in [c[:3] for c in calls], calls
+    assert ("operator", "geotools.layer_show", "HIDE_OFF") in [c[:3] for c in calls], calls
     _show(item, False)
 
 
@@ -331,10 +331,10 @@ def test_categories_booleans_and_integers() -> None:
     _show(count)
     want = _ramps().apply_ramp(ints, 0.0, 8.0, "viridis", nodata=-1.0, nodata_rgba=(128,) * 3)
     _assert_close(_view_bytes(obj), _per_corner(obj.data, want), "integers")
-    # A layer without its attribute shows the no-data colour, like the variant.
+    # A layer no object carries shows on none (the Display toggle refuses it, test_selection).
     missing = _layer("missing", range_min="0", range_max="1")
     _show(missing)
-    assert np.unique(_view_bytes(obj), axis=0).tolist() == [[128, 128, 128, 255]]
+    assert not _view_modifiers(obj)
     _show(missing, False)
 
 

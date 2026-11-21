@@ -29,7 +29,14 @@ sub-panels, top to bottom (Measure and Presets start open):
 - In a **Local** project, the Sun sub-panel asks for a longitude and latitude,
   and takes +Y as true north. Points have local coordinates only.
 
-Most tools work on the source collection's meshes, in Object Mode.
+The tools work on the meshes you select, in any collection, in Object Mode.
+With nothing selected, the button is greyed out and says "Select the meshes to
+analyse". Sun Hours, Least-Cost Routes, Hydrology, and Contours and Sections
+have a **Surface** choice: **Selected Objects** (the default) or the whole
+**Source Collection**. Only the source collection is published: a layer on a
+mesh outside it works and shows, and the report says it is not published (see
+[Source](projects.md#source)). If no source collection is set, a tool sets it
+to the collection of the mesh it ran on, and the report says so.
 
 ## Sun
 
@@ -83,14 +90,17 @@ also computes clear-sky insolation in kWh/m².
 
 The date, time zone, site and refraction come from the Sun sub-panel.
 
-1. Choose the **Period**: **Day** (the Sun date), **Dates** (from the Sun date
+1. Choose the **Surface**, the meshes that get the values: the **Selected
+   Objects** or the **Source Collection**. Every mesh that renders casts
+   shadows either way.
+2. Choose the **Period**: **Day** (the Sun date), **Dates** (from the Sun date
    to an end date) or **Year** (the Sun date's year).
-2. Set the **Step (min)**: how often the sun's position is taken. Only steps
+3. Set the **Step (min)**: how often the sun's position is taken. Only steps
    with the sun up count.
-3. Choose where the values go: **Values** **Face**, **Corner** or **Texture**
+4. Choose where the values go: **Values** **Face**, **Corner** or **Texture**
    (with a **Resolution**), and the **Hours Layer** name.
-4. For insolation, tick **Insolation** and name its layer.
-5. Press **Compute Sun Hours**.
+5. For insolation, tick **Insolation** and name its layer.
+6. Press **Compute Sun Hours**.
 
 The options that matter:
 
@@ -221,7 +231,8 @@ adds it as a modifier on the selected meshes and creates its layer, ready to
 display and publish as a variant. Nothing is computed by GeoTools code, so you
 can open the node group and change it.
 
-1. Select one or more meshes in the source collection.
+1. Select one or more meshes. A mesh outside the source collection gets the
+   layer too, but is not published; the report says so.
 2. In the **Presets** sub-panel, open **Add Analysis** and pick a preset.
 3. The new layer is selected in the Layers panel, with its range, palette and
    units set.
@@ -276,8 +287,8 @@ Start to an End, and the travel time from Start to every face. Uphill and
 downhill cost differently, so the route there and the route back can differ,
 and routes cross faces at any angle instead of following mesh edges.
 
-1. Choose the **Surface**: the **Source Collection** or the **Selected
-   Objects**. It must be one mesh object.
+1. Choose the **Surface**: the **Selected Objects** (the default: select the
+   mesh to walk on) or the **Source Collection**. It must be one mesh object.
 2. Set **Start** and **End**: any objects, usually Empties. Their origins snap
    to the nearest face that can be crossed. Left empty, each gets a new Empty
    at the 3D cursor (`Route Start`, `Route End`, in GeoTools Analysis): move
@@ -354,8 +365,8 @@ Shows where water would run and pond on the 3D surface itself, so walls,
 overhangs and several levels work, which a 2.5D DEM cannot do. It is
 geometric only: no rainfall, infiltration, evaporation or hydraulics.
 
-1. Choose the **Surface**: the **Source Collection** or the **Selected
-   Objects**.
+1. Choose the **Surface**: the **Selected Objects** (the default) or the
+   **Source Collection**.
 2. Choose the **Area** to accumulate: **Plan** (the area of upward faces that
    catches rain) or **Surface** (every face, walls included).
 3. Press **Compute Hydrology**.
@@ -405,7 +416,8 @@ project's height system (RL: Blender Z plus offset A).
 
 **Contours:**
 
-1. Choose the **Surface**.
+1. Choose the **Surface**: the **Selected Objects** (the default) or the
+   **Source Collection**.
 2. Set the **Interval**, the **Base** level and **Major Every** (every fifth
    line is major by default).
 3. Press **Create Contours**.
@@ -419,7 +431,8 @@ bottom edge or a tiny loop there; no area is missed either way.
 **Sections:**
 
 1. Draw a line object along the section, or use an imported line layer, and
-   set it as the **Section Line**.
+   set it as the **Section Line**. With **Selected Objects**, select the meshes
+   to cut as well: the line itself is never cut.
 2. Under **Edges**, tick **Selected Only** to cut along the selected edges only.
 3. Press **Create Sections**.
 
