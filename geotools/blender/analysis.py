@@ -55,6 +55,7 @@ from ..analysis import site, sun
 from ..core.placement import Placement, PlacementMode
 from .common import redraw_ui
 from .properties import FieldError, format_vec, parse_vec, placement_from_props, read_number
+from .surface import SURFACE_ITEMS
 
 log = logging.getLogger(__name__)
 
@@ -210,6 +211,12 @@ class GeoToolsSunHoursSettings(bpy.types.PropertyGroup):
     The date, time zone, site and refraction are the Sun panel's.
     """
 
+    surface: EnumProperty(
+        name="Surface",
+        description="The meshes that get the values (every mesh that renders casts shadows)",
+        items=SURFACE_ITEMS,
+        default="SELECTED",
+    )
     period: EnumProperty(
         name="Period",
         description="The days to add up, starting from the date in Sun",

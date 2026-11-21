@@ -43,6 +43,9 @@ def _reset() -> None:
         for prop in group.bl_rna.properties:
             if prop.identifier not in {"rna_type", "name"}:
                 group.property_unset(prop.identifier)
+    # These tests run on the whole source collection; the default, the selected
+    # meshes, is test_selected_meshes_outside_the_source_get_the_values's.
+    analysis.sun_hours.surface = "SOURCE"
     for marker in list(bpy.context.scene.timeline_markers):
         bpy.context.scene.timeline_markers.remove(marker)
     bpy.context.scene.frame_set(1)
@@ -167,6 +170,26 @@ def test_wall_shades_half_the_plane() -> None:
     assert result["sun_rays"] == result["stats"]["steps_sun_up"]  # nothing merged
     # The wall itself is not a source, so it got no attribute.
     assert "gt_sun_hours" not in bpy.data.objects["Wall"].data.attributes
+
+
+def test_selected_meshes_outside_the_source_get_the_values() -> None:
+    _reset()
+    _equator_equinox()
+    bpy.context.scene.geotools_analysis.sun_hours.surface = "SELECTED"
+    ground = _plane()
+    yard = _plane("Yard", size=2)
+    yard.users_collection[0].objects.unlink(yard)
+    bpy.context.scene.collection.objects.link(yard)
+    yard.location.z = 5.0
+    bpy.context.view_layer.update()
+    for obj in bpy.context.view_layer.objects:
+        obj.select_set(obj == yard)
+    bpy.context.view_layer.objects.active = yard
+    result = _run(step_minutes=30, tolerance=0.0)
+    assert "gt_sun_hours" in yard.data.attributes
+    assert "gt_sun_hours" not in ground.data.attributes  # in the source, but not selected
+    assert np.abs(_values(yard, "sun_hours") - 12.0).max() < 0.6
+    assert result["source_notes"] == ["Not in the source collection, so not published: Yard"]
 
 
 def test_layer_metadata_and_variant() -> None:
@@ -368,7 +391,7 @@ def test_errors_are_reported() -> None:
     plane = bpy.data.objects["Ground"]
     plane.modifiers.new("Subdivide", "SUBSURF").levels = 1
     _, error = h.call_op(bpy.ops.geotools.sun_hours)
-    assert error is not None and "No source object" in error, error
+    assert error is not None and "No object can hold the values" in error, error
     assert "change the topology" in props.error, props.error
     assert "sun_hours" not in h.project().layers
 

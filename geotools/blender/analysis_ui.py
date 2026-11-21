@@ -203,6 +203,7 @@ class GEOTOOLS_PT_analysis_sun_hours(_AnalysisPanel, bpy.types.Panel):
         settings = analysis.settings(context)
         props, sun_props = settings.sun_hours, settings.sun
         wrapped(layout, context, "Uses the time zone, site and refraction set in Sun.", "LIGHT_SUN")
+        split_column(layout).prop(props, "surface")
         _draw_period(layout, props, sun_props)
         col = split_column(layout)
         col.prop(props, "step_minutes", text="Step (min)")

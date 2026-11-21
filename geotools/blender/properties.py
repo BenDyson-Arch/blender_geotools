@@ -586,6 +586,12 @@ class GeoToolsLayerImage(bpy.types.PropertyGroup):
     image: PointerProperty(name="Image", type=bpy.types.Image)
 
 
+class GeoToolsObjectRef(bpy.types.PropertyGroup):
+    """One object, in a list of objects (a layer's carriers)."""
+
+    object: PointerProperty(name="Object", type=bpy.types.Object)
+
+
 PRESENT_TARGET_ITEMS = (
     (
         Target.COLOR_0.value,
@@ -719,9 +725,9 @@ class GeoToolsLayerPresentation(bpy.types.PropertyGroup):
     show_in_viewport: BoolProperty(
         name="Show in Viewport",
         description="Show the layer in the viewport in these colours, kept up to date: a "
-        "GeoTools View modifier (viewport only) and material on each source object. "
-        "Solid mode shows face and corner layers, Material Preview every layer. Publishing "
-        "ignores it. One layer at a time",
+        "GeoTools View modifier (viewport only) and material on each object that carries "
+        "the layer. Solid mode shows face and corner layers, Material Preview every layer. "
+        "Publishing ignores it. One layer at a time",
         default=False,
         update=_view_shown,
     )
@@ -838,6 +844,10 @@ class GeoToolsLayer(bpy.types.PropertyGroup):
     # before the first check.
     status_issues: CollectionProperty(type=GeoToolsIssue)
     status_key: StringProperty(default="")
+    # The mesh objects that carry the layer (blender.layers.carrier_objects), in or
+    # out of the source collection, as the last refresh found them: the live view
+    # shows these, and the checks flag those outside the source collection.
+    carriers: CollectionProperty(type=GeoToolsObjectRef)
 
     # TEXTURE layers ------------------------------------------------------------
     images: CollectionProperty(type=GeoToolsLayerImage)
@@ -1001,6 +1011,7 @@ classes = (
     GeoToolsImageRemedy,
     GeoToolsImageInfo,
     GeoToolsLayerImage,
+    GeoToolsObjectRef,
     GeoToolsCategoryColor,
     GeoToolsLayerPresentation,
     GeoToolsLayer,

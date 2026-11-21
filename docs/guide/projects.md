@@ -149,6 +149,27 @@ changes afterwards, the panel says "Placement changed; verify again".
 
 It needs rusty-tiles (see the About panel).
 
+## Source
+
+The **Source** panel's **Collection** is the source collection: the meshes
+GeoTools publishes, checks and summarises. Set it to the collection that
+holds the site, or press **Import Source Mesh...**, which makes one
+(**GeoTools Source**).
+
+The source collection only decides what is published. The analysis tools and
+the [layers](layers.md) work on the meshes you select, in any collection, and
+a layer covers every object that carries it. A layer on an object outside the
+source collection is not published: **Run Checks** warns about it
+(`layer-outside-source`) and offers **Add to Source**, which adds the object
+to the source collection and keeps it in its other collections.
+
+While no source collection is set, it is set for you when you import a mesh
+(**Import GeoTIFF**), add an analysis, or turn on **Show in Viewport**: it
+becomes the collection of the object you worked on, and the status bar says
+"Source set to *Collection*". Change it in the Source panel at any time. An
+object only in the scene's top-level collection, or in GeoTools' own
+**GeoTools Analysis** collection, is never made the source.
+
 ## Data that brings its own CRS
 
 When you import a GeoJSON, GeoPackage or GeoTIFF, GeoTools can take the

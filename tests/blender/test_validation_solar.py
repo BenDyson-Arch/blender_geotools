@@ -39,6 +39,7 @@ def _reset() -> None:
         for prop in group.bl_rna.properties:
             if prop.identifier not in {"rna_type", "name"}:
                 group.property_unset(prop.identifier)
+    analysis.sun_hours.surface = "SOURCE"  # the source objects, selected or not
     for marker in list(bpy.context.scene.timeline_markers):
         bpy.context.scene.timeline_markers.remove(marker)
     bpy.context.scene.cursor.location = (0.0, 0.0, 0.0)

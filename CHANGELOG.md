@@ -46,6 +46,17 @@ and the project follows semantic versioning where practical.
 
 ### Changed
 
+- Analysis acts on the selected meshes, in any collection; the source
+  collection only decides what is published. Sun Hours, Least-Cost Routes,
+  Hydrology, and Contours and Sections default to **Selected Objects** (Sun
+  Hours gets the **Surface** choice too), and with nothing selected their
+  buttons say "Select the meshes to analyse". A layer, its range and **Show
+  in Viewport** cover every object that carries it, and Show in Viewport says
+  so when none does instead of turning on to show nothing. While no source
+  collection is set, adding an analysis, showing a layer or importing a
+  GeoTIFF sets it to that object's collection and says so. Run Checks warns
+  about a layer on an object outside the source collection and offers **Add
+  to Source**.
 - **Write Colours** is gone: Show in Viewport replaces it. Publishing still
   never writes the `gt_present` attribute it left on meshes.
 - GLBs with metadata name their `geotools:` XMP terms with a permanent

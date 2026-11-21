@@ -50,7 +50,6 @@ from .layers import (
     find_layer,
     refresh_layer,
     remove_layer_data,
-    source_objects,
     spec_from_props,
     write_layer,
 )
@@ -77,6 +76,7 @@ from .ray_bake import (
     setup_cycles,
     vector_node,
 )
+from .source import analysis_notes
 
 log = logging.getLogger(__name__)
 
@@ -413,14 +413,11 @@ def compute(
         if preset.display_range is not None:
             item.presentation.range_min = format_number(preset.display_range[0])
             item.presentation.range_max = format_number(preset.display_range[1])
+    notes.extend(analysis_notes(context, objects))  # before the refresh: it may set Source
     refresh_layer(scene, find_layer(scene, name))
     layers = scene.geotools.layers
     scene.geotools.layers_index = layers.find(name)
     timings["write"] = time.perf_counter() - started
-    sources = {o.as_pointer() for o in source_objects(scene)}
-    outside = [o.name for o in objects if o.as_pointer() not in sources]
-    if outside:
-        notes.append("Not in the source collection, so not published: " + ", ".join(outside[:3]))
     summary.update(
         layer=name,
         preset=preset_id,
