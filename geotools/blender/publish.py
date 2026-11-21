@@ -252,6 +252,36 @@ def update_from_job() -> float | None:
     return None if finished else TIMER_INTERVAL
 
 
+def memory_reading() -> sysmem.MemoryReading | None:
+    """The memory reading Build Settings shows; never reads memory itself.
+
+    ``draw()`` calls this, so it must not start a subprocess (``vm_stat`` on
+    macOS). When there is no reading yet, or it has expired, it schedules
+    :func:`refresh_memory_reading` and returns what it has. A publish reads
+    afresh with ``sysmem.available_memory_bytes`` instead.
+    """
+    reading = sysmem.last_reading()
+    stale = reading is None or reading.expired()
+    if stale and not bpy.app.timers.is_registered(refresh_memory_reading):
+        bpy.app.timers.register(refresh_memory_reading, first_interval=0.0)
+    return reading
+
+
+def refresh_memory_reading() -> None:
+    """One-shot timer: read the available memory off the draw path, then redraw.
+
+    In background mode timers never fire; tests call this.
+    """
+    before = sysmem.last_reading()
+    available = sysmem.available_memory_bytes()
+    if before is not None and before.available == available:
+        return
+    try:
+        redraw_ui(bpy.context)
+    except Exception:  # no windows (background) or a context without screens
+        log.debug("publish: redraw failed", exc_info=True)
+
+
 def _start_timer() -> None:
     if not bpy.app.timers.is_registered(update_from_job):
         # Persistent: a non-persistent timer is dropped when a file is loaded,
@@ -1108,8 +1138,9 @@ def register() -> None:
 def unregister() -> None:
     shutdown_job()
     stop_preview()
-    if bpy.app.timers.is_registered(update_from_job):
-        bpy.app.timers.unregister(update_from_job)
+    for timer in (update_from_job, refresh_memory_reading):
+        if bpy.app.timers.is_registered(timer):
+            bpy.app.timers.unregister(timer)
     for handlers, fn in (
         (bpy.app.handlers.exit_pre, _on_exit),
         (bpy.app.handlers.load_pre, _on_load_pre),
