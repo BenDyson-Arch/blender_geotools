@@ -71,6 +71,8 @@ and the project follows semantic versioning where practical.
 
 ### Fixed
 
+- On macOS, Publish > Build Settings no longer runs `vm_stat` each time the
+  sidebar redraws. The Auto memory figure updates every few seconds instead.
 - A project origin on the antimeridian keeps its BlenderGIS latitude and
   longitude. A rounding error put its longitude just past -180°, so the
   position was refused and the two keys were deleted.
