@@ -284,6 +284,53 @@ def test_fast_cumulative_viewshed_matches_the_segment_box_test() -> None:
     _clear_trees()
 
 
+# --- direct visibility (bake only) -------------------------------------------------------------
+
+
+def test_direct_visibility_entries_bake_without_a_modifier() -> None:
+    """Sky Visibility and the others: always baked, one FACE layer each, no modifier.
+
+    On a level plane every face sees the whole sky: 1, 1 and 1 (exactly: the
+    sky directions' cosines sum to Rays / 2), also through the operator's
+    default engine, which they ignore.
+    """
+    _reset()
+    flat = _grid("Flat", 8, 4.0, lambda x, y: 0.0 * x)
+    for preset in ("sky_visibility", "sky_view_cosine", "openness_3d"):
+        assert _add(preset, rays=64) == {"FINISHED"}, preset
+        spec = _spec(preset)
+        assert spec.domain == "FACE" and spec.origin == "ANALYSIS", spec
+        parameters = spec.provenance["parameters"]
+        assert parameters["preset"] == preset and "node_group" not in parameters
+        assert parameters["inputs"]["Rays"] == 64
+        assert parameters["rays_per_sample"] == (128 if preset == "openness_3d" else 64)
+        values, _where = _values(flat, preset)
+        assert len(values) == 64
+        np.testing.assert_allclose(values, 1.0, atol=1e-6, err_msg=preset)
+    assert not flat.modifiers
+    # Over several bakes (1,024 directions each), the sums add up.
+    result = _fast().compute(
+        bpy.context, "openness_3d", [flat], name="open_big", inputs={"Rays": 1500}
+    )
+    assert result["bakes"] == 3 and result["rays_per_sample"] == 3000
+    np.testing.assert_allclose(_values(flat, "open_big")[0], 1.0, atol=1e-6)
+    # A box over part of the plane takes sky away from the faces under it.
+    co, faces = _box((-0.5, -0.5, 0.4), (0.5, 0.5, 0.5))
+    lid = _object("Lid", co, faces=faces, source=True)
+    result = _fast().compute(
+        bpy.context, "sky_visibility", [flat, lid], name="lidded", inputs={"Rays": 256}
+    )
+    values, where = _values(flat, "lidded")
+    under = _inside(where, 0.5)
+    assert values[under].max() < values[~under].min(), (values[under], values[~under])
+    # A live layer's name is refused, as for the other fast paths.
+    assert _add("slope") == {"FINISHED"}
+    _, error = h.call_op(bpy.ops.geotools.analysis_add, preset="sky_visibility", name="slope")
+    assert error is not None and "not a fast Sky Visibility layer" in error, error
+    _no_leftovers()
+    _clear_trees()
+
+
 # --- names, failures and the menu -----------------------------------------------------------------
 
 

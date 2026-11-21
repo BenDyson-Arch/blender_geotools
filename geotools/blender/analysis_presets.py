@@ -68,7 +68,8 @@ log = logging.getLogger(__name__)
 
 LIBRARY_PATH = Path(__file__).resolve().parents[1] / "assets" / catalog.LIBRARY_FILE
 
-PRESET_ITEMS = tuple((p.id, p.label, p.description) for p in catalog.PRESETS)
+PRESET_ITEMS = tuple((p.id, p.label, p.description) for p in (*catalog.PRESETS, *fast.BAKE_ONLY))
+"""The catalog's presets, then the bake-only entries (``preset_bake.BAKE_ONLY``)."""
 
 NORTH_ITEMS = (
     ("GRID", "Grid North (+Y)", "Measure from the scene's +Y axis"),
@@ -97,7 +98,7 @@ ENGINE_ITEMS = (
 
 
 def _default(preset_id: str, name: str):
-    return next(i.default for i in catalog.get(preset_id).inputs if i.name == name)
+    return next(i.default for i in fast.get(preset_id).inputs if i.name == name)
 
 
 def _typed(value: float) -> float:
@@ -735,7 +736,8 @@ class GEOTOOLS_OT_analysis_add(bpy.types.Operator):
         items=ENGINE_ITEMS,
         default="GEONODES",
         description="Sky-view factor, openness and the cumulative viewshed can also be "
-        "computed once by a Cycles bake (other presets are always live)",
+        "computed once by a Cycles bake (other presets are always live; Sky Visibility, Sky "
+        "View (Cosine) and Openness (3D) are always baked)",
         options={"SKIP_SAVE"},
     )
     # The fast path's inputs: the preset's own, with its defaults (a live
@@ -745,7 +747,8 @@ class GEOTOOLS_OT_analysis_add(bpy.types.Operator):
         default=_default("sky_view_factor", "Max Distance"),
         min=0.001,
         subtype="DISTANCE",
-        description="How far the horizon is searched along each direction",
+        description="How far the horizon is searched along each direction (direct "
+        "visibility: the length of each ray)",
     )
     directions: IntProperty(
         name="Directions",
@@ -767,7 +770,16 @@ class GEOTOOLS_OT_analysis_add(bpy.types.Operator):
         min=0.0,
         subtype="DISTANCE",
         precision=4,
-        description="Rays start this far from the surface along the vertex normal",
+        description="Rays start this far from the surface along the vertex normal (direct "
+        "visibility: the face normal)",
+    )
+    rays: IntProperty(
+        name="Rays",
+        default=_default("sky_visibility", "Rays"),
+        min=16,
+        max=4096,
+        description="Sky directions cast from each face, evenly spread (equal solid angle); "
+        "Openness (3D) casts as many again below the horizon",
     )
     observer_height: FloatProperty(
         name="Observer Height",
@@ -812,7 +824,7 @@ class GEOTOOLS_OT_analysis_add(bpy.types.Operator):
     @classmethod
     def description(cls, _context, properties) -> str:
         try:
-            preset = catalog.get(properties.preset)
+            preset = fast.get(properties.preset)
         except KeyError:
             return cls.__doc__
         cost = {"heavy": " Slow on large meshes: see the docs."}.get(preset.cost, "")
@@ -826,7 +838,9 @@ class GEOTOOLS_OT_analysis_add(bpy.types.Operator):
             where += " Uses " + "; ".join(needs) + "."
         if preset.output is catalog.Output.OBJECT:
             where += " Makes a new object of lines."
-        if fast.is_fast(preset.id) and properties.engine == "BAKE":
+        if fast.is_bake_only(preset.id) or (
+            fast.is_fast(preset.id) and properties.engine == "BAKE"
+        ):
             return (
                 f"{preset.description}. Fast: computed once by a Cycles bake into a stored "
                 f"layer, with no modifier.{where}"
@@ -846,21 +860,25 @@ class GEOTOOLS_OT_analysis_add(bpy.types.Operator):
         return True
 
     def _is_object(self) -> bool:
-        return catalog.get(self.preset).output is catalog.Output.OBJECT
+        return fast.get(self.preset).output is catalog.Output.OBJECT
 
     def draw(self, _context: bpy.types.Context) -> None:
         layout = self.layout
         layout.use_property_split = True
         layout.prop(self, "preset")
         layout.prop(self, "name", text="Object" if self._is_object() else "Layer")
-        if catalog.get(self.preset).north:
+        if fast.get(self.preset).north:
             layout.prop(self, "north")
         if not fast.is_fast(self.preset):
             return
-        layout.prop(self, "engine")
-        if self.engine != "BAKE":
-            return
-        if self.preset in fast.HORIZON:
+        if not fast.is_bake_only(self.preset):
+            layout.prop(self, "engine")
+            if self.engine != "BAKE":
+                return
+        if self.preset in fast.DIRECT:
+            for prop in ("max_distance", "rays", "ray_offset"):
+                layout.prop(self, prop)
+        elif self.preset in fast.HORIZON:
             for prop in ("max_distance", "directions", "steps", "ray_offset"):
                 layout.prop(self, prop)
         else:
@@ -871,6 +889,12 @@ class GEOTOOLS_OT_analysis_add(bpy.types.Operator):
 
     def fast_inputs(self) -> dict[str, object]:
         """The fast path's inputs, by the preset's input names."""
+        if self.preset in fast.DIRECT:
+            return {
+                "Max Distance": _typed(self.max_distance),
+                "Rays": self.rays,
+                "Ray Offset": _typed(self.ray_offset),
+            }
         if self.preset in fast.HORIZON:
             return {
                 "Max Distance": _typed(self.max_distance),
@@ -923,8 +947,8 @@ class GEOTOOLS_OT_analysis_add(bpy.types.Operator):
         return {"FINISHED"}
 
     def execute(self, context: bpy.types.Context) -> set[str]:
-        preset = catalog.get(self.preset)
-        if self.engine == "BAKE" and fast.is_fast(preset.id):
+        preset = fast.get(self.preset)
+        if fast.is_bake_only(preset.id) or (self.engine == "BAKE" and fast.is_fast(preset.id)):
             return self._execute_fast(context, preset)
         try:
             objects = preset_targets(context, preset)
@@ -1004,6 +1028,14 @@ class GEOTOOLS_MT_analysis_presets(bpy.types.Menu):
                     )
                     op.preset = preset.id
                     op.engine = "BAKE"
+            for preset in fast.bake_only(category):  # no live preset: Fast Bake only
+                op = layout.operator(
+                    GEOTOOLS_OT_analysis_add.bl_idname,
+                    text=f"{preset.label} (Fast Bake)",
+                    icon="RENDER_STILL",
+                )
+                op.preset = preset.id
+                op.engine = "BAKE"
 
 
 def draw_panel(layout: bpy.types.UILayout, context: bpy.types.Context) -> None:
