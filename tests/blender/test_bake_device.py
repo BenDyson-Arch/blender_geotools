@@ -1,7 +1,8 @@
 """The Bake Device preference (``blender.bake_device``): which Cycles device bakes use.
 
-Without a Cycles GPU (as on CI) Auto and GPU bake on the CPU, and the
-comparison of CPU and GPU results is a SKIP. With one (CUDA, OptiX, HIP,
+Without a Cycles GPU Auto and GPU bake on the CPU, and the comparison of
+CPU and GPU results is a SKIP; on CI it is a SKIP unless GEOTOOLS_TEST_GPU
+is set. With one (CUDA, OptiX, HIP,
 Metal or oneAPI), the comparison sets it up in the throwaway profile's Cycles
 preferences and bakes sun hours, Sky Visibility (fast) and a texture layer on
 each device:
@@ -15,6 +16,7 @@ each device:
 from __future__ import annotations
 
 import contextlib
+import os
 from collections.abc import Iterator
 
 import _harness as h
@@ -182,6 +184,11 @@ def _texture(device: str) -> np.ndarray:
 
 
 def test_cpu_and_gpu_agree() -> None:
+    # CI runners can expose a GPU (Metal on the macOS arm64 runners) whose first
+    # Cycles kernel compile outlasts the job's time limit, so on CI the comparison
+    # runs only when asked for.
+    if os.environ.get("CI") and not os.environ.get("GEOTOOLS_TEST_GPU"):
+        raise h.Skipped("CPU/GPU comparison on CI needs GEOTOOLS_TEST_GPU=1")
     kind = _gpu_kind()
     if kind is None:
         raise h.Skipped("no Cycles GPU (CUDA, OptiX, HIP, Metal or oneAPI) on this machine")
