@@ -5,7 +5,7 @@ holes where no photo saw the surface, a person or a vehicle in a trench, a scale
 bar left on the ground, or pages of an atlas that came out at different
 exposures. Blender 5.2 already has a full set of texture painting tools.
 GeoTools only adds what Blender lacks and what publishing needs. Everything it
-adds is in the **Textures** panel of the GeoTools sidebar, between Layers and
+adds is in the **Textures** panel of the GeoTools sidebar, between Tools and
 Checks.
 
 | Task | Who does it |

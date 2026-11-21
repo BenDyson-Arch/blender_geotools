@@ -255,13 +255,12 @@ def test_least_cost_errors() -> None:
     assert "No face can be crossed" in error
 
 
-def test_least_cost_panel_draws() -> None:
+def test_least_cost_result_draws() -> None:
+    """Least-Cost Routes as a result in Analyses: its inputs, Compute and summary."""
     _reset()
-    ui = h.submodule("blender.surface_ui")
-    calls = h.draw(ui.GEOTOOLS_PT_analysis_least_cost)
-    assert "3D cursor" in h.label_text(calls)
-    _plane()
-    _ends(bpy.context.scene.geotools_least_cost)
-    _run()
-    text = h.label_text(h.draw(ui.GEOTOOLS_PT_analysis_least_cost))
-    assert "Route" in text and "Furthest" in text
+    item = h.add_analysis("Movement > Least-Cost Routes", _plane())
+    assert "3D cursor" in h.inputs_text()
+    _ends(item.least_cost)
+    assert h.call_op(bpy.ops.geotools.analyses_compute)[1] is None, item.least_cost.error
+    text = h.inputs_text()
+    assert "Route" in text and "Length" in text, text

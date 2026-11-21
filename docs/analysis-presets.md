@@ -1,6 +1,6 @@
 # Analysis presets
 
-The presets cover terrain shape, archaeological visualisation, visibility,
+The presets cover terrain shape, relief and sky visualisation, visibility,
 change and distance, volumes, and paths and flow. Sky-view factor, openness
 and the cumulative viewshed also have a [fast (bake) path](#fast-bake-paths)
 for large meshes. For meshes with overhangs, [Sky Visibility, Sky View
@@ -8,28 +8,31 @@ for large meshes. For meshes with overhangs, [Sky Visibility, Sky View
 count sky directly, and are only baked.
 
 A preset is an ordinary Geometry Nodes group built from stock nodes. **Add
-Analysis** (Analysis panel ▸ Presets) appends it to the file, adds it as a
-modifier on the selected meshes and creates the [layer](guide/layers.md)
-its Store Named Attribute writes. Nothing is computed by GeoTools code: the
+Analysis** (in the [Analyses panel](guide/analysis.md#the-analyses-panel))
+appends it to the file, adds it as a modifier on each selected mesh and
+creates the [layer](guide/layers.md) its Store Named Attribute writes. Nothing is computed by GeoTools code: the
 modifier computes the values, the layer reads them from the evaluated mesh,
-and publishing applies the modifier. Change a preset's inputs on the modifier,
-or open its node group and edit it. Apply the modifier (Blender's own tool) to
+and publishing applies the modifier. Change a preset's inputs under the result's
+**Inputs** (they are the modifier's own), or open its node group and edit it. Apply the modifier (Blender's own tool) to
 freeze a result.
 
 ## Using a preset
 
 1. Select one or more meshes, in any collection. Only those in the source
    collection publish; the report names the others.
-2. **Add Analysis**, then pick a preset. One click adds it with the defaults
-   below; the Adjust Last Operation panel changes the layer name and, for
-   aspect, the north.
-3. The new layer is selected in the Layers panel, with its value range already
-   read, a palette and, for bounded quantities, a fixed display range. Publish
-   it as a variant (Publish ▸ Variant) like any layer.
+2. In **Add Analysis**, type part of the name and pick the preset, such as
+   *Terrain > Slope*. It is added with the defaults below, one result per
+   mesh; *Aspect (True North)* is aspect from true north.
+3. The new result is selected in the Analyses list, its layer with its value
+   range already read, a palette and, for bounded quantities, a fixed display
+   range. Publish it as a variant (**Publish as Variant** under **Outputs**,
+   or Publish ▸ Variant) like any layer.
 
-Adding the same preset to more objects reuses the layer and the node group.
-Adding it under another layer name (for example `slope_smooth` with a
-different Smoothing) adds a second modifier on the same node group.
+Adding the same preset to more meshes reuses the layer and the node group:
+each mesh gets its own modifier, with its own inputs. Adding it to a mesh
+again (for example with a different Smoothing) adds a second modifier on the
+same node group, storing a new layer (`slope_2`); rename it under
+**Details**.
 
 Each layer records its preset in its provenance:
 
@@ -64,14 +67,13 @@ edit the points, or pick another object on the modifier: the result updates.
 
 Presets that take a mesh, line or points from the selection go on the
 **active** object only; viewshed and closed volume, like the first batch, go
-on every selected mesh. Adding a preset to an object that already has it keeps
-the modifier and its inputs, and makes no new Empty.
+on every selected mesh.
 
 ### Object presets: lines
 
 Intervisibility, line of sight, least-cost path and flow path make lines, not
 a layer. Add Analysis creates a new mesh object in GeoTools Analysis (named
-after the preset, or the name given), whose modifier builds the lines from the
+after the preset), listed under the result's **Outputs**, whose modifier builds the lines from the
 surface (the active mesh) and the other inputs. The lines carry fixed POINT
 and EDGE attributes, listed with each preset. The object's
 `geotools_provenance` custom property holds the same provenance a layer
@@ -84,10 +86,10 @@ become columns ([Geo formats](guide/geo-formats.md#publish-vectors)).
 
 Cut and fill and closed volume show totals on the modifier, under its name
 (Blender's info line from a Warning node, summed in float32 by Attribute
-Statistic), as does a least-cost path (its walking time). **Read Totals** in the
-Presets panel reads them for the active object from the evaluated mesh,
+Statistic), as does a least-cost path (its walking time). **Read Totals**, under the
+result's **Inputs**, reads them for the active object from the evaluated mesh,
 summed in binary64, and also reports intervisibility counts and the line of
-sight's obstruction; Add Analysis reports the same when it adds the preset.
+sight's obstruction.
 Read Totals only sums values the nodes made (and face areas and normals).
 
 ## Fast (bake) paths
@@ -103,13 +105,14 @@ The three [direct-visibility entries](#sky-visibility-sky-view-cosine-and-openne
 use the same engine and the same kind of layer, but have no Geometry Nodes
 preset: they are only baked.
 
-**Using it.** Add Analysis ▸ *Sky-View Factor (Fast Bake)* (and likewise for
-the other three, and *Sky Visibility (Fast Bake)*, *Sky View (Cosine) (Fast
-Bake)* and *Openness (3D) (Fast Bake)*), or set **Engine** to *Fast (bake)* in
-the Adjust Last Operation panel. The preset's inputs are on that panel, with the preset's
-defaults; the cumulative viewshed takes its Observers from the selection or
-the 3D cursor as the live preset does, and an optional Occluders collection.
-No modifier is added: the values are computed once, written to the meshes
+**Using it.** Add Analysis ▸ *Sky-View Factor (Fast Bake)* (and likewise
+*Positive Openness (Fast Bake)*, *Negative Openness (Fast Bake)* and
+*Cumulative Viewshed (Fast Bake)*, and the bake-only *Sky Visibility*, *Sky
+View (Cosine)* and *Openness (3D)*). The result's **Inputs** hold the
+preset's inputs, with the preset's defaults, and its **Surface**; the
+cumulative viewshed takes its Observers from the selection or the 3D cursor
+as the live preset does, and an optional Occluders collection. Press
+**Compute**. No modifier is added: the values are computed once, written to the meshes
 (`gt_<layer>`, CORNER or FACE as the preset's) and the layer's origin is
 *analysis*, with a provenance naming the preset and version it reproduces,
 the method (`"engine": "bake"`), the inputs, the objects, the samples, the
@@ -122,14 +125,15 @@ rays per sample and the bakes:
   "objects": ["Site"], "samples": 5004169, "rays_per_sample": 128, "bakes": 1, ...}}
 ```
 
-To recompute (after editing the mesh, or with other inputs), run it again
-under the same layer name. A fast layer and a live preset layer cannot share a
-name: Add Analysis refuses and suggests another (`sky_view_factor_fast`).
+To recompute after editing the mesh or the inputs, press **Recompute**; the
+list marks the result out of date when its inputs change. A fast layer is
+named apart from the live preset's (`sky_view_factor_fast`): the two cannot
+share a name.
 
-**Why a choice in Add Analysis, not a button on the layer.** A button on a
+**Why a separate entry, not a button on the layer.** A button on a
 live preset's layer would first need the live modifier evaluated: the minutes
-this path saves. The choice sits where the analysis is added, offers the
-preset's own inputs, and the live preset stays one click away (and is the one
+this path saves. The Fast Bake is its own entry in Add Analysis, with the
+preset's own inputs, and the live preset stays one entry away (and is the one
 to use for editing the node group or keeping the result live).
 
 **How it differs from the live preset.**
@@ -138,8 +142,9 @@ to use for editing the node group or keeping the result live).
   update it.
 - *Scene space*: rays run in the scene's axes and units. For an unrotated,
   unscaled object (imported meshes are) that is the preset's own space.
-- *Occluders*: the meshes it is added to (all of them, so selected tiles of
-  one site shade each other) and, for the viewshed, the Occluders collection.
+- *Occluders*: the meshes it runs on (its **Surface**: choose Selected
+  Objects or Source Collection so the tiles of one site shade each other)
+  and, for the viewshed, the Occluders collection.
   Everything else is hidden from the bake. An occluder outside the view layer
   cannot render, so it does not occlude (the panel says so).
 - An object whose modifiers change its topology is skipped with a note, as
@@ -221,7 +226,7 @@ the mesh and building the samples, which the GPU does not change.
   without writing the user's preferences (which would outlive the extension),
   so GeoTools appends from the bundled file directly. The presets are also
   marked as assets in one catalog per category (*GeoTools/Terrain Shape*,
-  *GeoTools/Archaeological Visualisation*, *GeoTools/Visibility*,
+  *GeoTools/Relief and Sky*, *GeoTools/Visibility*,
   *GeoTools/Change and Distance*, *GeoTools/Volumes* and *GeoTools/Paths and
   Flow*; `blender_assets.cats.txt` beside the file): add the extension's `assets` folder as an asset library in the
   preferences to drag them from the Asset Browser.
@@ -318,7 +323,7 @@ object's centre (`site.SunSite.rotation`, the rotation of its polar
 decomposition), which in both is the meridian convergence, as their
 meridians and parallels cross at right angles. Aspects facing along and
 across the meridian are then exact, and others are off by up to the values
-below, worst at 45° from the meridian. Add Analysis says so. For exact true
+below, worst at 45° from the meridian. For exact true
 aspects in those CRSs, work in a conformal CRS (the local MGA or UTM zone).
 
 | CRS | Site | Largest aspect error |
@@ -451,7 +456,7 @@ Riley et al. (1999), as `gdaldem TRI` computes it for land:
 Window (default 0.05 m). On a plane of slope β it is `w tan β √6`. No data
 within one window of the edge.
 
-## Archaeological visualisation
+## Relief and sky visualisation
 
 ### Local Relief Model (`local_relief`, CORNER, m)
 
@@ -533,7 +538,7 @@ sky, each standing for the same solid angle (the sky set sun hours' diffuse
 light uses). Only directions in front of the face are cast: the face itself
 hides the rest. Nothing is assumed about the surface, so overhangs, walls,
 ceilings and undercuts are counted as they are. Bake only (Add Analysis ▸
-*… (Fast Bake)*), with the [fast path's](#fast-bake-paths) occluders and
+*Relief and Sky > Sky Visibility* and so on), with the [fast path's](#fast-bake-paths) occluders and
 provenance; display range 0–1, greys.
 
 - **Sky Visibility**: misses / Rays, the share of the sky's solid angle seen

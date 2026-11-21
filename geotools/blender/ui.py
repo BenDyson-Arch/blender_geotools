@@ -12,6 +12,8 @@ import textwrap
 
 import bpy
 
+from ..core.issues import Severity
+
 # Panel header states, shown with draw_header. ERROR and WARNING use the same
 # icons as issue severities (properties.SEVERITY_ICONS).
 DONE = "DONE"
@@ -237,3 +239,19 @@ def big_button(layout: bpy.types.UILayout, scale: float = 1.4) -> bpy.types.UILa
     row = layout.row()
     row.scale_y = scale
     return row
+
+
+def issue_severity(issue) -> Severity:
+    """An issue's severity: a ``Severity``, or its name as stored on ``GeoToolsIssue``."""
+    value = issue.severity
+    return value if isinstance(value, Severity) else Severity[value]
+
+
+def worst_state(issues) -> str:
+    """The header state of a set of issues: ERROR, WARNING or DONE."""
+    severities = {issue_severity(i) for i in issues}
+    if Severity.ERROR in severities:
+        return ERROR
+    if Severity.WARNING in severities:
+        return WARNING
+    return DONE

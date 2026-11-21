@@ -16,6 +16,11 @@ It writes, in ``--out``:
 * ``montage_glb.png``: the same with the second build profile selected, a
   ``.glb`` profile (the metadata GLB, with the face table), exported once
   (after ``montage``, so it needs it);
+* ``analyses_preset.png``, ``analyses_tool.png``, ``analyses_hills.png``: the
+  Analyses list following the active mesh: Aspect added to the terrain and
+  a second mesh, Hills (a result on each), Hydrology on the terrain (out of
+  date) and Contours on Hills. The terrain active with Aspect and then
+  Hydrology selected, then Hills active (after ``montage``);
 * ``state_empty.png``, ``state_mid.png``, ``state_ready.png``: what a user
   sees with the default open and closed panels, for an empty project, one
   half set up (placed, a source, an empty layer) and the full demo scene.
@@ -62,8 +67,9 @@ Clipped text:
   intentional ellipses, and fails if it does not find exactly the two.
 
 Notes:
-* Only one sidebar tab can be shown and Python cannot pick the active tab, so
-  the other View3D sidebar panels are unregistered to leave GeoTools alone.
+* Only one sidebar tab can be shown, so the other View3D sidebar panels are
+  unregistered to leave GeoTools alone, and the region's active tab is set to
+  GeoTools (with an active object, the Item tab's Transform would show).
 * For the montage the GeoTools panels are registered again, in the add-on's
   own order, without DEFAULT_CLOSED, and shot in the Modeling workspace,
   whose sidebar has not drawn them yet (a region keeps each panel's open or
@@ -93,7 +99,7 @@ try:
 except ImportError:
     INSIDE_BLENDER = False
 
-STATES = ("empty", "mid", "ready", "montage", "texture", "glb")
+STATES = ("empty", "mid", "ready", "montage", "texture", "glb", "analyses")
 WINDOW = (1800, 1350)
 GUI_TIMEOUT = 900  # seconds
 MONTAGE_WORKSPACE = "Modeling"  # a factory workspace with a 3D Viewport
@@ -457,9 +463,13 @@ def inner_main(argv: list[str]) -> None:
             bpy.utils.register_class(cls)
 
     def prepare_view() -> None:
-        window, area, _region = ui_region()
+        window, area, region = ui_region()
         space = area.spaces.active
         space.show_region_ui = True
+        # With an active object the Item tab (Transform) shows unless GeoTools is chosen;
+        # the tab can be chosen once the region has drawn its tabs (read-only before).
+        with contextlib.suppress(AttributeError, TypeError):
+            region.active_panel_category = "GeoTools"
         space.shading.type = "SOLID"
         space.shading.color_type = "VERTEX"
         space.overlay.show_floor = False
@@ -556,6 +566,11 @@ def inner_main(argv: list[str]) -> None:
 
     def capture(name: str):
         """Shoot the sidebar top to bottom, save the strips side by side, check for clipping."""
+        _window, area, region = ui_region()
+        with contextlib.suppress(AttributeError, TypeError):  # writable once tabs have drawn
+            region.active_panel_category = "GeoTools"
+        area.tag_redraw()
+        yield 0.5
         strips, _tops = yield from strips_of(name)
         save_png(side_by_side(strips), out / f"{name}.png")
         print(f"UI-SHOTS {name}: {len(strips)} strip(s)", flush=True)
@@ -1001,8 +1016,58 @@ def inner_main(argv: list[str]) -> None:
         run_op(bpy.ops.geotools.run_checks)
         linked_dem()
         linked_contexts()
+        mod("blender.analyses").sync(scene)  # as the depsgraph handler does
         bpy.ops.object.select_all(action="DESELECT")
-        bpy.context.view_layer.objects.active = None
+        bpy.context.view_layer.objects.active = obj  # Analyses lists the active mesh's
+
+    def hills() -> bpy.types.Object:
+        """A second, smaller synthetic mesh beside the terrain (not in the source)."""
+        mesh = bpy.data.meshes.new("Hills")
+        n = 40
+        xs = np.linspace(0.0, 80.0, n)
+        x, y = np.meshgrid(xs, xs)
+        z = 6 * np.sin(x / 13) * np.cos(y / 17)
+        verts = np.stack([x + 120.0, y - 40.0, z], -1).reshape(-1, 3)
+        i, j = np.meshgrid(np.arange(n - 1), np.arange(n - 1))
+        a = (j * n + i).ravel()
+        quads = np.stack([a, a + 1, a + n + 1, a + n], -1)
+        mesh.from_pydata(verts.tolist(), [], quads.tolist())
+        obj = bpy.data.objects.new("Hills", mesh)
+        bpy.context.scene.collection.objects.link(obj)
+        return obj
+
+    def select_only(*objects) -> None:
+        for obj in bpy.context.view_layer.objects:
+            obj.select_set(obj in objects)
+        bpy.context.view_layer.objects.active = objects[0] if objects else None
+
+    def add_analysis(text: str) -> None:
+        props = bpy.context.scene.geotools_analyses
+        props.add_search = text
+        if props.error:
+            print(f"UI-SHOTS add {text}: {props.error}", flush=True)
+        elif props.items[props.index].kind != "PRESET":
+            run_op(bpy.ops.geotools.analyses_compute)
+
+    def build_analyses():
+        """Aspect on the terrain and Hills (a result each), Hydrology on the terrain (then
+        out of date), Contours on Hills: added from the Add Analysis field."""
+        scene = bpy.context.scene
+        terrain_obj = scene.geotools.source_collection.objects[0]
+        hills_obj = hills()
+        select_only(terrain_obj, hills_obj)
+        add_analysis("Terrain > Aspect")
+        select_only(terrain_obj)
+        add_analysis("Water > Hydrology")
+        props = scene.geotools_analyses
+        props.items[props.index].hydrology.min_depth = 0.05  # out of date
+        select_only(hills_obj)
+        add_analysis("Lines > Contours")
+        return terrain_obj, hills_obj
+
+    def select_analysis(name: str) -> None:
+        props = bpy.context.scene.geotools_analyses
+        props.index = next(i for i, item in enumerate(props.items) if item.name == name)
 
     def linked_dem() -> None:
         """The terrain as a 4 m DEM GeoTIFF in MGA zone 56, imported as linked data."""
@@ -1097,7 +1162,9 @@ def inner_main(argv: list[str]) -> None:
             build_ready()
             open_all_panels()
             window = bpy.context.window_manager.windows[0]
-            window.workspace = bpy.data.workspaces[MONTAGE_WORKSPACE]
+            workspace = bpy.data.workspaces[MONTAGE_WORKSPACE]
+            workspace.object_mode = "OBJECT"  # Modeling would put the active mesh in Edit Mode
+            window.workspace = workspace
             yield 1.0
             hide_other_tabs()
             prepare_view()
@@ -1122,6 +1189,23 @@ def inner_main(argv: list[str]) -> None:
                     break
             yield 1.0
             yield from capture("montage_glb")
+        if "analyses" in states and "montage" in states:
+            props = bpy.context.scene.geotools
+            props.build_profile_index = 0
+            terrain_obj, hills_obj = build_analyses()
+            analyses = mod("blender.analyses")
+            for active, name, shot in (
+                (terrain_obj, "Aspect", "analyses_preset"),
+                (terrain_obj, "Hydrology", "analyses_tool"),
+                (hills_obj, None, "analyses_hills"),
+            ):
+                select_only(active)
+                if name is None:
+                    analyses.follow_active(bpy.context)  # as the msgbus watch does
+                else:
+                    select_analysis(name)
+                yield 1.0
+                yield from capture(shot)
 
     steps = run()
 

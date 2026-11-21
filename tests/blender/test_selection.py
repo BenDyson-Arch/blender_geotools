@@ -313,7 +313,7 @@ def test_show_in_viewport_with_no_carrier_reports_and_stays_off() -> None:
     assert "Layer empty not shown" in warning and "gt_empty" in warning, recorder.reports
 
     # The Display panel draws the toggle as that operator, pressed in while shown.
-    h.draw(h.submodule("blender.panels").GEOTOOLS_PT_layers_display)
+    h.draw(h.layer_panel("display"))
     assert h.operator_text("geotools.layer_show") == "Show in Viewport"
 
 

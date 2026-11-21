@@ -64,15 +64,15 @@ def test_layers_registered() -> None:
         "geotools.layer_update_range",
     ):
         assert h.operator_available(idname), idname
-    assert hasattr(bpy.types, "GEOTOOLS_UL_layers")
-    # Source, then Linked Data (M8) and Analysis (M5, with its sub-panels), then Layers.
+    assert hasattr(bpy.types, "GEOTOOLS_UL_analyses")  # layers are listed in Analyses
+    # Source, then Linked Data, then Analyses (layers and analyses) and Tools.
     classes = h.submodule("blender.panels").classes
     top = [c.__name__ for c in classes if not getattr(c, "bl_parent_id", "")]
     assert top[top.index("GEOTOOLS_PT_source") :][:4] == [
         "GEOTOOLS_PT_source",
         "GEOTOOLS_PT_linked_data",
-        "GEOTOOLS_PT_analysis",
-        "GEOTOOLS_PT_layers",
+        "GEOTOOLS_PT_analyses",
+        "GEOTOOLS_PT_analysis",  # Tools
     ], top
     props = h.project()
     assert "layers" in props.bl_rna.properties and "layers_index" in props.bl_rna.properties
@@ -581,22 +581,23 @@ def test_layer_records_skip_invalid_layers() -> None:
 # --- panel ----------------------------------------------------------------------------------
 
 
-def _panel(name: str = "GEOTOOLS_PT_layers"):
-    return getattr(h.submodule("blender.panels"), name)
+def _panel(part: str = "fields"):
+    """The Analyses sub-panels' drawing of the active layer (``_harness.layer_panel``)."""
+    return h.layer_panel(part)
 
 
 def test_panel_draws_without_layers() -> None:
     h.reset_scene()
-    calls = h.draw(_panel())
-    assert ("template_list", "GEOTOOLS_UL_layers", "NONE") in calls, calls
-    assert ("operator", "geotools.layer_add", "ADD") in calls
-    assert "No layers yet" in h.label_text(calls), calls
-    for name in (
-        "GEOTOOLS_PT_layers_bake",
-        "GEOTOOLS_PT_layers_display",
-        "GEOTOOLS_PT_layers_details",
+    bpy.context.view_layer.objects.active = None
+    ui = h.submodule("blender.analyses_ui")
+    calls = h.draw(ui.GEOTOOLS_PT_analyses)
+    assert "Select a mesh to see its analyses" in h.label_text(calls), calls
+    for panel in (
+        ui.GEOTOOLS_PT_analyses_inputs,
+        ui.GEOTOOLS_PT_analyses_display,
+        ui.GEOTOOLS_PT_analyses_details,
     ):
-        assert not _panel(name).poll(bpy.context), name
+        assert not panel.poll(bpy.context), panel
 
 
 def test_panel_draws_layers() -> None:
@@ -612,7 +613,6 @@ def test_panel_draws_layers() -> None:
     assert {"label", "units", "source_attribute"} <= set(drawn), drawn
     assert not {"domain", "data_type", "nodata", "value_min", "value_max"} & set(drawn), drawn
     assert ("operator", "geotools.layer_update_range", "FILE_REFRESH") in calls
-    assert ("operator", "geotools.layer_rename", "GREASEPENCIL") in calls
     assert ("Not known", "NONE") in list(h.labels(calls)), calls
     # Drawing reads no mesh: the status is what the last refresh found.
     assert "Not checked yet" in h.label_text(calls), calls
@@ -621,12 +621,9 @@ def test_panel_draws_layers() -> None:
     labels = h.label_text(h.draw(_panel()))
     assert "has no gt_slope attribute" in labels and "Store Named Attribute" in labels, labels
     assert h.draw_header(_panel()) == "RADIOBUT_OFF"  # no values yet
-    # Face and corner layers need no bake: the Bake sub-panel is for texture layers.
-    assert not _panel("GEOTOOLS_PT_layers_bake").poll(bpy.context)
-
-    details = _panel("GEOTOOLS_PT_layers_details")
-    assert details.poll(bpy.context)
+    details = _panel("details")
     calls = h.draw(details)
+    assert ("operator", "geotools.layer_rename", "GREASEPENCIL") in calls
     drawn = h.props_drawn(calls)
     for prop in ("domain", "data_type", "nodata", "origin", "aggregation", "description"):
         assert prop in drawn, (prop, drawn)
@@ -663,14 +660,13 @@ def test_panel_draws_layers() -> None:
     calls = h.draw(_panel())
     assert ("operator", "geotools.layer_set_categories", "GREASEPENCIL") in calls
     assert ("2", "NONE") in list(h.labels(calls)), calls
-    calls = h.draw(_panel("GEOTOOLS_PT_layers_display"))
+    calls = h.draw(_panel("display"))
     assert ("label", "1  trees", "NONE") in calls, calls
 
     L.ensure_layer(scene, _spec("shade", "TEXTURE"))
     props.layers_index = 2
     assert "source_attribute" not in h.props_drawn(h.draw(_panel()))
-    bake = _panel("GEOTOOLS_PT_layers_bake")
-    assert bake.poll(bpy.context)
+    bake = _panel("bake")
     calls = h.draw(bake)
     drawn = h.props_drawn(calls)
     assert {"uv_map", "resolution", "margin"} <= set(drawn), drawn
@@ -679,14 +675,6 @@ def test_panel_draws_layers() -> None:
     assert h.draw_header(bake) == "RADIOBUT_OFF"
     calls = h.draw(details)
     assert ("operator", "geotools.layer_create_attributes", "NONE") not in calls
-
-    ul = bpy.types.GEOTOOLS_UL_layers
-    for item in props.layers:
-        rows = h.draw_list_item(ul, props, item)
-        assert ("label", item.name, L.DOMAIN_ICONS[item.domain]) in rows, rows
-    props.layers[0].label = "Slope (degrees)"
-    rows = h.draw_list_item(ul, props, props.layers[0])
-    assert ("label", "Slope (degrees)", "FACESEL") in rows, rows
 
 
 # --- persistence ------------------------------------------------------------------------------

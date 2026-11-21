@@ -1,4 +1,4 @@
-"""The Archaeoastronomy sub-panel of Analysis (``archaeo``).
+"""The Horizon and Sky Events sub-panel of Tools (``archaeo``).
 
 Observer, horizon profile, events at an epoch (with how far back they can be
 trusted), sightlines and the alignment check, each with its last result and a
@@ -45,7 +45,7 @@ class GEOTOOLS_PT_analysis_archaeo(bpy.types.Panel):
     bl_region_type = "UI"
     bl_category = "GeoTools"
     bl_idname = "GEOTOOLS_PT_analysis_archaeo"
-    bl_label = "Archaeoastronomy"
+    bl_label = "Horizon and Sky Events"
     bl_parent_id = "GEOTOOLS_PT_analysis"
     bl_options = {"DEFAULT_CLOSED"}
 

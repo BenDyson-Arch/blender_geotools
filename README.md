@@ -4,8 +4,8 @@
 
 GeoTools brings GIS into Blender. Place a site in a real coordinate system,
 bring in GeoJSON, GeoPackage and GeoTIFF, and analyse the full 3D mesh, not a
-2.5D raster: terrain shape, archaeological visualisation, visibility, sun and
-shadow, archaeoastronomy, hydrology, least-cost routes, measurement, contours and
+2.5D raster: terrain shape, relief and sky visualisation, visibility, sun and
+shadow, horizon and sky events, hydrology, least-cost routes, measurement, contours and
 sections.
 Results are layers you can view, export as vectors or GLB metadata, and
 publish as OGC 3D Tiles with
@@ -37,7 +37,7 @@ and kept linked to their files.
 </tr>
 <tr>
 <td width="50%" valign="top">
-<a href="docs/guide/analysis.md#presets"><img src="docs/assets/readme/feature-terrain.png" alt="The Presets and Layers panels with a viewshed from a ridge: the hill hides the ground behind it" width="380"></a><br>
+<a href="docs/guide/analysis.md#presets"><img src="docs/assets/readme/feature-terrain.png" alt="A viewshed from a ridge: the hill hides the ground behind it" width="380"></a><br>
 <b>Terrain and visibility</b><br>
 Slope, aspect, curvature, TPI and TRI; local relief, sky-view factor and
 openness; viewsheds, intervisibility and line of sight; volumes and
@@ -45,23 +45,23 @@ least-cost paths. Editable Geometry Nodes presets.
 <a href="docs/guide/analysis.md#presets">Guide</a>
 </td>
 <td width="50%" valign="top">
-<a href="docs/guide/analysis.md#archaeoastronomy"><img src="docs/assets/readme/feature-sky.png" alt="The Archaeoastronomy panel with solstice and lunar standstill sightlines from a hilltop enclosure" width="380"></a><br>
+<a href="docs/guide/analysis.md#horizon-and-sky-events"><img src="docs/assets/readme/feature-sky.png" alt="The Horizon and Sky Events panel with solstice and lunar standstill sightlines from a hilltop enclosure" width="380"></a><br>
 <b>Sun and sky</b><br>
 Place the Sun for a date and place, map hours of sun, key a shadow study,
 and find solstice, equinox and lunar standstill events on the real horizon.
-<a href="docs/guide/analysis.md#archaeoastronomy">Guide</a>
+<a href="docs/guide/analysis.md#horizon-and-sky-events">Guide</a>
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
-<a href="docs/guide/analysis.md#hydrology"><img src="docs/assets/readme/feature-hydrology.png" alt="The Hydrology panel with flow paths down two valleys and contour lines on the hills" width="380"></a><br>
+<a href="docs/guide/analysis.md#hydrology"><img src="docs/assets/readme/feature-hydrology.png" alt="Flow paths down two valleys and contour lines on the hills" width="380"></a><br>
 <b>Hydrology and measurement</b><br>
 Where water runs and ponds on the 3D surface, contours and sections, and
 points, distances and areas in real coordinates.
 <a href="docs/guide/analysis.md#hydrology">Guide</a>
 </td>
 <td width="50%" valign="top">
-<a href="docs/guide/layers.md"><img src="docs/assets/readme/feature-layers.png" alt="The Layers panel with a hilltop enclosure coloured by slope" width="380"></a><br>
+<a href="docs/guide/layers.md"><img src="docs/assets/readme/feature-layers.png" alt="A hilltop enclosure coloured by slope" width="380"></a><br>
 <b>Layers</b><br>
 Values per face, corner or texel, shown as colours and published as variant
 tilesets.

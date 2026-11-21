@@ -24,12 +24,12 @@ and the project follows semantic versioning where practical.
   are right under overhangs, where the sky-view factor and openness presets
   (which assume a height field) read open sky. See
   [which to use](docs/analysis-presets.md#sky-visibility-sky-view-cosine-and-openness-3d-sky_visibility-sky_view_cosine-openness_3d-face-ratio).
-- **Least-Cost Routes** in the Analysis panel: the quickest route over a 3D
+- **Least-Cost Routes** in Add Analysis: the quickest route over a 3D
   surface, uphill and downhill costed apart and crossing faces at any angle,
   with travel time to every face as a layer. Tobler, Langmuir, Naismith and
   wheelchair (1:12) models, checked on the
   [validation page](docs/validation/least-cost.md).
-- **Show in Viewport** in Layers > Display shows a layer in its variant
+- **Show in Viewport** in Analyses > Display shows a layer in its variant
   colours, live as the palette, range or Geometry Nodes change, with a
   viewport-only modifier and material that turning it off removes. Texture
   layers show in Material Preview. Publishing ignores it.
@@ -43,6 +43,16 @@ and the project follows semantic versioning where practical.
   **Legend** in Last Build opens it. See [Layers](docs/guide/layers.md#legend).
 
 ### Changed
+
+- **Analyses** replaces the Analysis and Layers panels. Like the modifier
+  stack, it lists the active mesh's analyses and layers, added from one
+  searchable **Add Analysis** field (presets, Fast Bakes, tools, layers),
+  each with its own inputs and **Recompute**. Measure, Sun and
+  Horizon and Sky Events move to **Tools**. Older files are listed when
+  opened. See [Analysis](docs/guide/analysis.md).
+
+- The Archaeology group is now **Relief and Sky**, and Archaeoastronomy is
+  **Horizon and Sky Events**.
 
 - Analysis acts on the selected meshes; the source collection only decides
   what is published, and is set from the first mesh you analyse if unset.

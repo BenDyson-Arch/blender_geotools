@@ -366,8 +366,6 @@ def test_fast_and_live_layers_keep_apart() -> None:
     assert _layers().find_layer(bpy.context.scene, "openness_positive") is None
     _no_leftovers()
 
-    calls = h.draw(bpy.types.GEOTOOLS_MT_analysis_presets)
-    operators = [c for c in calls if c[0] == "operator"]
-    catalog = h.submodule("analysis.presets")
-    assert len(operators) == len(catalog.PRESETS) + 1 + len(_core().FAST)
+    keys = {e.key for e in h.submodule("blender.analyses").ENTRIES}  # the Add Analysis field
+    assert {f"fast:{p}" for p in _core().FAST} <= keys
     _clear_trees()

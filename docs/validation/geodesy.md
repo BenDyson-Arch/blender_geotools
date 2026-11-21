@@ -27,7 +27,7 @@ a verdict.
 | Measure A→B: ground distance, CSF | ICSM survey reduction: grid / (k × R/(R+h)), k by Simpson's rule along the line | **agrees** (GeographicLib); **bug fixed** in non-conformal CRSs; documented convention differences (Gaussian radius, grid chord) |
 | Measure A→B: grid and true bearing | grid bearing from +Y; true = grid + γ at the middle (conformal) | **agrees** with GeographicLib's midpoint azimuth; **bug fixed** in non-conformal CRSs |
 | Measure A→B: height difference, slope distance | RL_B − RL_A; √(ground² + Δh²) | **agrees** (analytic) |
-| `line_bearings` (archaeoastronomy) | as the true bearing above | **agrees**; **bug fixed** in non-conformal CRSs |
+| `line_bearings` (horizon and sky events) | as the true bearing above | **agrees**; **bug fixed** in non-conformal CRSs |
 | Area of selected faces | per triangle: plan / CSF² (ground plan), horizontal / CSF and vertical kept (ground surface) | **agrees** with GeographicLib polygon areas; **bug fixed** in non-conformal CRSs |
 | LOCAL / ANCHOR / SOURCE_CRS modes | LOCAL: no Earth; ANCHOR: rigid ENU frame at the anchor, heading counter-clockwise | **agrees** (ANCHOR against the closed form to 1 nm) |
 | GeoScene frame and lat/lon sync | X = E − crs x, Y = N − crs y, grid north; lat/lon of the origin through rusty-tiles' CRS operation | **agrees** to 10⁻⁹° |
@@ -254,7 +254,7 @@ non-conformal CRSs (above).
 
 ## line_bearings
 
-The archaeoastronomy alignments' true bearings and latitudes. Same definition
+The Horizon and Sky Events alignments' true bearings and latitudes. Same definition
 as Measure's true bearing; checked against Measure on every non-conformal case
 (identical to 10⁻⁹°) and through Measure against GeographicLib. LOCAL takes +Y
 as true north; ANCHOR subtracts the heading.
@@ -456,7 +456,7 @@ regression tests.
    non-conformal grid, the grid-to-ellipsoid map Measure uses, and
    `SunSite.scene_azimuth` / `true_azimuth` map directions through it. Place
    Sun, Over a Day, Sun Hours (sun rays and the sky rays' horizon lookups),
-   Shadow Study and the archaeoastronomy horizon rays and sightlines use it:
+   Shadow Study and the Horizon and Sky Events horizon rays and sightlines use it:
    within 10⁻⁶° of projected geodesic steps
    (`tests/core/test_site.py::test_sun_directions_in_a_non_conformal_grid`,
    `tests/core/test_validation_solar.py::test_convergence_matches_geodesics`,
@@ -466,8 +466,7 @@ regression tests.
    angle, the rotation nearest the map (`SunSite.rotation`, its polar
    decomposition), which in Albers and Web Mercator is the convergence:
    aspects along and across the meridian are exact, others off by up to the
-   numbers above. analysis-presets.md tabulates the limit and Add Analysis
-   says so in those CRSs.
+   numbers above. analysis-presets.md tabulates the limit.
 4. **GeoPackage `definition` text.** GeoTools wrote the CRS text
    (`EPSG:7856`) where the standard asks for WKT. GDAL found an EPSG CRS by
    its code, but a CRS without one was lost: GDAL 3.12.0 read no CRS from a

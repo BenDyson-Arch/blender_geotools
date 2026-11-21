@@ -1,4 +1,4 @@
-"""Time the archaeoastronomy horizon on a synthetic valley: one height-field mesh, all triangles.
+"""Time the horizon profile (Horizon and Sky Events) on a synthetic valley: one height-field mesh.
 
     blender -b --factory-startup --python scripts/bench_archaeo.py -- \\
         [--triangles 10000000] [--step 0.5]

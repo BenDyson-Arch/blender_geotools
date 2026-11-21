@@ -167,12 +167,12 @@ def test_view_registered_and_drawn() -> None:
     item = _layer()
     assert "show_in_viewport" in item.presentation.bl_rna.properties
     assert not h.operator_available("geotools.layer_write_presentation")  # retired
-    calls = h.draw(h.submodule("blender.panels").GEOTOOLS_PT_layers_display)
+    calls = h.draw(h.layer_panel("display"))
     assert ("operator", "geotools.layer_show", "HIDE_ON") in [c[:3] for c in calls], calls
     modules = [m.__name__.rpartition(".")[2] for m in h.submodule("blender").MODULES]
     assert modules.index("presentation") < modules.index("live_view")
     _show(item)
-    calls = h.draw(h.submodule("blender.panels").GEOTOOLS_PT_layers_display)
+    calls = h.draw(h.layer_panel("display"))
     assert ("operator", "geotools.layer_show", "HIDE_OFF") in [c[:3] for c in calls], calls
     _show(item, False)
 

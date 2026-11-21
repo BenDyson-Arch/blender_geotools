@@ -1,4 +1,4 @@
-"""Archaeoastronomy: rise and set events, lunar standstills and alignments. bpy-free.
+"""Horizon and sky events: rise and set events, lunar standstills and alignments. bpy-free.
 
 Two kinds of event:
 
@@ -27,7 +27,7 @@ the ephemeris' at the extreme) and the inversion (:func:`declination`).
 
 Calendar dates use Meeus' algorithm (ch. 7): the Julian calendar before
 1582 October 15 and the Gregorian after, with astronomical year numbers
-(0 is 1 BCE, -2999 is 3000 BCE), as archaeoastronomy quotes them.
+(0 is 1 BCE, -2999 is 3000 BCE), as the literature on ancient alignments quotes them.
 """
 
 from __future__ import annotations
@@ -152,7 +152,7 @@ def _jde(jd: float) -> float:
 
 
 # |Laskar - Vondrák et al. (2011)| obliquity, arc seconds, against the year
-# (docs/validation/archaeoastronomy.md); linear between, within 1" from 1000 BCE to 6000 CE.
+# (docs/validation/horizon-and-sky-events.md); linear between, within 1" from 1000 BCE to 6000 CE.
 _OBLIQUITY_GAP = (
     (-7999, 42.1),
     (-4999, 17.5),

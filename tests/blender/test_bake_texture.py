@@ -155,19 +155,15 @@ def _no_temporaries() -> None:
 def test_registered_and_panel_draws() -> None:
     assert h.operator_available("geotools.bake_texture_layer")
     assert h.operator_available("geotools.check_layer_uvs")
-    panel = h.submodule("blender.panels").GEOTOOLS_PT_layers_bake
-    assert panel.is_registered and panel.bl_parent_id == "GEOTOOLS_PT_layers"
+    panel = h.layer_panel("bake")  # the Bake box of a texture layer's Inputs
     h.reset_scene()
     obj = _source()
     _registry(obj)
-    assert panel.poll(bpy.context)
     calls = h.draw(panel)
     assert ("operator", "geotools.bake_texture_layer", "RENDER_STILL") in calls
     assert ("operator", "geotools.check_layer_uvs", "UV") in calls
     assert {"uv_map", "resolution", "margin"} <= set(h.props_drawn(calls))
     assert ("label", "Not baked yet", "INFO") in calls
-    h.project().layers_index = 0  # the FACE layer reads its attribute: no bake panel
-    assert not panel.poll(bpy.context)
     h.reset_scene()
 
 

@@ -1,4 +1,4 @@
-"""Archaeoastronomy core: the Moon (Meeus ch. 47), obliquity, refraction, horizon and events."""
+"""Horizon and sky events core: the Moon (Meeus ch. 47), obliquity, refraction, horizon and events."""
 
 from __future__ import annotations
 

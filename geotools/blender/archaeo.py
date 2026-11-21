@@ -1,4 +1,5 @@
-"""Archaeoastronomy (M5): the horizon from a point, rise and set events, sightlines, alignments.
+"""Horizon and Sky Events (M5): the horizon from a point, rise and set events, sightlines,
+alignments.
 
 The maths is bpy-free (``geotools.analysis.horizon``, ``.archaeo``, ``.moon``);
 this module stores settings and results and drives Blender:
@@ -84,7 +85,7 @@ LUNAR_ITEMS = (
         ),
     ),
 )
-OBSERVER_ITEMS = (("OBSERVER", "Observer", "The archaeoastronomy observer"),)
+OBSERVER_ITEMS = (("OBSERVER", "Observer", "The observer of Horizon and Sky Events"),)
 
 
 class ArchaeoError(RuntimeError):
@@ -95,7 +96,7 @@ class ArchaeoError(RuntimeError):
 
 
 class GeoToolsArchaeoSettings(bpy.types.PropertyGroup):
-    """Settings and results of archaeoastronomy (``scene.geotools_analysis.archaeo``)."""
+    """Settings and results of Horizon and Sky Events (``scene.geotools_analysis.archaeo``)."""
 
     observer: StringProperty(default="")  # format_vec of the float32 ground point
     eye_height: FloatProperty(
@@ -1041,7 +1042,7 @@ def sun_hours_horizon(context: bpy.types.Context):
     if profile is None:
         raise ArchaeoError(
             "Use Horizon Profile is on, but there is no profile: compute one under "
-            "Archaeoastronomy, or turn it off."
+            "Tools > Horizon and Sky Events, or turn it off."
         )
     return profile
 

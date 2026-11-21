@@ -205,20 +205,19 @@ def test_presentation_registered() -> None:
     assert "layer" in bpy.ops.geotools.publish.get_rna_type().properties
     layer_props = bpy.types.PropertyGroup.bl_rna_get_subclass_py("GeoToolsLayer")
     assert layer_props is not None and "presentation" in layer_props.bl_rna.properties
-    panels = h.submodule("blender.panels")
-    display = panels.GEOTOOLS_PT_layers_display
-    assert display in panels.classes
-    # Bake, then display: the workflow order.
-    order = panels.classes.index
-    assert order(panels.GEOTOOLS_PT_layers) < order(panels.GEOTOOLS_PT_layers_bake)
-    assert order(display) == order(panels.GEOTOOLS_PT_layers_bake) + 1
-    assert display.bl_parent_id == "GEOTOOLS_PT_layers"
+    ui = h.submodule("blender.analyses_ui")
+    display = ui.GEOTOOLS_PT_analyses_display
+    assert display in h.submodule("blender.panels").classes
+    # Inputs (with a texture layer's Bake), then Display: the workflow order.
+    order = ui.classes.index
+    assert order(ui.GEOTOOLS_PT_analyses_inputs) + 1 == order(display)
+    assert display.bl_parent_id == "GEOTOOLS_PT_analyses"
     modules = [m.__name__.rpartition(".")[2] for m in h.submodule("blender").MODULES]
     assert modules.index("layers") < modules.index("presentation") < modules.index("publish")
 
 
 def _display():
-    return h.submodule("blender.panels").GEOTOOLS_PT_layers_display
+    return h.layer_panel("display")
 
 
 def test_presentation_panel_draws() -> None:
@@ -1080,7 +1079,7 @@ def test_geometry_nodes_layer() -> None:
     scene = bpy.context.scene
     obj, name = _geonodes_scene()
     item = L.find_layer(scene, name)
-    panel = h.submodule("blender.panels").GEOTOOLS_PT_layers
+    panel = h.layer_panel("fields")
 
     # Nothing is checked while drawing; Update Range reads the evaluated mesh.
     assert [i.code for i in L.cached_status(scene, item)] == ["layer-not-checked"]

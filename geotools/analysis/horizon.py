@@ -43,7 +43,7 @@ at h = 0 at 1010 hPa and 10 °C at sea level; the pressure is scaled to the
 site's height by the standard atmosphere (``sun.standard_pressure``), so 30'
 at 1,000 m and 21' at 4,000 m. Real refraction near the horizon varies by
 several arc minutes with the weather, more in inversions; that, not the
-ephemerides, is the limit of an archaeoastronomical azimuth.
+ephemerides, is the limit of a rise or set azimuth.
 """
 
 from __future__ import annotations

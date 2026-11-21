@@ -1,4 +1,4 @@
-"""The layer registry in Blender: storage helpers, operators and the layers UIList.
+"""The layer registry in Blender: storage helpers and operators (listed in Analyses).
 
 The registry is ``scene.geotools.layers`` (``properties.GeoToolsLayer``). A FACE
 or CORNER layer lives in a mesh attribute of every source object: its
@@ -1319,28 +1319,6 @@ class GEOTOOLS_OT_layer_update_range(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class GEOTOOLS_UL_layers(bpy.types.UIList):
-    """Layers: label (or name), domain icon and type."""
-
-    bl_idname = "GEOTOOLS_UL_layers"
-
-    def draw_item(
-        self,
-        context: bpy.types.Context,
-        layout: bpy.types.UILayout,
-        data: bpy.types.AnyType,
-        item: bpy.types.PropertyGroup,
-        icon: int,
-        active_data: bpy.types.AnyType,
-        active_property: str,
-        index: int = 0,
-        flt_flag: int = 0,
-    ) -> None:
-        row = layout.row(align=True)
-        row.label(text=item.label.strip() or item.name, icon=DOMAIN_ICONS.get(item.domain, "NONE"))
-        row.label(text=item.bl_rna.properties["data_type"].enum_items[item.data_type].name)
-
-
 classes = (
     GEOTOOLS_OT_layer_add,
     GEOTOOLS_OT_layer_remove,
@@ -1348,7 +1326,6 @@ classes = (
     GEOTOOLS_OT_layer_create_attributes,
     GEOTOOLS_OT_layer_set_categories,
     GEOTOOLS_OT_layer_update_range,
-    GEOTOOLS_UL_layers,
 )
 
 register, unregister = bpy.utils.register_classes_factory(classes)

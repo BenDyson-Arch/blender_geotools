@@ -4,7 +4,7 @@ The cutting is bpy-free (``geotools.analysis.slicing``): numpy plane-triangle
 intersection of the evaluated meshes, chained into polylines. This module
 reads the surface, writes the lines as a mesh object of loose edges in the
 ``GeoTools Analysis`` collection, and keeps the settings and last result on
-``scene.geotools_contours``. The panel is in ``surface_ui``.
+``scene.geotools_contours``. Each result in the Analyses list (``analyses``) keeps its own copy.
 
 * **Contours** at an interval from a base, in the project's height datum: a
   SOURCE_CRS project's levels are real-world heights (RL, local z plus the

@@ -18,7 +18,7 @@ ground distances by the combined scale factor at the surface's centre.
 ``geotools.least_cost`` runs the search a few passes per timer tick when
 invoked from the panel (Esc cancels), and straight through from ``execute``
 (scripts, tests). Settings and the last result live on
-``scene.geotools_least_cost``; the panel is in ``surface_ui``.
+``scene.geotools_least_cost``; each result in the Analyses list (``analyses``) keeps its own copy.
 """
 
 from __future__ import annotations

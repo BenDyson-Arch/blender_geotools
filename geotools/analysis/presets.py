@@ -67,7 +67,7 @@ class Category(StrEnum):
 
 CATEGORY_LABELS = {
     Category.TERRAIN: "Terrain Shape",
-    Category.ARCHAEOLOGY: "Archaeological Visualisation",
+    Category.ARCHAEOLOGY: "Relief and Sky",  # the member keeps its old name: saved files
     Category.VISIBILITY: "Visibility",
     Category.CHANGE: "Change and Distance",
     Category.VOLUMES: "Volumes",
@@ -513,7 +513,7 @@ PRESETS: tuple[Preset, ...] = (
         palette="magma",
         cost="medium",
     ),
-    # --- archaeological visualisation --------------------------------------------------
+    # --- relief and sky visualisation --------------------------------------------------
     Preset(
         id="local_relief",
         version=1,

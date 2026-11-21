@@ -1,4 +1,4 @@
-"""Analysis maths (bpy-free): sun and Moon, sun hours, archaeoastronomy, points on Earth, hydrology, least-cost routes, contours.
+"""Analysis maths (bpy-free): sun and Moon, sun hours, horizon and sky events, points on Earth, hydrology, least-cost routes, contours.
 
 - :mod:`.sun`: NREL SPA sun positions, vectorised over time, and time zones.
 - :mod:`.site`: where scene points are on Earth (E, N, RL, latitude and

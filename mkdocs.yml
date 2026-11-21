@@ -138,9 +138,9 @@ nav:
       - "Recipe: drape excavation contexts": recipes/drape-contexts.md
       - Validation:
           - validation/README.md
-          - Terrain shape and archaeological visualisation: validation/terrain.md
+          - Terrain shape and relief and sky visualisation: validation/terrain.md
           - Geodesy and measurement: validation/geodesy.md
-          - Archaeoastronomy: validation/archaeoastronomy.md
+          - Horizon and sky events: validation/horizon-and-sky-events.md
           - Hydrology, contours and sections: validation/hydrology.md
           - Visibility, change, volumes and paths: validation/visibility.md
           - Least-cost routes: validation/least-cost.md

@@ -7,7 +7,7 @@ results and a verdict per tool. Each page's Decisions section says what was
 done about the points its checks raised. `scripts/validation/exports/` checks GeoTools' GeoPackage and
 GeoJSON exports with GDAL.
 
-## Terrain shape and archaeological visualisation
+## Terrain shape and relief and sky visualisation
 
 [terrain.md](terrain.md): slope, slope (percent), aspect (grid and true north),
 profile, plan (tangential) and mean curvature, rugosity, TPI, TRI, local
@@ -35,9 +35,9 @@ turns through the grid-to-ground map in non-conformal CRSs (Aspect (True
 North) keeps one rotation, with its limit documented), and the GeoPackage
 `definition` is WKT.
 
-## Archaeoastronomy
+## Horizon and sky events
 
-[archaeoastronomy.md](archaeoastronomy.md): the horizon profile (curvature,
+[horizon-and-sky-events.md](horizon-and-sky-events.md): the horizon profile (curvature,
 terrestrial refraction, the Cycles ray search), Bennett refraction, Meeus'
 Moon and its parallax, the lunar standstills, the obliquity at ancient epochs,
 rise and set azimuths, dated sunrises and Check Alignment, against closed

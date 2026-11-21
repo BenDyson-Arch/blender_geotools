@@ -1,23 +1,20 @@
-"""Sidebar panels of the M5 analysis tools (``analysis``).
+"""Sidebar panels of the interactive analysis tools: Tools (``analysis``).
 
-- Analysis: the parent, with what the tools need (pyproj for a CRS project).
+- Tools (``bl_idname`` ``GEOTOOLS_PT_analysis``, kept from when it was the
+  Analysis panel): what the tools need (pyproj for a CRS project).
   - Measure: points A and B (from the 3D cursor or a pick), their E, N, RL
     and latitude and longitude, the distance between them, and the area of
     the selected faces. Each result has a copy button. (Its ``bl_idname``
     keeps the old name, ``GEOTOOLS_PT_analysis_coordinates``.)
-  - Presets: the Add Analysis menu of Geometry Nodes presets
-    (``analysis_presets``) and the presets on the active object.
-  - Least-Cost Routes, Hydrology, and Contours and Sections (``surface_ui``).
   - Sun: date, time and time zone, site, Place Sun and Animate Day, and the
-    last sun position with the convergence applied. Its sub-panels use its
-    date, time zone and site:
-    - Sun Hours: hours of direct sun and clear-sky insolation over a day, dates
-      or a year, into layers (``sun_hours``), with the last run's summary.
+    last sun position with the convergence applied.
     - Shadow Study: Sun light keys at the equinoxes and solstices.
-  - Archaeoastronomy (``archaeo_ui``).
+  - Horizon and Sky Events (``archaeo_ui``).
 
-Panels draw stored results only; the operators compute. ``panels`` registers
-these classes after Linked Data, before Layers.
+The analyses that make layers (presets, Fast Bakes, Hydrology, Sun Hours,
+Least-Cost Routes, Contours and Sections) are results in the Analyses list
+(``analyses_ui``); Sun Hours there uses the time zone and site set in Sun.
+Panels draw stored results only; the operators compute.
 """
 
 from __future__ import annotations
@@ -28,7 +25,7 @@ import bpy
 
 from ..analysis import site
 from ..core.placement import PlacementMode
-from . import analysis, analysis_presets, archaeo_ui, surface_ui
+from . import analysis, archaeo_ui
 from .properties import ANCHOR_FIELDS, number_is_valid
 from .ui import big_button, info_row, split_column, wrapped
 
@@ -56,10 +53,10 @@ def _copy_button(layout: bpy.types.UILayout, what: str) -> None:
 
 
 class GEOTOOLS_PT_analysis(_AnalysisPanel, bpy.types.Panel):
-    """Analysis tools that need the georeference."""
+    """Interactive readings that are not layers: Measure, Sun and Horizon and Sky Events."""
 
-    bl_idname = "GEOTOOLS_PT_analysis"
-    bl_label = "Analysis"
+    bl_idname = "GEOTOOLS_PT_analysis"  # kept from when it was the Analysis panel
+    bl_label = "Tools"
     bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context: bpy.types.Context) -> None:
@@ -167,91 +164,6 @@ def _draw_sun_result(layout, context, props) -> None:
     if "steps" in result:
         first, last = result["frames"]
         col.label(text=f"{result['steps']} keys, frames {first}-{last}", icon="KEYFRAME")
-    for note in result["notes"]:
-        wrapped(box, context, note, "INFO")
-
-
-def _draw_period(layout, props, sun_props) -> None:
-    layout.row().prop(props, "period", expand=True)
-    col = layout.column(align=True)
-    row = col.row(align=True)
-    if props.period == "YEAR":
-        row.prop(sun_props, "year", text="Year")
-        return
-    row.label(text="From" if props.period == "RANGE" else "Date")
-    row.prop(sun_props, "year", text="")
-    row.prop(sun_props, "month", text="")
-    row.prop(sun_props, "day", text="")
-    if props.period == "RANGE":
-        row = col.row(align=True)
-        row.label(text="To")
-        row.prop(props, "end_year", text="")
-        row.prop(props, "end_month", text="")
-        row.prop(props, "end_day", text="")
-
-
-class GEOTOOLS_PT_analysis_sun_hours(_AnalysisPanel, bpy.types.Panel):
-    """Hours of direct sun and clear-sky insolation, into layers."""
-
-    bl_idname = "GEOTOOLS_PT_analysis_sun_hours"
-    bl_label = "Sun Hours"
-    bl_parent_id = "GEOTOOLS_PT_analysis_sun"
-    bl_options = {"DEFAULT_CLOSED"}
-
-    def draw(self, context: bpy.types.Context) -> None:
-        layout = self.layout
-        settings = analysis.settings(context)
-        props, sun_props = settings.sun_hours, settings.sun
-        wrapped(layout, context, "Uses the time zone, site and refraction set in Sun.", "LIGHT_SUN")
-        split_column(layout).prop(props, "surface")
-        _draw_period(layout, props, sun_props)
-        col = split_column(layout)
-        col.prop(props, "step_minutes", text="Step (min)")
-        col.prop(props, "tolerance")
-        col.prop(props, "horizon")
-        col.prop(props, "horizon_profile")
-        col.prop(props, "domain")
-        if props.domain == "TEXTURE":
-            col.prop(props, "resolution")
-        col.prop(props, "hours_layer", text="Hours Layer")
-        col.prop(props, "insolation")
-        if props.insolation:
-            sub = col.column()
-            sub.prop(props, "insolation_layer", text="kWh/m² Layer")
-            sub.prop(props, "linke_turbidity")
-            sub.prop(props, "diffuse")
-            row = sub.row()
-            row.active = props.diffuse
-            row.prop(props, "diffuse_rays")
-        col.prop(props, "offset")
-        big_button(layout).operator("geotools.sun_hours", icon="LIGHT_SUN")
-        _draw_sun_hours_result(layout, context, props)
-
-
-def _draw_sun_hours_result(layout, context, props) -> None:
-    if props.error:
-        col = layout.column()
-        col.alert = True
-        wrapped(col, context, props.error, "ERROR")
-        return
-    if not props.result:
-        return
-    result = json.loads(props.result)
-    box = layout.box()
-    box.label(text=f"{result['first_day']} to {result['last_day']}", icon="TIME")
-    col = box.column(align=True)
-    stats = result["stats"]
-    info_row(col, "Sun Up", f"{stats['sun_hours_possible']:,.1f} h")
-    info_row(col, "Samples", f"{result['samples']:,} ({result['domain'].lower()})")
-    info_row(col, "Rays", f"{result['sun_rays']:,} sun + {stats['sky_rays']:,} sky")
-    if stats["group_tolerance_deg"] > 0:
-        info_row(col, "Merged", f"within {stats['max_group_deviation_deg']:.2f}°")
-    info_row(col, "Time", f"{result['seconds']:.1f} s, {result['bakes']} bake(s)")
-    if "device" in result:  # a result from before 0.4.0 has none
-        info_row(col, "Device", result["device_short"])
-    for name, (low, high) in result["ranges"].items():
-        if low and high:
-            info_row(col, name, f"{float(low):,.2f} to {float(high):,.2f}")
     for note in result["notes"]:
         wrapped(box, context, note, "INFO")
 
@@ -401,25 +313,11 @@ def _draw_area(layout, area: site.AreaReading, name: str) -> None:
     info_row(col, "Grid Surf.", f"{area.grid_surface:,.3f} m²")
 
 
-class GEOTOOLS_PT_analysis_presets(_AnalysisPanel, bpy.types.Panel):
-    """Geometry Nodes analysis presets: a modifier and a layer each."""
-
-    bl_idname = "GEOTOOLS_PT_analysis_presets"
-    bl_label = "Presets"
-    bl_parent_id = "GEOTOOLS_PT_analysis"
-
-    def draw(self, context: bpy.types.Context) -> None:
-        analysis_presets.draw_panel(self.layout, context)
-
-
 # Registration order is the sidebar order (a parent before its children).
 classes = (
     GEOTOOLS_PT_analysis,
     GEOTOOLS_PT_analysis_coordinates,
-    GEOTOOLS_PT_analysis_presets,
-    *surface_ui.classes,
     GEOTOOLS_PT_analysis_sun,
-    GEOTOOLS_PT_analysis_sun_hours,
     GEOTOOLS_PT_analysis_shadow_study,
     *archaeo_ui.classes,
 )

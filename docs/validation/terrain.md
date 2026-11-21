@@ -1,4 +1,4 @@
-# Validation: terrain shape and archaeological visualisation
+# Validation: terrain shape and relief and sky visualisation
 
 Checked on 2026-11-12 in Blender 5.2.4. The five open points are
 [resolved](#decisions-resolved): the plan curvature preset is labelled Plan
@@ -7,7 +7,7 @@ documented in analysis-presets.md.
 
 This covers the Geometry Nodes presets of
 [analysis-presets.md](../analysis-presets.md) under *Terrain shape* and
-*Archaeological visualisation*, the fast (bake) paths of the sky-view
+*Relief and sky visualisation*, the fast (bake) paths of the sky-view
 factor and openness, and the bake-only direct-visibility entries (Sky
 Visibility, Sky View (Cosine), Openness (3D)). For each tool it gives the definition followed, the
 reference tools, the cases, the tolerances, the results and a verdict.

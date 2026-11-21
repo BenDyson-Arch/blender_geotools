@@ -447,21 +447,21 @@ def test_panels_draw() -> None:
     _reset()
     _equator_equinox()
     ui = h.submodule("blender.analysis_ui")
-    props = bpy.context.scene.geotools_analysis.sun_hours
-    calls = h.draw(ui.GEOTOOLS_PT_analysis_sun_hours)
-    drawn = h.props_drawn(calls)
+    item = h.add_analysis("Sun > Sun Hours", _plane(size=1))  # a result in Analyses
+    props = item.sun_hours
+    inputs = h.submodule("blender.analyses_ui").GEOTOOLS_PT_analyses_inputs
+    drawn = h.props_drawn(h.draw(inputs))
     assert {"period", "step_minutes", "tolerance", "domain", "hours_layer"} <= set(drawn)
+    assert {"sun_year", "sun_month", "sun_day", "extent"} <= set(drawn)
     assert "linke_turbidity" not in drawn
     props.insolation = True
     props.period = "RANGE"
-    calls = h.draw(ui.GEOTOOLS_PT_analysis_sun_hours)
-    assert {"linke_turbidity", "diffuse_rays", "end_day"} <= set(h.props_drawn(calls))
-    _plane(size=1)
+    assert {"linke_turbidity", "diffuse_rays", "end_day"} <= set(h.props_drawn(h.draw(inputs)))
     props.insolation = False
     props.period = "DAY"
-    _run(step_minutes=60)
-    calls = h.draw(ui.GEOTOOLS_PT_analysis_sun_hours)
-    assert "2026-03-20" in h.label_text(calls)
+    props.step_minutes = 60
+    assert h.call_op(bpy.ops.geotools.analyses_compute)[1] is None, props.error
+    assert "2026-03-20" in h.inputs_text()
     calls = h.draw(ui.GEOTOOLS_PT_analysis_shadow_study)
     assert {"march", "june", "september", "december", "step_hours"} <= set(h.props_drawn(calls))
     assert h.call_op(bpy.ops.geotools.sun_shadow_study)[0] == {"FINISHED"}
