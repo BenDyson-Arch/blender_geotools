@@ -22,11 +22,8 @@ and the project follows semantic versioning where practical.
   against networkx and r.walk on the
   [validation page](docs/validation/least-cost.md).
 - **Show in Viewport** in Layers > Display shows a layer in its variant
-  colours in the viewport and keeps them up to date as you change the palette,
-  range or no-data colour, or the Geometry Nodes that make the layer, also
-  when they change the topology. It adds a viewport-only `GeoTools View`
-  modifier and material built from stock nodes, switches Solid mode to the
-  Attribute colour, and takes it all away again when turned off. Texture
+  colours, live as the palette, range or Geometry Nodes change, with a
+  viewport-only modifier and material that turning it off removes. Texture
   layers show in Material Preview. Publishing ignores it.
 - **Coordinates: WGS84 (RFC 7946)** in GeoJSON export writes longitude and
   latitude that CesiumJS, MapLibre and geojson.io place correctly, beside
@@ -40,16 +37,11 @@ and the project follows semantic versioning where practical.
 ### Changed
 
 - Analysis acts on the selected meshes, in any collection; the source
-  collection only decides what is published. Sun Hours, Least-Cost Routes,
-  Hydrology, and Contours and Sections default to **Selected Objects** (Sun
-  Hours gets the **Surface** choice too), and with nothing selected their
-  buttons say "Select the meshes to analyse". A layer, its range and **Show
-  in Viewport** cover every object that carries it, and Show in Viewport says
-  so when none does instead of turning on to show nothing. While no source
-  collection is set, adding an analysis, showing a layer or importing a
-  GeoTIFF sets it to that object's collection and says so. Run Checks warns
-  about a layer on an object outside the source collection and offers **Add
-  to Source**.
+  collection only decides what is published. The analysis tools default to
+  **Selected Objects**, and layers and **Show in Viewport** cover every object
+  that carries the layer. An unset source collection is set from the first
+  object you analyse. Run Checks warns about a layer outside the source
+  collection and offers **Add to Source**.
 - **Write Colours** is gone: Show in Viewport replaces it. Publishing still
   never writes the `gt_present` attribute it left on meshes.
 - GLBs with metadata name their `geotools:` XMP terms with a permanent
