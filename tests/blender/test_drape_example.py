@@ -245,7 +245,7 @@ def test_example_script_runs_and_the_recipe_holds() -> None:
 
         # Back to a GeoPackage with absolute Z, in the project CRS.
         gpkg_path = out / "draped.gpkg"
-        counts, _warnings = vectors.export_vectors(
+        counts, _warnings, _notes = vectors.export_vectors(
             bpy.context, [contexts], gpkg_path, "GPKG", "contexts", True
         )
         assert counts == {kind.POLYGONS: 9}

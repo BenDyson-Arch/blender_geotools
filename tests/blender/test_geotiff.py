@@ -113,6 +113,34 @@ def test_dem_import_places_vertices_in_the_project_frame() -> None:
     assert bpy.context.view_layer.objects.active == obj
 
 
+def test_dem_import_sets_an_unset_source() -> None:
+    _project()
+    terrain = bpy.data.collections.new("Terrain")
+    bpy.context.scene.collection.children.link(terrain)
+    view_layer = bpy.context.view_layer
+    view_layer.active_layer_collection = view_layer.layer_collection.children["Terrain"]
+    try:
+        with _tmpdir() as tmp:
+            recorder = h.ReportRecorder()
+            recorder.filepath = str(_write(tmp / "dem.tif", gw.dem(4, 5)))
+            recorder.mode, recorder.step, recorder.assume_project_crs = "DEM", 1, False
+            cls = _raster_io().GEOTOOLS_OT_import_geotiff
+            assert cls.execute(recorder, bpy.context) == {"FINISHED"}, recorder.reports
+            assert h.project().source_collection == terrain
+            info = [text for levels, text in recorder.reports if "INFO" in levels]
+            assert info[-1].endswith("; Source set to Terrain"), recorder.reports
+            # A second import leaves the source as it is.
+            recorder = h.ReportRecorder()
+            recorder.filepath = str(_write(tmp / "dem2.tif", gw.dem(4, 5)))
+            recorder.mode, recorder.step, recorder.assume_project_crs = "DEM", 1, False
+            h.project().source_collection = bpy.data.collections.new("Elsewhere")
+            assert cls.execute(recorder, bpy.context) == {"FINISHED"}, recorder.reports
+            assert h.project().source_collection.name == "Elsewhere"
+            assert not any("Source set" in text for _levels, text in recorder.reports)
+    finally:
+        view_layer.active_layer_collection = view_layer.layer_collection
+
+
 def test_dem_pixel_is_point() -> None:
     _project()
     z = gw.dem(5, 6)

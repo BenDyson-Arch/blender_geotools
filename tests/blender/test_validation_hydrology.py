@@ -64,6 +64,7 @@ def _reset() -> None:
         for prop in group.bl_rna.properties:
             if prop.identifier not in {"rna_type", "name"}:
                 group.property_unset(prop.identifier)
+        group.surface = "SOURCE"  # the whole site; Selected Objects is test_selection's
     for tree in list(bpy.data.node_groups):
         bpy.data.node_groups.remove(tree)
 
@@ -127,7 +128,7 @@ def _core_as_read(props, pts, **kwargs):
     index, so a different numbering routes a few faces differently on some CPUs.
     """
     hy = h.submodule("analysis.hydrology")
-    objects = h.submodule("blender.hydrology").surface_objects(bpy.context, props.surface)
+    objects = h.submodule("blender.surface").surface_objects(bpy.context, props.surface)
     arrays = h.submodule("blender.surface").read_surface(bpy.context, objects, topology=True)
     np.testing.assert_allclose(arrays.positions, pts, atol=1e-6)
     surface = hy.surface_from_mesh(

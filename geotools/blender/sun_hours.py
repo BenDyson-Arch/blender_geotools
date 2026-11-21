@@ -11,9 +11,9 @@ which rays to cast and what each is worth. Blender casts them:
   of the surface and nothing blocks it) and the energy x cos(incidence), and
   emits ``(hours, energy, 1)``. A bake evaluates it once per texel, with
   Cycles' own BVH, and numpy adds the batches up in binary64. Everything in
-  the scene that renders is an occluder; the source objects are shown for
-  the bake.
-* **TEXTURE layers** bake on the source objects' own UVs, through a temporary
+  the scene that renders is an occluder; the target objects (the Surface: the
+  selected meshes, or the source collection's) are shown for the bake.
+* **TEXTURE layers** bake on the target objects' own UVs, through a temporary
   material, as ``bake_texture`` does.
 * **FACE and CORNER layers** bake a temporary "sample" object: one tiny
   triangle per face (at its centre) or per corner (just inside the face, at
@@ -62,7 +62,6 @@ from .layers import (
     refresh_layer,
     remove_layer_data,
     save_layer_image,
-    source_objects,
     spec_from_props,
     write_layer,
 )
@@ -84,6 +83,8 @@ from .ray_bake import (
 from .ray_bake import bake as ray_bake
 from .ray_bake import build_sample_object as _build_sample_object
 from .ray_bake import collect_samples as _collect_samples
+from .source import analysis_notes
+from .surface import SurfaceError, run_objects, surface_problem
 
 log = logging.getLogger(__name__)
 
@@ -213,9 +214,9 @@ _setup_cycles = setup_cycles
 # --- samples for FACE and CORNER layers ------------------------------------------------------
 
 
-def collect_samples(scene: bpy.types.Scene, domain: Domain, depsgraph):
-    """World-space samples of every source object that can take the layer (see ray_bake)."""
-    return _collect_samples(scene, source_objects(scene), domain, depsgraph)
+def collect_samples(scene: bpy.types.Scene, objects, domain: Domain, depsgraph):
+    """World-space samples of each of ``objects`` that can take the layer (see ray_bake)."""
+    return _collect_samples(scene, objects, domain, depsgraph)
 
 
 def build_sample_object(saved: _Saved, context, points: np.ndarray, normals: np.ndarray):
@@ -463,7 +464,11 @@ def compute(context: bpy.types.Context) -> dict:
     domain = Domain(props.domain)
     if not hasattr(scene, "cycles"):
         raise SunHoursError("Enable the Cycles add-on: sun hours use Cycles bakes.")
-    if scene.geotools.source_collection is None or not source_objects(scene):
+    try:
+        objects = run_objects(context, props.surface)
+    except SurfaceError as ex:
+        raise SunHoursError(str(ex)) from None
+    if not objects:
         raise SunHoursError("The source collection has no meshes.")
     names = [props.hours_layer.strip()]
     if props.insolation:
@@ -522,17 +527,18 @@ def compute(context: bpy.types.Context) -> dict:
         try:
             depsgraph = evaluated_depsgraph(scene)
             _setup_cycles(saved, scene)
-            objects = source_objects(scene)
             show(saved, objects)
             if domain is Domain.TEXTURE:
-                values, texels = _run_texture(context, saved, run, rays, names, depsgraph, notes)
+                values, texels = _run_texture(
+                    context, saved, run, rays, names, depsgraph, notes, objects
+                )
                 count = texels
             else:
-                samples = collect_samples(scene, domain, depsgraph)
+                samples = collect_samples(scene, objects, domain, depsgraph)
                 notes.extend(samples.skipped)
                 if not samples.parts:
                     raise SunHoursError(
-                        "No source object can hold the values. " + " ".join(samples.skipped)
+                        "No object can hold the values. " + " ".join(samples.skipped)
                     )
                 points = np.concatenate(samples.points)
                 normals = np.concatenate(samples.normals)
@@ -583,6 +589,8 @@ def compute(context: bpy.types.Context) -> dict:
         {**the_plan.parameters, "domain": domain.value, "samples": count},
         extension_version(),
     )
+    written = objects if domain is Domain.TEXTURE else [p.obj for p in samples.parts]
+    source_notes = analysis_notes(context, written)  # before the refresh: it may set Source
     for name in names:
         item = find_layer(scene, name)
         item.provenance = format_provenance(provenance)
@@ -607,14 +615,15 @@ def compute(context: bpy.types.Context) -> dict:
         "ranges": ranges,
         "stats": rays.stats,
         "notes": notes,
+        "source_notes": source_notes,
     }
     props.result = json.dumps(result)
     props.error = ""
     return result
 
 
-def _run_texture(context, saved, run, rays, names, depsgraph, notes):
-    """Bake the probe on each source object's UVs; write the layer images."""
+def _run_texture(context, saved, run, rays, names, depsgraph, notes, objects):
+    """Bake the probe on each of ``objects``' UVs; write the layer images."""
     scene = context.scene
     item = find_layer(scene, names[0])
     uv_wanted, size, margin = item.uv_map, item.resolution, item.margin
@@ -623,7 +632,7 @@ def _run_texture(context, saved, run, rays, names, depsgraph, notes):
         other.uv_map, other.resolution, other.margin = uv_wanted, size, margin
     targets = []
     points = []
-    for obj in source_objects(scene):
+    for obj in objects:
         mesh = obj.evaluated_get(depsgraph).data
         uv = uv_map_name(mesh, uv_wanted)
         if uv is None:
@@ -682,8 +691,9 @@ class GEOTOOLS_OT_sun_hours(bpy.types.Operator):
         if context.mode != "OBJECT":
             cls.poll_message_set("Switch to Object Mode")
             return False
-        if context.scene.geotools.source_collection is None:
-            cls.poll_message_set("Set or import a source collection first")
+        problem = surface_problem(context, analysis.settings(context).sun_hours.surface)
+        if problem is not None:
+            cls.poll_message_set(problem)
             return False
         return True
 
@@ -707,11 +717,11 @@ class GEOTOOLS_OT_sun_hours(bpy.types.Operator):
             return {"CANCELLED"}
         for note in result["notes"]:
             self.report({"WARNING"}, note)
-        self.report(
-            {"INFO"},
+        message = (
             f"Sun hours on {result['samples']:,} samples, {result['rays']:,} rays, "
-            f"{result['seconds']:.1f} s",
+            f"{result['seconds']:.1f} s"
         )
+        self.report({"INFO"}, "; ".join([message, *result["source_notes"]]))
         redraw_ui(context)
         return {"FINISHED"}
 

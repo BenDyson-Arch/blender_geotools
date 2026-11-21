@@ -112,10 +112,12 @@ def main() -> None:
     cases = ["hydrology", "contours", "sections"] if args.case == "all" else [args.case]
     from geotools.blender import contours, hydrology
 
+    contours.settings(bpy.context).surface = "SOURCE"  # the whole site, selected or not
     for case in cases:
         began = time.perf_counter()
         if case == "hydrology":
             props = hydrology.settings(bpy.context)
+            props.surface = "SOURCE"  # the whole site, selected or not
             props.flow_lines = True
             props.channel_area = 5000.0
             result = hydrology.compute(bpy.context)

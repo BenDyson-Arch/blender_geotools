@@ -141,7 +141,9 @@ publishes it. That only matters if you share the scene with those tools. See
 [Working alongside BlenderGIS](blendergis.md).
 
 To use objects you already have, set **Collection** in the Source panel to the
-collection that holds them, instead of importing.
+collection that holds them, instead of importing. If you leave it unset and
+add an analysis to a selected mesh, GeoTools sets it to that mesh's
+collection and says so (see [Source](projects.md#source)).
 
 ### Verify the placement
 

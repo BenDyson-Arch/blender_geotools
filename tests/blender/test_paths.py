@@ -141,6 +141,7 @@ def test_store_result_records_last_output_relative() -> None:
             triangles=2,
             seconds=1.0,
             validation_ok=None,
+            legend=tmp / "out" / "site.legend.svg",
         )
         session = SimpleNamespace(
             job=SimpleNamespace(result=result),
@@ -152,6 +153,7 @@ def test_store_result_records_last_output_relative() -> None:
         profile = h.project().build_profiles[0]
         assert profile.last_output == "//out/site.3tz"
         assert profile.last_record == "//out/site.geotools/build.json"
+        assert profile.last_legend == "//out/site.legend.svg"
         assert bpy.ops.geotools.open_build_record.poll()
         assert _same(publish._last_output(bpy.context), output)
         assert _same(h.submodule("blender.inspect").last_output(bpy.context.scene), output)

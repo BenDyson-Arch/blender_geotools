@@ -40,6 +40,7 @@ def _reset() -> None:
         for prop in group.bl_rna.properties:
             if prop.identifier not in {"rna_type", "name"}:
                 group.property_unset(prop.identifier)
+        group.surface = "SOURCE"  # the whole site; Selected Objects is test_selection's
     for tree in list(bpy.data.node_groups):
         bpy.data.node_groups.remove(tree)
 
@@ -283,8 +284,9 @@ def test_hydrology_skips_writing_where_modifiers_change_topology() -> None:
 def test_hydrology_errors() -> None:
     _reset()
     props = bpy.context.scene.geotools_hydrology
-    _result, error = h.call_op(bpy.ops.geotools.hydrology)
-    assert error is not None and props.error and not props.result
+    _result, error = h.call_op(bpy.ops.geotools.hydrology)  # no source collection to run on
+    assert error is not None and "Set or import a source collection first" in error, error
+    assert not props.result
     _terrain_scene()
     props.depth_layer = props.accumulation_layer
     _result, error = h.call_op(bpy.ops.geotools.hydrology)
@@ -423,8 +425,9 @@ def test_sections_along_a_line_through_a_sphere() -> None:
 def test_contour_and_section_errors() -> None:
     _reset()
     props = bpy.context.scene.geotools_contours
-    _result, error = h.call_op(bpy.ops.geotools.contours)
-    assert error is not None and props.contour_error
+    _result, error = h.call_op(bpy.ops.geotools.contours)  # no source collection to run on
+    assert error is not None and "Set or import a source collection first" in error, error
+    assert not props.contour_result
     _cone_scene()
     props.interval = "zero"
     _result, error = h.call_op(bpy.ops.geotools.contours)

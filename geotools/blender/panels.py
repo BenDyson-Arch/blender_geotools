@@ -85,6 +85,7 @@ from . import (
     analyses_ui,
     analysis_ui,
     bake_texture,
+    checks,
     crs_picker,
     inspect_ui,
     links_ui,
@@ -605,6 +606,7 @@ class GEOTOOLS_PT_checks(_GeoToolsPanel, bpy.types.Panel):
             box.label(text=f"Code: {item.code}", icon="BLANK1")
             draw_remedy_buttons(box, item.code, item.subject)
             scene_georef.draw_remedy(box, item.code)
+            checks.draw_remedy(box, item.code, item.subject)
 
 
 class GEOTOOLS_PT_checks_images(_GeoToolsPanel, bpy.types.Panel):

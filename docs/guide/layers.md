@@ -1,9 +1,14 @@
 # Layers and bakes
 
-A **layer** is a named value on the source: one per face, one per face corner,
-or one per texel of an image on the source UVs. Slope, sun hours, a phase
+A **layer** is a named value on a mesh: one per face, one per face corner,
+or one per texel of an image on its UVs. Slope, sun hours, a phase
 number or a material class are all layers. GeoTools keeps the list of layers
 in the `.blend`, with each layer's units, no-data value and value range.
+
+A layer covers every object that carries it, in any collection. Only the
+objects in the [source collection](projects.md#source) are published, so a
+layer on an object outside it shows a warning, and **Run Checks** offers
+**Add to Source**.
 
 What a layer does today:
 
@@ -29,14 +34,17 @@ The analysis tools and presets add their own layers, so you often skip this.
 Under the list, the selected layer shows:
 
 - **Label** and **Units**: the label is the name shown in the list, and both
-  are written into the [GLB metadata](glb-metadata.md);
+  are written into the [GLB metadata](glb-metadata.md) and a variant's
+  [legend](#legend);
 - **Attribute** (face and corner layers): the mesh attribute the layer reads,
   `gt_<name>` unless you type another;
-- **Values**: the range of values present. The refresh button (**Update
-  Range**) reads it again from the evaluated meshes;
+- **Values**: the range of values present, on every object that carries the
+  layer. The refresh button (**Update Range**) reads it again from the
+  evaluated meshes;
 - **Categories** (category layers): the labels of the values 0, 1, 2 and so
   on. The pencil button (**Set Categories**) edits them;
-- what is missing, for example an object without the attribute.
+- what is missing, for example a source object without the attribute, or an
+  object that carries the layer outside the source collection.
 
 **-** removes the layer. Its dialog can also delete the layer's attributes and
 images (**Delete Attributes and Images**). The pencil next to the list renames
@@ -49,7 +57,7 @@ mesh with its modifiers and Geometry Nodes applied, as publishing exports it.
 So a Geometry Nodes tree that ends in **Store Named Attribute** computes a
 layer with no bake step, even if it changes the topology.
 
-1. Add a Geometry Nodes modifier to the source mesh.
+1. Add a Geometry Nodes modifier to the mesh.
 2. Store the value with **Store Named Attribute**, named `gt_<layer name>`,
    on the Face or Face Corner domain.
 3. Or store it under any name, and type that name in the layer's
@@ -98,14 +106,18 @@ baked then wins.
 The **Display** sub-panel sets how a layer looks in its variant tileset. It
 never changes your materials, images or colour attributes.
 
-**Show in Viewport** shows the layer in those colours in the viewport, and
-keeps them up to date as you change the settings below or the Geometry Nodes
-that make the layer. One layer is shown at a time.
+**Show in Viewport** shows the layer in those colours in the viewport, on
+every object that carries it (has its attribute after its modifiers, or, for a
+texture layer, an image), and keeps them up to date as you change the
+settings below or the Geometry Nodes that make the layer. One layer is shown
+at a time. If no object carries the layer, it stays off and the status bar
+says so. If no source collection is set, it is set to the collection of an
+object that carries the layer, and the status bar says so.
 
 - Face and corner layers show in Solid mode, which switches to the Attribute
   colour, and in Material Preview.
 - Texture layers show in Material Preview.
-- Each source object gets a `GeoTools View` Geometry Nodes modifier, pinned
+- Each object that carries the layer gets a `GeoTools View` Geometry Nodes modifier, pinned
   last and shown in the viewport only, with a `GeoTools View` material in its
   output. Your materials and material slots stay as they are. Open the node
   group to see how the colours are worked out, but don't edit it: GeoTools
@@ -150,6 +162,17 @@ for example `site.slope.3tz`. It is an ordinary 3D Tiles archive with the same
 placement and checks, and its own `site.slope.geotools/build.json`, which
 records the palette, range and legend stops, or the category colours. See
 [Checks and publishing](publish.md).
+
+### Legend
+
+A variant is colour only, so GeoTools writes its legend beside it as an SVG
+image: `site.slope.legend.svg` for `site.slope.3tz`. It shows the layer's
+**Label** (or name) and **Units**, the palette and scale, and the colour bar
+over the published range with its values, marking a range end that was
+**Auto**. A category layer shows each category's colour and label instead.
+Both end with the **No-Data** colour. The colours are the ones the tiles
+got. Open it with **Legend** in **Last Build**, or put it beside the
+tileset in a web page or a report.
 
 ## Details
 

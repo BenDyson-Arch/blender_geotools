@@ -35,9 +35,28 @@ and the project follows semantic versioning where practical.
   modifier and material built from stock nodes, switches Solid mode to the
   Attribute colour, and takes it all away again when turned off. Texture
   layers show in Material Preview. Publishing ignores it.
+- **Coordinates: WGS84 (RFC 7946)** in GeoJSON export writes longitude and
+  latitude that CesiumJS, MapLibre and geojson.io place correctly, beside
+  your tileset. It needs pyproj and a project CRS; the project CRS stays
+  the default. See [Geo formats](docs/guide/geo-formats.md#export).
+- A variant tileset gets an SVG legend beside it, such as
+  `site.slope.legend.svg`: the layer's label and units, the palette over the
+  published range, or the category colours, and the no-data colour.
+  **Legend** in Last Build opens it. See [Layers](docs/guide/layers.md#legend).
 
 ### Changed
 
+- Analysis acts on the selected meshes, in any collection; the source
+  collection only decides what is published. Sun Hours, Least-Cost Routes,
+  Hydrology, and Contours and Sections default to **Selected Objects** (Sun
+  Hours gets the **Surface** choice too), and with nothing selected their
+  buttons say "Select the meshes to analyse". A layer, its range and **Show
+  in Viewport** cover every object that carries it, and Show in Viewport says
+  so when none does instead of turning on to show nothing. While no source
+  collection is set, adding an analysis, showing a layer or importing a
+  GeoTIFF sets it to that object's collection and says so. Run Checks warns
+  about a layer on an object outside the source collection and offers **Add
+  to Source**.
 - **Write Colours** is gone: Show in Viewport replaces it. Publishing still
   never writes the `gt_present` attribute it left on meshes.
 - GLBs with metadata name their `geotools:` XMP terms with a permanent

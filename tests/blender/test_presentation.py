@@ -230,7 +230,7 @@ def test_presentation_panel_draws() -> None:
     props = h.props_drawn(calls)
     assert {"blend", "palette", "range_min", "range_max", "nodata_color"} <= set(props)
     assert "target" not in props  # a face layer has one target, so it is not shown
-    assert "show_in_viewport" in props  # the live view (test_live_view)
+    assert h.operator_text("geotools.layer_show") == "Show in Viewport"  # test_live_view
     assert ("operator", "geotools.publish", "EXPORT") not in calls  # variants: Publish only
     assert ("label", "Publish: choose it as Variant", "INFO") in calls
     assert h.draw_header(_display()) is None
@@ -844,6 +844,19 @@ def test_variant_output_staging_and_record() -> None:
         assert record["placement"]["anchor"] == [153.02, -27.47, 10.0]
         assert h.project().build_profiles[0].last_output == str(output)
 
+        # The legend beside the variant, its button in Last Build.
+        legend = tmp / "site.slope.legend.svg"
+        assert record["legend"] == legend.name
+        svg = legend.read_text(encoding="utf-8")
+        for stop in variant["ramp_stops"][:: len(variant["ramp_stops"]) - 1]:
+            assert "#{:02x}{:02x}{:02x}".format(*stop["rgba"][:3]) in svg, stop
+        assert h.project().build_profiles[0].last_legend == str(legend)
+        assert bpy.ops.geotools.open_legend.poll()
+        panels = h.submodule("blender.panels")
+        assert ("operator", "geotools.open_legend", "IMAGE_DATA") in h.draw(
+            panels.GEOTOOLS_PT_publish_last
+        )
+
         # From the build profile's variant layer; the plain publish is separate.
         profile = h.project().build_profiles[0]
         profile.variant_layer = name
@@ -855,7 +868,12 @@ def test_variant_output_staging_and_record() -> None:
         job = _finish()
         assert job.output == tmp / "site.3tz" and job.state.name == "DONE", job.error
         plain = json.loads((tmp / "site.geotools" / "build.json").read_text())
-        assert plain["variant"] is None
+        assert plain["variant"] is None and plain["legend"] is None
+        assert h.project().build_profiles[0].last_legend == ""
+        assert not bpy.ops.geotools.open_legend.poll()
+        assert ("operator", "geotools.open_legend", "IMAGE_DATA") not in h.draw(
+            panels.GEOTOOLS_PT_publish_last
+        )
 
         # A variant layer that is not presentable fails the checks.
         _result, error = h.call_op(bpy.ops.geotools.publish, layer="nope")
