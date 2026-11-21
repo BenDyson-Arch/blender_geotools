@@ -65,12 +65,15 @@ def test_layers_registered() -> None:
     ):
         assert h.operator_available(idname), idname
     assert hasattr(bpy.types, "GEOTOOLS_UL_layers")
-    # Source, then Linked Data (M8) and Analysis (M5, with its sub-panels), then Layers.
+    # Source, then Linked Data, Analyses and Tools (the #157 mock-up), then the classic
+    # Analysis and Layers they replace.
     classes = h.submodule("blender.panels").classes
     top = [c.__name__ for c in classes if not getattr(c, "bl_parent_id", "")]
-    assert top[top.index("GEOTOOLS_PT_source") :][:4] == [
+    assert top[top.index("GEOTOOLS_PT_source") :][:6] == [
         "GEOTOOLS_PT_source",
         "GEOTOOLS_PT_linked_data",
+        "GEOTOOLS_PT_analyses",
+        "GEOTOOLS_PT_tools",
         "GEOTOOLS_PT_analysis",
         "GEOTOOLS_PT_layers",
     ], top

@@ -3,9 +3,16 @@
 from __future__ import annotations
 
 import bpy
-from bpy.props import StringProperty
+from bpy.props import BoolProperty, StringProperty
 
-from .common import ADDON_PACKAGE, draw_dependency_status
+from .common import ADDON_PACKAGE, draw_dependency_status, redraw_ui
+
+
+def _classic_changed(_self, context: bpy.types.Context) -> None:
+    from . import analyses  # it imports the modules this one is registered before
+
+    analyses.list_all_scenes()  # layers the classic panels added since
+    redraw_ui(context)
 
 
 class GEOTOOLS_AddonPreferences(bpy.types.AddonPreferences):
@@ -26,6 +33,14 @@ class GEOTOOLS_AddonPreferences(bpy.types.AddonPreferences):
         subtype="DIR_PATH",
     )
 
+    use_classic_analysis_panels: BoolProperty(
+        name="Use Classic Analysis Panels",
+        description="Temporary, while the Analyses list is a mock-up: show the old Analysis "
+        "and Layers panels instead of Analyses and Tools, to compare the two",
+        default=False,
+        update=_classic_changed,
+    )
+
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
         draw_dependency_status(layout, show_paths=True)
@@ -34,6 +49,16 @@ class GEOTOOLS_AddonPreferences(bpy.types.AddonPreferences):
         box.prop(self, "rusty_tiles_cli")
         box.prop(self, "cesium_dir")
         box.label(text="Neither is downloaded or bundled; install them separately.")
+        box = layout.box()
+        box.label(text="Developer (temporary)", icon="EXPERIMENTAL")
+        box.prop(self, "use_classic_analysis_panels")
+
+
+def classic_panels(context: bpy.types.Context | None) -> bool:
+    """Whether the classic Analysis and Layers panels are shown instead of Analyses and Tools."""
+    prefs = getattr(context, "preferences", None) if context is not None else None
+    addon = prefs.addons.get(ADDON_PACKAGE) if prefs is not None else None
+    return bool(addon is not None and addon.preferences.use_classic_analysis_panels)
 
 
 classes = (GEOTOOLS_AddonPreferences,)

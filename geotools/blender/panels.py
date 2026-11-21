@@ -30,6 +30,13 @@ Naming rules for everything the sidebar shows:
   not apply, and its buttons) and the summary.
 - Linked Data: GeoJSON, GeoPackage and GeoTIFF files linked to objects
   (``links_ui``).
+- Analyses (``analyses_ui``, a mock-up of #157): the Add Analysis search
+  field and every result in one list, with the selected one's Inputs,
+  Display and Outputs.
+- Tools (``analyses_ui``): Measure, Sun (with Shadow Study) and
+  Archaeoastronomy.
+- Analysis and Layers, the classic panels the two above replace, shown
+  instead only with the ``Use Classic Analysis Panels`` preference.
 - Analysis (``analysis_ui``): Measure, Presets, Least-Cost Routes, Hydrology, Contours and
   Sections, and Sun (with Sun Hours and Shadow Study), then Archaeoastronomy.
 - Layers: the layer registry and the selected layer at a glance, with the
@@ -75,11 +82,13 @@ from ..core.layers import (
     validate,
 )
 from . import (
+    analyses_ui,
     analysis_ui,
     bake_texture,
     crs_picker,
     inspect_ui,
     links_ui,
+    preferences,
     presentation,
     publish,
     scene_georef,
@@ -379,6 +388,10 @@ class GEOTOOLS_PT_layers(_GeoToolsPanel, bpy.types.Panel):
     bl_idname = "GEOTOOLS_PT_layers"
     bl_label = "Layers"
 
+    @classmethod
+    def poll(cls, context: bpy.types.Context) -> bool:
+        return preferences.classic_panels(context)  # the Analyses list replaces it
+
     def draw_header(self, context: bpy.types.Context) -> None:
         item = _active_layer(context)
         if item is not None:
@@ -405,26 +418,30 @@ class GEOTOOLS_PT_layers(_GeoToolsPanel, bpy.types.Panel):
                     "INFO",
                 )
             return
+        draw_layer_fields(layout, context, item)
 
-        col = split_column(layout)
-        col.prop(item, "label", placeholder=item.name)
-        col.prop(item, "units", placeholder="None")
-        if item.domain != Domain.TEXTURE.value:
-            row = col.row()
-            row.alert = "layer-attribute-invalid" in {
-                i.code for i in validate(spec_from_props(item), ())
-            }
-            row.prop(item, "source_attribute", placeholder=attribute_name(item.name))
-        if item.data_type == DataType.CATEGORY.value:
-            count = len(spec_from_props(item).categories)
-            row = col.row()
-            row.alert = not count
-            value = info_row(row, "Categories", f"{count}" if count else "None set")
-            value.operator("geotools.layer_set_categories", text="", icon="GREASEPENCIL")
-        else:
-            value = info_row(col, "Values", _values_text(item))
-            value.operator("geotools.layer_update_range", text="", icon="FILE_REFRESH")
-        _draw_layer_status(layout, context, cached_status(context.scene, item))
+
+def draw_layer_fields(layout: bpy.types.UILayout, context: bpy.types.Context, item) -> None:
+    """The layer at a glance: label, units, attribute, values and status (Layers, Analyses)."""
+    col = split_column(layout)
+    col.prop(item, "label", placeholder=item.name)
+    col.prop(item, "units", placeholder="None")
+    if item.domain != Domain.TEXTURE.value:
+        row = col.row()
+        row.alert = "layer-attribute-invalid" in {
+            i.code for i in validate(spec_from_props(item), ())
+        }
+        row.prop(item, "source_attribute", placeholder=attribute_name(item.name))
+    if item.data_type == DataType.CATEGORY.value:
+        count = len(spec_from_props(item).categories)
+        row = col.row()
+        row.alert = not count
+        value = info_row(row, "Categories", f"{count}" if count else "None set")
+        value.operator("geotools.layer_set_categories", text="", icon="GREASEPENCIL")
+    else:
+        value = info_row(col, "Values", _values_text(item))
+        value.operator("geotools.layer_update_range", text="", icon="FILE_REFRESH")
+    _draw_layer_status(layout, context, cached_status(context.scene, item))
 
 
 def _bake_state(context: bpy.types.Context, item) -> str:
@@ -843,6 +860,7 @@ classes = (
     GEOTOOLS_PT_project_crs,
     GEOTOOLS_PT_source,
     *links_ui.classes,
+    *analyses_ui.classes,
     *analysis_ui.classes,
     GEOTOOLS_PT_layers,
     GEOTOOLS_PT_layers_bake,

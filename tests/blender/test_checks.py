@@ -286,6 +286,8 @@ def test_panels_order_and_draw() -> None:
         "Project",
         "Source",
         "Linked Data",
+        "Analyses",
+        "Tools",
         "Analysis",
         "Layers",
         "Textures",
@@ -300,6 +302,9 @@ def test_panels_order_and_draw() -> None:
             children.setdefault(c.bl_parent_id, []).append(c.bl_label)
     assert children == {
         "GEOTOOLS_PT_project": ["CRS Details"],
+        "GEOTOOLS_PT_analyses": ["Inputs", "Display", "Outputs"],
+        "GEOTOOLS_PT_tools": ["Measure", "Sun", "Archaeoastronomy"],
+        "GEOTOOLS_PT_tools_sun": ["Shadow Study"],
         "GEOTOOLS_PT_layers": ["Bake", "Display", "Details"],
         "GEOTOOLS_PT_textures": ["Paint", "Cleanup", "Balance"],
         "GEOTOOLS_PT_checks": ["Images"],
@@ -323,6 +328,8 @@ def test_panels_order_and_draw() -> None:
     assert closed == {
         "CRS Details",
         "Linked Data",
+        "Tools",
+        "Outputs",
         "Analysis",
         "Sun",
         "Sun Hours",

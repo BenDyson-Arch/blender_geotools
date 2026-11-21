@@ -16,6 +16,9 @@ It writes, in ``--out``:
 * ``montage_glb.png``: the same with the second build profile selected, a
   ``.glb`` profile (the metadata GLB, with the face table), exported once
   (after ``montage``, so it needs it);
+* ``analyses_preset.png``, ``analyses_tool.png``: the Analyses list (#157
+  mock-up) with Aspect, Hydrology and Contours added from its Add Analysis
+  field, Aspect and then Hydrology selected (after ``montage``);
 * ``state_empty.png``, ``state_mid.png``, ``state_ready.png``: what a user
   sees with the default open and closed panels, for an empty project, one
   half set up (placed, a source, an empty layer) and the full demo scene.
@@ -93,7 +96,7 @@ try:
 except ImportError:
     INSIDE_BLENDER = False
 
-STATES = ("empty", "mid", "ready", "montage", "texture", "glb")
+STATES = ("empty", "mid", "ready", "montage", "texture", "glb", "analyses")
 WINDOW = (1800, 1350)
 GUI_TIMEOUT = 900  # seconds
 MONTAGE_WORKSPACE = "Modeling"  # a factory workspace with a 3D Viewport
@@ -1001,8 +1004,28 @@ def inner_main(argv: list[str]) -> None:
         run_op(bpy.ops.geotools.run_checks)
         linked_dem()
         linked_contexts()
+        mod("blender.analyses").list_unlisted_layers(scene)  # as opening the file does
         bpy.ops.object.select_all(action="DESELECT")
         bpy.context.view_layer.objects.active = None
+
+    def build_analyses() -> None:
+        """Aspect, Hydrology and Contours added from the Add Analysis field, two computed."""
+        scene = bpy.context.scene
+        props = scene.geotools_analyses
+        obj = scene.geotools.source_collection.objects[0]
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+        for text in ("Terrain > Aspect", "Water > Hydrology", "Lines > Contours"):
+            props.add_search = text
+            if props.error:
+                print(f"UI-SHOTS add {text}: {props.error}", flush=True)
+            if props.items[props.index].kind != "PRESET":
+                run_op(bpy.ops.geotools.analyses_compute)
+        bpy.ops.object.select_all(action="DESELECT")
+
+    def select_analysis(name: str) -> None:
+        props = bpy.context.scene.geotools_analyses
+        props.index = next(i for i, item in enumerate(props.items) if item.name == name)
 
     def linked_dem() -> None:
         """The terrain as a 4 m DEM GeoTIFF in MGA zone 56, imported as linked data."""
@@ -1122,6 +1145,14 @@ def inner_main(argv: list[str]) -> None:
                     break
             yield 1.0
             yield from capture("montage_glb")
+        if "analyses" in states and "montage" in states:
+            props = bpy.context.scene.geotools
+            props.build_profile_index = 0
+            build_analyses()
+            for name, shot in (("Aspect", "analyses_preset"), ("Hydrology", "analyses_tool")):
+                select_analysis(name)
+                yield 1.0
+                yield from capture(shot)
 
     steps = run()
 

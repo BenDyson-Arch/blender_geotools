@@ -11,6 +11,7 @@ from types import ModuleType
 
 from ..core import deps
 from . import (
+    analyses,
     analysis,
     analysis_presets,
     archaeo,
@@ -75,6 +76,7 @@ MODULES: tuple[ModuleType, ...] = (
     least_cost,
     hydrology,
     contours,
+    analyses,  # after the tools whose settings its items keep
     texture_cleanup,
     texture_paint,
     panels,  # last: the sidebar draws what the modules above register

@@ -28,7 +28,7 @@ import bpy
 
 from ..analysis import site
 from ..core.placement import PlacementMode
-from . import analysis, analysis_presets, archaeo_ui, surface_ui
+from . import analysis, analysis_presets, archaeo_ui, preferences, surface_ui
 from .properties import ANCHOR_FIELDS, number_is_valid
 from .ui import big_button, info_row, split_column, wrapped
 
@@ -61,6 +61,10 @@ class GEOTOOLS_PT_analysis(_AnalysisPanel, bpy.types.Panel):
     bl_idname = "GEOTOOLS_PT_analysis"
     bl_label = "Analysis"
     bl_options = {"DEFAULT_CLOSED"}
+
+    @classmethod
+    def poll(cls, context: bpy.types.Context) -> bool:
+        return preferences.classic_panels(context)  # Analyses and Tools replace it
 
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
