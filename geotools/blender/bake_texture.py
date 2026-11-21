@@ -15,6 +15,8 @@ output), into the layer's images on the source UVs.
   onto the object with its modifiers off.
 - The ``uv-overlap`` check (``core.uv_overlap``) runs on each target first; an
   overlapping UV map is refused unless "Bake Anyway" is ticked.
+- Cycles runs on the Bake Device preference (:mod:`.bake_device`), reported
+  with the result.
 - Everything touched is restored in ``try/finally``: material slots, modifier
   and visibility flags, render engine, Cycles device and samples, bake settings,
   selection and active object. Temporary materials, meshes and objects are
@@ -42,6 +44,7 @@ from ..core.layers import (
     make_provenance,
     validate,
 )
+from . import bake_device
 from .common import extension_version, redraw_ui
 from .layers import (
     ensure_layer_image,
@@ -290,7 +293,8 @@ class _Saved:
         view_layer.update()  # drop the removed temporary objects
         _deselect_all(view_layer)
         for obj in self.selected:
-            if obj.name in view_layer.objects:
+            # None: an object removed just before the capture (until the next update).
+            if obj is not None and obj.name in view_layer.objects:
                 obj.select_set(True)
         view_layer.objects.active = self.active
 
@@ -625,7 +629,7 @@ class GEOTOOLS_OT_bake_texture_layer(bpy.types.Operator):
             if unrestored:
                 self.report({"ERROR"}, f"Could not restore the {', '.join(unrestored)}")
 
-        baked, coverage, overlap_notes = result
+        baked, coverage, notes, device = result
         item = find_layer(scene, layer_name)
         item.provenance = format_provenance(
             make_provenance(
@@ -650,10 +654,10 @@ class GEOTOOLS_OT_bake_texture_layer(bpy.types.Operator):
         span = "no values" if low is None else f"{low:g} to {high:g}"
         message = (
             f"Baked {attribute} into {layer_name} on {len(baked)} object"
-            f"{'s' * (len(baked) != 1)} ({coverage:,} texels, {span})"
+            f"{'s' * (len(baked) != 1)} ({coverage:,} texels, {span}) on the {device}"
         )
-        if overlap_notes:
-            self.report({"WARNING"}, f"{message}; overlapping UVs: {overlap_notes[0]}")
+        if notes:
+            self.report({"WARNING"}, "; ".join([message, *notes]))
         else:
             self.report({"INFO"}, message)
         redraw_ui(context)
@@ -667,7 +671,7 @@ class GEOTOOLS_OT_bake_texture_layer(bpy.types.Operator):
         attribute: str,
         objects: list[bpy.types.Object],
         touched: list[tuple[bpy.types.Object, bool]],
-    ) -> tuple[list[tuple[str, str]], int, list[str]] | None:
+    ) -> tuple[list[tuple[str, str]], int, list[str], str] | None:
         """Plan, check and bake every object. None (after a report) if refused or failed."""
         scene = context.scene
         depsgraph = context.evaluated_depsgraph_get()
@@ -707,8 +711,10 @@ class GEOTOOLS_OT_bake_texture_layer(bpy.types.Operator):
             _, issue = check_object_uvs(
                 target.obj, depsgraph, uv_name, item.resolution, severity=severity
             )
-            if issue is not None:
-                (notes if self.bake_anyway else refused).append(issue.message)
+            if issue is not None and self.bake_anyway:
+                notes.append(f"overlapping UVs: {issue.message}")
+            elif issue is not None:
+                refused.append(issue.message)
         if refused:
             self.report(
                 {"ERROR"},
@@ -718,8 +724,8 @@ class GEOTOOLS_OT_bake_texture_layer(bpy.types.Operator):
 
         scene.render.engine = "CYCLES"
         saved.capture_cycles(scene)
+        device = bake_device.use(scene)
         cycles = scene.cycles
-        cycles.device = "CPU"
         cycles.samples = 1  # emission needs one sample
         cycles.use_adaptive_sampling = False
         cycles.use_denoising = False
@@ -776,7 +782,9 @@ class GEOTOOLS_OT_bake_texture_layer(bpy.types.Operator):
                 self.report({"ERROR"}, f"Cannot save the image of {obj.name}: {ex}")
                 return None
             baked.append((obj.name, target.method))
-        return baked, coverage, notes
+        if device.note:
+            notes.append(device.note)
+        return baked, coverage, notes, device.label
 
 
 def _undo_images(

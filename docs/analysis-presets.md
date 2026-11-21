@@ -3,7 +3,9 @@
 The presets cover terrain shape, archaeological visualisation, visibility,
 change and distance, volumes, and paths and flow. Sky-view factor, openness
 and the cumulative viewshed also have a [fast (bake) path](#fast-bake-paths)
-for large meshes.
+for large meshes. For meshes with overhangs, [Sky Visibility, Sky View
+(Cosine) and Openness (3D)](#sky-visibility-sky-view-cosine-and-openness-3d-sky_visibility-sky_view_cosine-openness_3d-face-ratio)
+count sky directly, and are only baked.
 
 A preset is an ordinary Geometry Nodes group built from stock nodes. **Add
 Analysis** (Analysis panel ▸ Presets) appends it to the file, adds it as a
@@ -97,9 +99,14 @@ formulas, cast by Cycles `Raycast` shader nodes in one EMIT bake (the sun-hours
 engine),
 and stored as a layer.
 
+The three [direct-visibility entries](#sky-visibility-sky-view-cosine-and-openness-3d-sky_visibility-sky_view_cosine-openness_3d-face-ratio)
+use the same engine and the same kind of layer, but have no Geometry Nodes
+preset: they are only baked.
+
 **Using it.** Add Analysis ▸ *Sky-View Factor (Fast Bake)* (and likewise for
-the other three), or set **Engine** to *Fast (bake)* in the Adjust Last
-Operation panel. The preset's inputs are on that panel, with the preset's
+the other three, and *Sky Visibility (Fast Bake)*, *Sky View (Cosine) (Fast
+Bake)* and *Openness (3D) (Fast Bake)*), or set **Engine** to *Fast (bake)* in
+the Adjust Last Operation panel. The preset's inputs are on that panel, with the preset's
 defaults; the cumulative viewshed takes its Observers from the selection or
 the 3D cursor as the live preset does, and an optional Occluders collection.
 No modifier is added: the values are computed once, written to the meshes
@@ -173,6 +180,24 @@ bisection arithmetic), and the viewshed 1,000M rays in 29 to 39 s (25 to
 More observers cost about 0.3 to 0.4 s per observer at 10M; the bake takes
 1,024 observers at a time, each further bake paying the fixed cost again.
 
+The direct-visibility entries on the same 1M-triangle terrain (one sample per
+face; Blender 5.2.4, 20 threads at load averages of 12 to 24, so upper
+bounds; the bisection sky-view factor took 1.8 to 2.8 s in the same runs):
+
+| Entry | Rays 256 (default) | Rays 1,024 |
+|---|---|---|
+| Sky Visibility | 3.8–4.1 s | 16.5 s |
+| Sky View (Cosine) | 3.6–3.7 s | 18.1 s |
+| Openness (3D) (twice the rays, half of them cast) | 4.9–5.4 s | 26.5 s (2 bakes) |
+
+Bake time grows with Rays and with faces; expect about ten times as much at
+10M triangles. All the timings above are on the CPU. On a GPU (the
+[bake device](guide/analysis.md#bake-device); OptiX on an RTX 4080 SUPER,
+synthetic terrain), Sky Visibility at Rays 256 took 1.8 s at 1M faces and
+19 s at 10M, against 5.9 s and 67 s on the CPU in the same runs. The bake
+itself went from 5.1 s to 0.9 s and from 52 s to 7.2 s; the rest is reading
+the mesh and building the samples, which the GPU does not change.
+
 ## The library
 
 - `geotools/assets/analysis_presets.blend` holds every group; it is built by
@@ -230,6 +255,13 @@ attributes named `.gt_tmp_*`, removed before the group ends.
   far down: they see the topmost surface within that band. On terrain this is
   the height field a GIS uses; under an overhang or on a vertical wall the
   neighbours are taken from the top surface, and the values mean little there.
+- **Horizon presets need a height field.** Sky-view factor and openness
+  find each direction's horizon by bisection, which assumes that a ray at
+  elevation θ hits the surface if and only if the horizon is at least θ.
+  Under an overhang a low ray escapes and a higher one hits the lip, so they
+  report open sky there. Use the
+  [direct-visibility entries](#sky-visibility-sky-view-cosine-and-openness-3d-sky_visibility-sky_view_cosine-openness_3d-face-ratio)
+  on such meshes.
 - **Edges.** A window or horizon that leaves the mesh sees nothing there.
   Window presets give no data within one window of the boundary; disc and
   annulus presets use the samples that hit; horizon presets see an open sky
@@ -470,6 +502,13 @@ openness ([validation](validation/terrain.md#sky-view-factor-and-openness)).
 On a large mesh use the [fast path](#fast-bake-paths): the same search in a
 Cycles bake, about four times faster.
 
+**Height fields only.** The bisection is right only where every ray below
+the horizon hits and every ray above misses. Under an overhang (a rock
+shelter, an arch, a cave mouth, a ledge) a level ray escapes beneath the lip,
+so the direction is taken as open sky: on the validation's vault the sky-view
+factor under the roof is 0.21 too high on average. Use
+[Sky Visibility](#sky-visibility-sky-view-cosine-and-openness-3d-sky_visibility-sky_view_cosine-openness_3d-face-ratio) there.
+
 ### Positive and Negative Openness (`openness_positive`, `openness_negative`, CORNER, deg)
 
 Yokoyama et al. (2002): positive openness `Φ = 90° − (1/N) Σ β_i`, with β_i
@@ -481,7 +520,63 @@ negative openness the reverse. The search is the sky-view factor's over
 its rays Ray Offset *below* the surface, where a ray crosses the surface
 within Max Distance if and only if the lowest surface point is at or below θ.
 Same inputs and defaults; display range 60–120°. Both have a
-[fast path](#fast-bake-paths).
+[fast path](#fast-bake-paths). Like the sky-view factor, both are for height
+fields only; [Openness (3D)](#sky-visibility-sky-view-cosine-and-openness-3d-sky_visibility-sky_view_cosine-openness_3d-face-ratio)
+is the direct measure for true 3D meshes.
+
+### Sky Visibility, Sky View (Cosine) and Openness (3D) (`sky_visibility`, `sky_view_cosine`, `openness_3d`, FACE, ratio)
+
+Direct visibility: each face casts Rays fixed directions from its centre,
+moved Ray Offset along the face normal, and counts those that miss the
+surface within Max Distance. The directions are a Fibonacci spiral over the
+sky, each standing for the same solid angle (the sky set sun hours' diffuse
+light uses). Only directions in front of the face are cast: the face itself
+hides the rest. Nothing is assumed about the surface, so overhangs, walls,
+ceilings and undercuts are counted as they are. Bake only (Add Analysis ▸
+*… (Fast Bake)*), with the [fast path's](#fast-bake-paths) occluders and
+provenance; display range 0–1, greys.
+
+- **Sky Visibility**: misses / Rays, the share of the sky's solid angle seen
+  from the face. On a height field this is the sky-view factor's quantity
+  (Zakšek's SVF is the visible share of the sky hemisphere): 1 for a level
+  open face, 1 − β/π for an open face tilted by β, 0 under a closed roof.
+- **Sky View (Cosine)**: 2/Rays × Σ cos(angle to the normal) over the
+  missing sky directions: each direction weighted by how squarely it falls
+  on the face, as diffuse light from a uniform sky does (the radiative sky
+  view factor). 1 for a level open face, (1 + cos β)/2 tilted by β, 0.5 for
+  an open wall.
+- **Openness (3D)**: the share of the face's own hemisphere (the Rays sky
+  directions and their mirror images below the horizon, those in front of
+  the face) unobstructed within Max Distance. 1 on any open face, whichever
+  way it points; a ceiling that looks down onto open ground is open, an
+  alcove is not. It is a share, not Yokoyama's angle.
+
+**Which to use.**
+
+| Mesh | Use |
+|---|---|
+| terrain, a DEM, or any mesh without overhangs | the sky-view factor and openness presets: live, per vertex, and comparable with RVT and the literature |
+| overhangs, rock shelters, caves, undercut walls, building interiors | Sky Visibility for the SVF's quantity, Sky View (Cosine) for light or weathering by a uniform sky, Openness (3D) for how enclosed a face is whichever way it faces |
+
+On a height field Sky Visibility and the bisection sky-view factor agree on
+level and concave ground (within 0.006 RMS on the validation terrain). On
+convex ground Sky Visibility is lower, by 0.02 on average and up to 0.07 on
+the validation terrain's crests: the bisection's rays start Ray Offset above a
+vertex and see past the curve below the faces' planes, which a face cannot.
+See the
+[validation](validation/terrain.md#direct-visibility-sky-visibility-sky-view-cosine-openness-3d).
+
+**Resolution.** Rays sets the angular resolution, not a bisection: at the
+default 256 the values are within about 0.015 of the exact answers (0.005 at
+1,024) on the validation's overhangs. Cost grows with Rays; see the
+[timings](#fast-bake-paths). Faces are sampled at their centres, so a long,
+thin face gets one value for its whole length: subdivide where that matters.
+
+| Input | Default | |
+|---|---|---|
+| Max Distance | 2 m | Length of each ray: surface further than this along a ray does not block it. |
+| Rays | 256 | Sky directions per face (16 to 4,096); Openness (3D) adds as many below the horizon. |
+| Ray Offset | 0.002 m | Start of each ray from the face centre, along the face normal. |
 
 ## Visibility
 

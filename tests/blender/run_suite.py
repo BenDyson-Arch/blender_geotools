@@ -11,8 +11,9 @@ A deliberately tiny runner rather than pytest: Blender's Python has no pytest,
 and this keeps the suite free of network installs and of pip/pytest version
 drift against whatever CPython a Blender build bundles. It discovers
 ``test_*`` functions in ``test_*.py`` next to this file, runs them in
-definition order, prints a pass/fail line each, optionally writes a JSON
-report, and exits non-zero if anything failed or nothing ran.
+definition order, prints a PASS, FAIL or SKIP line each (a test skips by
+raising ``_harness.Skipped`` with the reason), optionally writes a JSON
+report, and exits non-zero if anything failed or nothing passed.
 """
 
 from __future__ import annotations
@@ -105,6 +106,7 @@ def main() -> int:
     for name, fn in tests:
         started = time.perf_counter()
         error = None
+        skipped = None
         try:
             # Every test starts with the extension enabled; lifecycle tests
             # that disable it are not allowed to leak that into the next one.
@@ -113,18 +115,23 @@ def main() -> int:
             fn()
         except KeyboardInterrupt:
             raise
+        except h.Skipped as ex:
+            skipped = str(ex)
         except BaseException:  # noqa: BLE001 - a test failure of any kind is reported
             error = traceback.format_exc()
         elapsed = time.perf_counter() - started
-        outcome = "FAIL" if error else "PASS"
-        print(f"{outcome} {name} ({elapsed:.2f}s)")
+        outcome = "FAIL" if error else "SKIP" if skipped is not None else "PASS"
+        print(f"{outcome} {name} ({elapsed:.2f}s)" + (f": {skipped}" if skipped else ""))
         if error:
             print("    " + error.rstrip().replace("\n", "\n    "))
-        results.append({"name": name, "outcome": outcome.lower(), "error": error})
+        results.append(
+            {"name": name, "outcome": outcome.lower(), "error": error, "reason": skipped}
+        )
 
     passed = sum(r["outcome"] == "pass" for r in results)
-    failed = len(results) - passed
-    print(f"\n{passed} passed, {failed} failed")
+    skips = sum(r["outcome"] == "skip" for r in results)
+    failed = len(results) - passed - skips
+    print(f"\n{passed} passed, {failed} failed, {skips} skipped")
     if args.results:
         args.results.write_text(
             json.dumps(
@@ -137,6 +144,7 @@ def main() -> int:
                     "expect_pyproj_version": h.CONFIG.expect_pyproj_version,
                     "passed": passed,
                     "failed": failed,
+                    "skipped": skips,
                     "tests": results,
                 },
                 indent=2,

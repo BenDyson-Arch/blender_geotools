@@ -217,6 +217,54 @@ def test_true_north_turns_through_the_site_map() -> None:
     )
 
 
+# --- Cycles bakes: the device comes from the Bake Device preference --------------------------
+
+# Owns the choice: reads the preference and Cycles' devices, never ticks one.
+BAKE_DEVICE_OWNER = "geotools/blender/bake_device.py"
+
+
+def _device_writes(source: str, path: str = "<test>") -> list[str]:
+    """Assignments to ``<anything>.device`` (``scene.cycles.device = ...``)."""
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        targets = node.targets if isinstance(node, ast.Assign) else []
+        if isinstance(node, (ast.AugAssign, ast.AnnAssign)):
+            targets = [node.target]
+        for target in targets:
+            if isinstance(target, ast.Attribute) and target.attr == "device":
+                found.append(f"{path}:{node.lineno}: {ast.unparse(node)}")
+        if isinstance(node, ast.Call) and _dotted(node.func).endswith("setattr"):
+            name = node.args[1] if len(node.args) > 1 else None
+            if isinstance(name, ast.Constant) and name.value == "device":
+                found.append(f"{path}:{node.lineno}: {ast.unparse(node)}")
+    return found
+
+
+def test_bakes_take_the_bake_device() -> None:
+    found = [
+        hit
+        for path in _modules()
+        if _rel(path) != BAKE_DEVICE_OWNER
+        for hit in _device_writes(path.read_text(encoding="utf-8"), _rel(path))
+    ]
+    assert not found, (
+        "Set the Cycles device of a bake with bake_device.use(scene) after "
+        "_Saved.capture_cycles (ray_bake.setup_cycles does both), so the Bake Device "
+        "preference applies and the user's device comes back.\n" + "\n".join(found)
+    )
+
+
+@pytest.mark.parametrize(
+    "source", ['scene.cycles.device = "CPU"', 'cycles.device = "GPU"', 'setattr(c, "device", x)']
+)
+def test_the_bake_device_rule_catches(source: str) -> None:
+    assert _device_writes(source)
+
+
+def test_the_bake_device_rule_ignores_others() -> None:
+    assert not _device_writes('cycles.samples = 1\nkind = prefs.device_type\nsetattr(c, "use", 1)')
+
+
 # --- pyproj: x is easting or longitude ------------------------------------------------------
 
 

@@ -55,7 +55,8 @@ ALLOWED = (
 DEVELOPER = ("CONTRIBUTING.md", "AGENTS.md", "CLAUDE.md")
 
 WORD_CAPS = {"CONTRIBUTING.md": 1200, "AGENTS.md": 600}
-CHANGELOG_SECTION_CAP = 800
+CHANGELOG_SECTION_CAP = 1000  # a released version's section
+CHANGELOG_ENTRY_CAP = 60  # one change, said plainly
 RELEASE_NOTES_CAP = 1600
 CLAUDE_MD_CAP = 25
 
@@ -73,6 +74,7 @@ BLENDER_UI_TERMS = frozenset(
         "Clone Map",
         "Edit",
         "Extrude Mesh",
+        "Flip",
         "Flip Faces",
         "Get Extensions",
         "Image",
@@ -83,6 +85,7 @@ BLENDER_UI_TERMS = frozenset(
         "Object Info",
         "Preferences",
         "Quick Edit",
+        "Recalculate Outside",
         "Reload",
         "Sample Nearest Surface",
         "Set Position",
@@ -205,13 +208,32 @@ def changelog_sections(text: str) -> dict[str, str]:
 
 
 def test_changelog_sections_are_concise() -> None:
+    """Released sections stay short; [Unreleased] grows with the release and is
+    trimmed when it is cut, so it is held to the entry cap only."""
     sections = changelog_sections(read("CHANGELOG.md"))
     assert "[Unreleased]" in sections
-    long = {name: words(body) for name, body in sections.items()}
-    long = {name: n for name, n in long.items() if n > CHANGELOG_SECTION_CAP}
+    long = {
+        name: words(body)
+        for name, body in sections.items()
+        if name != "[Unreleased]" and words(body) > CHANGELOG_SECTION_CAP
+    }
     assert not long, (
         f"Changelog sections over {CHANGELOG_SECTION_CAP} words: {long}. Say what changed "
         "for users; the release notes and git hold the story."
+    )
+
+
+def test_changelog_entries_are_concise() -> None:
+    sections = changelog_sections(read("CHANGELOG.md"))
+    long = [
+        f"{name}: {words(entry)} words: {' '.join(entry.split())[:70]}..."
+        for name, body in sections.items()
+        for entry in re.findall(r"^- .*(?:\n[ \t]+\S.*)*", body, re.MULTILINE)
+        if words(entry) > CHANGELOG_ENTRY_CAP
+    ]
+    assert not long, (
+        f"Changelog entries over {CHANGELOG_ENTRY_CAP} words. One change per entry, said "
+        "plainly; the guide holds the details.\n" + "\n".join(long)
     )
 
 

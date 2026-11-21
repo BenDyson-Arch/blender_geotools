@@ -15,6 +15,13 @@ modifier. The rays, inputs and formulas are the preset's
   offset origin, and narrows the bracket. The direction group adds the
   estimate and its sine to the running sum, so the bake emits (Σγ, Σ sin γ⁺, 1)
   per vertex. Values are spread onto the vertex's corners.
+* **Direct visibility** (Sky Visibility, Sky View (Cosine), Openness (3D)):
+  one sample per face (centre and face normal), parked off-scene. One ray
+  group per direction, its direction (scaled by Max Distance) a socket
+  value; the Raycast node's Length is 1 when the direction is in front of the
+  face and 0 (nothing cast) otherwise, so rays behind the face cost almost
+  nothing. Each adds (miss, or miss x cos for the cosine entry; 1 if cast)
+  to a running vector sum. Up to 1,024 directions per bake.
 * **Cumulative viewshed**: one sample per face (centre and face normal). Each
   observer is one group with its eye as a socket value. The Raycast node's
   Direction is the segment eye − point itself and its Length 1: Cycles
@@ -164,6 +171,58 @@ def _horizon_probe(run: Run, search: core.HorizonSearch) -> Probe:
         return {"Origin": vector_node(tree, "ADD", group_in.outputs["Position"], lift)}
 
     return Probe(run, TEMP_PREFIX, direction, ("Origin",), head)
+
+
+# --- the direct-visibility probe -----------------------------------------------------------------
+
+
+def _visibility_ray_group(name: str, cosine: bool):
+    """One direction: Sum + (miss (x cos), cast, 0).
+
+    Inputs Sum, Origin (the offset face centre), Normal and Direction (the
+    unit direction times Max Distance). Cycles measures a Raycast's Length in
+    units of its direction's length, so Length 1 reaches Max Distance and
+    Length 0 casts nothing (a direction behind the face). For the cosine
+    entry the gain is miss x (n · Direction), Max Distance times the cosine;
+    ``visibility_values`` takes that out. Six or seven shader nodes per ray.
+    """
+    tree = bpy.data.node_groups.new(name, "ShaderNodeTree")
+    for socket in ("Sum", "Origin", "Normal", "Direction"):
+        new_socket(tree, socket, "Vector")
+    new_socket(tree, "Sum", "Vector", "OUTPUT")
+    group_in = tree.nodes.new("NodeGroupInput")
+    group_out = tree.nodes.new("NodeGroupOutput")
+    get = group_in.outputs.get
+    dot = vector_node(tree, "DOT_PRODUCT", get("Normal"), get("Direction"), out="Value")
+    cast = math_node(tree, "GREATER_THAN", dot, 0.0)
+    hit = raycast(tree, get("Origin"), get("Direction"), cast).outputs["Is Hit"]
+    miss = math_node(tree, "SUBTRACT", cast, hit)
+    gain = math_node(tree, "MULTIPLY", miss, dot) if cosine else miss
+    added = vector_node(tree, "ADD", get("Sum"), combine(tree, gain, cast, 0.0))
+    tree.links.new(added, group_out.inputs["Sum"])
+    return tree
+
+
+def _visibility_probe(run: Run, search: core.VisibilitySearch) -> Probe:
+    ray = _visibility_ray_group(f"{TEMP_PREFIX} Sky Ray", search.cosine)
+    run.groups.append(ray)
+
+    def head(tree, group_in) -> dict:
+        normal = group_in.outputs["Normal"]
+        lift = vector_node(tree, "SCALE", normal, scale=search.ray_offset)
+        return {
+            "Origin": vector_node(tree, "ADD", group_in.outputs["Position"], lift),
+            "Normal": normal,
+        }
+
+    return Probe(run, TEMP_PREFIX, ray, ("Origin", "Normal"), head)
+
+
+def _visibility_batches(search: core.VisibilitySearch) -> list[list[dict]]:
+    """The directions' socket values, at most RAYS_PER_BAKE per bake."""
+    scaled = search.directions * search.max_distance
+    values = [{"Direction": tuple(map(float, d))} for d in scaled]
+    return [values[i : i + RAYS_PER_BAKE] for i in range(0, len(values), RAYS_PER_BAKE)]
 
 
 # --- the viewshed probe ------------------------------------------------------------------------
@@ -341,13 +400,14 @@ def compute(
 ) -> dict:
     """Compute a preset's values on ``objects`` with the ray bake; store them as a layer.
 
-    Returns a summary: the layer, samples, rays per sample, bakes, seconds and
-    their split (``timings``), notes. Raises ``FastPathError`` (or
-    ``ValueError`` for an input out of range) before changing anything when it
-    cannot run; a failed bake leaves no new layer.
+    Returns a summary: the layer, samples, rays per sample, bakes, the device
+    (:mod:`.bake_device`), seconds and their split (``timings``), notes.
+    Raises ``FastPathError`` (or ``ValueError`` for an input out of range)
+    before changing anything when it cannot run; a failed bake leaves no new
+    layer.
     """
     scene = context.scene
-    preset = catalog.get(preset_id)
+    preset = core.get(preset_id)
     if not core.is_fast(preset_id):
         raise FastPathError(f"{preset.label} has no fast path.")
     if not hasattr(scene, "cycles"):
@@ -357,22 +417,22 @@ def compute(
     values = core.check_inputs(preset_id, inputs or {})
     name = (name or "").strip() or preset.layer
     _check_name(scene, preset, name)
-    horizon = preset_id in core.HORIZON
-    if not horizon and observers is None:
+    viewshed = core.kind(preset_id) == "viewshed"
+    if viewshed and observers is None:
         raise FastPathError("The cumulative viewshed needs an Observers object.")
 
     began = time.perf_counter()
     timings: dict[str, float] = {}
     notes: list[str] = []
     eye = np.zeros((0, 3))
-    if not horizon:
+    if viewshed:
         points = observer_points(context, observers, objects, drape=bool(values["Drape"]))
         eye = core.eyes(points, values["Observer Height"])
         timings["observers"] = time.perf_counter() - began
 
     is_new = find_layer(scene, name) is None
     record = dict(values)
-    if not horizon:
+    if viewshed:
         record["Observers"] = observers.name
         record["Occluders"] = occluders.name if occluders is not None else None
     spec = core.layer_spec(
@@ -432,7 +492,8 @@ def compute(
 def _bake(context, preset_id, objects, values, eye, occluders, timings, notes) -> dict:
     """Sample, bake and turn the sums into values; returns the summary and the values."""
     scene = context.scene
-    horizon = preset_id in core.HORIZON
+    path = core.kind(preset_id)
+    horizon = path == "horizon"
     started = time.perf_counter()
     saved = _Saved.capture(context)
     run = Run()
@@ -446,7 +507,9 @@ def _bake(context, preset_id, objects, values, eye, occluders, timings, notes) -
             )
         points = np.concatenate(samples.points)
         normals = np.concatenate(samples.normals)
-        setup_cycles(saved, scene)
+        device = setup_cycles(saved, scene)
+        if device.note:
+            notes.append(device.note)
         keep = list(objects)
         if occluders is not None:
             keep += list(occluders.all_objects)
@@ -454,12 +517,12 @@ def _bake(context, preset_id, objects, values, eye, occluders, timings, notes) -
         if missing:
             notes.append("Not in the view layer, so not occluding: " + ", ".join(missing[:3]))
         # Park the sample triangles below everything a ray can reach: segments
-        # stay inside the hull of the samples and eyes; horizon rays reach Max
-        # Distance from a sample.
+        # stay inside the hull of the samples and eyes; horizon and direct
+        # rays reach Max Distance (plus Ray Offset) from a sample.
         everything = np.concatenate([points, eye]) if len(eye) else points
         low, high = everything.min(axis=0), everything.max(axis=0)
         extent = float(np.max(high - low))
-        reach = values["Max Distance"] if horizon else 0.0
+        reach = 0.0 if path == "viewshed" else values["Max Distance"] + values["Ray Offset"]
         depth = reach + max(10.0, 0.01 * extent)
         at = parking(low, len(points), depth)
         obj, width, height = build_sample_object(
@@ -474,6 +537,10 @@ def _bake(context, preset_id, objects, values, eye, occluders, timings, notes) -
             probe = _horizon_probe(run, search)
             azimuths = core.azimuth_vectors(search.directions)
             batches = [[{"Azimuth": tuple(map(float, a))} for a in azimuths]]
+        elif path == "direct":
+            visibility = core.visibility_search(preset_id, values)
+            probe = _visibility_probe(run, visibility)
+            batches = _visibility_batches(visibility)
         else:
             probe = _viewshed_probe(run, values, points, eye)
             # Each observer is one group node with its eye (and the eye at z = 0)
@@ -504,6 +571,7 @@ def _bake(context, preset_id, objects, values, eye, occluders, timings, notes) -
                 built = time.perf_counter()
                 bake(context, [obj], PROBE_UV, error=FastPathError)
                 sums = pixels(image)[: len(points), :3].astype(np.float64)
+                # Bakes add up in binary64; the third channel is 1 where baked.
                 total = sums if total is None else total + sums * (1.0, 1.0, 0.0)
                 timings["bakes"].append(
                     {"probe": built - began, "bake": time.perf_counter() - built}
@@ -523,6 +591,12 @@ def _bake(context, preset_id, objects, values, eye, occluders, timings, notes) -
     if horizon:
         result = core.horizon_values(preset_id, total[:, 0], total[:, 1], search.directions)
         rays = search.directions * search.steps
+    elif path == "direct":
+        gains = total[:, 0]
+        if visibility.cosine:
+            gains = gains / visibility.max_distance  # the shader's cosines are x Max Distance
+        result = core.visibility_values(preset_id, gains, total[:, 1], visibility.rays)
+        rays = len(visibility.directions)
     else:
         result = total[:, 0]
         rays = len(eye)
@@ -537,6 +611,7 @@ def _bake(context, preset_id, objects, values, eye, occluders, timings, notes) -
         "samples": len(points),
         "rays_per_sample": int(rays),
         "bakes": len(batches),
+        "device": device.label,
         "samples_object": out,
     }
 
@@ -548,5 +623,5 @@ def fast_summary(result: dict) -> str:
     return (
         f"{result['samples']:,} samples x {result['rays_per_sample']:,} rays, "
         f"{result['bakes']} bake{'s' * (result['bakes'] != 1)}, {result['seconds']:.1f} s "
-        f"(bake {bake_seconds:.1f} s)"
+        f"(bake {bake_seconds:.1f} s on the {result['device']})"
     )

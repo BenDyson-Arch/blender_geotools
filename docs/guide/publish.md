@@ -38,10 +38,32 @@ Run Checks also refreshes every layer's value range and status.
 | `georef-keys-ignored` | The scene has a BlenderGIS georeference, but the project is Local or Anchor. | **Use the Scene's BlenderGIS Georeference** in the Project panel, or ignore it. |
 | `restart-after-update` | GeoTools was updated while Blender was running, so Blender still runs the old libraries. | Restart Blender. |
 | `uv-overlap` | UV triangles share texels on an object with texture layers. | Fix the UVs, or bake anyway. See [Layers](layers.md#texture-layers-and-the-bake-sub-panel). |
+| `normals-inconsistent` | Neighbouring faces are wound in opposite directions, so the normals flip from face to face. | In Edit Mode, select all, then **Mesh > Normals > Recalculate Outside**. See [Normals](#normals). |
+| `normals-inward` | The normals point into the surface: most faces open to the sky face down. | In Edit Mode, select all, then **Mesh > Normals > Flip** (or Recalculate Outside on a closed mesh). |
+| `normals-down` | Most of the area faces down. A warning unless the faces open to the sky face up, which makes it overhang (then a note). | If it is not overhang, flip the normals as above. |
 | `image-missing` | An image's file is missing and it is not packed. | Find the file, or pack the image. |
 | `image-unsaved` | An image has unsaved edits. An error when its file is a source file and the `.blend` was never saved. | Nothing: Publish saves it first, to a `textures/` copy for a source file. For the error, save the `.blend`. |
 | `textures-changed` | Source images changed since the last publish. | Nothing; an info note. See [Texture cleanup](textures.md). |
 | `texture-balance-preview` | A colour-balance preview node is still in a material. | Apply or clear the balance. See [Texture cleanup](textures.md). |
+
+### Normals
+
+Hydrology, Sun Hours, Sky-View Factor, Openness and Slope's overhangs (above
+90°) read each face's normal as pointing out of the surface, into the air. Run Checks tests
+every source mesh, object by object:
+
+- how much of its area faces down;
+- whether faces that share an edge are wound the same way, in each connected
+  part (a tile with unwelded seams is checked on its own);
+- whether the faces open to the sky face up. A sample of faces casts a ray
+  straight up; a part whose open faces mostly face down points inward.
+
+The sky test is a rule of thumb: a scan made from inside a cave reads as
+inward, and so does a tile holding only an overhang's ceiling with nothing
+scanned above it. That is why these are warnings. Hydrology, Sun Hours and
+the sky presets run the first two tests at their start and put any warning
+in their report; they still run. On 10 million triangles the tests take
+about 2.5 seconds, and 4 with the sky test.
 
 ### Images rusty-tiles refuses
 
