@@ -191,7 +191,12 @@ bounds; the bisection sky-view factor took 1.8 to 2.8 s in the same runs):
 | Openness (3D) (twice the rays, half of them cast) | 4.9–5.4 s | 26.5 s (2 bakes) |
 
 Bake time grows with Rays and with faces; expect about ten times as much at
-10M triangles.
+10M triangles. All the timings above are on the CPU. On a GPU (the
+[bake device](guide/analysis.md#bake-device); OptiX on an RTX 4080 SUPER,
+synthetic terrain), Sky Visibility at Rays 256 took 1.8 s at 1M faces and
+19 s at 10M, against 5.9 s and 67 s on the CPU in the same runs. The bake
+itself went from 5.1 s to 0.9 s and from 52 s to 7.2 s; the rest is reading
+the mesh and building the samples, which the GPU does not change.
 
 ## The library
 

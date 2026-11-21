@@ -92,7 +92,8 @@ Press **Bake...** and choose what to bake:
 **Method** is **Automatic** by default: each object is baked directly when its
 evaluated mesh has the same topology, and from a copy of the result
 (**Selected to Active**) when Geometry Nodes changed the topology. The bake is
-a one-sample Cycles emission bake. Your materials, modifiers, render settings
+a one-sample Cycles emission bake on the
+[bake device](analysis.md#bake-device). Your materials, modifiers, render settings
 and selection are put back afterwards, also when the bake fails. Texels that
 no triangle covers, and NaN or infinite values, get the layer's no-data value.
 

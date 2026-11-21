@@ -1,10 +1,11 @@
-"""Extension preferences: dependency status and the optional preview tools."""
+"""Extension preferences: dependency status, the bake device and the optional preview tools."""
 
 from __future__ import annotations
 
 import bpy
-from bpy.props import StringProperty
+from bpy.props import EnumProperty, StringProperty
 
+from .bake_device import DEVICE_ITEMS
 from .common import ADDON_PACKAGE, draw_dependency_status
 
 
@@ -13,6 +14,13 @@ class GEOTOOLS_AddonPreferences(bpy.types.AddonPreferences):
 
     bl_idname = ADDON_PACKAGE
 
+    bake_device: EnumProperty(
+        name="Bake Device",
+        description="Device for GeoTools' Cycles bakes (texture bakes, sun hours, the horizon "
+        "and the presets' fast paths); your render device is restored afterwards",
+        items=DEVICE_ITEMS,
+        default="AUTO",
+    )
     rusty_tiles_cli: StringProperty(
         name="rusty-tiles CLI",
         description="Optional rusty-tiles command-line executable, used only for Preview "
@@ -29,6 +37,10 @@ class GEOTOOLS_AddonPreferences(bpy.types.AddonPreferences):
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
         draw_dependency_status(layout, show_paths=True)
+        box = layout.box()
+        box.label(text="Bakes", icon="RENDER_STILL")
+        box.prop(self, "bake_device")
+        box.label(text="Auto uses the GPU set in System > Cycles Render Devices.")
         box = layout.box()
         box.label(text="Preview (optional)", icon="WORLD")
         box.prop(self, "rusty_tiles_cli")

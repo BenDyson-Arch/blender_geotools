@@ -15,6 +15,10 @@ and the project follows semantic versioning where practical.
   Blender fix in the message. Hydrology, Sun Hours, Sky-View Factor and
   Openness warn about the first and last in their report. See
   [Normals](docs/guide/publish.md#normals).
+- **Bake Device** in the GeoTools preferences: Sun Hours, the horizon
+  profile, Fast Bake presets and texture bakes use the GPU when Cycles has
+  one enabled (Auto), or always the GPU or CPU. Each report names the device.
+  See [Bake device](docs/guide/analysis.md#bake-device).
 - **Sky Visibility**, **Sky View (Cosine)** and **Openness (3D)** in Add
   Analysis (Fast Bake only) count the sky directly from each face, so they
   are right under overhangs, where the sky-view factor and openness presets

@@ -48,6 +48,10 @@ class Startup:
     in_preferences: bool
 
 
+class Skipped(Exception):
+    """Raised by a test that cannot run here (the message says why); reported as SKIP."""
+
+
 # Set by run_suite.py before any test module is imported.
 CONFIG: Config = None  # type: ignore[assignment]
 STARTUP: Startup = None  # type: ignore[assignment]

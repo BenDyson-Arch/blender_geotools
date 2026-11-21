@@ -400,10 +400,11 @@ def compute(
 ) -> dict:
     """Compute a preset's values on ``objects`` with the ray bake; store them as a layer.
 
-    Returns a summary: the layer, samples, rays per sample, bakes, seconds and
-    their split (``timings``), notes. Raises ``FastPathError`` (or
-    ``ValueError`` for an input out of range) before changing anything when it
-    cannot run; a failed bake leaves no new layer.
+    Returns a summary: the layer, samples, rays per sample, bakes, the device
+    (:mod:`.bake_device`), seconds and their split (``timings``), notes.
+    Raises ``FastPathError`` (or ``ValueError`` for an input out of range)
+    before changing anything when it cannot run; a failed bake leaves no new
+    layer.
     """
     scene = context.scene
     preset = core.get(preset_id)
@@ -506,7 +507,9 @@ def _bake(context, preset_id, objects, values, eye, occluders, timings, notes) -
             )
         points = np.concatenate(samples.points)
         normals = np.concatenate(samples.normals)
-        setup_cycles(saved, scene)
+        device = setup_cycles(saved, scene)
+        if device.note:
+            notes.append(device.note)
         keep = list(objects)
         if occluders is not None:
             keep += list(occluders.all_objects)
@@ -608,6 +611,7 @@ def _bake(context, preset_id, objects, values, eye, occluders, timings, notes) -
         "samples": len(points),
         "rays_per_sample": int(rays),
         "bakes": len(batches),
+        "device": device.label,
         "samples_object": out,
     }
 
@@ -619,5 +623,5 @@ def fast_summary(result: dict) -> str:
     return (
         f"{result['samples']:,} samples x {result['rays_per_sample']:,} rays, "
         f"{result['bakes']} bake{'s' * (result['bakes'] != 1)}, {result['seconds']:.1f} s "
-        f"(bake {bake_seconds:.1f} s)"
+        f"(bake {bake_seconds:.1f} s on the {result['device']})"
     )

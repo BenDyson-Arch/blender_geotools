@@ -254,7 +254,7 @@ def run_suite(
     except (OSError, ValueError) as ex:
         raise RunError(f"the in-Blender suite wrote no report (exit code {code}): {ex}") from ex
     if code != 0 or report.get("failed") != 0 or not report.get("passed"):
-        failed = [t["name"] for t in report.get("tests", []) if t.get("outcome") != "pass"]
+        failed = [t["name"] for t in report.get("tests", []) if t.get("outcome") == "fail"]
         detail = f"; failed: {', '.join(failed)}" if failed else ""
         raise RunError(f"in-Blender suite failed (exit code {code}){detail}")
     return report
@@ -349,7 +349,8 @@ def main(argv: list[str] | None = None) -> int:
             tmp / "results.json",
         )
         print(
-            f"OK: {report['passed']} passed in Blender {report['blender']} "
+            f"OK: {report['passed']} passed, {report.get('skipped', 0)} skipped "
+            f"in Blender {report['blender']} "
             f"(Python {report['python']}), rusty-tiles {args.expect}"
             + (f" {expect_version}" if expect_version else "")
             + (f", pyproj {expect_pyproj_version}" if expect_pyproj_version else "")

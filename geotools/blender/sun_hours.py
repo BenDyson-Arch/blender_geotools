@@ -34,7 +34,7 @@ import json
 import logging
 import math
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import bpy
 import numpy as np
@@ -338,36 +338,6 @@ def plan(context: bpy.types.Context) -> Plan:
     return Plan(rays, steps, where, first, last, zone, parameters)
 
 
-def _setup_cycles(saved: _Saved, scene: bpy.types.Scene) -> None:
-    scene.render.engine = "CYCLES"
-    saved.capture_cycles(scene)
-    cycles = scene.cycles
-    cycles.device = "CPU"
-    cycles.samples = 1
-    cycles.use_adaptive_sampling = False
-    cycles.use_denoising = False
-    if hasattr(cycles, "time_limit"):
-        cycles.time_limit = 0.0
-    cycles.bake_type = "EMIT"
-
-
-@dataclass
-class _Run:
-    """Temporary data of one run, removed afterwards (with ``_Saved``'s)."""
-
-    groups: list = field(default_factory=list)
-    images: list = field(default_factory=list)
-
-    def clean(self) -> None:
-        for image in self.images:
-            bpy.data.images.remove(image)
-        for group in self.groups:
-            if group.name in bpy.data.node_groups:
-                bpy.data.node_groups.remove(group)
-        self.images.clear()
-        self.groups.clear()
-
-
 def _bake_batches(
     context: bpy.types.Context,
     saved: _Saved,
@@ -528,7 +498,9 @@ def compute(context: bpy.types.Context) -> dict:
         samples = None
         try:
             depsgraph = evaluated_depsgraph(scene)
-            _setup_cycles(saved, scene)
+            device = _setup_cycles(saved, scene)
+            if device.note:
+                notes.append(device.note)
             show(saved, objects)
             if domain is Domain.TEXTURE:
                 values, texels = _run_texture(
@@ -609,6 +581,8 @@ def compute(context: bpy.types.Context) -> dict:
         "bakes": max(1, math.ceil(len(rays) / RAYS_PER_BAKE)),
         "seconds": seconds,
         "timings": timings,
+        "device": device.label,
+        "device_short": device.short,
         "first_day": the_plan.first_day.isoformat(),
         "last_day": the_plan.last_day.isoformat(),
         "zone": the_plan.zone,
@@ -719,7 +693,7 @@ class GEOTOOLS_OT_sun_hours(bpy.types.Operator):
             self.report({"WARNING"}, note)
         message = (
             f"Sun hours on {result['samples']:,} samples, {result['rays']:,} rays, "
-            f"{result['seconds']:.1f} s"
+            f"{result['seconds']:.1f} s on the {result['device']}"
         )
         self.report({"INFO"}, "; ".join([message, *result["source_notes"]]))
         redraw_ui(context)
