@@ -37,7 +37,7 @@ Run Checks also refreshes every layer's value range and status.
 | `georef-origin-lat-lon-differ` | The scene's latitude and longitude lie some metres from E and N. | Nothing, if E and N are right; else **Origin from Latitude/Longitude**. |
 | `georef-keys-ignored` | The scene has a BlenderGIS georeference, but the project is Local or Anchor. | **Use the Scene's BlenderGIS Georeference** in the Project panel, or ignore it. |
 | `restart-after-update` | GeoTools was updated while Blender was running, so Blender still runs the old libraries. | Restart Blender. |
-| `uv-overlap` | UV triangles share texels on an object with texture layers. | Fix the UVs, or bake anyway. See [Layers](layers.md#texture-layers-and-the-bake-sub-panel). |
+| `uv-overlap` | UV triangles share texels on an object with texture layers. | Fix the UVs, or bake anyway. See [Layers](layers.md#texture-layers-and-the-bake-box). |
 | `normals-inconsistent` | Neighbouring faces are wound in opposite directions, so the normals flip from face to face. | In Edit Mode, select all, then **Mesh > Normals > Recalculate Outside**. See [Normals](#normals). |
 | `normals-inward` | The normals point into the surface: most faces open to the sky face down. | In Edit Mode, select all, then **Mesh > Normals > Flip** (or Recalculate Outside on a closed mesh). |
 | `normals-down` | Most of the area faces down. A warning unless the faces open to the sky face up, which makes it overhang (then a note). | If it is not overhang, flip the normals as above. |
@@ -101,8 +101,9 @@ example one for the full-quality archive and one for a variant.
      [GLB with metadata](glb-metadata.md);
    - **Vectors**: the meshes of a collection as vector 3D Tiles. See
      [Geo formats](geo-formats.md#publish-vectors).
-4. Optionally choose a **Variant** layer. See
-   [Layers](layers.md#publish-a-layer-as-a-variant).
+4. Optionally choose a **Variant** layer: the field lists the layers of the
+   Analyses list, each with the results that make it. Empty means the plain
+   tileset. See [Layers](layers.md#publish-a-layer-as-a-variant).
 5. **Overwrite**: replace an archive that already exists. Off by default.
 6. **Validate**: run rusty-tiles' validator on the result. On by default.
 

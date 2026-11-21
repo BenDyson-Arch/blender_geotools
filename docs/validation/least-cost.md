@@ -1,6 +1,6 @@
 # Least-cost routes
 
-This covers **Least-Cost Routes** in the Analysis panel
+This covers **Least-Cost Routes** in the Analyses panel
 ([guide](../guide/analysis.md#least-cost-routes)): the directed search, the
 four walking models, routes across faces through Steiner points, the
 travel-time layer and the isochrones. The Least-Cost Path preset is on

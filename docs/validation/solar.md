@@ -4,7 +4,7 @@ Checked on 2026-11-14 in Blender 5.2.4 with rusty-tiles 0.4.1 and pyproj
 3.8.0. Three discrepancies were left for a decision; none was a bug in what
 the tools claim, and all three are [resolved](#decisions-resolved).
 
-This covers the Sun sub-panel (Place Sun, Over a Day), Sun Hours (with its
+This covers Tools > Sun (Place Sun, Over a Day), Sun Hours (with its
 clear-sky insolation), and Shadow Study, as described in the
 [user guide](../guide/analysis.md). The code is
 `geotools/analysis/sun.py`, `_spa_tables.py`, `sun_hours.py`, `clearsky.py`,

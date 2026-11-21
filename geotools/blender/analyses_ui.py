@@ -220,6 +220,8 @@ class GEOTOOLS_PT_analyses(_Panel, bpy.types.Panel):
         row.prop(props, "add_search", text="", icon="ADD", placeholder="Add Analysis (search)")
         if props.error:
             _error(layout, context, props.error)
+        elif props.note:
+            wrapped(layout, context, props.note, "INFO", max_lines=4)
         mesh = analyses.active_mesh(context)
         if mesh is None:
             _muted(layout, "Select a mesh to see its analyses", "INFO")
@@ -459,10 +461,14 @@ def result_lines(item) -> list[tuple[str, str]]:
                 rows.append(("Length", f"{route['length']:,.1f} m"))
             return [*rows, ("Time", f"{result['seconds']:.1f} s")]
         if item.kind == "SUN_HOURS":
-            return [
+            rows = [
                 ("Days", f"{result['first_day']} to {result['last_day']}"),
-                ("Time", f"{result['seconds']:.1f} s"),
+                ("Samples", f"{result['samples']:,} ({result['domain'].lower()})"),
+                ("Time", f"{result['seconds']:.1f} s, {result['bakes']} bake(s)"),
             ]
+            if "device_short" in result:
+                rows.append(("Device", result["device_short"]))
+            return rows
         if item.kind == "CONTOURS":
             return [("Lines", f"{result['lines']:,} ({result['closed']:,} closed)")]
         return [("Pieces", f"{result['pieces']:,} on {result['sections']} line(s)")]

@@ -55,7 +55,7 @@ pip and nothing is downloaded at install.
 | rusty-tiles | Tiling and validating 3D Tiles, checking a CRS, Verify Placement, and opening published tiles again. |
 | pyproj (with PROJ, no GDAL) | Reprojecting imported vector data, latitude and longitude of a CRS project, and the geodesy of the analysis tools. |
 | certifi | pyproj's only dependency. |
-| tzdata | The time zone database, for named time zones in the Sun panel where the system has none (Windows). |
+| tzdata | The time zone database, for named time zones in **Tools > Sun** where the system has none (Windows). |
 
 Open the **About** panel at the bottom of the GeoTools tab. It is closed by
 default. Its header shows how the libraries loaded:
@@ -262,8 +262,9 @@ To look at the tiles inside Blender, see [Inspecting output](inspect-output.md).
 
 ## Next steps
 
-- Add an analysis layer and publish it as a variant, such as `site.slope.3tz`:
-  [Layers and bakes](layers.md) and [Analysis](analysis.md).
+- Select the terrain, add **Terrain > Slope** in the **Analyses** panel and
+  publish it as a variant, `site.slope.3tz`: [Analysis](analysis.md) and
+  [Layers and bakes](layers.md).
 - Import and drape `contexts.geojson`: [Geo formats](geo-formats.md) and the
   [draping recipe](../recipes/drape-contexts.md).
 - Export one GLB with the objects and layers as metadata:

@@ -146,7 +146,16 @@ def check_object_uvs(
     """The uv-overlap check of ``obj``'s evaluated mesh on ``uv_name``."""
     evaluated = obj.evaluated_get(depsgraph)
     mesh = evaluated.data
-    corners, faces = uv_triangles(mesh, uv_name)
+    if len(mesh.attributes[uv_name].data) == len(mesh.loops):
+        corners, faces = uv_triangles(mesh, uv_name)
+    else:
+        # In the UI the active object's evaluated mesh can hold its UV map unfilled (no
+        # elements) while it is drawn; a mesh made from it has every attribute.
+        copy = evaluated.to_mesh()
+        try:
+            corners, faces = uv_triangles(copy, uv_name)
+        finally:
+            evaluated.to_mesh_clear()
     result = uv_overlap.find_overlaps(corners, resolution=resolution)
     examples = list(dict.fromkeys(int(f) for f in faces[list(result.examples)]))
     issue = uv_overlap.overlap_issue(

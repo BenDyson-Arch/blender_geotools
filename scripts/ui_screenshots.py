@@ -67,8 +67,9 @@ Clipped text:
   intentional ellipses, and fails if it does not find exactly the two.
 
 Notes:
-* Only one sidebar tab can be shown and Python cannot pick the active tab, so
-  the other View3D sidebar panels are unregistered to leave GeoTools alone.
+* Only one sidebar tab can be shown, so the other View3D sidebar panels are
+  unregistered to leave GeoTools alone, and the region's active tab is set to
+  GeoTools (with an active object, the Item tab's Transform would show).
 * For the montage the GeoTools panels are registered again, in the add-on's
   own order, without DEFAULT_CLOSED, and shot in the Modeling workspace,
   whose sidebar has not drawn them yet (a region keeps each panel's open or
@@ -462,9 +463,13 @@ def inner_main(argv: list[str]) -> None:
             bpy.utils.register_class(cls)
 
     def prepare_view() -> None:
-        window, area, _region = ui_region()
+        window, area, region = ui_region()
         space = area.spaces.active
         space.show_region_ui = True
+        # With an active object the Item tab (Transform) shows unless GeoTools is chosen;
+        # the tab can be chosen once the region has drawn its tabs (read-only before).
+        with contextlib.suppress(AttributeError, TypeError):
+            region.active_panel_category = "GeoTools"
         space.shading.type = "SOLID"
         space.shading.color_type = "VERTEX"
         space.overlay.show_floor = False
@@ -561,6 +566,11 @@ def inner_main(argv: list[str]) -> None:
 
     def capture(name: str):
         """Shoot the sidebar top to bottom, save the strips side by side, check for clipping."""
+        _window, area, region = ui_region()
+        with contextlib.suppress(AttributeError, TypeError):  # writable once tabs have drawn
+            region.active_panel_category = "GeoTools"
+        area.tag_redraw()
+        yield 0.5
         strips, _tops = yield from strips_of(name)
         save_png(side_by_side(strips), out / f"{name}.png")
         print(f"UI-SHOTS {name}: {len(strips)} strip(s)", flush=True)
@@ -1152,7 +1162,9 @@ def inner_main(argv: list[str]) -> None:
             build_ready()
             open_all_panels()
             window = bpy.context.window_manager.windows[0]
-            window.workspace = bpy.data.workspaces[MONTAGE_WORKSPACE]
+            workspace = bpy.data.workspaces[MONTAGE_WORKSPACE]
+            workspace.object_mode = "OBJECT"  # Modeling would put the active mesh in Edit Mode
+            window.workspace = workspace
             yield 1.0
             hide_other_tabs()
             prepare_view()

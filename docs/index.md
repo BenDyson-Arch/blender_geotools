@@ -46,7 +46,7 @@ the **GeoTools** tab of the 3D Viewport sidebar.
 
     [:octicons-arrow-right-24: Geo formats](guide/geo-formats.md)
 
--   ![The Presets and Layers panels with a viewshed from a ridge: the hill hides the ground behind it](assets/readme/feature-terrain.png)
+-   ![A viewshed from a ridge: the hill hides the ground behind it](assets/readme/feature-terrain.png)
 
     **Terrain and visibility**
 
@@ -65,7 +65,7 @@ the **GeoTools** tab of the 3D Viewport sidebar.
 
     [:octicons-arrow-right-24: Sun and archaeoastronomy](guide/analysis.md#archaeoastronomy)
 
--   ![The Hydrology panel with flow paths down two valleys and contour lines on the hills](assets/readme/feature-hydrology.png)
+-   ![Flow paths down two valleys and contour lines on the hills](assets/readme/feature-hydrology.png)
 
     **Hydrology and measurement**
 
@@ -74,7 +74,7 @@ the **GeoTools** tab of the 3D Viewport sidebar.
 
     [:octicons-arrow-right-24: Hydrology, contours and measurement](guide/analysis.md#hydrology)
 
--   ![The Layers panel with a hilltop enclosure coloured by slope](assets/readme/feature-layers.png)
+-   ![A hilltop enclosure coloured by slope](assets/readme/feature-layers.png)
 
     **Layers**
 

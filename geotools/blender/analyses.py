@@ -272,6 +272,9 @@ def _entries() -> tuple[Entry, ...]:
 ENTRIES = _entries()
 _BY_TEXT = {e.text: e for e in ENTRIES}
 
+_notes: list[str] = []
+"""What the last add reported (a non-conformal aspect, totals, new Empties), for the panel."""
+
 
 def search_entries(query: str) -> list[Entry]:
     """The entries whose group, label or description holds every word of ``query``.
@@ -304,13 +307,12 @@ def _picked(self, context: bpy.types.Context) -> None:
         self.error = f"No analysis called {text!r}."
         return
     try:
-        added = add_entry(context, entry.key)
+        add_entry(context, entry.key)
     except (AnalysesError, analysis_presets.PresetError) as exc:
-        self.error = str(exc)
+        self.error, self.note = str(exc), ""
         return
     self.error = ""
-    count = len(added)
-    self.note = f"Added {added[0].name} to {count} mesh{'es' * (count != 1)}"
+    self.note = "; ".join(dict.fromkeys(_notes))  # what add_preset reported, once each
     redraw_ui(context)
 
 
@@ -689,6 +691,7 @@ def add_entry(context: bpy.types.Context, key: str) -> list[GeoToolsAnalysisItem
     mesh's (else the first) becomes the active row."""
     scene = context.scene
     kind, _, rest = key.partition(":")
+    _notes.clear()
     with _quiet(scene):
         if kind == "preset":
             preset_id, _, north = rest.partition(":")
@@ -737,7 +740,8 @@ def _add_preset(context, preset: catalog.Preset, north: str) -> list[GeoToolsAna
     added = []
     if preset.output is catalog.Output.OBJECT:
         before = {o.as_pointer() for o in bpy.data.objects}
-        name, _notes = analysis_presets.add_preset(context, preset, objects, north=north)
+        name, notes = analysis_presets.add_preset(context, preset, objects, north=north)
+        _notes.extend(notes)
         item = _new_item(scene, objects[0], "PRESET", preset.label)
         item.preset, item.computed = preset.id, True
         made = [o for o in bpy.data.objects if o.as_pointer() not in before]
@@ -745,7 +749,8 @@ def _add_preset(context, preset: catalog.Preset, north: str) -> list[GeoToolsAna
         return [item]
     for obj in objects:
         name = _preset_layer(scene, obj, preset)
-        analysis_presets.add_preset(context, preset, [obj], name=name, north=north)
+        _name, notes = analysis_presets.add_preset(context, preset, [obj], name=name, north=north)
+        _notes.extend(notes)
         item = _new_item(scene, obj, "PRESET", preset.label)
         item.preset, item.north, item.computed = preset.id, north, True
         _set_layers(item, [name])
@@ -761,7 +766,8 @@ def _add_fast(context, preset: catalog.Preset) -> list[GeoToolsAnalysisItem]:
     base = preset.layer if fast.is_bake_only(preset.id) else f"{preset.layer}_fast"
     observers = None
     if preset.id in fast.VIEWSHED:
-        fills, _notes = analysis_presets.fill_inputs(context, preset, objects)
+        fills, notes = analysis_presets.fill_inputs(context, preset, objects)
+        _notes.extend(notes)
         observers = fills.get("Observers")
     label = preset.label if fast.is_bake_only(preset.id) else f"{preset.label} (Fast)"
     added = []

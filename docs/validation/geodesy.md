@@ -466,8 +466,7 @@ regression tests.
    angle, the rotation nearest the map (`SunSite.rotation`, its polar
    decomposition), which in Albers and Web Mercator is the convergence:
    aspects along and across the meridian are exact, others off by up to the
-   numbers above. analysis-presets.md tabulates the limit and Add Analysis
-   says so in those CRSs.
+   numbers above. analysis-presets.md tabulates the limit.
 4. **GeoPackage `definition` text.** GeoTools wrote the CRS text
    (`EPSG:7856`) where the standard asks for WKT. GDAL found an EPSG CRS by
    its code, but a CRS without one was lost: GDAL 3.12.0 read no CRS from a

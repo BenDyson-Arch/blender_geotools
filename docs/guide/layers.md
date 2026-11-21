@@ -5,6 +5,10 @@ or one per texel of an image on its UVs. Slope, sun hours, a phase
 number or a material class are all layers. GeoTools keeps the list of layers
 in the `.blend`, with each layer's units, no-data value and value range.
 
+Layers are in the **Analyses** panel, on the meshes that carry them: as the
+layer of the analysis that made it (see [Analysis](analysis.md#the-analyses-panel)),
+or as a plain row of its own. Select a mesh to see its layers.
+
 A layer covers every object that carries it, in any collection. Only the
 objects in the [source collection](projects.md#source) are published, so a
 layer on an object outside it shows a warning, and **Run Checks** offers
@@ -22,16 +26,19 @@ themselves.
 
 ## Add a layer
 
-1. In the **Layers** panel, press **+** (**Add Layer**).
-2. Give it a **Name**: lowercase letters, digits and underscores, such as
-   `phase` or `slope`.
-3. Choose its **Domain**: **Face**, **Corner** or **Texture**.
-4. Choose its **Type**: **Float**, **Integer**, **Boolean** or **Category**.
-5. Press **Add**.
+The analyses add their own layers, so you often skip this. For a layer of
+your own:
 
-The analysis tools and presets add their own layers, so you often skip this.
+1. Select the meshes that carry it.
+2. In the **Analyses** panel, add **Layers > From Attribute** for a face or
+   corner layer, or **Layers > Texture Bake** for a texture layer.
+3. A new layer, `layer` or `bake`, is added as a row on each mesh. Under
+   **Details**, press the pencil button (**Rename Layer**) to give it a name of lowercase
+   letters, digits and underscores, such as `phase` or `slope`, and set its
+   **Domain** (**Face**, **Corner** or **Texture**) and **Type** (**Float**,
+   **Integer**, **Boolean** or **Category**).
 
-Under the list, the selected layer shows:
+A plain layer row's **Inputs** show:
 
 - **Label** and **Units**: the label is the name shown in the list, and both
   are written into the [GLB metadata](glb-metadata.md) and a variant's
@@ -44,11 +51,15 @@ Under the list, the selected layer shows:
 - **Categories** (category layers): the labels of the values 0, 1, 2 and so
   on. The pencil button (**Set Categories**) edits them;
 - what is missing, for example a source object without the attribute, or an
-  object that carries the layer outside the source collection.
+  object that carries the layer outside the source collection;
+- for a texture layer, the [Bake box](#texture-layers-and-the-bake-box).
 
-**-** removes the layer. Its dialog can also delete the layer's attributes and
-images (**Delete Attributes and Images**). The pencil next to the list renames
-it.
+A layer imported from a GeoTIFF, or written by a script, shows the same way
+on each mesh that carries it.
+
+**Remove Analysis** (**−**) removes the row from its mesh, with the layer's
+values or images on that mesh. A layer that no mesh carries any more, and no
+other result uses, leaves the project.
 
 ## Face and corner layers
 
@@ -67,16 +78,19 @@ You can also paint or set the values by hand. **Create Empty Attributes** in
 the **Details** sub-panel adds the attribute, filled with the no-data value,
 to every source object that lacks it.
 
+**Layers > From Attribute** lists such a layer: add it, rename it, and type
+the attribute's name in **Attribute** if it is not `gt_<layer name>`.
+
 The [analysis presets](analysis.md#presets) are ready-made Geometry Nodes
 trees of this kind.
 
-## Texture layers and the Bake sub-panel
+## Texture layers and the Bake box
 
 A texture layer holds one value per texel, in a float image per object. The
 images are OpenEXR files in `geotools_layers/` next to the `.blend`, so save
 the `.blend` first.
 
-The **Bake** sub-panel appears for a texture layer:
+**Layers > Texture Bake** adds one. Its **Inputs** hold a **Bake** box:
 
 - **UV Map**: the UV map to bake onto. Empty means the active render UV map;
 - **Resolution**: the image size in pixels (1024 by default);
@@ -104,10 +118,12 @@ baked then wins.
 
 ## Show a layer: the Display sub-panel
 
-The **Display** sub-panel sets how a layer looks in its variant tileset. It
-never changes your materials, images or colour attributes.
+The **Display** sub-panel of Analyses sets how the selected row's layer looks
+in its variant tileset. The settings belong to the layer, so they cover every
+mesh that carries it. It never changes your materials, images or colour
+attributes.
 
-**Show in Viewport** shows the layer in those colours in the viewport, on
+**Show in Viewport** (also the eye button on the row) shows the layer in those colours in the viewport, on
 every object that carries it (has its attribute after its modifiers, or, for a
 texture layer, an image), and keeps them up to date as you change the
 settings below or the Geometry Nodes that make the layer. One layer is shown
@@ -155,7 +171,11 @@ Where the colours go:
 ## Publish a layer as a variant
 
 1. Select a build profile in the **Publish** panel.
-2. Set **Variant** to the layer.
+2. Select the result in the Analyses list and press **Publish as Variant**
+   under **Outputs**. Or, in the Publish panel, pick the layer in
+   **Variant**: it lists the layers of the Analyses list, each with the
+   results that make it ("Slope on hills; Slope on other"). Empty means the
+   plain tileset.
 3. Press **Publish**.
 
 The variant is written beside the main archive, as `<output>.<layer>.3tz`,
@@ -177,9 +197,11 @@ tileset in a web page or a report.
 
 ## Details
 
-The **Details** sub-panel holds the fields you rarely change:
+The **Details** sub-panel (closed by default) holds the fields you rarely
+change:
 
-- **Identifier**: the layer's name;
+- **Identifier**: the layer's name. The pencil button (**Rename Layer**)
+  renames it;
 - **Domain** and **Type**;
 - **No-Data**: the value that means "no value";
 - **Origin**: **Geometry Nodes**, **Analysis** or **Manual**;
@@ -187,7 +209,8 @@ The **Details** sub-panel holds the fields you rarely change:
   is the area-weighted mean for numbers and the most common value for booleans
   and categories). It is recorded with the layer in `build.json` and the GLB;
 - **Description**;
-- which tool made the layer, from its provenance.
+- which tool made the layer, from its provenance;
+- **Create Empty Attributes** (face and corner layers).
 
 ## Limits
 
