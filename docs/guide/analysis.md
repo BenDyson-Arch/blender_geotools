@@ -242,7 +242,8 @@ The menu groups the presets:
   (Tangential) Curvature, Mean Curvature, Rugosity, Topographic Position
   (TPI), Ruggedness (TRI);
 - **Archaeological Visualisation**: Local Relief Model, Sky-View Factor,
-  Positive and Negative Openness;
+  Positive and Negative Openness, and the bake-only Sky Visibility, Sky View
+  (Cosine) and Openness (3D);
 - **Visibility**: Viewshed, Cumulative Viewshed, Intervisibility, Line of
   Sight;
 - **Change and Distance**: Distance to Surface, Distance to Feature;
@@ -259,7 +260,10 @@ between the meridian and the parallel stay up to a degree or two out (see
 conformal CRS for exact true aspects there. Sky-view factor,
 openness and the cumulative viewshed have a **(Fast Bake)** entry: the same
 rays cast once by a Cycles bake, much faster on large meshes, stored as a
-layer instead of a live modifier.
+layer instead of a live modifier. Sky-view factor and openness assume a
+height field and read open sky under an overhang; on meshes with overhangs
+use Sky Visibility, Sky View (Cosine) or Openness (3D), which count the sky
+directly ([which to use](../analysis-presets.md#sky-visibility-sky-view-cosine-and-openness-3d-sky_visibility-sky_view_cosine-openness_3d-face-ratio)).
 
 Presets that need an observer, a line or a second surface take it from the
 other selected objects or the 3D cursor. New helper objects and line results

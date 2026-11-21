@@ -947,3 +947,120 @@ def test_validation_horizon_vs_rvt() -> None:
         limit = math.sin(math.radians(RESOLUTION / 2)) if preset == "sky_view_factor" else 0.36
         assert s["live_vs_mesh_exact"]["max"] < limit, (preset, s)
     _clear_trees()
+
+
+# --- direct visibility: Sky Visibility, Sky View (Cosine), Openness (3D) -------------------------
+
+DIRECT = ("sky_visibility", "sky_view_cosine", "openness_3d")
+
+
+def _direct(obj: bpy.types.Object, preset_id: str, **inputs) -> np.ndarray:
+    """A direct-visibility entry (bake only) on ``obj``: per-face values."""
+    layer = f"val_{preset_id}"
+    began = time.perf_counter()
+    result = h.submodule("blender.preset_bake").compute(
+        bpy.context, preset_id, [obj], name=layer, inputs=inputs
+    )
+    TIMES.setdefault(f"{obj.name}/{preset_id}", []).append(time.perf_counter() - began)
+    # The scene is put back (an object removed just before used to break that).
+    assert not [n for n in result["notes"] if "Could not restore" in n], result["notes"]
+    return _evaluated(obj, f"gt_{layer}", "FACE")
+
+
+def test_validation_direct_visibility_overhangs() -> None:
+    """The cylinder overhang (a quarter-cylinder vault over a floor, open at the front) and an
+    uneven V-trench, extruded 500 m each way: exact answers for the mesh itself.
+
+    Each entry's bake is checked against the numpy model with the same directions and
+    exact binary64 ray-mesh hits (at most two grazing rays differ), and against the closed
+    forms (the Fibonacci set's quadrature error at 256 rays, under 0.02). The bisection
+    SVF on the same vault reports open sky under it: it is for height fields only.
+    """
+    _reset()
+    core = h.submodule("analysis.preset_bake")
+    rays = 256
+    stats: dict[str, object] = {}
+    for name in ("vault", "trench"):
+        case = ts.extruded_case(name, 0.002)
+        obj = _mesh_faces(name.title(), case["verts"], case["quads"])
+        for preset in DIRECT:
+            inputs = {"Max Distance": ts.EXTRUSION, "Rays": rays}
+            baked = _direct(obj, preset, **inputs)[case["middle"]]
+            search = core.visibility_search(preset, inputs)
+            directions = search.directions
+
+            def hits(d: int, case=case, directions=directions) -> np.ndarray:
+                return ts.ray_mesh_hits(
+                    case["verts"], case["quads"], case["origins"], directions[d], ts.EXTRUSION
+                )
+
+            gains, front = core.visibility_sums(search, case["normals"], hits)
+            model = core.visibility_values(preset, gains, front, rays)
+            exact = case["exact"][preset]
+            stats[f"{name}/{preset}"] = {
+                "bake_vs_model": _stats(baked - model),
+                "bake_vs_exact": _stats(baked - exact),
+                "model_vs_exact": _stats(model - exact),
+                "faces": len(baked),
+            }
+            # One ray is 1/256 of Sky Visibility, at most 2/256 of the cosine entry
+            # and about 1/256 of Openness (3D) (some 256 rays in front).
+            assert np.abs(baked - model).max() <= 2.5 / rays, (name, preset, baked - model)
+            assert np.abs(baked - exact).max() < 0.02, (name, preset, baked - exact)
+        if name == "vault":
+            # The bisection SVF at the floor vertices under the vault, against the
+            # exact sky visibility from the same ray origins (2 mm up).
+            svf = _fast(obj, "sky_view_factor", **{"Max Distance": ts.EXTRUSION})
+            co = _vertices(obj)
+            under = (np.abs(co[:, 2]) < 1e-6) & (co[:, 0] > -0.9) & (co[:, 0] < -0.1)
+            under &= np.abs(co[:, 1]) < 1.0  # the middle strip's vertices
+            origins = co[under][:, [0, 2]] + (0.0, 0.002)
+            lip = np.array([0.0, ts.VAULT["radius"]])
+            exact = ts.extruded_values(
+                0.0, ts.angle_to(origins, lip), np.full(len(origins), 0.5 * math.pi)
+            )
+            error = svf[under] - exact["sky_visibility"]
+            stats["vault/bisection_svf_vs_exact_sky_visibility"] = _stats(error)
+            assert (error > 0.1).all(), error
+        bpy.data.objects.remove(obj)
+    _report("direct_overhangs", stats)
+    _clear_trees()
+
+
+def test_validation_direct_visibility_vs_bisection_on_waves() -> None:
+    """On a height field both modes are valid: Sky Visibility (1,024 rays, per face) against
+    the bisection SVF (per vertex, defaults; a face's value the mean of its corners').
+
+    Split by the sign of the waves' mean curvature at the face centre: they agree on
+    concave ground; on convex ground the bisection counts sky below the faces' planes.
+    """
+    _reset()
+    first, last = 50, 90
+    lo = first - 20  # Max Distance (2 m) more
+    obj, _z = _waves_object(lo)
+    direct = _direct(obj, "sky_visibility", Rays=1024)
+    svf = _fast(obj, "sky_view_factor")
+    loops = np.empty(len(obj.data.loops), np.int32)
+    obj.data.loops.foreach_get("vertex_index", loops)
+    per_face = svf[loops].reshape(-1, 3).mean(axis=1)
+    centres = _face_centres(obj)
+    half = (last - first) / 2 * ts.H
+    inner = (np.abs(centres[:, 0]) <= half) & (np.abs(centres[:, 1]) <= half)
+    error = direct[inner] - per_face[inner]
+    stats = {"direct_vs_bisection": _stats(error), "faces": int(inner.sum())}
+    stats["spread"] = float(np.std(per_face[inner]))
+    d = ts.waves_derivatives(centres[inner, 0], centres[inner, 1])
+    mean_curv = ts.curvatures(d["p"], d["q"], d["r"], d["s"], d["t"])["mean"]
+    stats["convex"] = _stats(error[mean_curv > 0.05])
+    stats["concave"] = _stats(error[mean_curv < -0.05])
+    stats["flat"] = _stats(error[np.abs(mean_curv) <= 0.05])
+    _report("direct_waves", stats)
+    # Concave ground: the two agree (the rays' quadrature, the bisection's bracket
+    # and face against vertex sampling). Convex ground: the bisection's rays start
+    # Ray Offset above a vertex and see past the curve below the faces' planes,
+    # which direct visibility does not count (docs/analysis-presets.md).
+    concave, convex = stats["concave"], stats["convex"]
+    assert concave["rms"] < 0.01 and abs(concave["bias"]) < 0.005, stats
+    assert -0.04 < convex["bias"] < -0.01 and convex["max"] < 0.1, stats
+    assert -0.02 < stats["direct_vs_bisection"]["bias"] < 0.0, stats
+    _clear_trees()

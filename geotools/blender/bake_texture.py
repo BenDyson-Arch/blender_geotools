@@ -290,7 +290,8 @@ class _Saved:
         view_layer.update()  # drop the removed temporary objects
         _deselect_all(view_layer)
         for obj in self.selected:
-            if obj.name in view_layer.objects:
+            # None: an object removed just before the capture (until the next update).
+            if obj is not None and obj.name in view_layer.objects:
                 obj.select_set(True)
         view_layer.objects.active = self.active
 

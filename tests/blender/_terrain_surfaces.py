@@ -16,6 +16,7 @@ south-west to north-east diagonal.
 
 from __future__ import annotations
 
+import itertools
 import math
 
 import numpy as np
@@ -426,3 +427,196 @@ def mesh_horizon(
         angle = np.where(np.hypot(s[None, :], dz) <= max_distance, angle, np.nan)
         out[:, k] = np.nanmin(angle, axis=1) if below else np.nanmax(angle, axis=1)
     return out
+
+
+# --- extruded profiles: overhangs with exact answers (direct visibility) ------------------------
+#
+# A profile (x, z) extruded along y far enough (``half_length``, hundreds of
+# times its size) that it is infinite for every ray that matters. Then a
+# direction's fate depends only on its projection onto the x-z plane, at angle
+# psi from +x towards +z, and directions are uniform in (psi, y) (dω = dψ dy,
+# with y the pole). So with the sample's visible psi interval (lo, hi), from
+# the ray origin, and n at angle psi_n in the plane:
+#
+#   sky visibility = |visible ∩ front ∩ (0, π)| / π
+#   sky view (cos)  = ½ ∫ cos(ψ - ψ_n) dψ over visible ∩ front ∩ (0, π)
+#   openness (3D)   = |visible ∩ front| / π
+#
+# and the interval ends are angles to vertices of the mesh itself (the lip of
+# the vault, the rim of a trench wall), so these are exact for the mesh.
+
+
+def extruded(
+    profile: np.ndarray, half_length: float, half_width: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """A profile (P, 2) in (x, z) extruded along y: (vertices, quads), quads (3 (P - 1), 4).
+
+    Sections at y = -half_length, -half_width, half_width, half_length; the
+    middle strip's quads are ``P - 1 .. 2 (P - 1) - 1``, in profile order. A
+    face's normal is the profile direction turned +90° in the x-z plane (left
+    of the direction of travel, from +x towards +z).
+    """
+    profile = np.asarray(profile, np.float64)
+    p = len(profile)
+    sections = np.array([-half_length, -half_width, half_width, half_length])
+    verts = np.concatenate(
+        [np.stack([profile[:, 0], np.full(p, y), profile[:, 1]], axis=1) for y in sections]
+    )
+    k = np.arange(p - 1)
+    quads = [
+        np.stack([j * p + k, j * p + k + 1, (j + 1) * p + k + 1, (j + 1) * p + k], axis=1)
+        for j in range(3)
+    ]
+    return verts, np.concatenate(quads).astype(np.int32)
+
+
+def vault_profile(radius: float, front: float, arc_segments: int, floor_step: float) -> np.ndarray:
+    """A quarter-cylinder vault over a level floor, open at the front: the cylinder overhang.
+
+    From the lip (0, radius) down the arc (centre at the origin) to the back
+    corner (-radius, 0), then the floor (z = 0) out to x = ``front``, in steps
+    of ``floor_step``. Normals point into the shelter (inwards on the arc, up
+    on the floor).
+    """
+    theta = np.linspace(0.5 * math.pi, math.pi, arc_segments + 1)
+    arc = radius * np.stack([np.cos(theta), np.sin(theta)], axis=1)
+    steps = round((front + radius) / floor_step)
+    floor = np.stack([np.linspace(-radius, front, steps + 1)[1:], np.zeros(steps)], axis=1)
+    return np.concatenate([arc, floor])
+
+
+def trench_profile(slope_deg: float, left: float, right: float, segments: int) -> np.ndarray:
+    """A V-trench with walls at ``slope_deg``, ``left`` and ``right`` long down the slope.
+
+    From the left rim down to the crease at the origin and up to the right
+    rim, ``segments`` faces per wall; normals point into the trench.
+    """
+    b = math.radians(slope_deg)
+    s_left = np.linspace(left, 0.0, segments + 1)
+    s_right = np.linspace(0.0, right, segments + 1)[1:]
+    left_wall = np.stack([-s_left * math.cos(b), s_left * math.sin(b)], axis=1)
+    right_wall = np.stack([s_right * math.cos(b), s_right * math.sin(b)], axis=1)
+    return np.concatenate([left_wall, right_wall])
+
+
+def profile_faces(profile: np.ndarray, offset: float) -> tuple[np.ndarray, np.ndarray]:
+    """Each profile segment's ray origin (centre + offset x normal), (S, 2), and normal angle."""
+    a, b = profile[:-1], profile[1:]
+    t = b - a
+    t = t / np.linalg.norm(t, axis=1, keepdims=True)
+    normal = np.stack([-t[:, 1], t[:, 0]], axis=1)
+    return 0.5 * (a + b) + offset * normal, np.arctan2(normal[:, 1], normal[:, 0])
+
+
+def angle_to(origin: np.ndarray, point) -> np.ndarray:
+    """Angle (rad, from +x towards +z) of ``point - origin`` in the x-z plane."""
+    d = np.asarray(point, np.float64) - origin
+    return np.arctan2(d[..., 1], d[..., 0])
+
+
+def extruded_values(lo, hi, normal_angle) -> dict[str, np.ndarray]:
+    """The three direct-visibility values of samples whose visible psi interval is (lo, hi).
+
+    Angles in radians; the interval is clipped to the face's front half, and
+    the sky part to psi in (0, π) (split where sin psi changes sign).
+    """
+    lo, hi, n = np.broadcast_arrays(
+        *(np.atleast_1d(np.asarray(v, np.float64)) for v in (lo, hi, normal_angle))
+    )
+    out = {"sky_visibility": [], "sky_view_cosine": [], "openness_3d": []}
+    for a, b, psi_n in zip(lo, hi, n, strict=True):
+        # Relative to the normal, in (-π, π].
+        ra = (a - psi_n + math.pi) % (2 * math.pi) - math.pi
+        rb = ra + (b - a) % (2 * math.pi)
+        ra, rb = max(ra, -0.5 * math.pi), min(rb, 0.5 * math.pi)
+        length = max(rb - ra, 0.0)
+        cuts = [ra, rb]
+        if length > 0:
+            k = np.arange(-4, 5)
+            zeros = -psi_n + k * math.pi
+            cuts = sorted([ra, rb, *zeros[(zeros > ra) & (zeros < rb)]])
+        sky, cosine = 0.0, 0.0
+        for u, v in itertools.pairwise(cuts):
+            if v > u and math.sin(psi_n + 0.5 * (u + v)) > 0:
+                sky += v - u
+                cosine += 0.5 * (math.sin(v) - math.sin(u))
+        out["sky_visibility"].append(sky / math.pi)
+        out["sky_view_cosine"].append(cosine)
+        out["openness_3d"].append(length / math.pi)
+    return {k: np.array(v) for k, v in out.items()}
+
+
+def ray_mesh_hits(
+    verts: np.ndarray,
+    faces: np.ndarray,
+    origins: np.ndarray,
+    direction: np.ndarray,
+    length: float,
+) -> np.ndarray:
+    """Whether each ray from ``origins`` along ``direction`` meets the mesh within ``length``.
+
+    Binary64 Möller-Trumbore over the faces (quads split into two triangles),
+    both sides, as Cycles' Raycast node.
+    """
+    faces = np.asarray(faces)
+    tris = faces if faces.shape[1] == 3 else np.concatenate([faces[:, :3], faces[:, [0, 2, 3]]])
+    v0, v1, v2 = (verts[tris[:, i]] for i in range(3))
+    e1, e2 = v1 - v0, v2 - v0
+    d = np.asarray(direction, np.float64)
+    p = np.cross(d, e2)
+    det = np.einsum("ij,ij->i", e1, p)
+    ok = np.abs(det) > 1e-15
+    inv = np.where(ok, 1.0 / np.where(ok, det, 1.0), 0.0)
+    s = origins[:, None, :] - v0[None, :, :]
+    u = np.einsum("rtj,tj->rt", s, p) * inv
+    q = np.cross(s, e1[None, :, :])
+    v = (q @ d) * inv
+    t = np.einsum("rtj,tj->rt", q, e2) * inv
+    hit = ok & (u >= 0) & (v >= 0) & (u + v <= 1) & (t > 0) & (t <= length)
+    return hit.any(axis=1)
+
+
+EXTRUSION = 500.0
+"""Half length of the extruded cases along y: 250 to 500 times their size."""
+VAULT = {"radius": 1.0, "front": 3.0, "arc_segments": 32, "floor_step": 0.25}
+TRENCH = {"slope_deg": 30.0, "left": 2.0, "right": 1.0, "segments": 8}
+
+
+def extruded_case(name: str, offset: float) -> dict[str, np.ndarray]:
+    """The vault ("vault") or the uneven V-trench ("trench") and the exact values of its faces.
+
+    Returns the mesh (``verts``, ``quads``), per middle-strip face (in profile
+    order) the ray ``origins`` and ``normals`` in 3D, the face's ``side`` (vault:
+    "floor" or "arc"; trench: "left" or "right") and the exact values by entry
+    id. Vault: a floor face sees the sky from level up to its lip; an arc face
+    sees out between the floor's front edge and the lip. Trench: a face sees
+    from the opposite rim to the top of its own wall's front half. Rays start
+    ``offset`` along the normal, as the bake's (Ray Offset).
+    """
+    if name == "vault":
+        profile = vault_profile(**VAULT)
+        arc = VAULT["arc_segments"]
+    else:
+        profile = trench_profile(**TRENCH)
+        arc = TRENCH["segments"]
+    origins, normal = profile_faces(profile, offset)
+    first = np.arange(len(origins)) < arc
+    if name == "vault":
+        side = np.where(first, "arc", "floor")
+        lo = np.where(first, angle_to(origins, profile[-1]), 0.0)
+        hi = angle_to(origins, profile[0])
+    else:
+        side = np.where(first, "left", "right")
+        lo = np.where(first, angle_to(origins, profile[-1]), normal - 0.5 * math.pi)
+        hi = np.where(first, normal + 0.5 * math.pi, angle_to(origins, profile[0]))
+    verts, quads = extruded(profile, EXTRUSION, 0.05)
+    count = len(origins)
+    return {
+        "verts": verts,
+        "quads": quads,
+        "middle": np.arange(count, 2 * count),
+        "origins": np.stack([origins[:, 0], np.zeros(count), origins[:, 1]], axis=1),
+        "normals": np.stack([np.cos(normal), np.zeros(count), np.sin(normal)], axis=1),
+        "side": side,
+        "exact": extruded_values(lo, hi, normal),
+    }
