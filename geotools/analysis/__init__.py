@@ -17,11 +17,13 @@
   triangulated surface (walking models, Steiner points, a vectorised Dijkstra).
 - :mod:`.slicing` and :mod:`.polylines`: contours and sections, chained into
   polylines.
+- :mod:`.neighbourhood`: balls on the 3D surface (a voxel hash), area-weighted
+  plane and quadric fits, and the resolution rule for a scale.
 
 Scope: GeoTools computes only what needs the georeference (where the sun is
 from this site at this moment, where a scene point is on Earth) or what
-neither a GIS nor stock Blender does well (hydrology and directed least-cost
-routes on the 3D surface).
+neither a GIS nor stock Blender does well (hydrology, directed least-cost
+routes and neighbourhood statistics on the 3D surface).
 Blender does the rest: its Sun light casts the shadows, Cycles casts the rays
 of sun hours and the horizon (``blender.ray_bake``), and the Geometry Nodes
 presets (:mod:`.presets`) compute terrain shape and visibility. Each tool's
