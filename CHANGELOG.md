@@ -9,6 +9,11 @@ and the project follows semantic versioning where practical.
 
 ### Added
 
+- **Sky Visibility**, **Sky View (Cosine)** and **Openness (3D)** in Add
+  Analysis (Fast Bake only) count the sky directly from each face, so they
+  are right under overhangs, where the sky-view factor and openness presets
+  (which assume a height field) read open sky. See
+  [which to use](docs/analysis-presets.md#sky-visibility-sky-view-cosine-and-openness-3d-sky_visibility-sky_view_cosine-openness_3d-face-ratio).
 - **Least-Cost Routes** in the Analysis panel: the quickest route over a 3D
   surface, uphill and downhill costed apart and crossing faces at any angle,
   with travel time to every face as a layer. Tobler, Langmuir, Naismith and

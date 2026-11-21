@@ -253,6 +253,105 @@ def test_bisection_on_a_level_plane() -> None:
         assert value == pytest.approx(expected, abs=1e-12), preset
 
 
+# --- direct visibility (Sky Visibility, Sky View (Cosine), Openness (3D)) ------------------------
+
+DIRECT = ("sky_visibility", "sky_view_cosine", "openness_3d")
+
+
+def _direct(case: dict, preset: str, rays: int) -> np.ndarray:
+    """The numpy model of the bake on an extruded case, with exact binary64 ray-mesh hits."""
+    search = preset_bake.visibility_search(preset, {"Rays": rays, "Max Distance": ts.EXTRUSION})
+    directions = search.directions
+
+    def hits(d: int) -> np.ndarray:
+        return ts.ray_mesh_hits(
+            case["verts"], case["quads"], case["origins"], directions[d], ts.EXTRUSION
+        )
+
+    gains, front = preset_bake.visibility_sums(search, case["normals"], hits)
+    return preset_bake.visibility_values(preset, gains, front, rays)
+
+
+def _bisected_svf(case: dict) -> np.ndarray:
+    """The bisection SVF (16 directions, Steps 8) from the same origins, exact ray-mesh hits."""
+    search = preset_bake.horizon_search("sky_view_factor", {"Max Distance": ts.EXTRUSION})
+    azimuths = preset_bake.azimuth_vectors(search.directions)
+    origins = case["origins"]
+
+    def hits(d: int, theta: np.ndarray) -> np.ndarray:
+        t = np.radians(theta)
+        rays = azimuths[d][None, :] * np.cos(t)[:, None] + np.outer(np.sin(t), (0, 0, 1))
+        return np.array(
+            [
+                ts.ray_mesh_hits(case["verts"], case["quads"], o[None], r, ts.EXTRUSION)[0]
+                for o, r in zip(origins, rays, strict=True)
+            ]
+        )
+
+    angle_sum, sine_sum = preset_bake.bisect_horizon(search, hits, len(origins))
+    return preset_bake.horizon_values("sky_view_factor", angle_sum, sine_sum, search.directions)
+
+
+def test_direct_visibility_on_open_planes() -> None:
+    """Nothing in the way: a level face 1, 1, 1 exactly; a face tilted by b: 1 - b/π,
+    (1 + cos b)/2 and 1, to the Fibonacci set's resolution."""
+    tilt = np.radians([0.0, 30.0, 60.0, 90.0, 120.0])
+    normals = np.stack([np.sin(tilt), np.zeros_like(tilt), np.cos(tilt)], axis=1)
+    exact = {
+        "sky_visibility": 1 - tilt / math.pi,
+        "sky_view_cosine": (1 + np.cos(tilt)) / 2,
+        "openness_3d": np.ones_like(tilt),
+    }
+    for preset in DIRECT:
+        search = preset_bake.visibility_search(preset, {"Rays": 1024})
+        gains, front = preset_bake.visibility_sums(search, normals, lambda _d: np.zeros(5, bool))
+        values = preset_bake.visibility_values(preset, gains, front, search.rays)
+        assert values[0] == pytest.approx(1.0, abs=1e-12), preset
+        np.testing.assert_allclose(values, exact[preset], atol=4e-3, err_msg=preset)
+
+
+@pytest.mark.parametrize("name", ["vault", "trench"])
+def test_direct_visibility_closed_forms(name: str) -> None:
+    """The cylinder overhang (a quarter-cylinder vault over a floor, open at the front) and an
+    uneven V-trench: the model with exact ray-mesh hits against the closed forms.
+
+    The error is the Fibonacci set's quadrature error: under 0.017 at 256 rays (the
+    default) and 0.006 at 1,024 on every face of both cases.
+    """
+    case = ts.extruded_case(name, 0.002)
+    for preset in DIRECT:
+        exact = case["exact"][preset]
+        for rays, tolerance in ((256, 0.02), (1024, 0.006)):
+            error = _direct(case, preset, rays) - exact
+            assert np.abs(error).max() < tolerance, (name, preset, rays, np.abs(error).max())
+    if name == "trench":
+        # Faces high on the long wall see over the short one: open below the horizon too.
+        left = case["side"] == "left"
+        assert (case["exact"]["openness_3d"][left] > case["exact"]["sky_visibility"][left]).any()
+    else:
+        # The arc's faces look down: little sky, but the open front.
+        arc = case["side"] == "arc"
+        assert (case["exact"]["sky_visibility"][arc] < 0.25).all()
+        assert (case["exact"]["openness_3d"][arc] > 0.1).all()
+
+
+def test_bisection_is_for_height_fields() -> None:
+    """Under the vault the bisection reports open sky where the vault is (a level ray escapes
+    under the lip); on the trench, a height field, it agrees with direct visibility."""
+    vault = ts.extruded_case("vault", 0.002)
+    floor = vault["side"] == "floor"
+    error = _bisected_svf(vault) - vault["exact"]["sky_visibility"]
+    under = floor & (vault["origins"][:, 0] < 0)  # floor faces under the vault
+    assert (error[under] > 0.1).all(), error[under]
+    assert (error[~floor] > 0.3).all(), error[~floor]
+    trench = ts.extruded_case("trench", 0.002)
+    bisected = _bisected_svf(trench)
+    direct = _direct(trench, "sky_visibility", 1024)
+    assert np.abs(bisected - trench["exact"]["sky_visibility"]).max() < 0.015
+    assert np.abs(direct - bisected).max() < 0.015
+    assert abs(np.mean(direct - bisected)) < 0.006
+
+
 # --- true north --------------------------------------------------------------------------------------
 
 

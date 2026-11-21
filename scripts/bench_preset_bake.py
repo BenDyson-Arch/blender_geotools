@@ -1,9 +1,11 @@
-"""Time the fast (bake) paths of the horizon and cumulative viewshed presets.
+"""Time the fast (bake) paths of the horizon and cumulative viewshed presets and the
+bake-only direct-visibility entries.
 
 Runs inside Blender, against the source checkout:
 
     blender --background --factory-startup --python scripts/bench_preset_bake.py -- \\
-        [--cells 707] [--spacing 0.02] [--observers 100] [--compare] [--fixed] [PRESET ...]
+        [--cells 707] [--spacing 0.02] [--observers 100] [--rays 256] [--compare] [--fixed] \\
+        [PRESET ...]
 
 The terrain and the observers are ``bench_analysis_presets``'s (707
 cells: about 1M triangles; 2236: about 10M), so the numbers compare with the
@@ -15,7 +17,9 @@ the probe, then Cycles' sync, BVH and rays), values and writing the layer.
 
 ``--fixed`` also measures a bake's fixed cost: the cumulative viewshed with one
 observer and Max Distance 0, where no ray is cast. ``--compare`` also evaluates
-the live preset (slow at 10M) and reports its time and the agreement.
+the live preset (slow at 10M) and reports its time and the agreement (entries
+with no live preset are skipped). ``--rays`` sets Rays of the direct-visibility
+entries.
 """
 
 from __future__ import annotations
@@ -31,7 +35,15 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 import numpy as np
 
-DEFAULT = ("sky_view_factor", "openness_positive", "openness_negative", "viewshed_cumulative")
+DEFAULT = (
+    "sky_view_factor",
+    "openness_positive",
+    "openness_negative",
+    "viewshed_cumulative",
+    "sky_visibility",
+    "sky_view_cosine",
+    "openness_3d",
+)
 
 
 def _live(obj, preset_id: str, observers) -> tuple[np.ndarray, float]:
@@ -112,10 +124,12 @@ def main(argv: list[str]) -> None:
     parser.add_argument("--observers", type=int, default=100, help="cumulative viewshed")
     parser.add_argument("--compare", action="store_true", help="also time the live preset")
     parser.add_argument("--fixed", action="store_true", help="also measure a bake's fixed cost")
+    parser.add_argument("--rays", type=int, default=None, help="Rays (direct visibility)")
     parser.add_argument("presets", nargs="*", help=f"preset ids (default: {' '.join(DEFAULT)})")
     args = parser.parse_args(argv)
     bpy.ops.wm.read_factory_settings(use_empty=True)
     geotools.register()
+    from geotools.analysis import preset_bake as core
     from geotools.blender import preset_bake
 
     obj = terrain(args.cells, args.spacing)
@@ -145,16 +159,19 @@ def main(argv: list[str]) -> None:
         print("fixed cost (no ray cast): " + _line("viewshed_cumulative", result), flush=True)
     for preset_id in args.presets or DEFAULT:
         viewshed = preset_id == "viewshed_cumulative"
+        inputs: dict[str, object] = {"Drape": True} if viewshed else {}
+        if preset_id in core.DIRECT and args.rays:
+            inputs["Rays"] = args.rays
         result = preset_bake.compute(
             bpy.context,
             preset_id,
             [obj],
             name=f"{preset_id}_fast",
-            inputs={"Drape": True} if viewshed else {},
+            inputs=inputs,
             observers=observers if viewshed else None,
         )
         print(_line(preset_id, result), flush=True)
-        if args.compare:
+        if args.compare and not core.is_bake_only(preset_id):
             fast = _stored(obj, f"{preset_id}_fast")
             live, seconds = _live(obj, preset_id, observers if viewshed else None)
             diff = np.abs(fast.astype(np.float64) - live)
