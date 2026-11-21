@@ -337,7 +337,8 @@ def origin_lon_lat(definition: str, easting: float, northing: float) -> tuple[fl
     source = _datum_source(text)
     try:
         lon, lat = _to_wgs84(source).transform(float(easting), float(northing))
-    except Exception:
+    except Exception as exc:
+        deps.proj_error_message(exc)  # logs and keeps a database error for Copy Details
         log.debug("cannot locate %r at %r, %r", text, easting, northing, exc_info=True)
         return None
     if not (math.isfinite(lon) and math.isfinite(lat)) or abs(lat) > 90.0:
@@ -373,7 +374,8 @@ def lon_lat_to_origin(definition: str, lon: float, lat: float) -> tuple[float, f
         return None
     try:
         x, y = _from_wgs84(_datum_source(text)).transform(lon, lat)
-    except Exception:
+    except Exception as exc:
+        deps.proj_error_message(exc)  # logs and keeps a database error for Copy Details
         log.debug("cannot project %r, %r into %r", lon, lat, text, exc_info=True)
         return None
     if not (math.isfinite(x) and math.isfinite(y)):

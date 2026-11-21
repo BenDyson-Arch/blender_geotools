@@ -81,6 +81,11 @@ and the project follows semantic versioning where practical.
 - A project origin on the antimeridian keeps its BlenderGIS latitude and
   longitude. A rounding error put its longitude just past -180°, so the
   position was refused and the two keys were deleted.
+- After GeoTools is updated without restarting Blender, About, Check
+  Dependencies and Run Checks say "Restart Blender to finish the update"
+  (`restart-after-update`). PROJ errors from reading its database now show
+  as one plain sentence instead of PROJ's own text, which **Copy Details** in
+  About copies.
 ## [0.3.1] - 2026-11-15
 
 Two fixes for Blender 5.3. From 0.3.1, CI also runs the tests on Blender

@@ -61,7 +61,9 @@ to about 0.06 mm and one 100 km away to about 8 mm.
 :func:`float32_resolution` gives that limit, and every reading carries it.
 
 The project CRS reaches pyproj through :func:`crs_input`, the one place that
-turns the project's CRS text into what pyproj is given.
+turns the project's CRS text into what pyproj is given. When PROJ cannot read
+its database (GeoTools updated without restarting Blender), :class:`SiteError`
+carries ``deps.proj_error_message``'s plain sentence, not PROJ's text.
 """
 
 from __future__ import annotations
@@ -163,7 +165,10 @@ def _grid(text: str) -> _Grid:
     try:
         crs = pyproj.CRS.from_user_input(text)
     except pyproj.exceptions.CRSError as exc:
-        raise SiteError(f"pyproj does not know the project CRS {_short(text)}: {exc}") from exc
+        raise SiteError(
+            deps.proj_error_message(exc)
+            or f"pyproj does not know the project CRS {_short(text)}: {exc}"
+        ) from exc
     if crs.is_compound:
         crs = crs.sub_crs_list[0]
     geodetic = crs.geodetic_crs
@@ -181,7 +186,9 @@ def _grid(text: str) -> _Grid:
         proj = pyproj.Proj(crs)
         inverse = pyproj.Transformer.from_crs(crs, geodetic, always_xy=True)
     except pyproj.exceptions.ProjError as exc:
-        raise SiteError(f"PROJ cannot use the project CRS {_short(text)}: {exc}") from exc
+        raise SiteError(
+            deps.proj_error_message(exc) or f"PROJ cannot use the project CRS {_short(text)}: {exc}"
+        ) from exc
     grid = _Grid(text, proj, inverse, geodetic.name, a, flattening, False)
     return replace(grid, conformal=_is_conformal(grid, crs))
 
@@ -214,7 +221,13 @@ def _is_conformal(grid: _Grid, crs: Any) -> bool:
 
 @lru_cache(maxsize=1)
 def _ecef_to_wgs84() -> Any:
-    return _pyproj().Transformer.from_crs("EPSG:4978", "EPSG:4979", always_xy=True)
+    pyproj = _pyproj()
+    try:
+        return pyproj.Transformer.from_crs("EPSG:4978", "EPSG:4979", always_xy=True)
+    except pyproj.exceptions.ProjError as exc:
+        raise SiteError(
+            deps.proj_error_message(exc) or f"PROJ cannot go from ECEF to WGS84: {exc}"
+        ) from exc
 
 
 def _short(text: str, limit: int = 60) -> str:

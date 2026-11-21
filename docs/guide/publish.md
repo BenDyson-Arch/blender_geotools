@@ -36,6 +36,7 @@ Run Checks also refreshes every layer's value range and status.
 | `georef-origin-lat-lon-only` | The scene has a latitude and longitude but no projected origin (E, N). | **Origin from Latitude/Longitude** in the Project panel or Checks. See [BlenderGIS](blendergis.md). |
 | `georef-origin-lat-lon-differ` | The scene's latitude and longitude lie some metres from E and N. | Nothing, if E and N are right; else **Origin from Latitude/Longitude**. |
 | `georef-keys-ignored` | The scene has a BlenderGIS georeference, but the project is Local or Anchor. | **Use the Scene's BlenderGIS Georeference** in the Project panel, or ignore it. |
+| `restart-after-update` | GeoTools was updated while Blender was running, so Blender still runs the old libraries. | Restart Blender. |
 | `uv-overlap` | UV triangles share texels on an object with texture layers. | Fix the UVs, or bake anyway. See [Layers](layers.md#texture-layers-and-the-bake-sub-panel). |
 | `image-missing` | An image's file is missing and it is not packed. | Find the file, or pack the image. |
 | `image-unsaved` | An image has unsaved edits. An error when its file is a source file and the `.blend` was never saved. | Nothing: Publish saves it first, to a `textures/` copy for a source file. For the error, save the `.blend`. |

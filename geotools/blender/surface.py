@@ -27,6 +27,7 @@ import bpy
 import numpy as np
 
 from ..analysis import site
+from ..core import deps
 from ..core.placement import PlacementMode
 from .export import same_topology
 from .layers import apply_modifiers, layer_meshes, source_objects
@@ -250,6 +251,8 @@ def ground_scale(context: bpy.types.Context, centre: np.ndarray, what: str) -> t
     try:
         reading = site.read_point(placement, tuple(float(c) for c in centre))
     except (site.SiteError, site.GeodesyUnavailable, ValueError) as ex:
+        if deps.is_plain_proj_message(str(ex)):  # PROJ's own text is in the log
+            return 1.0, f"{what} are grid values. {ex}"
         return 1.0, f"{what} are grid values ({ex})."
     return float(reading.combined_scale), ""
 

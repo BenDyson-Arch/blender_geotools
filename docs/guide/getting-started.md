@@ -36,6 +36,12 @@ Then:
 3. In the 3D Viewport, press **N** to open the sidebar and select the
    **GeoTools** tab.
 
+To update GeoTools, install the new zip the same way, then restart Blender.
+The running Blender keeps the libraries it loaded, and their files have just
+been replaced. Until you restart, About, **Check Dependencies** and Run Checks
+say "GeoTools was updated while Blender was running. Restart Blender to finish
+the update."
+
 To build the zip from source instead, see
 [CONTRIBUTING.md](../../CONTRIBUTING.md#building).
 
@@ -56,14 +62,19 @@ default. Its header shows how the libraries loaded:
 
 - a tick: rusty-tiles and pyproj both loaded;
 - a warning: pyproj did not load. Imports cannot reproject, and the analysis
-  tools cannot relate a CRS project to the Earth. Everything else works;
+  tools cannot relate a CRS project to the Earth. Everything else works. Also
+  shown when GeoTools was updated and Blender needs a restart;
 - an error: rusty-tiles did not load. Nothing can be published.
 
 Inside, About shows the GeoTools version and one line per library, such as
 `rusty-tiles 0.4.1` and `pyproj 3.8.0 (PROJ 9.8.1)`. A library that failed
-says `not available` and why. **Check Dependencies** loads them again. The
-GeoTools preferences (**Edit > Preferences > Add-ons**, GeoTools) show the
-same, plus the PROJ data folder.
+says `not available` and why. **Check Dependencies** loads them again, and
+**Copy Details** copies the versions and PROJ's own text for any error it
+gave, for a bug report. The GeoTools preferences (**Edit > Preferences >
+Add-ons**, GeoTools) show the same, plus the PROJ data folder.
+
+If a tool says "PROJ's database could not be read", restart Blender. If it
+still says so, reinstall GeoTools.
 
 GeoTools needs rusty-tiles 0.4.1 or later. An older rusty-tiles is reported as
 not available, with the functions it lacks.

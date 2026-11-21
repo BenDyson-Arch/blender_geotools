@@ -8,7 +8,7 @@ from ..core.issues import Issue, Severity
 from ..core.placement import Placement
 from . import scene_georef
 from .bake_texture import uv_overlap_issues
-from .common import redraw_ui
+from .common import extension_version, redraw_ui
 from .crs_picker import migrate_scene
 from .layers import OUTSIDE_SOURCE, outside_source, refresh_layers, stored_carriers
 from .properties import SEVERITY_ICONS, FieldError, field_issues, placement_from_props
@@ -104,8 +104,16 @@ def run_checks(context: bpy.types.Context) -> list[Issue]:
     issues += uv_overlap_issues(context)
     issues += texture_issues(context)
     issues += scene_georef.issues(context.scene)
+    issues += update_issues()
     issues.sort(key=lambda i: _SEVERITY_ORDER[Severity(i.severity)])
     return issues
+
+
+def update_issues() -> list[Issue]:
+    """``restart-after-update`` when GeoTools changed on disk under this Blender (``core.deps``)."""
+    if not deps.check_for_update(extension_version()):
+        return []
+    return [Issue(Severity.WARNING, deps.UPDATE_ISSUE_CODE, deps.RESTART_MESSAGE)]
 
 
 def outside_source_issues(scene: bpy.types.Scene) -> list[Issue]:
