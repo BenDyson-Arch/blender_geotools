@@ -70,6 +70,10 @@ and the project follows semantic versioning where practical.
 - A project origin on the antimeridian keeps its BlenderGIS latitude and
   longitude. A rounding error put its longitude just past -180°, so the
   position was refused and the two keys were deleted.
+- **Refresh** no longer reloads an orthophoto over unsaved edits (Texture
+  Cleanup or painting), or replaces a mesh outside Object Mode or during a
+  render or bake: it says why and changes nothing. **Auto** waits instead,
+  and refreshes once you leave that state.
 ## [0.3.1] - 2026-11-15
 
 Two fixes for Blender 5.3. From 0.3.1, CI also runs the tests on Blender
