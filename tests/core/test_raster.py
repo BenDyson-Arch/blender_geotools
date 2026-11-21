@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import sys
 from pathlib import Path
@@ -142,6 +143,107 @@ def test_decimation_too_coarse_is_refused(tmp_path: Path) -> None:
     z = gw.dem(4, 4)
     with pytest.raises(raster.RasterError, match="at least 2 x 2"):
         raster.dem_grid(_info(tmp_path, z), z, OFFSET, 4)
+
+
+def _sized(tmp_path: Path, width: int, height: int, dtype: str = "float32") -> gt.GeoTiffInfo:
+    """A real header with its size changed: the estimates read only the header."""
+    info = _info(tmp_path, gw.dem(4, 4, dtype))
+    return dataclasses.replace(info, width=width, height=height)
+
+
+def test_loop_count_overflow_is_refused_before_allocating(tmp_path: Path) -> None:
+    """538M samples fit int32, but their 2.15 billion loops do not."""
+    info = _sized(tmp_path, 23_200, 23_200)
+    assert info.width * info.height < 2**31 < raster.dem_loop_count(23_200, 23_200)
+    band = np.broadcast_to(np.float32(1.0), (23_200, 23_200))  # no memory behind it
+    with pytest.raises(raster.RasterError, match="too many for one Blender mesh"):
+        raster.dem_grid(info, band, OFFSET)
+    problem = raster.dem_size_problem(info, 1, "blender", 1 << 50)
+    assert problem is not None and "too many for one Blender mesh" in problem
+    assert problem.endswith("Use Decimation 2 or more"), problem
+    assert raster.dem_size_problem(info, 2, "blender", 1 << 50) is None
+
+
+def test_dem_import_bytes(tmp_path: Path) -> None:
+    info = _sized(tmp_path, 3000, 3000)
+    samples, pixels = 3000 * 3000, 3000 * 3000
+    # Full resolution: the mesh dominates (measured 211 bytes a sample in Blender 5.2).
+    assert raster.dem_import_bytes(info, 1, "blender") == pixels * 4 + samples * 224
+    # Decimated, reading the whole file at full resolution dominates.
+    assert raster.dem_import_bytes(info, 4, "blender") == pixels * 40
+    assert raster.dem_import_bytes(info, 8, "numpy") == pixels * 24  # 6 copies of float32
+    f64 = _sized(tmp_path, 3000, 3000, "float64")
+    assert raster.dem_import_bytes(f64, 8, "numpy") == pixels * 48
+    u8 = _sized(tmp_path, 3000, 3000, "uint8")
+    assert raster.dem_import_bytes(u8, 8, "numpy") == pixels * 8  # the floor
+    for step in range(1, 40):
+        assert raster.dem_import_bytes(info, step + 1, "numpy") <= raster.dem_import_bytes(
+            info, step, "numpy"
+        )
+
+
+def test_dem_import_bytes_covers_measured_peaks(tmp_path: Path) -> None:
+    """Peak memory of 3000 x 3000 imports measured in Blender 5.2 (VmHWM), in MiB."""
+    strips = {
+        dtype: _sized(tmp_path, 3000, 3000, dtype) for dtype in ("float32", "uint16", "float64")
+    }
+    tiled = {}
+    for dtype in ("int32", "float64"):
+        path = gw.write_geotiff(
+            tmp_path / f"t{dtype}.tif",
+            gw.dem(32, 32, dtype),
+            gw.GeoTiffSpec(origin=ORIGIN, pixel_size=(2.0, 2.0)),
+            compression="deflate",
+            tile=(256, 256),
+        )
+        tiled[dtype] = dataclasses.replace(gt.read_info(str(path)), width=3000, height=3000)
+    measured = [
+        (strips["float32"], 1, "blender", 1810),
+        (strips["float32"], 2, "blender", 485),
+        (strips["float32"], 4, "blender", 253),
+        (strips["uint16"], 1, "blender", 1758),
+        (strips["float64"], 1, "numpy", 1816),
+        (strips["float64"], 4, "numpy", 254),
+        (tiled["int32"], 1, "numpy", 1823),
+        (tiled["float64"], 8, "numpy", 397),
+    ]
+    for info, step, route, mib in measured:
+        estimate = raster.dem_import_bytes(info, step, route)
+        assert estimate >= mib << 20, (info.dtype, step, route, estimate >> 20, mib)
+        assert estimate <= 2 * (mib << 20), (info.dtype, step, route, estimate >> 20, mib)
+
+
+def test_a_lidar_dem_that_would_not_fit_is_refused_with_a_step_that_does(
+    tmp_path: Path,
+) -> None:
+    """20k x 20k at Decimation 1 needs about 85 GiB; 64 GiB free fits Decimation 2."""
+    info = _sized(tmp_path, 20_000, 20_000)
+    available = 64 << 30
+    problem = raster.dem_size_problem(info, 1, "blender", available)
+    assert problem is not None
+    assert "about 84.9 GiB" in problem and "64.0 GiB free" in problem, problem
+    assert problem.endswith("Use Decimation 2 or more"), problem
+    assert raster.smallest_fitting_step(info, 1, "blender", available) == 2
+    assert raster.dem_size_problem(info, 2, "blender", available) is None
+    # A legitimate import is not refused: 4096 x 4096 needs under 4 GiB.
+    small = _sized(tmp_path, 4096, 4096)
+    assert raster.dem_import_bytes(small, 1, "blender") < 4 << 30
+    assert raster.dem_size_problem(small, 1, "blender", 8 << 30) is None
+
+
+def test_a_file_too_big_to_read_is_refused_at_any_step(tmp_path: Path) -> None:
+    info = _sized(tmp_path, 20_000, 20_000)
+    problem = raster.dem_size_problem(info, 1, "blender", 4 << 30)
+    assert problem is not None and "no Decimation brings it down" in problem, problem
+    assert raster.smallest_fitting_step(info, 1, "blender", 4 << 30) is None
+
+
+def test_unknown_memory_uses_a_sample_ceiling(tmp_path: Path) -> None:
+    info = _sized(tmp_path, 10_000, 10_000)
+    problem = raster.dem_size_problem(info, 1, "numpy", None)
+    assert problem is not None and "cannot tell how much memory is free" in problem, problem
+    assert problem.endswith("Use Decimation 2 or more"), problem
+    assert raster.dem_size_problem(info, 2, "numpy", None) is None
 
 
 def test_uvs_span_the_raster_extent(tmp_path: Path) -> None:

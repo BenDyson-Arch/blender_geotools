@@ -21,7 +21,7 @@ import os
 import re
 import sqlite3
 import struct
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -93,17 +93,48 @@ def _read_only(path: str | os.PathLike[str]):
         con.close()  # always close: on Windows an open connection locks the file
 
 
+def _write_error(path: str | os.PathLike[str], ex: sqlite3.Error) -> GpkgError:
+    """A :class:`GpkgError` saying in plain words why writing ``path`` failed."""
+    name = Path(path).name
+    code = getattr(ex, "sqlite_errorname", "")
+    if code.startswith(("SQLITE_BUSY", "SQLITE_LOCKED")):
+        return GpkgError(
+            f"{name} is locked by another program (QGIS editing it, say); "
+            "save or close that, then try again"
+        )
+    if code.startswith("SQLITE_READONLY"):
+        return GpkgError(f"{name} is read-only; check its permissions or choose another file")
+    if code.startswith("SQLITE_NOTADB"):
+        return GpkgError(f"{name} is not a GeoPackage (not an SQLite database)")
+    if code.startswith("SQLITE_CANTOPEN"):
+        return GpkgError(f"cannot open {name} for writing; check the folder exists and is writable")
+    return GpkgError(f"cannot write {name}: {ex}")
+
+
 @contextmanager
 def _transaction(path: str | os.PathLike[str]):
-    con = sqlite3.connect(os.fspath(path), isolation_level=None)
-    _register_spatialite_stubs(con)
+    """One ``BEGIN IMMEDIATE`` transaction on ``path``, rolled back on any error.
+
+    SQLite errors (a file locked by QGIS, read-only, not a database) become
+    :class:`GpkgError` with plain text (:func:`_write_error`); a ``GpkgError``
+    raised inside passes unchanged. A failing ``ROLLBACK`` never hides the
+    error that caused it.
+    """
     try:
+        con = sqlite3.connect(os.fspath(path), isolation_level=None)
+    except sqlite3.Error as ex:
+        raise _write_error(path, ex) from None
+    try:
+        _register_spatialite_stubs(con)
         con.execute("BEGIN IMMEDIATE")
         yield con
         con.execute("COMMIT")
-    except BaseException:
+    except BaseException as ex:
         if con.in_transaction:
-            con.execute("ROLLBACK")
+            with suppress(sqlite3.Error):
+                con.execute("ROLLBACK")
+        if isinstance(ex, sqlite3.Error):
+            raise _write_error(path, ex) from ex
         raise
     finally:
         con.close()

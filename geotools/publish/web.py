@@ -26,7 +26,6 @@ import json
 import secrets
 import shutil
 import tempfile
-import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -152,7 +151,7 @@ def extract_for_web(archive: Path, dest: Path | None = None) -> WebFolder:
     try:
         try:
             pv.extract_archive(archive, work)
-        except (pv.PreviewError, zipfile.BadZipFile) as ex:
+        except pv.PreviewError as ex:  # not a zip, unsafe names, no tileset.json
             raise WebExtractError(f"could not extract {archive.name}: {ex}") from ex
         written = _files(work)
         # The user's own page is kept, unless the archive brings an index.html.

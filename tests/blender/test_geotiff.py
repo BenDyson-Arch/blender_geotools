@@ -219,6 +219,52 @@ def test_dem_import_reports_spacing_and_time() -> None:
     assert obj.geotools_link.kind == "GEOTIFF"
 
 
+def test_dem_that_would_not_fit_in_memory_is_refused() -> None:
+    """Import and Refresh estimate the memory first and name a Decimation that fits."""
+    _project()
+    sysmem = h.submodule("core.sysmem")
+    raster = h.submodule("core.raster")
+    original = sysmem.available_memory_bytes
+    z = gw.dem(64, 64)
+    with _tmpdir() as tmp:
+        path = _write(tmp / "big.tif", z)
+        grown = _write(tmp / "grown.tif", gw.dem(128, 128))
+        read_info = h.submodule("core.geotiff").read_info
+        small, large = read_info(str(path)), read_info(str(grown))
+
+        def need(info, step: int) -> int:
+            return raster.dem_import_bytes(info, step, "blender")
+
+        # Room for big.tif at Decimation 2 but not 1, and for the grown file at 3 but not 2.
+        allowed = max(need(small, 2), need(large, 3))
+        assert allowed < min(need(small, 1), need(large, 2))
+        free = int(allowed / raster.MEMORY_FRACTION) + 1
+        sysmem.available_memory_bytes = lambda: free
+        try:
+            meshes = len(bpy.data.meshes)
+            result, error, obj = _import(path, step=1)
+            assert result == {"ERROR_REPORTED"} and obj is None, error
+            assert "needs about" in error and "Use Decimation 2 or more" in error, error
+            assert len(bpy.data.meshes) == meshes and not any(i.filepath for i in bpy.data.images)
+            result, error, obj = _import(path, step=2)
+            assert result == {"FINISHED"}, error
+
+            # The file grows past what fits: the refresh is refused and nothing changes.
+            path.write_bytes(grown.read_bytes())
+            _bump_mtime(path)
+            mesh = obj.data
+            try:
+                _refresh(obj)
+            except _links().RefreshError as ex:
+                assert "Use Decimation 3 or more" in str(ex), ex
+            else:
+                raise AssertionError("refresh built a mesh that would not fit")
+            assert obj.data == mesh and len(mesh.vertices) == 32 * 32
+            assert obj.geotools_link.status == "ERROR"
+        finally:
+            sysmem.available_memory_bytes = original
+
+
 # --- orthophoto ---------------------------------------------------------------------------
 
 
@@ -565,6 +611,86 @@ def test_geotiff_stale_detection_and_auto_refresh() -> None:
 
         path.unlink()
         assert links.check_link(obj) == "MISSING"
+
+
+def test_refresh_waits_for_unsaved_orthophoto_edits() -> None:
+    """A reload would wipe pixels Texture Cleanup or painting left unsaved: refused, then skipped."""
+    _project()
+    links = _links()
+    with _tmpdir() as tmp:
+        path = _write(tmp / "o.tif", gw.rgb(8, 8, seed=1), pixel_size=(1.0, 1.0))
+        result, error, obj = _import(path)
+        assert result == {"FINISHED"}, error
+        image = next(n.image for n in obj.active_material.node_tree.nodes if n.type == "TEX_IMAGE")
+        px = np.empty(len(image.pixels), np.float32)
+        image.pixels.foreach_get(px)
+        px[:16] = 1.0
+        image.pixels.foreach_set(px)
+        assert image.is_dirty
+        _write(path, gw.rgb(16, 8, seed=2), pixel_size=(1.0, 1.0))
+        _bump_mtime(path)
+        assert links.check_link(obj) == "CHANGED"
+
+        try:
+            _refresh(obj)
+        except links.RefreshBlocked as ex:
+            assert "unsaved edits" in str(ex), ex
+        else:
+            raise AssertionError("refresh reloaded over unsaved edits")
+        result, error = h.call_op(bpy.ops.geotools.link_refresh, name=obj.name)
+        assert result == {"ERROR_REPORTED"} and "unsaved edits" in error, error
+        # Importing the file again would reload the same image: refused too.
+        result, error, _obj = _import(path)
+        assert result == {"ERROR_REPORTED"} and "unsaved edits" in error, error
+
+        obj.geotools_link.auto_refresh = True
+        links.auto_refresh_tick()  # skipped, not failed
+        assert image.is_dirty and tuple(image.size) == (8, 8)
+        assert obj.geotools_link.status == "CHANGED"
+        assert obj.name not in links._failed
+
+        image.reload()  # the user discards the edits; the next poll refreshes
+        links.auto_refresh_tick()
+        assert tuple(image.size) == (8, 16)
+        assert obj.geotools_link.status == "OK"
+
+
+def test_refresh_waits_for_object_mode() -> None:
+    """Vertex and Weight Paint hold the mesh; Sculpt is awkward to enter in background mode."""
+    _project()
+    links = _links()
+    z = gw.dem(4, 6)
+    with _tmpdir() as tmp:
+        path = _write(tmp / "paint.tif", z)
+        _result, _error, obj = _import(path)
+        obj.geotools_link.auto_refresh = True
+        version = 0.0
+        for mode, label in (("VERTEX_PAINT", "Vertex Paint"), ("WEIGHT_PAINT", "Weight Paint")):
+            version += 5.0
+            _write(path, z + version)
+            _bump_mtime(path)
+            assert links.check_link(obj) == "CHANGED"
+            bpy.context.view_layer.objects.active = obj
+            obj.select_set(True)
+            bpy.ops.object.mode_set(mode=mode)
+            try:
+                assert obj.mode == mode
+                mesh = obj.data
+                try:
+                    _refresh(obj)
+                except links.RefreshBlocked as ex:
+                    assert f"in {label}" in str(ex) and "Object Mode" in str(ex), ex
+                else:
+                    raise AssertionError(f"refresh replaced the mesh in {label}")
+                links.auto_refresh_tick()  # skipped, not failed
+                assert obj.data == mesh and obj.mode == mode
+                assert obj.geotools_link.status == "CHANGED"
+                assert obj.name not in links._failed
+            finally:
+                bpy.ops.object.mode_set(mode="OBJECT")
+            links.auto_refresh_tick()
+            np.testing.assert_array_equal(_positions(obj), _expected(z + version))
+            assert obj.geotools_link.status == "OK"
 
 
 # --- LOCAL and ANCHOR projects -------------------------------------------------------------

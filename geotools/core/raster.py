@@ -14,6 +14,7 @@ import numpy as np
 
 from .crs_match import DataCrs, matches, project_crs
 from .data_origin import Bounds, check_local_project, offer_project_crs
+from .display import format_gib
 from .geotiff import GeoTiffInfo
 from .placement import Placement, PlacementMode, Vec3
 
@@ -168,12 +169,12 @@ def dem_grid(info: GeoTiffInfo, band: np.ndarray, offset: Vec3, step: int = 1) -
             f"{info.name}: a step of {step} leaves {cols_n} x {rows_n} samples; "
             "a DEM mesh needs at least 2 x 2"
         )
-    valid = valid_mask(z, info.nodata)
-    if rows_n * cols_n >= 2**31:
+    if dem_loop_count(rows_n, cols_n) > INT32_MAX:
         raise RasterError(
-            f"{info.name}: {cols_n:,} x {rows_n:,} samples is too many for one mesh; "
+            f"{info.name}: {cols_n:,} x {rows_n:,} samples is too many for one Blender mesh; "
             "use a larger decimation step"
         )
+    valid = valid_mask(z, info.nodata)
 
     # Faces: one quad per 2 x 2 block of valid samples, mirrored when the
     # raster is (dx * dy > 0) so the normals always face +z.
@@ -242,6 +243,125 @@ def dem_grid(info: GeoTiffInfo, band: np.ndarray, offset: Vec3, step: int = 1) -
         spacing=spacing(info, step),
         nodata_vertices=int(valid.size - np.count_nonzero(valid)),
         z_range=(float(heights.min()), float(heights.max())),
+    )
+
+
+# --- import memory ---------------------------------------------------------------------
+
+INT32_MAX = 2**31 - 1
+"""Blender counts vertices, edges, faces and loops (face corners) in int32."""
+
+READ_BYTES_PER_PIXEL = {"blender": 40, "numpy": 8}
+"""Peak bytes per file pixel while band 1 is read, by ``geotiff.dem_route``.
+
+Blender's loader holds the image as RGBA floats and ``Image.pixels`` copies
+it again: 29 to 35 bytes a pixel measured, 40 allowed. The numpy reader
+holds copies of the band in the file's sample type
+(:data:`NUMPY_READ_COPIES`), at least 8 bytes a pixel.
+"""
+
+NUMPY_READ_COPIES = 6
+"""Copies of the band ``geotiff.read_band`` holds at once, over the padded tile grid.
+
+Raw chunks, decoded blocks, then for tiles the stacked, transposed and
+cropped bands: measured at 5.3 for float64 tiles of 256 and 3.5 for strips.
+"""
+
+MESH_BYTES_PER_SAMPLE = 224
+"""Peak bytes per sampled pixel while the grid and the Blender mesh are built.
+
+On top of the full-resolution band, which is still held. Measured in
+Blender 5.2 at 207 to 212 for a DEM with no nodata (the grid's positions,
+corners and UVs, then the mesh's positions, corner and edge indices, edges
+and UV map, while the grid is still held), with a little headroom. Nodata
+only lowers it.
+"""
+
+MEMORY_FRACTION = 0.8
+"""Share of the available memory an import may use before it is refused."""
+
+UNKNOWN_MEMORY_MAX_SAMPLES = 64_000_000
+"""The sample ceiling when the available memory cannot be read: about 13 GiB."""
+
+
+def dem_loop_count(rows: int, cols: int) -> int:
+    """Loops (face corners) of a ``rows`` x ``cols`` grid with every sample valid."""
+    return 4 * max(rows - 1, 0) * max(cols - 1, 0)
+
+
+def dem_import_bytes(info: GeoTiffInfo, step: int, route: str) -> int:
+    """Estimated peak memory, in bytes, to import ``info`` as a DEM every ``step`` pixels.
+
+    The larger of reading band 1 at full resolution (decimation cannot skip
+    pixels while decoding) and building the mesh from the sampled grid while
+    that band is held. ``route`` is ``geotiff.dem_route``'s ``"blender"`` or
+    ``"numpy"``.
+    """
+    pixels = info.width * info.height
+    itemsize = info.dtype.itemsize
+    read = pixels * READ_BYTES_PER_PIXEL[route]
+    if route == "numpy":
+        decoded = pixels
+        if info.tile_size is not None:  # edge tiles are decoded whole
+            tw, th = info.tile_size
+            decoded = -(-info.width // tw) * tw * (-(-info.height // th) * th)
+        read = max(read, decoded * NUMPY_READ_COPIES * itemsize)
+    rows, cols = decimated_shape(info, step)
+    return max(read, pixels * itemsize + rows * cols * MESH_BYTES_PER_SAMPLE)
+
+
+def _dem_fits(info: GeoTiffInfo, step: int, route: str, available: int | None) -> bool:
+    rows, cols = decimated_shape(info, step)
+    if dem_loop_count(rows, cols) > INT32_MAX:
+        return False
+    if available is None:
+        return rows * cols <= UNKNOWN_MEMORY_MAX_SAMPLES
+    return dem_import_bytes(info, step, route) <= MEMORY_FRACTION * available
+
+
+def smallest_fitting_step(
+    info: GeoTiffInfo, step: int, route: str, available: int | None
+) -> int | None:
+    """The smallest decimation from ``step`` that fits (:func:`dem_size_problem`), or None."""
+    largest = min(info.width, info.height) - 1  # a larger step leaves under 2 x 2 samples
+    for candidate in range(max(step, 1), largest + 1):
+        if _dem_fits(info, candidate, route, available):
+            return candidate
+    return None
+
+
+def dem_size_problem(info: GeoTiffInfo, step: int, route: str, available: int | None) -> str | None:
+    """Why importing ``info`` every ``step`` pixels would not fit, or None.
+
+    Refused when the mesh would have more loops than Blender's int32 counts
+    hold, when :func:`dem_import_bytes` is over :data:`MEMORY_FRACTION` of
+    ``available`` (``sysmem.available_memory_bytes()``), or, if that is None,
+    when the grid has more than :data:`UNKNOWN_MEMORY_MAX_SAMPLES` samples.
+    The message names the smallest decimation that fits.
+    """
+    if _dem_fits(info, step, route, available):
+        return None
+    rows, cols = decimated_shape(info, step)
+    need = dem_import_bytes(info, step, route)
+    if dem_loop_count(rows, cols) > INT32_MAX:
+        why = f"{cols:,} x {rows:,} samples is too many for one Blender mesh"
+    elif available is None:
+        why = (
+            f"{cols:,} x {rows:,} samples needs about {format_gib(need)}, and GeoTools "
+            f"cannot tell how much memory is free (the limit is then "
+            f"{UNKNOWN_MEMORY_MAX_SAMPLES:,} samples)"
+        )
+    else:
+        why = (
+            f"importing it at Decimation {step} needs about {format_gib(need)}, "
+            f"more than GeoTools allows of the {format_gib(available)} free"
+        )
+    fits = smallest_fitting_step(info, step, route, available)
+    if fits is not None:
+        return f"{info.name}: {why}. Use Decimation {fits} or more"
+    return (
+        f"{info.name}: {why}, and no Decimation brings it down: reading the file alone "
+        "needs that much. Free some memory, or clip or resample it in QGIS first"
     )
 
 

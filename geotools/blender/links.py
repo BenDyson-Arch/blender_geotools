@@ -12,9 +12,13 @@ QGIS stays the 2D editor; only attribute columns are (``geotools.link_write_back
   refresher registered for the link's kind (:data:`REFRESHERS`). Refreshers
   replace only the object's mesh data (:func:`replace_mesh`), so modifiers,
   materials, transform, parent and collections survive.
+- :func:`refresh_blocker` says why a refresh must wait: the object is not in
+  Object Mode, a render or bake is running, or the kind's blocker (an
+  orthophoto with unsaved edits) objects. :func:`refresh_link` refuses then
+  with :class:`RefreshBlocked`, leaving the status alone.
 - One ``bpy.app.timers`` timer, :func:`auto_refresh_tick`, polls the files of
-  links with Auto-Refresh on and refreshes those that changed, unless the
-  object is in Edit Mode.
+  links with Auto-Refresh on and refreshes those that changed. A blocked link
+  is skipped, not failed, so it refreshes once the user leaves that state.
 
 Vectors (``vectors``) and GeoTIFF (``raster_io``) register their refreshers
 with :func:`register_refresher`.
@@ -91,8 +95,9 @@ class GeoToolsLink(bpy.types.PropertyGroup):
     last_sync: StringProperty(name="Last Sync", description="UTC time of the last sync (ISO)")
     auto_refresh: BoolProperty(
         name="Auto-Refresh",
-        description="Refresh when the file changes on disk (checked every few seconds), "
-        "except in Edit Mode",
+        description="Refresh when the file changes on disk (checked every few seconds). "
+        "Waits while the object is not in Object Mode, a render or bake runs, or its "
+        "image has unsaved edits",
         default=False,
     )
     status: EnumProperty(name="Status", items=LINK_STATUS_ITEMS, default="OK")
@@ -206,6 +211,10 @@ class RefreshError(RuntimeError):
     """A refresh was refused or failed; the object is unchanged."""
 
 
+class RefreshBlocked(RefreshError):
+    """A refresh must wait for a state the user leaves (:func:`refresh_blocker`)."""
+
+
 Refresher = Callable[[bpy.types.Object], RefreshResult]
 """Re-reads ``obj``'s linked file with its stored options and updates ``obj`` in place.
 
@@ -218,16 +227,52 @@ message to refuse) and updates the fingerprint, last sync and status, so a
 refresher does none of that.
 """
 
+Blocker = Callable[[bpy.types.Object], str | None]
+"""Why ``obj`` must not be refreshed now (a state the user can leave), or None.
+
+Cheap: it runs on every auto-refresh poll, before the file is hashed.
+"""
+
 REFRESHERS: dict[str, Refresher] = {}
+BLOCKERS: dict[str, Blocker] = {}
+
+BLOCKING_JOBS = {"RENDER": "a render", "OBJECT_BAKE": "a bake"}
+"""``bpy.app.is_job_running`` types during which no mesh or image is replaced."""
 
 
-def register_refresher(kind: str, refresher: Refresher) -> None:
-    """Make :func:`refresh_link` use ``refresher`` for links of ``kind``."""
+def register_refresher(kind: str, refresher: Refresher, blocker: Blocker | None = None) -> None:
+    """Make :func:`refresh_link` use ``refresher`` (and ``blocker``) for links of ``kind``."""
     REFRESHERS[kind] = refresher
+    if blocker is None:
+        BLOCKERS.pop(kind, None)
+    else:
+        BLOCKERS[kind] = blocker
 
 
 def unregister_refresher(kind: str) -> None:
     REFRESHERS.pop(kind, None)
+    BLOCKERS.pop(kind, None)
+
+
+def _mode_name(obj: bpy.types.Object) -> str:
+    items = bpy.types.Object.bl_rna.properties["mode"].enum_items
+    return items[obj.mode].name if obj.mode in items else obj.mode.title()
+
+
+def refresh_blocker(obj: bpy.types.Object) -> str | None:
+    """Why ``obj`` cannot be refreshed now, or None.
+
+    The object must be in Object Mode (a mesh in use by Edit Mode, Sculpt or a
+    paint mode is not freed under it), no render or bake may be running, and
+    the kind's blocker (:func:`register_refresher`) must have no objection.
+    """
+    if obj.mode != "OBJECT":
+        return f"{obj.name} is in {_mode_name(obj)}; switch to Object Mode to refresh it"
+    for job, what in BLOCKING_JOBS.items():
+        if bpy.app.is_job_running(job):
+            return f"Wait for {what} to finish before refreshing {obj.name}"
+    blocker = BLOCKERS.get(obj.geotools_link.kind)
+    return blocker(obj) if blocker is not None else None
 
 
 def refresh_link(obj: bpy.types.Object) -> RefreshResult:
@@ -235,10 +280,13 @@ def refresh_link(obj: bpy.types.Object) -> RefreshResult:
 
     On success the fingerprint and last sync are updated and the status is OK;
     on failure the object keeps its data and the status is ERROR (or MISSING).
+    A :class:`RefreshBlocked` refusal (:func:`refresh_blocker`) changes nothing,
+    the status included.
     """
     link = obj.geotools_link
-    if obj.mode == "EDIT":
-        raise RefreshError(f"{obj.name} is in Edit Mode; leave it to refresh")
+    blocker = refresh_blocker(obj)
+    if blocker is not None:
+        raise RefreshBlocked(blocker)
     refresher = REFRESHERS.get(link.kind)
     if refresher is None:
         raise RefreshError(f"No refresh for {link.kind} links in this version")
@@ -250,6 +298,8 @@ def refresh_link(obj: bpy.types.Object) -> RefreshResult:
         raise RefreshError(f"{path.name} is missing") from None
     try:
         result = refresher(obj)
+    except RefreshBlocked:
+        raise
     except RefreshError as ex:
         set_status(link, "ERROR", str(ex))
         raise
@@ -300,14 +350,16 @@ def auto_refresh_tick() -> float:
     """One poll of the auto-refresh timer; returns the seconds to the next one.
 
     Links with Auto-Refresh on whose file stat changed are checked (hashing
-    only then) and refreshed if the content changed. An object in Edit Mode is
-    skipped until it leaves, and a file state that failed once is not retried
+    only then) and refreshed if the content changed. A blocked link
+    (:func:`refresh_blocker`: not in Object Mode, a render or bake running, an
+    orthophoto with unsaved edits) is skipped before anything is hashed and
+    retried on a later poll; a file state that failed once is not retried
     until the file changes again.
     """
     refreshed = False
     for obj in linked_objects():
         link = obj.geotools_link
-        if not link.auto_refresh or obj.mode == "EDIT":
+        if not link.auto_refresh or refresh_blocker(obj) is not None:
             continue
         stored = Fingerprint.from_text(link.fingerprint)
         try:
@@ -324,6 +376,8 @@ def auto_refresh_tick() -> float:
             continue
         try:
             result = refresh_link(obj)
+        except RefreshBlocked:  # the state changed since the check above
+            continue
         except RefreshError as ex:
             _failed[obj.name] = quick.to_text()
             log.warning("auto-refresh of %s failed: %s", obj.name, ex)

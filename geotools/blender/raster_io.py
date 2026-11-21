@@ -27,11 +27,12 @@ import numpy as np
 from bpy.props import BoolProperty, EnumProperty, IntProperty, StringProperty
 from bpy_extras.io_utils import ImportHelper
 
-from ..core import crs_match, fingerprint
+from ..core import crs_match, fingerprint, sysmem
 from ..core import geotiff as core_geotiff
 from ..core import raster as core_raster
 from ..core.crs_match import DataCrs
 from ..core.data_origin import NeedsProjectOrigin
+from ..core.display import format_gib
 from ..core.geotiff import GeoTiffError, GeoTiffInfo
 from ..core.raster import RasterError
 from . import blend_paths, data_origin, links, texture_state
@@ -188,16 +189,43 @@ def build_plane_mesh(name: str, quad: core_raster.Footprint) -> bpy.types.Mesh:
     return mesh
 
 
-def ortho_image(path: str) -> bpy.types.Image:
-    """The Blender image linked to ``path``, loaded or reloaded from disk."""
+def _file_image(path: str) -> bpy.types.Image | None:
+    """The Blender image showing the file ``path``, if one is loaded."""
     for image in bpy.data.images:
         if (
             image.source == "FILE"
             and image.filepath
             and blend_paths.same_file(blend_paths.image_path(image), path)
         ):
-            image.reload()
             return image
+    return None
+
+
+def unsaved_edits_problem(path: str) -> str | None:
+    """Why reloading ``path`` would lose work: its image has unsaved edits. Else None."""
+    image = _file_image(path)
+    if image is None or not texture_state.has_unsaved_edits(image):
+        return None
+    return (
+        f"{image.name} has unsaved edits, which reloading {Path(path).name} from disk "
+        "would discard. Publish saves them to a copy in textures/; Image > Reload "
+        "discards them"
+    )
+
+
+def ortho_image(path: str) -> bpy.types.Image:
+    """The Blender image linked to ``path``, loaded or reloaded from disk.
+
+    Raises GeoTiffError rather than reload over unsaved edits
+    (:func:`unsaved_edits_problem`).
+    """
+    image = _file_image(path)
+    if image is not None:
+        problem = unsaved_edits_problem(path)
+        if problem is not None:
+            raise GeoTiffError(problem)
+        image.reload()
+        return image
     try:
         return bpy.data.images.load(path, check_existing=False)
     except RuntimeError as ex:
@@ -249,6 +277,12 @@ def ortho_material(name: str, image: bpy.types.Image, alpha: bool) -> bpy.types.
 def _dem_mesh(
     info: GeoTiffInfo, offset: tuple[float, float, float], step: int, name: str
 ) -> tuple[bpy.types.Mesh, str]:
+    """The DEM mesh and its report; RasterError first if it would not fit in memory."""
+    problem = core_raster.dem_size_problem(
+        info, step, core_geotiff.dem_route(info), sysmem.available_memory_bytes()
+    )
+    if problem is not None:
+        raise RasterError(problem)
     started = time.perf_counter()
     band = read_dem_band(info)
     read = time.perf_counter()
@@ -420,6 +454,23 @@ def refresh(obj: bpy.types.Object) -> RefreshResult:
     )
 
 
+def refresh_blocker(obj: bpy.types.Object) -> str | None:
+    """The GEOTIFF blocker (``links.register_refresher``): an orthophoto with unsaved edits.
+
+    Refresh reloads an orthophoto's image from the file, which would wipe
+    pixels painted or cleaned since the last save (Texture Cleanup leaves the
+    image dirty). An orthophoto that shows GeoTools' edited copy
+    (:func:`edited_copy`) is not reloaded, so it is not blocked.
+    """
+    link = obj.geotools_link
+    if link_options(link).get("mode") == "DEM":
+        return None
+    path = str(links.link_path(link))
+    if edited_copy(obj, path) is not None:
+        return None
+    return unsaved_edits_problem(path)
+
+
 # --- operator ------------------------------------------------------------------------------
 
 _INFO_CACHE: dict[str, tuple[int, GeoTiffInfo | str]] = {}
@@ -503,6 +554,14 @@ plane. Linked to the file, so it can be refreshed"""
             units = _units(info)
             dem.label(text=f"Spacing {sx:g}{units} x {sy:g}{units}", icon="MESH_GRID")
             dem.label(text=f"{cols:,} x {rows:,} vertices")
+            try:
+                need = core_raster.dem_import_bytes(info, self.step, core_geotiff.dem_route(info))
+            except GeoTiffError as ex:
+                col = dem.column()
+                col.alert = True
+                col.label(text=str(ex)[:80], icon="ERROR")
+            else:
+                dem.label(text=f"Needs about {format_gib(need)} of memory", icon="MEMORY")
         if info is not None:
             layout.label(text=f"{info.band_layout}, {info.compression_name}", icon="IMAGE_DATA")
             layout.label(text=f"CRS {info.crs.label() if info.crs else 'not stated'}")
@@ -565,7 +624,7 @@ _register_classes, _unregister_classes = bpy.utils.register_classes_factory(clas
 def register() -> None:
     _register_classes()
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
-    links.register_refresher("GEOTIFF", refresh)
+    links.register_refresher("GEOTIFF", refresh, refresh_blocker)
 
 
 def unregister() -> None:
