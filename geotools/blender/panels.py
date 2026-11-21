@@ -825,7 +825,7 @@ class GEOTOOLS_PT_about(_GeoToolsPanel, bpy.types.Panel):
     def draw_header(self, context: bpy.types.Context) -> None:
         if not deps.probe_rusty_tiles().available:
             state = ERROR
-        elif not deps.probe_pyproj().available:
+        elif deps.update_pending() or not deps.probe_pyproj().available:
             state = WARNING  # everything but reprojecting imports still works
         else:
             state = DONE
@@ -833,7 +833,9 @@ class GEOTOOLS_PT_about(_GeoToolsPanel, bpy.types.Panel):
 
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
-        layout.label(text=f"Version {extension_version()}")
+        version = extension_version()
+        deps.check_for_update(version)  # a few os.stat calls, only while About is open
+        layout.label(text=f"Version {version}")
         draw_dependency_status(layout)
 
 
