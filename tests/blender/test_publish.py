@@ -148,6 +148,7 @@ def test_publish_registered() -> None:
         "geotools.cancel_publish",
         "geotools.open_output_folder",
         "geotools.open_build_record",
+        "geotools.open_legend",
         "geotools.extract_for_web",
         "geotools.open_web_folder",
         "geotools.preview_output",

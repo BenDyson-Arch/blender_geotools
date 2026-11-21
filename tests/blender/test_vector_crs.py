@@ -327,6 +327,102 @@ def test_grid_downloads_toggle_says_when_online_access_is_off() -> None:
             assert drawn == [("allow_grid_downloads", allowed)], (op, allowed, drawn)
 
 
+# --- WGS84 (RFC 7946) export ----------------------------------------------------------------
+
+
+def _ring_area(ring: list) -> float:
+    xy = np.asarray(ring)[:, :2] - ring[0][:2]
+    return float((xy[:-1, 0] * xy[1:, 1] - xy[1:, 0] * xy[:-1, 1]).sum())
+
+
+def _export_wgs84(path: Path) -> tuple[set[str], str | None]:
+    for obj in bpy.data.objects:
+        obj.select_set(True)
+    return h.call_op(
+        bpy.ops.geotools.export_vector,
+        filepath=str(path),
+        file_format="GEOJSON",
+        coordinates="WGS84",
+    )
+
+
+def test_export_geojson_in_wgs84() -> None:
+    _project()
+    with _tmpdir() as tmp:
+        line = vf.feature(
+            {"type": "LineString", "coordinates": [[E0, N0, 12.5], [E0 + 30, N0 + 40, 14.0]]},
+            {"context": "wall"},
+            9,
+        )
+        source = vf.write_geojson(tmp / "site.geojson", [*vf.contexts(2), line])
+        result, error = h.call_op(bpy.ops.geotools.import_geojson, filepath=str(source))
+        assert result == {"FINISHED"}, error
+        before = {o.name: _positions(o.data).astype(np.float64) for o in bpy.data.objects}
+        out = tmp / "web.geojson"
+        if not _has_pyproj():
+            result, error = _export_wgs84(out)
+            assert result == {"ERROR_REPORTED"} and "needs pyproj" in error, error
+            assert not out.exists()
+            return
+        with _without_pyproj():
+            result, error = _export_wgs84(out)
+        assert result == {"ERROR_REPORTED"} and "needs pyproj" in error, error
+        assert not out.exists()
+
+        result, error = _export_wgs84(out)
+        assert result == {"FINISHED"}, error
+        data = json.loads(out.read_text())
+        assert "crs" not in data
+        wall = next(f for f in data["features"] if f["geometry"]["type"] == "LineString")
+        expected = _transform(np.array([[E0 + 30, N0 + 40]]), "EPSG:7856", "EPSG:4326")
+        np.testing.assert_allclose(wall["geometry"]["coordinates"][1][:2], expected[0], atol=1e-8)
+        assert wall["geometry"]["coordinates"][1][2] == 14.0  # project heights, as reported
+        for feature in data["features"]:
+            if feature["geometry"]["type"] == "Polygon":
+                exterior, *holes = feature["geometry"]["coordinates"]
+                assert _ring_area(exterior) > 0, feature["id"]
+                assert all(_ring_area(hole) < 0 for hole in holes), feature["id"]
+
+        # Imported back into the project: within a millimetre of where it was.
+        h.reset_scene()
+        _project()
+        result, error = h.call_op(bpy.ops.geotools.import_geojson, filepath=str(out))
+        assert result == {"FINISHED"}, error
+        lines = _positions(bpy.data.objects["web.lines"].data).astype(np.float64)
+        np.testing.assert_allclose(lines, before["site.lines"], atol=1e-3)
+
+
+def test_export_geojson_in_wgs84_refused_in_a_local_project() -> None:
+    _project("LOCAL")
+    with _tmpdir() as tmp:
+        path = vf.write_geojson(
+            tmp / "local.geojson",
+            [vf.feature({"type": "Point", "coordinates": [3.0, 4.0, 5.0]}, {}, 1)],
+            crs=None,
+        )
+        bpy.ops.geotools.import_geojson(filepath=str(path))
+        out = tmp / "web.geojson"
+        result, error = _export_wgs84(out)
+        assert result == {"ERROR_REPORTED"}, result
+        assert "needs a project CRS" in error, error
+        assert not out.exists()
+
+
+def test_export_dialog_shows_coordinates_for_geojson_only() -> None:
+    from types import SimpleNamespace
+
+    cls = h.submodule("blender.vectors").GEOTOOLS_OT_export_vector
+    rna = bpy.ops.geotools.export_vector.get_rna_type()
+    for file_format, coordinates, shown in (
+        ("GPKG", "WGS84", {"file_format", "layer", "overwrite"}),
+        ("GEOJSON", "PROJECT", {"file_format", "layer", "coordinates"}),
+        ("GEOJSON", "WGS84", {"file_format", "layer", "coordinates", "allow_grid_downloads"}),
+    ):
+        data = SimpleNamespace(bl_rna=rna, file_format=file_format, coordinates=coordinates)
+        with _online_access(True):
+            assert set(h.props_drawn(h.draw(cls, data=data))) == shown, file_format
+
+
 # --- LOCAL and ANCHOR projects -------------------------------------------------------------
 
 
