@@ -16,18 +16,6 @@ and the project follows semantic versioning where practical.
   coefficients), Naismith and a wheelchair model limited to 1:12. Checked
   against networkx and r.walk on the
   [validation page](docs/validation/least-cost.md).
-- Development checks that make the rules from 0.3.0 fail the build, each
-  message saying what to use instead. ruff now runs the full B, SIM, PLW, RUF,
-  DTZ, PTH, UP, BLE and a few smaller rule families on top of its defaults,
-  with banned APIs for `datetime.fromtimestamp` (use
-  `sun.utc_datetime`) and `zoneinfo.ZoneInfo` (use `sun.zone`). import-linter
-  checks in CI that only `geotools.blender` imports Blender and that the
-  layers run blender, then publish, analysis and bake, then core. Tests check
-  that `geotools/` never feature-detects rusty-tiles, reads stored paths only
-  through `blend_paths`, turns true north only through the site map, passes
-  `always_xy=True` to pyproj, and writes no Scene custom property but the
-  five GeoScene keys.
-
 - **Show in Viewport** in Layers > Display shows a layer in its variant
   colours in the viewport and keeps them up to date as you change the palette,
   range or no-data colour, or the Geometry Nodes that make the layer, also
