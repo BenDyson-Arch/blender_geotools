@@ -107,7 +107,7 @@ def stored_paths() -> Iterator[PathRef]:
             for attr in ("source_filepath", "offset_file"):
                 yield props, attr
             for profile in props.build_profiles:
-                for attr in ("output_path", "last_output", "last_record"):
+                for attr in ("output_path", "last_output", "last_record", "last_legend"):
                     yield profile, attr
         inspect = getattr(scene, "geotools_inspect", None)
         if inspect is not None:

@@ -1,4 +1,4 @@
-"""The rusty-tiles and pyproj status matches what the build bundled."""
+"""The rusty-tiles, pyproj and tzdata status matches what the build bundled."""
 
 from __future__ import annotations
 
@@ -206,3 +206,35 @@ def test_a_changed_library_shows_the_restart_notice() -> None:
         state.update(saved)
     assert not deps.update_pending()
     assert deps.RESTART_MESSAGE not in h.label_text(h.draw(h.panel_class()))
+
+
+# --- tzdata ---------------------------------------------------------------------------
+
+
+def test_tzdata_serves_named_zones_without_a_system_database() -> None:
+    """The bundled tzdata, from the extension, with zoneinfo's search path empty (Windows)."""
+    import zoneinfo
+
+    spec = importlib.util.find_spec("tzdata")
+    if h.CONFIG.expect == "missing":
+        assert spec is None, f"tzdata is importable from {spec.origin}"
+        return
+    assert spec is not None and spec.origin
+    assert h.is_within(spec.origin, h.extensions_root()), (
+        f"tzdata loaded from {spec.origin}, not from the installed extension wheels"
+    )
+    sun = h.submodule("analysis.sun")
+    saved = zoneinfo.TZPATH
+
+    def reset(tzpath) -> None:
+        zoneinfo.reset_tzpath(to=tzpath)
+        zoneinfo.ZoneInfo.clear_cache()  # noqa: TID251 -- zoneinfo's own cache, not a lookup
+        sun.time_zone_database_available.cache_clear()
+
+    reset([])
+    try:
+        assert sun.time_zone_database_available()
+        utc, _ = sun.to_utc(sun.wall_clock(2026, 6, 21, 12), sun.zone("Europe/London"))
+        assert utc.hour == 11, utc  # BST, from tzdata's rules
+    finally:
+        reset(saved)

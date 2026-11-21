@@ -131,17 +131,19 @@ site.geotools/          the staging folder, GeoTools' own
 `build.json` records the inputs and settings: the placement (CRS, offsets and
 datum operation), the layers, the build settings, the SHA-256 of `source.glb`,
 of the saved `.blend` and of each source image, and the validation result. A
-variant writes `site.<layer>.3tz` and its own `site.<layer>.geotools/`.
+variant writes `site.<layer>.3tz`, its own `site.<layer>.geotools/` and its
+[legend](layers.md#legend), `site.<layer>.legend.svg`.
 
-The staging folder is GeoTools' record, not a published format. Publish only
-the `.3tz`.
+The staging folder is GeoTools' record, not a published format. Publish the
+`.3tz` (and a variant's legend), never the staging folder.
 
 ### Last Build
 
 The **Last Build** sub-panel shows what the selected profile last published:
 the file, when, how long it took, the triangles and tiles, and whether
 validation passed. **Folder** opens the output folder and **Record** opens
-`build.json`.
+`build.json`. After a variant, **Legend** opens its
+[legend](layers.md#legend).
 
 **Extract for Web** (for a `.3tz`) writes the archive as a folder a web server
 can serve, next to it: `site.web/` for `site.3tz`, `site.slope.web/` for a

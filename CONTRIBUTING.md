@@ -19,11 +19,11 @@ You need Python 3.11 or later for the scripts, and the official Blender 5.2
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
-pip install pytest numpy ruff pyproj==3.8.0 hypothesis==6.170.14  # pins: pyproject.toml, ci.yml
+pip install pytest numpy ruff pyproj==3.8.0 tzdata==2026.6 hypothesis==6.170.14  # pins: pyproject.toml, ci.yml
 ```
 
-Without pyproj the reprojection tests are skipped. Lint, format and import
-layering:
+Without pyproj the reprojection tests are skipped, and without tzdata the test
+of the bundled time zone database. Lint, format and import layering:
 
 ```sh
 ruff check .
@@ -34,7 +34,7 @@ uvx --from import-linter==2.15 lint-imports
 ## Wheels
 
 The extension bundles one exact version of each pin under
-`[tool.geotools.wheels]` in `pyproject.toml` (rusty-tiles, pyproj, certifi),
+`[tool.geotools.wheels]` in `pyproject.toml` (rusty-tiles, pyproj, certifi, tzdata),
 for each platform in `[tool.geotools] platforms`.
 `scripts/fetch_wheels.py` fetches them into `geotools/wheels/` (never
 committed) and checks names, versions and Python tags:

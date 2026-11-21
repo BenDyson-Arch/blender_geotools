@@ -121,3 +121,39 @@ def _fresh_session():
     deps.reset_session()
     yield
     deps.reset_session()
+
+
+# --- time zones: no system database, as in Python on Windows --------------------------
+
+import zoneinfo
+
+from geotools.analysis import sun
+
+
+def _reset_time_zones() -> None:
+    # Zones already loaded (from the system database) would otherwise be served from the cache.
+    zoneinfo.ZoneInfo.clear_cache()  # noqa: TID251 -- zoneinfo's own cache, not a zone lookup
+    sun.time_zone_database_available.cache_clear()
+
+
+@pytest.fixture
+def no_system_tz_database():
+    """``zoneinfo`` with an empty search path, as on Windows (and in Blender there).
+
+    Only the ``tzdata`` package can then serve a named zone: the one GeoTools
+    bundles, or none (``hide_tzdata``).
+    """
+    zoneinfo.reset_tzpath(to=[])
+    _reset_time_zones()
+    yield
+    zoneinfo.reset_tzpath()
+    _reset_time_zones()
+
+
+@pytest.fixture
+def hide_tzdata(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No ``tzdata`` package: ``import tzdata`` fails, as in a build without the wheels."""
+    for name in [m for m in sys.modules if m == "tzdata" or m.startswith("tzdata.")]:
+        monkeypatch.delitem(sys.modules, name)
+    monkeypatch.setitem(sys.modules, "tzdata", None)
+    _reset_time_zones()

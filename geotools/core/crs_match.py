@@ -357,3 +357,19 @@ def is_geographic(crs: DataCrs) -> bool | None:
     if crs.epsg in _GEOGRAPHIC:
         return True
     return None
+
+
+def has_vertical_axis(crs: DataCrs) -> bool:
+    """True for a CRS with a height axis (3D geographic or compound), from pyproj.
+
+    False without pyproj or for a CRS pyproj does not know.
+    """
+    if not crs.known or not _reproject.available():
+        return False
+    import pyproj.exceptions
+
+    try:
+        parsed = pyproj.CRS.from_user_input(crs.epsg or (crs.definition or "").strip())
+    except (pyproj.exceptions.CRSError, TypeError, ValueError):
+        return False
+    return len(parsed.axis_info) >= 3

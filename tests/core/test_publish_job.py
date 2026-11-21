@@ -387,10 +387,34 @@ def test_variant_is_recorded(tmp_path: Path, monkeypatch) -> None:
     assert record["schema"] == 2
     assert record["variant"] == variant
     assert record["output"] == str(out)
+    assert record["legend"] == "site.slope.legend.svg"
+    assert job.result is not None and job.result.legend == tmp_path / "site.slope.legend.svg"
+    assert "magma" in job.result.legend.read_text(encoding="utf-8")
 
     job = BuildJob(grid_scene(), request(plain))
     run(job)
-    assert json.loads((st.staging_dir_for(plain) / "build.json").read_text())["variant"] is None
+    plain_record = json.loads((st.staging_dir_for(plain) / "build.json").read_text())
+    assert plain_record["variant"] is None and plain_record["legend"] is None
+    assert not (tmp_path / "site.legend.svg").exists()
+
+
+def test_a_legend_that_cannot_be_written_is_a_warning(tmp_path: Path, monkeypatch) -> None:
+    from geotools.core.presentation import variant_record
+
+    def refuse(*_args: object) -> Path:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(job_mod, "_rusty_tiles", fake_rt)
+    monkeypatch.setattr(job_mod.legend, "write_legend", refuse)
+    spec = LayerSpec("slope", Domain.FACE, DataType.FLOAT)
+    variant = variant_record(spec, "COLOR_0", "REPLACE", palette="magma", value_range=(0.0, 9.0))
+    out = tmp_path / "site.slope.3tz"
+    job = BuildJob(grid_scene(), request(out, layers=[to_record(spec)], variant=variant))
+    run(job)
+    assert job.state is JobState.DONE, job.error  # the archive is published regardless
+    record = json.loads((job.staging_dir / "build.json").read_text())
+    assert record["legend"] is None
+    assert "The legend was not written: disk full" in record["warnings"]["first"]
 
 
 def test_source_hashes_and_crs_epsg(tmp_path: Path, monkeypatch) -> None:

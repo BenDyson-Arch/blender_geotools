@@ -55,6 +55,7 @@ pip and nothing is downloaded at install.
 | rusty-tiles | Tiling and validating 3D Tiles, checking a CRS, Verify Placement, and opening published tiles again. |
 | pyproj (with PROJ, no GDAL) | Reprojecting imported vector data, latitude and longitude of a CRS project, and the geodesy of the analysis tools. |
 | certifi | pyproj's only dependency. |
+| tzdata | The time zone database, for named time zones in the Sun panel where the system has none (Windows). |
 
 Open the **About** panel at the bottom of the GeoTools tab. It is closed by
 default. Its header shows how the libraries loaded:

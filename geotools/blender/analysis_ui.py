@@ -26,7 +26,7 @@ import json
 
 import bpy
 
-from ..analysis import site, sun
+from ..analysis import site
 from ..core.placement import PlacementMode
 from . import analysis, analysis_presets, archaeo_ui, surface_ui
 from .properties import ANCHOR_FIELDS, number_is_valid
@@ -105,10 +105,6 @@ class GEOTOOLS_PT_analysis_sun(_AnalysisPanel, bpy.types.Panel):
         col = split_column(layout)
         if props.tz_mode == "ZONE":
             col.prop(props, "tz_name", text="Zone")
-            if not sun.time_zone_database_available():
-                box = layout.column()
-                box.alert = props.tz_name.strip().upper() not in {"UTC", "GMT", "Z", "ETC/UTC"}
-                wrapped(box, context, analysis.TZ_NO_DATABASE_NOTE, "ERROR")
         else:
             col.prop(props, "utc_offset", text="Hours")
             layout.label(text="Fixed offset: no daylight saving", icon="INFO")

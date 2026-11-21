@@ -160,21 +160,35 @@ def test_utc_and_fixed_offsets_need_no_database() -> None:
     assert utc == SPA_MOMENT and notes == ()
 
 
-def test_missing_database_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
-    def no_database(_name: str) -> None:
-        raise zoneinfo.ZoneInfoNotFoundError("No time zone found")
+@pytest.mark.usefixtures("no_system_tz_database")
+def test_named_zones_come_from_the_bundled_tzdata() -> None:
+    """With no system database (Windows), named zones resolve through the tzdata package."""
+    pytest.importorskip("tzdata")
+    assert zoneinfo.TZPATH == ()  # nowhere else to read a zone from
+    assert sun.time_zone_database_available()
+    brisbane = sun.zone("Australia/Brisbane")
+    utc, notes = sun.to_utc(sun.wall_clock(2026, 6, 21, 12), brisbane)
+    assert utc == dt.datetime(2026, 6, 21, 2, tzinfo=dt.UTC) and notes == ()
+    london = sun.zone("Europe/London")
+    assert sun.to_utc(sun.wall_clock(2026, 6, 21, 12), london)[0].hour == 11  # BST
+    assert sun.to_utc(sun.wall_clock(2026, 12, 21, 12), london)[0].hour == 12  # GMT
+    _, gap = sun.to_utc(sun.wall_clock(2026, 3, 29, 1, 30), london)
+    assert "does not exist" in gap[0]
+    with pytest.raises(sun.TimeZoneUnavailable, match="Unknown time zone") as raised:
+        sun.zone("Mars/Olympus_Mons")
+    assert not raised.value.no_database
 
-    monkeypatch.setattr(zoneinfo, "ZoneInfo", no_database)
-    sun.time_zone_database_available.cache_clear()
-    try:
-        assert not sun.time_zone_database_available()
-        with pytest.raises(sun.TimeZoneUnavailable, match="UTC offset") as raised:
-            sun.zone("Australia/Brisbane")
-        assert raised.value.no_database
-        assert sun.zone("UTC") is dt.UTC
-    finally:
-        monkeypatch.undo()
-        sun.time_zone_database_available.cache_clear()
+
+@pytest.mark.usefixtures("no_system_tz_database", "hide_tzdata")
+def test_missing_database_is_reported() -> None:
+    """No system database and no tzdata (a build without the wheels on Windows)."""
+    assert not sun.time_zone_database_available()
+    with pytest.raises(sun.TimeZoneUnavailable, match="UTC offset") as raised:
+        sun.zone("Australia/Brisbane")
+    assert raised.value.no_database
+    assert "tzdata" in str(raised.value)
+    assert sun.zone("UTC") is dt.UTC
+    assert sun.fixed_offset(10).utcoffset(None) == dt.timedelta(hours=10)
 
 
 needs_tzdb = pytest.mark.skipif(

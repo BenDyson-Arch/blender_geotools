@@ -35,6 +35,14 @@ and the project follows semantic versioning where practical.
   modifier and material built from stock nodes, switches Solid mode to the
   Attribute colour, and takes it all away again when turned off. Texture
   layers show in Material Preview. Publishing ignores it.
+- **Coordinates: WGS84 (RFC 7946)** in GeoJSON export writes longitude and
+  latitude that CesiumJS, MapLibre and geojson.io place correctly, beside
+  your tileset. It needs pyproj and a project CRS; the project CRS stays
+  the default. See [Geo formats](docs/guide/geo-formats.md#export).
+- A variant tileset gets an SVG legend beside it, such as
+  `site.slope.legend.svg`: the layer's label and units, the palette over the
+  published range, or the category colours, and the no-data colour.
+  **Legend** in Last Build opens it. See [Layers](docs/guide/layers.md#legend).
 
 ### Changed
 
@@ -53,6 +61,9 @@ and the project follows semantic versioning where practical.
   the texture cleanup page is now one page in the guide.
 - The publish record's `cleanup_diagnostics` and `rusty_tiles_version` come
   from rusty-tiles 0.4.1's API directly, with no fallback for older wheels.
+- Named time zones such as `Australia/Brisbane` work in the Sun panel on
+  Windows too: every zip bundles the `tzdata` time zone database, used where
+  the system has none.
 
 ### Fixed
 

@@ -54,7 +54,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from ..core import crs_catalog, deps
+from ..core import crs_catalog, deps, legend
 from ..core.crs_catalog import epsg_code
 from ..core.facemap import build_face_map, save_face_map
 from ..core.gltf_writer import SceneExport, write_glb
@@ -89,7 +89,9 @@ each source image with the SHA-256 of its file or packed bytes
 ``crsOperation``: the EPSG datum operation and its stated accuracy
 for an allow-listed code (rusty-tiles 0.4.1; from the conversion report, or for
 a GLB from ``resolve_source_crs``), null for WGS84, WKT and PROJ definitions and
-for older wheels."""
+for older wheels. ``legend`` is the file name of a variant's SVG legend, written
+beside the output (``core.legend``); null for a plain or vector build, or when
+it could not be written (the build's warnings then say why)."""
 
 MAX_RECORDED_WARNINGS = 50
 
@@ -169,6 +171,7 @@ class BuildResult:
     validation_ok: bool | None  # None if validation was not requested
     record_path: Path
     seconds: float
+    legend: Path | None = None  # a variant's SVG legend, beside the output
 
 
 class OutputExistsError(FileExistsError):
@@ -639,6 +642,7 @@ class BuildJob:
             validation.update(self._validate(rt, output, work))
             phase_seconds["validation"] = time.monotonic() - t
         validation_ok = validation["ok"]
+        legend_file = self._write_legend(output)
 
         # 4. Record: promote work/ into the staging directory, build.json last.
         finished_utc = _utc_now()
@@ -676,6 +680,7 @@ class BuildJob:
             },
             "layers": [dict(record) for record in request.layers],
             "variant": None if request.variant is None else dict(request.variant),
+            "legend": None if legend_file is None else legend_file.name,
             "source_glb": {
                 "path": st.GLB_NAME,
                 "sha256": glb.sha256,
@@ -709,6 +714,7 @@ class BuildJob:
             validation_ok=validation_ok,  # type: ignore[arg-type]
             record_path=record_path,
             seconds=seconds,
+            legend=legend_file,
         )
         tiles = summary.get("tiles")
         message = f"Published {output.name}: {result.triangles:,} triangles, {tiles} tiles"
@@ -752,6 +758,7 @@ class BuildJob:
             )
         (work / output.name).replace(output)
         self._published = True
+        legend_file = self._write_legend(output)
 
         staging = self._staging
         record_path = staging / st.RECORD_NAME
@@ -781,6 +788,7 @@ class BuildJob:
             },
             "layers": [dict(record) for record in request.layers],
             "variant": None if request.variant is None else dict(request.variant),
+            "legend": None if legend_file is None else legend_file.name,
             "glb": {
                 "path": output.name,
                 "sha256": glb.sha256,
@@ -792,7 +800,7 @@ class BuildJob:
             "face_map": st.FACEMAP_NAME,
             "report_summary": {},
             "validation": {"requested": False, "ok": None},
-            "warnings": {"count": 0, "first": []},
+            "warnings": {"count": self._warning_count, "first": list(self._warnings)},
         }
         record_path.unlink(missing_ok=True)
         (work / st.FACEMAP_NAME).replace(staging / st.FACEMAP_NAME)
@@ -806,6 +814,7 @@ class BuildJob:
             validation_ok=None,
             record_path=record_path,
             seconds=seconds,
+            legend=legend_file,
         )
         return result, f"Exported {output.name}: {glb.triangles:,} triangles, {glb.bytes:,} bytes"
 
@@ -921,6 +930,7 @@ class BuildJob:
             "source": {"gpkg_sha256": gpkg_sha256, "blend_sha256": blend_sha256},
             "layers": [dict(record) for record in request.layers],
             "variant": None,
+            "legend": None,
             "vectors": {
                 "path": st.VECTORS_NAME,
                 "sha256": gpkg_sha256,
@@ -987,6 +997,24 @@ class BuildJob:
             callback=self._callback,
             **options,
         )
+
+    def _write_legend(self, output: Path) -> Path | None:
+        """A variant's SVG legend beside the installed output, or None.
+
+        The archive is already published, so a failure is a warning, not a
+        failed build.
+        """
+        variant = self._request.variant
+        if variant is None:
+            return None
+        try:
+            return legend.write_legend(output, variant, self._request.layers)
+        except (OSError, KeyError, TypeError, ValueError) as ex:
+            log.warning("legend for %s not written: %s", output.name, ex)
+            self._warning_count += 1
+            if len(self._warnings) < MAX_RECORDED_WARNINGS:
+                self._warnings.append(f"The legend was not written: {ex}")
+            return None
 
     def _validate(self, rt: ModuleType, output: Path, work: Path) -> dict[str, object]:
         """Run rusty_tiles.validate; never raises except for internal bugs."""

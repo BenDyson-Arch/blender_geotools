@@ -29,7 +29,8 @@ The analysis tools and presets add their own layers, so you often skip this.
 Under the list, the selected layer shows:
 
 - **Label** and **Units**: the label is the name shown in the list, and both
-  are written into the [GLB metadata](glb-metadata.md);
+  are written into the [GLB metadata](glb-metadata.md) and a variant's
+  [legend](#legend);
 - **Attribute** (face and corner layers): the mesh attribute the layer reads,
   `gt_<name>` unless you type another;
 - **Values**: the range of values present. The refresh button (**Update
@@ -150,6 +151,17 @@ for example `site.slope.3tz`. It is an ordinary 3D Tiles archive with the same
 placement and checks, and its own `site.slope.geotools/build.json`, which
 records the palette, range and legend stops, or the category colours. See
 [Checks and publishing](publish.md).
+
+### Legend
+
+A variant is colour only, so GeoTools writes its legend beside it as an SVG
+image: `site.slope.legend.svg` for `site.slope.3tz`. It shows the layer's
+**Label** (or name) and **Units**, the palette and scale, and the colour bar
+over the published range with its values, marking a range end that was
+**Auto**. A category layer shows each category's colour and label instead.
+Both end with the **No-Data** colour. The colours are the ones the tiles
+got. Open it with **Legend** in **Last Build**, or put it beside the
+tileset in a web page or a report.
 
 ## Details
 

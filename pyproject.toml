@@ -19,6 +19,9 @@ rusty-tiles = "0.4.1"
 pyproj = "3.8.0"
 # pyproj's only dependency (CA bundle for optional PROJ grid downloads).
 certifi = "2026.10.23"
+# IANA time zones for zoneinfo where the OS has none (Python on Windows); sun.zone
+# falls back to it. Pure Python, so one wheel serves every platform zip.
+tzdata = "2026.6"
 
 [tool.pytest.ini_options]
 testpaths = ["tests/core"]
@@ -88,7 +91,7 @@ allowed-confusables = ["−", "–", "×", "′", "α", "γ"]
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "datetime.datetime.fromtimestamp".msg = "Use geotools.analysis.sun.utc_datetime(seconds) (aware UTC; fromtimestamp raises OSError before 1970 on Windows), then .astimezone(zone) for a local time."
 "datetime.datetime.utcfromtimestamp".msg = "Use geotools.analysis.sun.utc_datetime(seconds): aware UTC, and valid before 1970 on Windows."
-"zoneinfo.ZoneInfo".msg = "Use geotools.analysis.sun.zone(name): it raises TimeZoneUnavailable, which tells the user what to install when the OS has no time zone database (Windows)."
+"zoneinfo.ZoneInfo".msg = "Use geotools.analysis.sun.zone(name): it falls back to the bundled tzdata when the OS has no time zone database (Windows) and raises TimeZoneUnavailable with a message for the user."
 
 # Type checking, in CI's core job (PYRIGHT_VERSION in .github/workflows/ci.yml):
 #   uvx pyright@<PYRIGHT_VERSION> --pythonpath "$(command -v python)"
