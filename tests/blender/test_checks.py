@@ -288,8 +288,6 @@ def test_panels_order_and_draw() -> None:
         "Linked Data",
         "Analyses",
         "Tools",
-        "Analysis",
-        "Layers",
         "Textures",
         "Checks",
         "Publish",
@@ -302,24 +300,13 @@ def test_panels_order_and_draw() -> None:
             children.setdefault(c.bl_parent_id, []).append(c.bl_label)
     assert children == {
         "GEOTOOLS_PT_project": ["CRS Details"],
-        "GEOTOOLS_PT_analyses": ["Inputs", "Display", "Outputs"],
-        "GEOTOOLS_PT_tools": ["Measure", "Sun", "Archaeoastronomy"],
-        "GEOTOOLS_PT_tools_sun": ["Shadow Study"],
-        "GEOTOOLS_PT_layers": ["Bake", "Display", "Details"],
+        "GEOTOOLS_PT_analyses": ["Inputs", "Display", "Details", "Outputs"],
+        "GEOTOOLS_PT_analysis": ["Measure", "Sun", "Archaeoastronomy"],  # Tools
+        "GEOTOOLS_PT_analysis_sun": ["Shadow Study"],
         "GEOTOOLS_PT_textures": ["Paint", "Cleanup", "Balance"],
         "GEOTOOLS_PT_checks": ["Images"],
         "GEOTOOLS_PT_publish": ["Build Settings", "Last Build"],
         "GEOTOOLS_PT_inspect": ["Trace to Source", "Quality"],
-        "GEOTOOLS_PT_analysis": [
-            "Measure",
-            "Presets",
-            "Least-Cost Routes",
-            "Hydrology",
-            "Contours and Sections",
-            "Sun",
-            "Archaeoastronomy",
-        ],
-        "GEOTOOLS_PT_analysis_sun": ["Sun Hours", "Shadow Study"],
     }, children
     # Primary panels start open; secondary ones start closed.
     closed = {
@@ -328,18 +315,12 @@ def test_panels_order_and_draw() -> None:
     assert closed == {
         "CRS Details",
         "Linked Data",
-        "Tools",
+        "Details",
         "Outputs",
-        "Analysis",
+        "Tools",
         "Sun",
-        "Sun Hours",
         "Shadow Study",
         "Archaeoastronomy",
-        "Hydrology",
-        "Least-Cost Routes",
-        "Contours and Sections",
-        "Display",
-        "Details",
         "Textures",
         "Cleanup",
         "Balance",
@@ -363,6 +344,7 @@ def test_panels_order_and_draw() -> None:
     assert h.draw_header(panels.GEOTOOLS_PT_source) == "RADIOBUT_OFF"
     assert h.draw_header(panels.GEOTOOLS_PT_checks) == "RADIOBUT_OFF"
     assert h.draw_header(panels.GEOTOOLS_PT_publish) == "RADIOBUT_OFF"
-    assert h.draw_header(panels.GEOTOOLS_PT_layers) is None  # layers are optional
+    analyses = h.submodule("blender.analyses_ui").GEOTOOLS_PT_analyses
+    assert h.draw_header(analyses) is None  # analyses are optional
     labels = h.label_text(h.draw(panels.GEOTOOLS_PT_source))
     assert "Choose a source collection" in labels, labels

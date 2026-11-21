@@ -1214,8 +1214,8 @@ def sync(scene: bpy.types.Scene) -> int:
             _set_layers(item, [name])
             covered.add((obj.as_pointer(), name))
             changes += 1
-    if changes:
-        props.index = min(props.index, max(len(props.items) - 1, 0))
+    if changes and props.index >= len(props.items):  # only when out of range: setting it
+        props.index = max(len(props.items) - 1, 0)  # moves the registry's active layer too
     return changes
 
 

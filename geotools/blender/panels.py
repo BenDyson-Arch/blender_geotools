@@ -30,21 +30,15 @@ Naming rules for everything the sidebar shows:
   not apply, and its buttons) and the summary.
 - Linked Data: GeoJSON, GeoPackage and GeoTIFF files linked to objects
   (``links_ui``).
-- Analyses (``analyses_ui``, a mock-up of #157): the Add Analysis search
-  field and every result in one list, with the selected one's Inputs,
-  Display and Outputs.
-- Tools (``analyses_ui``): Measure, Sun (with Shadow Study) and
-  Archaeoastronomy.
-- Analysis and Layers, the classic panels the two above replace, shown
-  instead only with the ``Use Classic Analysis Panels`` preference.
-- Analysis (``analysis_ui``): Measure, Presets, Least-Cost Routes, Hydrology, Contours and
-  Sections, and Sun (with Sun Hours and Shadow Study), then Archaeoastronomy.
-- Layers: the layer registry and the selected layer at a glance, with the
-  attribute a face or corner layer is read from (a Geometry Nodes output,
-  for one).
-  - Bake: a Cycles bake into a texture layer's images (texture layers only).
-  - Display: the colours of the layer's variant tileset.
+- Analyses (``analyses_ui``): the active mesh's analyses and layers, like its
+  modifier stack, with the Add Analysis search field.
+  - Inputs: the active result's inputs (its modifier's, its own with Compute,
+    or a plain layer's fields and Bake).
+  - Display: the colours of the layer, Show in Viewport.
   - Details: no-data, origin, aggregation and the other rarely changed fields.
+  - Outputs: the result's layers and objects, and Publish as Variant.
+- Tools (``analysis_ui``): Measure, Sun (with Shadow Study) and
+  Archaeoastronomy.
 - Textures (``texture_ui``): paint setup with UV-overlap stencil, and the M6
   cleanup tools (fill holes, remove masked objects, pad islands, balance pages).
 - Checks: preflight issues and their fixes.

@@ -788,6 +788,17 @@ def inner_main(argv: list[str]) -> None:
         tree.links.new(node.outputs["Color"], bsdf.inputs["Base Color"])
         return image
 
+    def select_result(obj, layer: str) -> None:
+        """Make ``obj`` active and its Analyses row for ``layer`` the active row."""
+        select(obj)
+        analyses = mod("blender.analyses")
+        analyses.sync(scene)
+        items = scene.geotools_analyses.items
+        found = [i for i, item in enumerate(items) if item.object == obj and item.layer == layer]
+        if not found:
+            fail(f"no Analyses row for {layer} on {obj.name}")
+        scene.geotools_analyses.index = found[0]
+
     def show_layer(name: str | None) -> None:
         """Display > Show in Viewport for layer ``name`` (one at a time), or none."""
         for item in props.layers:
@@ -1282,15 +1293,16 @@ def inner_main(argv: list[str]) -> None:
         hills = state["hills"]
         show_layer("slope")
         set_visible({hills.name, state["contours"].name})
-        select()
+        select_result(hills, "slope")
         show_panels(
             {
                 P + "project": False,
                 P + "source": False,
-                P + "layers": True,
-                P + "layers_bake": False,
-                P + "layers_display": True,
-                P + "layers_details": False,
+                P + "analyses": True,
+                P + "analyses_inputs": False,
+                P + "analyses_display": True,
+                P + "analyses_details": False,
+                P + "analyses_outputs": False,
                 P + "textures": False,
                 P + "checks": False,
                 P + "publish": True,
@@ -1330,13 +1342,14 @@ def inner_main(argv: list[str]) -> None:
         hills = state["hills"]
         show_layer("slope")
         set_visible({hills.name})
-        select()
+        select_result(hills, "slope")
         show_panels(
             {
-                P + "layers": True,
-                P + "layers_bake": False,
-                P + "layers_display": True,
-                P + "layers_details": False,
+                P + "analyses": True,
+                P + "analyses_inputs": True,
+                P + "analyses_display": True,
+                P + "analyses_details": False,
+                P + "analyses_outputs": False,
             }
         )
         yield from use_fresh_workspace()
@@ -1347,12 +1360,14 @@ def inner_main(argv: list[str]) -> None:
         hills = state["hills"]
         show_layer(None)
         set_visible({hills.name, state["contours"].name, state["flow"].name})
-        select()
+        select_result(hills, "flow_accumulation")
         show_panels(
             {
-                P + "analysis": True,
-                P + "analysis_hydrology": True,
-                P + "analysis_contours": False,
+                P + "analyses": True,
+                P + "analyses_inputs": True,
+                P + "analyses_display": False,
+                P + "analyses_details": False,
+                P + "analyses_outputs": True,
             }
         )
         yield from use_fresh_workspace()
@@ -1433,15 +1448,14 @@ def inner_main(argv: list[str]) -> None:
         props.layers["viewshed"].presentation.palette = "viridis"
         show_layer("viewshed")
         set_visible({hills.name})
-        select(hills)  # Presets lists the active object's analyses
+        select_result(hills, "viewshed")  # Analyses lists the active object's analyses
         show_panels(
             {
-                P + "analysis": True,
-                P + "analysis_presets": True,
-                P + "layers": True,
-                P + "layers_bake": False,
-                P + "layers_display": True,
-                P + "layers_details": False,
+                P + "analyses": True,
+                P + "analyses_inputs": True,
+                P + "analyses_display": True,
+                P + "analyses_details": False,
+                P + "analyses_outputs": False,
             }
         )
         yield from use_fresh_workspace()

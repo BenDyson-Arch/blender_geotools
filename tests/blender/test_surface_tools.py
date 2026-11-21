@@ -472,18 +472,17 @@ def test_contours_publish_as_vectors() -> None:
 # --- panels --------------------------------------------------------------------------
 
 
-def test_surface_panels_draw() -> None:
+def test_surface_results_draw() -> None:
+    """Hydrology and Contours as results in Analyses: their inputs, Compute and summary."""
     _reset()
-    ui = h.submodule("blender.surface_ui")
-    for cls in ui.classes:
-        h.draw(cls)
-    _terrain_scene()
-    bpy.context.scene.geotools_hydrology.flow_lines = True
-    assert h.call_op(bpy.ops.geotools.hydrology)[1] is None
-    calls = h.draw(ui.GEOTOOLS_PT_analysis_hydrology)
-    text = h.label_text(calls)
-    assert "Geometric only" in text and "Depressions" in text
-    bpy.context.scene.geotools_contours.interval = "0.5"
-    assert h.call_op(bpy.ops.geotools.contours)[1] is None
-    calls = h.draw(ui.GEOTOOLS_PT_analysis_contours)
-    assert "closed" in h.label_text(calls)
+    terrain = _terrain_scene()["terrain"]
+    item = h.add_analysis("Water > Hydrology", terrain)
+    assert "Geometric only" in h.inputs_text()
+    item.hydrology.flow_lines = True
+    assert h.call_op(bpy.ops.geotools.analyses_compute)[1] is None
+    text = h.inputs_text()
+    assert "Geometric only" in text and "Depressions" in text, text
+    item = h.add_analysis("Lines > Contours", terrain)
+    item.contours.interval = "0.5"
+    assert h.call_op(bpy.ops.geotools.analyses_compute)[1] is None
+    assert "closed" in h.inputs_text()

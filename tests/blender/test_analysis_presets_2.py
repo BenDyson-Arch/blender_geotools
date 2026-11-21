@@ -536,11 +536,15 @@ def test_object_inputs_and_readding() -> None:
     assert _add("least_cost_path", name="Walk") == {"FINISHED"}
     walk = bpy.context.view_layer.objects.active
     assert walk.name == "Walk"
-    text = h.label_text(h.draw(bpy.types.GEOTOOLS_PT_analysis_presets))
-    assert "Least-Cost Path: lines (elapsed, time)" in text
+    analyses = h.submodule("blender.analyses")
+    analyses.sync(bpy.context.scene)
+    lines = next(
+        i for i in bpy.context.scene.geotools_analyses.items if i.preset == "least_cost_path"
+    )
+    assert lines.object == ground and [o.object for o in lines.outputs] == [walk]
     assert bpy.ops.geotools.analysis_totals() == {"FINISHED"}
-    calls = h.draw(bpy.types.GEOTOOLS_MT_analysis_presets)
-    assert "Paths and Flow" in h.label_text(calls) and "Visibility" in h.label_text(calls)
+    groups = {e.group for e in analyses.ENTRIES}
+    assert {"Movement", "Visibility", "Water"} <= groups and "Paths" not in groups
     _clear_trees()
 
 

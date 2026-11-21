@@ -17,10 +17,10 @@ It writes, in ``--out``:
   ``.glb`` profile (the metadata GLB, with the face table), exported once
   (after ``montage``, so it needs it);
 * ``analyses_preset.png``, ``analyses_tool.png``, ``analyses_hills.png``: the
-  Analyses list (#157 mock-up) following the selection: Aspect on the
-  terrain and a second mesh, Hills (one result), Hydrology on the terrain
-  (out of date) and Contours on Hills. The terrain active with Aspect and
-  then Hydrology selected, then Hills active (after ``montage``);
+  Analyses list following the active mesh: Aspect added to the terrain and
+  a second mesh, Hills (a result on each), Hydrology on the terrain (out of
+  date) and Contours on Hills. The terrain active with Aspect and then
+  Hydrology selected, then Hills active (after ``montage``);
 * ``state_empty.png``, ``state_mid.png``, ``state_ready.png``: what a user
   sees with the default open and closed panels, for an empty project, one
   half set up (placed, a source, an empty layer) and the full demo scene.
@@ -1006,9 +1006,9 @@ def inner_main(argv: list[str]) -> None:
         run_op(bpy.ops.geotools.run_checks)
         linked_dem()
         linked_contexts()
-        mod("blender.analyses").list_unlisted_layers(scene)  # as opening the file does
+        mod("blender.analyses").sync(scene)  # as the depsgraph handler does
         bpy.ops.object.select_all(action="DESELECT")
-        bpy.context.view_layer.objects.active = None
+        bpy.context.view_layer.objects.active = obj  # Analyses lists the active mesh's
 
     def hills() -> bpy.types.Object:
         """A second, smaller synthetic mesh beside the terrain (not in the source)."""
@@ -1040,8 +1040,8 @@ def inner_main(argv: list[str]) -> None:
             run_op(bpy.ops.geotools.analyses_compute)
 
     def build_analyses():
-        """Aspect on the terrain and Hills (one result), Hydrology on the terrain (then out
-        of date), Contours on Hills: added from the Add Analysis field."""
+        """Aspect on the terrain and Hills (a result each), Hydrology on the terrain (then
+        out of date), Contours on Hills: added from the Add Analysis field."""
         scene = bpy.context.scene
         terrain_obj = scene.geotools.source_collection.objects[0]
         hills_obj = hills()

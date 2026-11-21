@@ -314,6 +314,65 @@ def label_text(calls: list[tuple[str, str, str]]) -> str:
     return " ".join(text for text, _icon in labels(calls))
 
 
+def add_analysis(text: str, obj: bpy.types.Object):
+    """Select only ``obj``, make it active and choose ``text`` in Add Analysis; the result."""
+    for other in bpy.context.view_layer.objects:
+        if other is not None:
+            other.select_set(other == obj)
+    bpy.context.view_layer.objects.active = obj
+    props = bpy.context.scene.geotools_analyses
+    props.add_search = text
+    assert not props.error, props.error
+    return props.items[props.index]
+
+
+def inputs_text() -> str:
+    """The labels the Analyses > Inputs sub-panel draws for the active result."""
+    return label_text(draw(submodule("blender.analyses_ui").GEOTOOLS_PT_analyses_inputs))
+
+
+def layer_panel(part: str) -> type:
+    """A stand-in panel that draws one part of the Analyses sub-panels for the registry's
+    active layer (``layers_index``): "fields" (Inputs of a plain layer), "display",
+    "details" or "bake". Its ``draw_header`` is the Analyses header's layer state
+    (Display's: its error mark).
+
+    The real sub-panels draw the active result's layer with the same functions;
+    this lets a layer test draw them without a result on the active mesh.
+    """
+    ui = submodule("blender.analyses_ui")
+    draws = {
+        "fields": ui.draw_layer_fields,
+        "display": submodule("blender.presentation").draw_display,
+        "details": ui.draw_layer_details,
+        "bake": submodule("blender.bake_texture").draw_bake,
+    }
+
+    def _layer(context):
+        props = context.scene.geotools
+        if 0 <= props.layers_index < len(props.layers):
+            return props.layers[props.layers_index]
+        return None
+
+    def draw(self, context) -> None:
+        layer = _layer(context)
+        if layer is not None:
+            draws[part](self.layout, context, layer)
+
+    def draw_header(self, context) -> None:
+        layer = _layer(context)
+        if layer is None:
+            return
+        status = submodule("blender.ui").header_status
+        if part == "display":  # as GEOTOOLS_PT_analyses_display: an error mark only
+            if submodule("blender.presentation").display_issue_codes(layer):
+                status(self.layout, "ERROR")
+            return
+        status(self.layout, ui.layer_state(context.scene, layer))
+
+    return type(f"LayerPanel_{part}", (), {"draw": draw, "draw_header": draw_header})
+
+
 def draw_list_item(cls: type, data: object, item: object) -> list[tuple[str, str, str]]:
     """Run a UIList's ``draw_item`` for one item against a :class:`StubLayout`."""
     calls: list[tuple[str, str, str]] = []

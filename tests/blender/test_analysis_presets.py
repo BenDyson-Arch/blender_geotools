@@ -121,8 +121,8 @@ def _node_group_names() -> list[str]:
 
 def test_presets_registered() -> None:
     assert h.operator_available("geotools.analysis_add")
-    assert hasattr(bpy.types, "GEOTOOLS_MT_analysis_presets")
-    assert hasattr(bpy.types, "GEOTOOLS_PT_analysis_presets")
+    keys = {e.key for e in h.submodule("blender.analyses").ENTRIES}  # the Add Analysis field
+    assert {f"preset:{p.id}" for p in _catalog().PRESETS} <= keys
 
 
 def test_library_is_bundled_and_up_to_date() -> None:
@@ -571,21 +571,22 @@ def _publish_variant(layer: str) -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def test_panel_and_menu_draw() -> None:
+def test_the_list_and_the_picker_draw() -> None:
     _reset()
-    panel = bpy.types.GEOTOOLS_PT_analysis_presets
-    calls = h.draw(panel)
-    assert ("menu", "GEOTOOLS_MT_analysis_presets", "ADD") in calls
-    assert "Adds a Geometry Nodes modifier" in h.label_text(calls)
+    analyses = h.submodule("blender.analyses")
+    ui = h.submodule("blender.analyses_ui")
     obj = _grid("A", 2, 1.0, lambda x, y: 0.0 * x)
-    assert _add("slope") == {"FINISHED"}
+    assert _add("slope") == {"FINISHED"}  # the operator, as a script would
+    analyses.sync(bpy.context.scene)
     bpy.context.view_layer.objects.active = obj
-    assert "Slope: gt_slope" in h.label_text(h.draw(panel))
-    calls = h.draw(bpy.types.GEOTOOLS_MT_analysis_presets)
-    operators = [c for c in calls if c[0] == "operator"]
-    # Aspect twice (grid and true north), and the seven fast (bake) entries.
+    analyses.follow_active(bpy.context)
+    item = analyses.shown_item(bpy.context)
+    assert (item.kind, item.preset, item.layer) == ("PRESET", "slope", "slope")
+    assert "value" in h.props_drawn(h.draw(ui.GEOTOOLS_PT_analyses_inputs))
+    # Aspect twice (grid and true north), the seven fast (bake) entries, six tools and
+    # two layer entries.
     fast = h.submodule("analysis.preset_bake")
     assert len(fast.FAST) == 7
-    assert len(operators) == len(_catalog().PRESETS) + 1 + len(fast.FAST)
-    assert "Terrain Shape" in h.label_text(calls)
+    assert len(analyses.ENTRIES) == len(_catalog().PRESETS) + 1 + len(fast.FAST) + 6 + 2
+    assert "Terrain > Slope" in {e.text for e in analyses.ENTRIES}
     _clear_trees()

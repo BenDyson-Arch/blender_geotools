@@ -377,7 +377,7 @@ def test_the_list_follows_the_modifier_stack() -> None:
     hills = _bowl("hills")
     _only(hills)
     _add("Terrain > Slope")
-    (modifier, _preset), = _ap().preset_modifiers(hills)
+    ((modifier, _preset),) = _ap().preset_modifiers(hills)
     hills.modifiers.remove(modifier)  # deleted in the modifier stack
     bpy.context.view_layer.update()  # the depsgraph handler syncs
     an.sync(bpy.context.scene)

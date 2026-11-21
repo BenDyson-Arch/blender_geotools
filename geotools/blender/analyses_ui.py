@@ -36,7 +36,7 @@ from ..core.layers import (
     parse_number,
     validate,
 )
-from . import analyses, analysis_presets, bake_texture
+from . import analyses, analysis_presets, bake_texture, hydrology
 from .layers import (
     ATTRIBUTE_MISSING,
     DOMAIN_ICONS,
@@ -351,6 +351,8 @@ def _draw_hydrology(col, _context, _item, props) -> None:
 def _draw_least_cost(col, context, _item, props) -> None:
     col.prop(props, "start", text="Start")
     col.prop(props, "end", text="End")
+    if props.start is None or (props.make_route and props.end is None):
+        wrapped(col, context, "Empty: a new Empty at the 3D cursor.", "INFO")
     col.prop(props, "model")
     col.prop(props, "max_slope")
     sub = col.column()
@@ -472,6 +474,8 @@ def _draw_tool(layout, context, item) -> None:
     props = analyses.tool_settings(item)
     if item.kind == "SUN_HOURS":
         wrapped(layout, context, "Time zone and site: Tools > Sun.", "LIGHT_SUN")
+    elif item.kind == "HYDROLOGY":
+        wrapped(layout, context, hydrology.GEOMETRIC_NOTE, "INFO")
     col = split_column(layout)
     col.prop(item, "extent")
     _TOOL_DRAW[item.kind](col, context, item, props)
